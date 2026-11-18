@@ -865,6 +865,8 @@ export interface paths {
          *     ``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's
          *     record of its run; ``source``, an imported record's word), all matching one making,
          *     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
+         *     A type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,
+         *     ``in``.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];
@@ -1154,6 +1156,29 @@ export interface paths {
         get: operations["iki_server_api_entities_get_revision"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/transitions/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a record to another state
+         * @description Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of
+         *     its own, with your reason. It needs one of the transition's lab roles in the record's
+         *     project (ADR 0116), and someone other than whoever made the transitions it names in
+         *     `not_by`. Send If-Match with the ETag you read.
+         */
+        post: operations["iki_server_api_entities_transition_entity"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4410,6 +4435,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Locked
+             * @description Its state locks it: nothing changes its values until a transition.
+             */
+            locked: boolean;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -4434,6 +4464,8 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
+            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
+            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -4776,9 +4808,14 @@ export interface components {
         EntityCan: {
             /**
              * Edit
-             * @description Change it, archive or restore it: false for everyone when its plugin is detached.
+             * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while its state locks it.
              */
             edit: boolean;
+            /**
+             * Transitions
+             * @description The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.
+             */
+            transitions: components["schemas"]["TransitionCan"][];
         };
         /** EntityFilters */
         EntityFilters: {
@@ -4875,6 +4912,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Locked
+             * @description Its state locks it: nothing changes its values until a transition.
+             */
+            locked: boolean;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -4889,6 +4931,8 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
+            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
+            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -4979,10 +5023,20 @@ export interface components {
             /** Plugin */
             plugin: string;
             /**
+             * States
+             * @description The states its records move through (ADR 0118), the initial one first: its own, or the ancestor's that declares them. Empty if it has none.
+             */
+            states: components["schemas"]["StateOut"][];
+            /**
              * Subtypes
              * @description The types that extend it, at any depth.
              */
             subtypes: string[];
+            /**
+             * Transitions
+             * @description How records go between them.
+             */
+            transitions: components["schemas"]["TransitionOut"][];
             /**
              * Values Schema
              * @description A JSON Schema (2020-12) of the entity's values.
@@ -5510,7 +5564,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
             /** Fired At */
             fired_at: string | null;
             /**
@@ -6619,6 +6673,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Locked
+             * @description Its state locks it: nothing changes its values until a transition.
+             */
+            locked: boolean;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -6638,6 +6697,8 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
+            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
+            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -7694,10 +7755,10 @@ export interface components {
             next_run_at: string | null;
             /**
              * On
-             * @description What fires it: an entity of its type created, or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -7716,6 +7777,11 @@ export interface components {
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
              */
             schedule: string;
+            /**
+             * States
+             * @description For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+             */
+            states: string[];
             /**
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
@@ -8253,7 +8319,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "transitioned";
             /** Number */
             number: number;
             /** Reason */
@@ -8267,6 +8333,8 @@ export interface components {
             };
             /** @description The run that made it, when `via` is `run` and you can read the run's project. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /** @description For a transition (ADR 0118): which, and between which states. */
+            transition: components["schemas"]["RevisionTransitionOut"] | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
@@ -8305,13 +8373,15 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "transitioned";
             /** Number */
             number: number;
             /** Reason */
             reason: string;
             /** @description The run that made it, when `via` is `run` and you can read the run's project. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /** @description For a transition (ADR 0118): which, and between which states. */
+            transition: components["schemas"]["RevisionTransitionOut"] | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
@@ -8319,6 +8389,18 @@ export interface components {
              * @description How: web, api, mcp, run, …
              */
             via: string;
+        };
+        /** RevisionTransitionOut */
+        RevisionTransitionOut: {
+            from: components["schemas"]["StateOut"] | null;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description The transition, or `iki.moved` when a plugin's migration moved the record out of a state it removed.
+             */
+            name: string;
+            to: components["schemas"]["StateOut"];
         };
         /** RevokeIn */
         RevokeIn: {
@@ -9566,6 +9648,20 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StateOut */
+        StateOut: {
+            /** Description */
+            description?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Locks
+             * @description A record in it can't change until a transition takes it out.
+             */
+            locks: boolean;
+            /** Name */
+            name: string;
+        };
         /** StepBatchOut */
         StepBatchOut: {
             /**
@@ -9787,6 +9883,75 @@ export interface components {
              */
             min: number | null;
         };
+        /**
+         * TransitionCan
+         * @description A transition from the record's state (ADR 0118), and whether you may make it.
+         */
+        TransitionCan: {
+            /**
+             * Allowed
+             * @description You may make it now.
+             */
+            allowed: boolean;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /**
+             * Reason
+             * @description Whether it asks why: required, optional, or not at all (null).
+             */
+            reason: ("required" | "optional") | null;
+            /**
+             * To
+             * @description The state it leads to.
+             */
+            to: string;
+            /** To Label */
+            to_label: string;
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not: string | null;
+        };
+        /** TransitionIn */
+        TransitionIn: {
+            /**
+             * Reason
+             * @description Why: a transition may require it, and keeps it.
+             * @default
+             */
+            reason: string;
+        };
+        /** TransitionOut */
+        TransitionOut: {
+            /** Description */
+            description: string | null;
+            /**
+             * From
+             * @description The states it leads out of.
+             */
+            from: string[];
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /**
+             * Not By
+             * @description Whoever made the latest of these transitions on a record can't make this one: separation of duties.
+             */
+            not_by: string[];
+            /** Reason */
+            reason: ("required" | "optional") | null;
+            /**
+             * Roles
+             * @description The lab roles that may make it: any one (ADR 0116).
+             */
+            roles: string[];
+            /** To */
+            to: string;
+        };
         /** TriggerFiredOut */
         TriggerFiredOut: {
             /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
@@ -9857,10 +10022,10 @@ export interface components {
             name: string;
             /**
              * On
-             * @description What fires it: an entity of its type created, or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -9872,6 +10037,11 @@ export interface components {
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
              */
             schedule: string;
+            /**
+             * States
+             * @description For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+             */
+            states: string[];
             /**
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
@@ -12346,6 +12516,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevisionDetailOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_transition_entity: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
         };

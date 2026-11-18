@@ -92,6 +92,11 @@ iki.entities.update(
 )
 iki.entities.archive("PRT-000123", revision=2, reason="Duplicate of PRT-000099")
 
+# A record of a type with states moves only by its transitions, each limited to
+# lab roles: sample["state"], and sample["can"]["transitions"] with why not.
+sample = iki.entities.get("SMP-000012")
+iki.entities.transition("SMP-000012", "send_back", revision=sample["revision"], reason="Rerun")
+
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from
 iki.entities.origins("DNA-000042")  # the database record or file it was imported from

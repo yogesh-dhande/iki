@@ -120,6 +120,18 @@ def project_board(w: World) -> tuple[Any, ...]:
     return "/components/acme/protein.board/entities", {"project": str(w.project.pk)}
 
 
+def sample_transition(w: World) -> tuple[Any, ...]:
+    """A sample's first transition (ADR 0118), which needs the Analyst role nobody has."""
+    from iki_server.entities import services as entities
+
+    found = entities.create(w.users["editor"], "acme/protein.Sample", w.project, {"label": "S"})
+    return (
+        f"/entities/{found.entity.pk}/transitions/start",
+        {"reason": ""},
+        {"If-Match": '"1"'},
+    )
+
+
 def dashboard(w: World) -> tuple[Any, ...]:
     from iki_server.entities import services as entities
 
@@ -703,6 +715,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         entity(body={"values": {"name": "pUC19"}}, if_match=True),
         editors(200),
     ),
+    # Only those with one of its lab roles make a transition: nobody here has it.
+    ("POST", "/entities/{ref}/transitions/{name}", sample_transition, readers(403)),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),

@@ -20,6 +20,7 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "NUMERIC_OPERATORS",
+    "STATE_COLUMN",
     "TIERS",
     "Action",
     "Approval",
@@ -34,6 +35,8 @@ __all__ = [
     "Metric",
     "Plugin",
     "Resources",
+    "State",
+    "Transition",
     "Updates",
     "Volume",
     "Workflow",
@@ -178,6 +181,42 @@ def split_entry(
 
 
 @dataclass(frozen=True)
+class State:
+    """One of the states a type's records move through (ADR 0118)."""
+
+    name: str
+    label: str
+    description: str | None = None
+    initial: bool = False
+    #: A record in it can't change until a transition takes it out.
+    locks: bool = False
+    #: No record is in it any more: its records moved to ``moved_to``.
+    removed: bool = False
+    moved_to: str | None = None
+
+
+@dataclass(frozen=True)
+class Transition:
+    """A way from some states to another, made by someone with one of ``roles``."""
+
+    name: str
+    label: str
+    from_states: tuple[str, ...]
+    to: str
+    #: Qualified lab roles (ADR 0116), any one of which may make it.
+    roles: tuple[str, ...]
+    description: str | None = None
+    #: "required" or "optional": whether whoever makes it says why; None asks nothing.
+    reason: str | None = None
+    #: Separation of duties: whoever made the latest of these on the record can't make it.
+    not_by: tuple[str, ...] = ()
+
+
+#: The column a record's state is kept in, in its declaring type's table (ADR 0118).
+STATE_COLUMN = "iki_state"
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -195,10 +234,27 @@ class EntityType:
     display_title: str | None = None
     viewers: tuple[Viewer, ...] = ()
     file: str | None = None
+    #: The states its records move through, and how (ADR 0118). Subtypes have their
+    #: ancestor's: see :func:`state_machine`.
+    states: dict[str, State] = field(default_factory=dict)
+    transitions: dict[str, Transition] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
         return f"{self.plugin}.{self.name}"
+
+    @property
+    def initial_state(self) -> str | None:
+        return next((s.name for s in self.states.values() if s.initial), None)
+
+    @property
+    def live_states(self) -> tuple[str, ...]:
+        """The states a record can be in: not the removed ones."""
+        return tuple(s.name for s in self.states.values() if not s.removed)
+
+    @property
+    def locking_states(self) -> frozenset[str]:
+        return frozenset(s.name for s in self.states.values() if s.locks and not s.removed)
 
     @property
     def table(self) -> str:
@@ -538,10 +594,17 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), an entity changed, or its schedule.
-TRIGGER_EVENTS = ("entity.created", "entity.registered", "entity.updated", "schedule")
+#: registered (ADR 0115), a record moved to another state (ADR 0118), an entity changed,
+#: or its schedule.
+TRIGGER_EVENTS = (
+    "entity.created",
+    "entity.registered",
+    "entity.transitioned",
+    "entity.updated",
+    "schedule",
+)
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.updated")
+ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.transitioned", "entity.updated")
 
 
 @dataclass(frozen=True)
@@ -562,6 +625,9 @@ class Trigger:
     timezone: str = ""
     #: For entity.updated: it fires only when one of these changed; empty for any change.
     fields: tuple[str, ...] = ()
+    #: For entity.transitioned: it fires only when a record enters one of these; empty for
+    #: any transition.
+    states: tuple[str, ...] = ()
     #: The plugin's action it runs.
     run: str = ""
     #: The action's input that takes the entity: given, or the only one that takes its type.
@@ -746,6 +812,8 @@ def parse_duration(text: str) -> int:
 
 _DATACLASSES = (
     Field,
+    State,
+    Transition,
     EntityType,
     Extension,
     Plugin,
@@ -794,6 +862,17 @@ def _viewer(data: dict[str, Any]) -> Viewer:
     return Viewer(**{**data, "tracks": tracks})
 
 
+def _transition(data: dict[str, Any]) -> Transition:
+    return Transition(
+        **{
+            **data,
+            "from_states": tuple(data["from_states"]),
+            "roles": tuple(data["roles"]),
+            "not_by": tuple(data["not_by"]),
+        }
+    )
+
+
 def plugin_from_dict(data: dict[str, Any]) -> Plugin:
     return Plugin(
         **{
@@ -807,6 +886,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
+                        # ...or states.
+                        "states": {n: State(**s) for n, s in (v.get("states") or {}).items()},
+                        "transitions": {
+                            n: _transition(t) for n, t in (v.get("transitions") or {}).items()
+                        },
                     }
                 )
                 for k, v in data["types"].items()
@@ -821,7 +905,9 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "workflows": {k: _workflow(v) for k, v in (data.get("workflows") or {}).items()},
             # ...or triggers.
             "triggers": {
-                k: Trigger(**{**v, "fields": tuple(v["fields"])})
+                k: Trigger(
+                    **{**v, "fields": tuple(v["fields"]), "states": tuple(v.get("states", ()))}
+                )
                 for k, v in (data.get("triggers") or {}).items()
             },
             # ...or components.

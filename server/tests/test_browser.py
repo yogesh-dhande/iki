@@ -24,7 +24,7 @@ from django.conf import settings
 from django.test import Client
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
-from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, run_tasks, serve, server_env
 
@@ -1784,6 +1784,61 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
         "acme/protein.qa",
         "acme/protein.reviewer",
     }
+    assert_clean(page)
+    page.context.close()
+
+
+def test_a_record_moves_through_its_states(open_as: Any, world: World) -> None:
+    """A sample's state and the transitions its reader can make (ADR 0118), with why not,
+    and a reason asked for where the plugin wants one. Its card by its heading: in Firefox,
+    finding a region by name and then running axe crashes the page (see above)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    editor = world.users["editor"]
+    grant = world.project.memberships.get(user=editor)
+    for role in ("acme/protein.analyst", "acme/protein.reviewer"):
+        LabRoleGrant.objects.create(membership=grant, role=role, granted_by=world.users["admin"])
+    permissions.forget(editor)
+    made = entities.create(editor, "acme/protein.Sample", world.project, {"label": "Lot 7"})
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+
+    page: Page = open_as("editor", f"/entities/{hrid}/")
+
+    def card(label: str) -> Locator:
+        heading = page.get_by_role("heading", name=f"State: {label}")
+        heading.wait_for()
+        return page.locator("section", has=heading)
+
+    state = card("Received")
+    state.get_by_role("button", name="Start testing").click()
+    dialog = page.get_by_role("alertdialog", name=f"Start testing {hrid}?")
+    dialog.get_by_role("button", name="Start testing").click()
+    page.get_by_text(f"{hrid} is In testing now.").wait_for()
+    state = card("In testing")
+    state.get_by_role("button", name="Submit for review").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Submit for review").click()
+    state = card("In review")
+    # They submitted it, so they can't approve it: the button says why.
+    approve = state.get_by_role("button", name="Approve")
+    approve.wait_for()
+    assert approve.get_attribute("aria-disabled") == "true"
+    state.get_by_text("so someone else makes “Approve”").wait_for()
+    assert_clean(page)
+    # Sending it back asks why.
+    state.get_by_role("button", name="Send back").click()
+    dialog = page.get_by_role("alertdialog", name=f"Send back {hrid}?")
+    dialog.get_by_role("button", name="Send back").click()
+    dialog.get_by_text("“Send back” needs a reason: say why.").wait_for()
+    assert_clean(page)
+    dialog.get_by_role("textbox", name="Reason").fill("Purity looks off")
+    dialog.get_by_role("button", name="Send back").click()
+    card("In testing").wait_for()
+    page.get_by_role("link", name="History").click()
+    page.get_by_text("Send back: In review to In testing by Editor").wait_for()
+    page.get_by_text("“Purity looks off”").wait_for()
     assert_clean(page)
     page.context.close()
 

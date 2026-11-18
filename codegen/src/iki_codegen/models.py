@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from iki_spec import naming
-from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
+from iki_spec.model import FORMATS, STATE_COLUMN, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
 
@@ -61,7 +61,7 @@ from django.db.models.functions import Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.entities import checks
-from iki_server.entities.fields import QuantityField
+from iki_server.entities.fields import QuantityField, StateField
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
 '''
@@ -185,8 +185,40 @@ def _type(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> lis
             ),
         )
     )
+    if t.states:
+        _state(model, t)
     record, _ = split_entry(t.fields, t.identity)
     return _with_fields(model, t.qualified_name, record, plugin.name, types)
+
+
+def _state(model: _Model, t: EntityType) -> None:
+    """A record's state (ADR 0118): one of the type's, the initial one to begin with. It's
+    not a field, so it has no history column: transitions are revisions of their own."""
+    live = list(t.live_states)
+    moved = {s.name: s.moved_to for s in t.states.values() if s.removed and s.moved_to}
+    options: dict[str, Any] = {"states": live}
+    if moved:
+        options["moved"] = dict(sorted(moved.items()))
+    locking = [name for name in live if name in t.locking_states]
+    if locking:
+        options["locking"] = locking
+    model.fields.append(
+        (
+            STATE_COLUMN,
+            _call(
+                "StateField",
+                **options,
+                db_default=t.initial_state,
+                db_comment=f"Its state (ADR 0118): one of {', '.join(live)}.",
+            ),
+        )
+    )
+    model.constraints.append(
+        _check(
+            f"Q({STATE_COLUMN}__in={live!r})",
+            naming.constraint_name(t.table, STATE_COLUMN, "known"),
+        )
+    )
 
 
 def _entry(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:

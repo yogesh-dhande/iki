@@ -258,7 +258,8 @@ def build() -> MCPServer:
             Condition | None,
             Field(
                 description="Conditions on fields: {field, op, value}, or {all|any: [...]}, "
-                "or {not: ...}. Fields and their operators are in describe_entity_type."
+                "or {not: ...}. Fields and their operators are in describe_entity_type; a type "
+                "with states takes state too, by a state's name."
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
@@ -333,7 +334,9 @@ def build() -> MCPServer:
         imported, `origins` says from where: a database's record (with its version, link
         and when it was fetched) or a file's. `making` says how it was made, one tool at a
         time: `by: iki` is Iki's record of the run that made it, `by: source` what a record
-        it was imported from claims, which Iki can't check."""
+        it was imported from claims, which Iki can't check. A type with states gives the
+        record's `state`, whether it's `locked`, and `can.transitions`: each transition from
+        it, whether the person may make it, and why not (make one with transition_entity)."""
         found = await call(
             "GET",
             path("/entities/{ref}", ref=ref),
@@ -425,7 +428,8 @@ def build() -> MCPServer:
         reason: Reason,
     ) -> CallToolResult:
         """Changes some of an entity's values, as one new revision. Its owning project
-        decides who may: the person must be an Editor there."""
+        decides who may: the person must be an Editor there. A record its state locks
+        (locked: true) can't change until transition_entity takes it out of that state."""
         return answer(
             await call(
                 "PATCH",
@@ -449,6 +453,33 @@ def build() -> MCPServer:
                 "PATCH",
                 path("/entities/{ref}", ref=ref),
                 body={"archived": archived, "reason": reason},
+                if_match=f'"{revision}"',
+            )
+        )
+
+    @server.tool(annotations=CHANGE, title="Move a record to another state")
+    async def transition_entity(
+        ref: Ref,
+        revision: Revision,
+        transition: Annotated[
+            str,
+            Field(
+                description="The transition's name, from the record's can.transitions, "
+                "such as approve."
+            ),
+        ],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Makes a transition from a record's state to another (ADR 0118), such as
+        received to in testing: the ones get_entity lists in can.transitions, with whether
+        the person may make each and why not. It takes one of the transition's lab roles in
+        the record's project, and some can't be made by whoever made an earlier one. A
+        state may lock the record: then nothing changes it until a transition out."""
+        return answer(
+            await call(
+                "POST",
+                path("/entities/{ref}/transitions/{name}", ref=ref, name=transition),
+                body={"reason": reason},
                 if_match=f'"{revision}"',
             )
         )

@@ -70,6 +70,8 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   hrid_prefix: "PRT",
   identity: ["sequence"],
   viewers: [],
+  states: [],
+  transitions: [],
   values_schema: {},
   fields: [
     field({ name: "name", label: "Name", type: "string" }),
@@ -180,10 +182,12 @@ export function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["
     updated_at: "2026-03-15T09:00:00Z",
     archived: false,
     archived_at: null,
+    state: null,
+    locked: false,
     values,
     refs: {},
     files: {},
-    can: { edit: true },
+    can: { edit: true, transitions: [] },
     ...overrides,
   };
 }
@@ -199,6 +203,7 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
     client: "",
     agent: null,
     user: ALICE,
+    transition: null,
     created_at: "2026-03-14T09:00:00Z",
     ...overrides,
   };

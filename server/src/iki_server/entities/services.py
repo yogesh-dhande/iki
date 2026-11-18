@@ -47,14 +47,14 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
-from iki_server.entities import access, identity, registry, rules, unique
+from iki_server.entities import access, identity, registry, rules, states, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
-from iki_spec.model import EntityType, Field
+from iki_spec.model import EntityType, Field, Transition
 
 __all__ = [
     "Invalid",
@@ -584,6 +584,9 @@ def update(
             raise Refused(purged(locked))
         if locked.archived_at is not None:
             raise Refused("The entity is archived: restore it before changing it.")
+        why = states.locked_why(locked)
+        if why:
+            raise Refused(why)
         form = shape(locked.type)
         why = frozen(form)
         if why:
@@ -728,6 +731,9 @@ def set_archived(
             raise Refused(purged(locked))
         if (locked.archived_at is not None) == archived:
             return Saved(_specific(locked))
+        why = states.locked_why(locked, doing="be archived or restored")
+        if why:
+            raise Refused(why)
         why = frozen(shape(locked.type))
         if why:
             raise Refused(why)
@@ -1067,6 +1073,7 @@ def _revise(
     project: Project | None = None,
     registered: Revision | None = None,
     moved_from: Any = None,  # noqa: ANN401 - a UUID
+    transition: tuple[str, str, str] | None = None,
 ) -> Revision:
     """The entity's next revision. ``project``: for an entry's, the project it was made
     through; ``registered``: for a record's first, the entry's first, which it made."""
@@ -1083,6 +1090,11 @@ def _revise(
         reason=reason.strip(),
         project=project,
         moved_from_id=moved_from,
+        **(
+            dict(zip(("transition", "state_from", "state_to"), transition, strict=True))
+            if transition
+            else {}
+        ),
     )
     Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())
     if getattr(entity, "registry_id", None) is not None:
@@ -1092,12 +1104,31 @@ def _revise(
     return revision
 
 
+def transitioned(
+    entity: Entity,
+    transition: Transition,
+    state_from: str,
+    user: User,
+    reason: str,
+) -> Revision:
+    """The revision of a transition the record just made (see :func:`states.transition`)."""
+    return _revise(
+        entity,
+        RevisionKind.TRANSITIONED,
+        [],
+        user,
+        reason,
+        transition=(transition.name, state_from, transition.to),
+    )
+
+
 _EVENTS = {
     RevisionKind.CREATED: "entity.created",
     RevisionKind.EDITED: "entity.updated",
     RevisionKind.ARCHIVED: "entity.archived",
     RevisionKind.RESTORED: "entity.restored",
     RevisionKind.MOVED: "entity.updated",
+    RevisionKind.TRANSITIONED: "entity.transitioned",
 }
 
 
@@ -1140,6 +1171,7 @@ def _announce(
             "via": revision.via,
             "reason": revision.reason,
         },
+        **_transition_data(entity, revision),
         "actor": events.actor_data(user),
         "agent": agent_data(revision.agent),
     }
@@ -1148,6 +1180,27 @@ def _announce(
     from iki_server.runs import triggers
 
     triggers.noticed(entity, revision, registered=registered)
+
+
+def _transition_data(entity: Entity, revision: Revision) -> dict[str, Any]:
+    """For a transition, which one and between which states, with their labels."""
+    if revision.kind != RevisionKind.TRANSITIONED:
+        return {}
+    found = states.machine(entity.type)
+
+    def state(name: str) -> dict[str, Any]:
+        known = found.states.get(name) if found else None
+        return {"name": name, "label": known.label if known else name}
+
+    known = found.transitions.get(revision.transition) if found else None
+    return {
+        "transition": {
+            "name": revision.transition,
+            "label": known.label if known else revision.transition,
+            "from": state(revision.state_from),
+            "to": state(revision.state_to),
+        }
+    }
 
 
 def _announce_entry(entry_id: Any, revision: Revision, user: User | None) -> None:  # noqa: ANN401 - a UUID

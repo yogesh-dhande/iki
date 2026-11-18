@@ -31,7 +31,7 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import access, hrids, registry
+from iki_server.entities import access, hrids, registry, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Refs, to_db
@@ -710,6 +710,8 @@ def check_inputs(
                 problems.append(
                     f"This action changes {entity.hrid}, and you can't edit it in its project."
                 )
+            elif name in updated and (why := states.locked_why(entity)):
+                problems.append(f"This action changes it, but {why}")
             chosen.append(entity)
         if problems:
             errors[key] = problems

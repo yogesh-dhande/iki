@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: Action
+name: import_samples
+label: Import samples from a CSV file
+params:
+  file: { type: file, required: true, media_types: [text/csv, text/plain], max_size: 1MiB }
+effects:
+  creates: [{ type: Sample, cardinality: many, match_on: label }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/samples.py]
+deterministic: true
+timeout: 5m

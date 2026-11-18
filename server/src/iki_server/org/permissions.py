@@ -90,6 +90,9 @@ class Action(StrEnum):
     PROJECT_READ = "project.read"
     """Read the project's data: entities, runs, views."""
     PROJECT_EDIT = "project.edit"
+    PROJECT_TRANSITION = "project.transition"
+    """Move a record from one state to another (ADR 0118): with the transition's lab role,
+    which this never stands in for."""
     RUN_SELF_HOSTED = "run.self_hosted"
     RUN_BACKEND = "run.backend"
     RUN_CONTAINER = "run.container"
@@ -132,6 +135,7 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.AUDIT_READ: "read",
     Action.PROJECT_CREATE: "write",
     Action.PROJECT_EDIT: "write",
+    Action.PROJECT_TRANSITION: "write",
     Action.PROJECT_MANAGE: "write",
     Action.PROJECT_MEMBERS_MANAGE: "write",
     Action.RUN_SELF_HOSTED: "run",
@@ -205,6 +209,8 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_SEE: ProjectRole.VIEWER,
     Action.PROJECT_READ: ProjectRole.VIEWER,
     Action.PROJECT_EDIT: ProjectRole.EDITOR,
+    # Any member: what decides it is the transition's lab role (ADR 0118).
+    Action.PROJECT_TRANSITION: ProjectRole.VIEWER,
     Action.RUN_SELF_HOSTED: ProjectRole.EDITOR,
     Action.RUN_BACKEND: ProjectRole.EDITOR,
     Action.RUN_CONTAINER: ProjectRole.RUNNER,

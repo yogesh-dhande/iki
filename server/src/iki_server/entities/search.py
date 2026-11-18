@@ -7,6 +7,7 @@ since each type's table holds its subtypes' rows. Without a type (or with
 ``type``, ``owner_project``, ``created_by``, ``created_at``, ``updated_at``,
 ``archived_at``, and ``made``: how it was made (ADR 0106), matched with ``has``
 against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
+A type with states (ADR 0118) has ``state`` too: its records' state, by name.
 
 Conditions are JSON, so the same search can be sent, saved and shared::
 
@@ -48,11 +49,11 @@ from django.db import OperationalError, connection, transaction
 from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Lower
 
-from iki_server.entities import access, registry
+from iki_server.entities import access, registry, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Shape, is_list_table, shape, subtypes
 from iki_spec import conditions, naming, titles, units
-from iki_spec.model import Field
+from iki_spec.model import STATE_COLUMN, Field
 
 #: Bounds on one search, so none is too costly to plan or run.
 MAX_CONDITIONS = 50
@@ -107,6 +108,9 @@ class Column:
     #: ``path`` starts from. A record matches by its entry.
     entry: type[Model] | None = None
 
+
+#: What a search calls a record's state (ADR 0118), for a type that has states.
+STATE = "state"
 
 _BUILT_IN = {
     "hrid": Column("hrid", "string", "hrid"),
@@ -524,6 +528,12 @@ def column(form: Shape | None, name: str) -> Column | None:
         return _BUILT_IN[name]
     if form is None:
         return None
+    if name == STATE:
+        found = states.machine(form.entity_type.qualified_name)
+        if found is not None:
+            # A record's state (ADR 0118): its declaring type's, which subtypes share.
+            values = Field(name=STATE, type="enum", values=found.live_states)
+            return Column(STATE, "enum", STATE_COLUMN, values)
     f = form.fields().get(name)
     if f is None:
         return None

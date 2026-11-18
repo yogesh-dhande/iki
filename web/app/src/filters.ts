@@ -81,10 +81,27 @@ export const SOFTWARE = builtIn("software", "Software", "string");
 /** The parts of a making's draft, in order. */
 export type MakingDraft = [software: string, kind: string, by: string];
 
-/** What a grid can filter by: every entity's ID and times, the type's fields, and how
- * each was made. */
+/** The labels of a state field's values, by the values' list: a filter's copies keep it. */
+const LABELS = new WeakMap<readonly string[], Record<string, string>>();
+
+/** An enum value's label: a state's (ADR 0118), or the value itself. */
+export function optionLabel(field: FieldDef, value: string): string {
+  return LABELS.get(field.values)?.[value] ?? value;
+}
+
+/** A type's records' state, as a field to filter by: null for a type without states. */
+export function stateField(type: EntityType | undefined): FieldDef | null {
+  if (!type?.states.length) return null;
+  const values = type.states.map((s) => s.name);
+  LABELS.set(values, Object.fromEntries(type.states.map((s) => [s.name, s.label])));
+  return { ...builtIn("state", "State", "enum"), values };
+}
+
+/** What a grid can filter by: every entity's ID and times, its state, the type's fields,
+ * and how each was made. */
 export function filterable(type: EntityType | undefined): FieldDef[] {
-  return [HRID, ...(type?.fields ?? []), CREATED, UPDATED, MADE];
+  const state = stateField(type);
+  return [HRID, ...(state ? [state] : []), ...(type?.fields ?? []), CREATED, UPDATED, MADE];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);

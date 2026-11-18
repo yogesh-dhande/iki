@@ -46,7 +46,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import hrids, registry
+from iki_server.entities import hrids, registry, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -82,6 +82,7 @@ from iki_server.runs.models import (
     RunOutput,
 )
 from iki_server.tasks import task
+from iki_spec.model import STATE_COLUMN
 
 logger = structlog.get_logger("iki.bundles")
 
@@ -454,6 +455,7 @@ class _Writer:
             row.save(update_fields=["hrid_here"])
         self._extensions_and_lists(form, instance.pk, values, fresh=True)
         self._history(form, instance.pk, line, revisions, after=0)
+        self._state(instance.pk, line)
         ProjectLink.objects.create(
             entity_id=instance.pk, project=self.made.project, linked_by=self.made.applied_by
         )
@@ -465,6 +467,10 @@ class _Writer:
         revisions = sorted(line["revisions"], key=lambda r: int(r["number"]))
         instance = form.model._default_manager.select_for_update().get(pk=line["id"])
         had = instance.revision
+        # The source's revisions come with its transitions (ADR 0118): its record's state,
+        # and whether that locks it, are set again once its values are.
+        Entity.objects.filter(pk=instance.pk).update(locked=False)
+        instance.locked = False
         self._set_values(form, instance, values)
         instance.save()
         self._extensions_and_lists(form, instance.pk, values, fresh=False)
@@ -474,7 +480,22 @@ class _Writer:
             updated_at=revisions[-1]["created_at"],
             archived_at=line["archived_at"],
         )
+        self._state(instance.pk, line)
         self.counts["updated"] += 1
+
+    @staticmethod
+    def _state(entity_id: uuid.UUID, line: dict[str, Any]) -> None:
+        """The record's state as the bundle has it, if its type here has that state, and
+        whether it locks the record (ADR 0118)."""
+        found = states.machine(line["type"])
+        if found is None:
+            return
+        state = line.get("state")
+        model = registry.model(found.qualified_name)
+        if state in found.live_states:
+            model._default_manager.filter(pk=entity_id).update(**{STATE_COLUMN: state})
+        current = model._default_manager.filter(pk=entity_id).values_list(STATE_COLUMN, flat=True)
+        Entity.objects.filter(pk=entity_id).update(locked=current.get() in found.locking_states)
 
     @staticmethod
     def _set_values(form: Shape, instance: Any, values: dict[str, Any]) -> None:  # noqa: ANN401
@@ -529,6 +550,15 @@ class _Writer:
                 agent=self._agent(r["agent"]),
                 reason=r["reason"],
                 created_at=r["created_at"],
+                **(
+                    {
+                        "transition": r["transition"]["name"],
+                        "state_from": r["transition"]["from"],
+                        "state_to": r["transition"]["to"],
+                    }
+                    if r.get("transition")
+                    else {}
+                ),
             )
             for r in revisions
             if int(r["number"]) > after

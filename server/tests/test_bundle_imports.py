@@ -410,6 +410,59 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     assert rows[str(here.pk)]["action"] == "update"
 
 
+def test_a_record_arrives_in_its_state_with_its_transitions(world: World, tmp_path: Path) -> None:
+    """ADR 0118: a bundle carries each record's state and the transitions that took it
+    there, and a state that locks it locks it here (ADR 0120)."""
+    from iki_server.entities import states
+    from iki_server.org.models import LabRoleGrant
+
+    admin = world.users["admin"]
+    grant = world.project.memberships.get(user=admin)
+    for role in ("acme/protein.analyst", "acme/protein.reviewer"):
+        LabRoleGrant.objects.create(membership=grant, role=role, granted_by=admin)
+    editor = world.users["editor"]
+    LabRoleGrant.objects.create(
+        membership=world.project.memberships.get(user=editor),
+        role="acme/protein.analyst",
+        granted_by=admin,
+    )
+    from iki_server.org import permissions
+
+    permissions.forget(admin)
+    permissions.forget(editor)
+
+    def tested() -> list[Any]:
+        made = services.create(admin, "acme/protein.Sample", world.project, {"label": "S-1"})
+        sample = Entity.objects.get(pk=made.entity.pk)
+        states.transition(editor, sample, "start", expected_revision=1)
+        states.transition(editor, sample, "submit", expected_revision=2)
+        states.transition(admin, sample, "approve", expected_revision=3, reason="Looks right")
+        return [Entity.objects.get(pk=sample.pk)]
+
+    path = bundle_of(world, tmp_path, tested)
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    (row,) = entities_of(api, done)
+    here = api.get(f"/entities/{row['hrid_here']}").json()
+    assert (here["state"]["name"], here["locked"], here["revision"]) == ("reviewed", True, 4)
+    history = api.get(f"/entities/{row['hrid_here']}/revisions").json()["items"]
+    assert [(r["transition"] or {}).get("name") for r in history] == [
+        "approve",
+        "submit",
+        "start",
+        None,
+    ]
+    assert history[0]["reason"] == "Looks right"
+    # Locked here as it was there.
+    changed = api.patch(
+        f"/entities/{row['hrid_here']}",
+        {"values": {"notes": "x"}},
+        headers={"If-Match": '"4"'},
+    )
+    assert changed.status_code == 409, changed.content
+
+
 def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(
     world: World, tmp_path: Path
 ) -> None:

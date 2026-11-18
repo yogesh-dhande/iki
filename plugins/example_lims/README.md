@@ -30,6 +30,15 @@ It shows the parts of Iki such a plugin needs:
   its members on the Members page, beside their project role
   ([ADR 0116](../../docs/adr/0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)).
   They grant no access by themselves; what needs each is listed with it.
+- **`Sample`**, a protein's sample as the lab tests it, with states
+  ([ADR 0118](../../docs/adr/0118-a-record-moves-through-its-types-states.md)):
+  Registered, Received, In testing, In review, then Approved, Released or
+  Rejected. Analysts receive, test and submit it; a Reviewer who didn't
+  submit it approves it or sends it back, with a reason; QA, who neither
+  submitted nor approved it, releases or rejects it. Approved, Released and
+  Rejected lock it: its results can't change, by anyone or anything, until
+  it's sent back or reopened, and each move is kept in its history with who
+  made it and why.
 
 Every trigger is off until a project's Admin turns it on there.
 

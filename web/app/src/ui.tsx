@@ -43,9 +43,12 @@ export function Button({
   onClick,
   disabled = false,
   label,
+  describedBy,
 }: {
   /** A fuller name for screen readers, starting with the visible text (WCAG 2.5.3). */
   label?: string;
+  /** The ID of what says more about it, such as why it's disabled. */
+  describedBy?: string | undefined;
   variant?: Variant;
   busy?: boolean;
   busyText?: string;
@@ -59,6 +62,7 @@ export function Button({
       className={buttonClass(variant)}
       type={type}
       aria-label={label && !(busy && busyText) ? label : undefined}
+      aria-describedby={describedBy}
       aria-disabled={busy || disabled ? "true" : undefined}
       aria-busy={busy ? "true" : undefined}
       onClick={(event) => {

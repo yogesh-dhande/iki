@@ -332,6 +332,21 @@ def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: C
     }
 
 
+def test_transitions_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
+    path = "/api/v1/entities/SMP-000001/transitions/send_back"
+    fake.on("POST", path, entity(name="S1"))
+    client.entities.transition("SMP-000001", "send_back", revision=4, reason="Purity looks off")
+    sent = fake.sent("POST", path)[0]
+    assert sent.headers["If-Match"] == '"4"'
+    assert json.loads(sent.content) == {"reason": "Purity looks off"}
+    # A dataframe of records with states has a column of them.
+    sample = entity("SMP-000001", name="S1")
+    sample["state"] = {"name": "in_testing", "label": "In testing", "locks": False}
+    fake.on("POST", "/api/v1/entities/search", page([sample]))
+    frame = client.entities.search("acme/lims.Sample").to_pandas()
+    assert frame.loc["SMP-000001", "state"] == "in_testing"
+
+
 def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> None:
     linked = entity(
         "PRT-000002", name="SRC", length=536, parent="00000000-0000-7000-8000-000000000001"

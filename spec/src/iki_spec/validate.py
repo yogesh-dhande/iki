@@ -45,7 +45,9 @@ from iki_spec.model import (
     Field,
     LabRole,
     Plugin,
+    State,
     Track,
+    Transition,
     Trigger,
     Viewer,
     Workflow,
@@ -672,7 +674,37 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         display_title=(body.get("display") or {}).get("title"),
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         file=document.file,
+        states={
+            n: State(
+                name=n,
+                label=s["label"],
+                description=s.get("description"),
+                initial=bool(s.get("initial", False)),
+                locks=bool(s.get("locks", False)),
+                removed=bool(s.get("removed", False)),
+                moved_to=s.get("moved_to"),
+            )
+            for n, s in (body.get("states") or {}).items()
+        },
+        transitions={
+            n: Transition(
+                name=n,
+                label=t["label"],
+                description=t.get("description"),
+                from_states=tuple(t["from"]),
+                to=t["to"],
+                roles=tuple(_lab_role_name(r, plugin) for r in t["roles"]),
+                reason=t.get("reason"),
+                not_by=tuple(t.get("not_by") or ()),
+            )
+            for n, t in (body.get("transitions") or {}).items()
+        },
     )
+
+
+def _lab_role_name(role: str, plugin: str) -> str:
+    """A lab role in full: a plugin's own `qa` is `namespace/plugin.qa` (ADR 0116)."""
+    return role if "." in role else f"{plugin}.{role}"
 
 
 #: The formats the structure viewer reads, by media type, as Mol* names them.
@@ -1153,6 +1185,119 @@ class _Semantics:
         if entity_type.viewers:
             present = {n: f for n, f in names.items() if not f.removed}
             self.viewers(entity_type, source, present)
+        if entity_type.states:
+            self.states(entity_type, source)
+
+    def states(self, entity_type: EntityType, source: Document) -> None:
+        """A type's states and transitions (ADR 0118)."""
+        above = next((a for a in self.ancestors(entity_type) if a.states), None)
+        if above is not None:
+            self.add(
+                "states-inherited",
+                f"`{entity_type.name}` extends `{above.qualified_name}`, which has states: its "
+                "records move through those, so it can't declare its own.",
+                source,
+                ("states",),
+                key=True,
+                hint="Remove `states` and `transitions` here, or change the parent's.",
+            )
+            return
+        states = entity_type.states
+        live = [s for s in states.values() if not s.removed]
+        initial = [s.name for s in states.values() if s.initial]
+        if len(initial) != 1:
+            self.add(
+                "state-initial",
+                "Exactly one state is `initial: true`, where new records start"
+                + (f": {', '.join(f'`{n}`' for n in initial)} all are." if initial else "."),
+                source,
+                ("states",),
+                key=True,
+            )
+        for state in states.values():
+            path: Path = ("states", state.name)
+            if state.initial and (state.locks or state.removed):
+                self.add(
+                    "state-initial",
+                    f"`{state.name}` is where new records start, so it can't "
+                    + ("lock them." if state.locks else "be removed."),
+                    source,
+                    path,
+                    key=True,
+                )
+            if state.removed and state.locks:
+                self.add(
+                    "state-removed",
+                    f"`{state.name}` is removed: no record is in it to lock.",
+                    source,
+                    (*path, "locks"),
+                    key=True,
+                )
+            if state.moved_to is not None and not any(s.name == state.moved_to for s in live):
+                self.add(
+                    "unknown-state",
+                    f"`{state.moved_to}` isn't a state records can be in.",
+                    source,
+                    (*path, "moved_to"),
+                    hint=schemas._did_you_mean(state.moved_to, [s.name for s in live]),
+                )
+        names = {s.name for s in live}
+        leads: dict[str, set[str]] = {}
+        before = len(self.checker.problems)
+        for transition in entity_type.transitions.values():
+            path = ("transitions", transition.name)
+            for index, name in enumerate(transition.from_states):
+                if name not in names:
+                    self.state_ref(name, names, source, (*path, "from", index))
+                leads.setdefault(name, set()).add(transition.to)
+            if transition.to not in names:
+                self.state_ref(transition.to, names, source, (*path, "to"))
+            elif transition.to in transition.from_states:
+                self.add(
+                    "transition-to-itself",
+                    f"`{transition.name}` leads from `{transition.to}` to itself.",
+                    source,
+                    (*path, "to"),
+                )
+            for index, other in enumerate(transition.not_by):
+                if other not in entity_type.transitions:
+                    self.add(
+                        "unknown-transition",
+                        f"`{entity_type.name}` has no transition `{other}`.",
+                        source,
+                        (*path, "not_by", index),
+                        hint=schemas._did_you_mean(other, list(entity_type.transitions)),
+                    )
+            for index, role in enumerate(transition.roles):
+                self.lab_role(role, source, (*path, "roles", index))
+        # Reachability says more once every transition leads somewhere it can.
+        if len(initial) == 1 and initial[0] in names and len(self.checker.problems) == before:
+            reached, todo = {initial[0]}, [initial[0]]
+            while todo:
+                for nxt in leads.get(todo.pop(), ()):
+                    if nxt in names and nxt not in reached:
+                        reached.add(nxt)
+                        todo.append(nxt)
+            for state in live:
+                if state.name not in reached:
+                    self.add(
+                        "state-unreachable",
+                        f"No transitions lead to `{state.name}` from `{initial[0]}`, where "
+                        "records start.",
+                        source,
+                        ("states", state.name),
+                        key=True,
+                        hint="Add a transition to it, or mark it `removed: true` with `moved_to`.",
+                    )
+
+    def state_ref(self, name: str, names: set[str], source: Document, path: Path) -> None:
+        self.add(
+            "unknown-state",
+            f"`{name}` isn't one of its states, or it's removed.",
+            source,
+            path,
+            hint=schemas._did_you_mean(name, sorted(names)),
+        )
 
     def identity(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -1628,7 +1773,11 @@ class _Semantics:
         item: bool = False,
     ) -> None:
         if not item:
-            if f.name in RESERVED_FIELD_NAMES or f.name.endswith("_ptr"):
+            if (
+                f.name in RESERVED_FIELD_NAMES
+                or f.name.endswith("_ptr")
+                or f.name.startswith("iki_")
+            ):
                 self.add(
                     "reserved-name",
                     f"`{f.name}` is reserved; every entity already has it, or Python or Django "

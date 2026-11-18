@@ -46,6 +46,7 @@ import {
   type Schemaed,
   type QuantityDraft,
 } from "./entity-values";
+import { optionLabel } from "./filters";
 import { media } from "./media";
 import { upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
@@ -362,7 +363,7 @@ function EnumInput({ field, draft, onChange, error, note, disabled, itemLabel }:
         <option value="">{field.required ? "Choose one" : "Not set"}</option>
         {field.values.map((v) => (
           <option key={v} value={v}>
-            {v}
+            {optionLabel(field, v)}
           </option>
         ))}
       </select>

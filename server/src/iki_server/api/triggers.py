@@ -30,7 +30,9 @@ from iki_spec.model import Trigger
 
 router = Router(tags=["triggers"])
 
-Event = Literal["entity.created", "entity.updated", "schedule"]
+Event = Literal[
+    "entity.created", "entity.registered", "entity.transitioned", "entity.updated", "schedule"
+]
 
 
 class TriggerOut(Schema):
@@ -39,7 +41,8 @@ class TriggerOut(Schema):
     label: str
     description: str | None
     on: Event = Field(
-        description="What fires it: an entity of its type created, or changed, or its schedule."
+        description="What fires it: an entity of its type created, registered (ADR 0115), "
+        "moved to another state (ADR 0118) or changed, or its schedule."
     )
     type: str = Field(
         description="The entity type it fires for, with its subtypes; empty on a schedule."
@@ -51,6 +54,10 @@ class TriggerOut(Schema):
     fields: list[str] = Field(
         description="For `entity.updated`: it fires only when one of these changed. Empty for "
         "any change."
+    )
+    states: list[str] = Field(
+        description="For `entity.transitioned`: it fires only when a record enters one of "
+        "these. Empty for any transition."
     )
     action: str = Field(description="The qualified name of the action it runs.")
     action_label: str
@@ -74,6 +81,7 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
         "schedule": spec.schedule,
         "timezone": spec.timezone or ("UTC" if spec.schedule else ""),
         "fields": list(spec.fields),
+        "states": list(spec.states),
         "action": f"{spec.plugin}.{spec.run}",
         "action_label": action.label if action is not None else spec.run,
         "input": spec.input,

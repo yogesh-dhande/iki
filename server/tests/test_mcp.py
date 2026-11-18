@@ -157,6 +157,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "create_entity",
         "update_entity",
         "set_entity_archived",
+        "transition_entity",
         "describe_apps",
         "check_app",
         "create_app",
@@ -189,6 +190,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "create_entity",
         "update_entity",
         "set_entity_archived",
+        "transition_entity",
         "run_action",
         "run_batch",
         "cancel_run",
@@ -649,6 +651,79 @@ async def test_agents_create_and_change_entities_on_the_record(world: World) -> 
         ("edited", "mcp", "editor@example.com", "Full name"),
         ("created", "mcp", "editor@example.com", "From the paper's table 2"),
     ]
+
+
+async def test_agents_move_records_through_their_states(world: World) -> None:
+    """ADR 0118: an agent sees what the person may do, does it on the record, and can't
+    change a record its state locks."""
+    from test_lab_roles import give, membership
+
+    from iki_server.entities.models import Entity
+
+    def roles() -> None:
+        give(world, membership(world, "editor"), "acme/protein.analyst")
+
+    await sync_to_async(roles)()
+    token = await token_for(world)
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={"label": "Lot 7"},
+            reason="",
+        )
+    )
+    found = data(await tool(token, "get_entity", ref=made["hrid"]))["entity"]
+    assert found["state"]["name"] == "received"
+    assert [(t["name"], t["allowed"]) for t in found["can"]["transitions"]] == [("start", True)]
+    unknown = error(
+        await tool(
+            token,
+            "transition_entity",
+            ref=made["hrid"],
+            revision=1,
+            transition="ship",
+            reason="Testing",
+        )
+    )
+    assert "(409" in unknown and "no transition `ship`" in unknown
+    moved = data(
+        await tool(
+            token,
+            "transition_entity",
+            ref=made["hrid"],
+            revision=1,
+            transition="start",
+            reason="Bench 4",
+        )
+    )
+    assert (moved["state"]["name"], moved["revision"]) == ("in_testing", 2)
+    (latest, _) = data(await tool(token, "get_entity_history", ref=made["hrid"]))["items"]
+    assert (latest["kind"], latest["via"], latest["transition"]["name"]) == (
+        "transitioned",
+        "mcp",
+        "start",
+    )
+    assert latest["client"].startswith("Notebook")
+
+    # Locked, it refuses the agent's changes too.
+    def lock() -> None:
+        from iki_server.entities import registry
+
+        registry.model("acme/protein.Sample")._default_manager.filter(pk=made["id"]).update(
+            iki_state="reviewed"
+        )
+        Entity.objects.filter(pk=made["id"]).update(locked=True)
+
+    await sync_to_async(lock)()
+    refused = error(
+        await tool(
+            token, "update_entity", ref=made["hrid"], revision=2, values={"notes": "x"}, reason="y"
+        )
+    )
+    assert "(409" in refused and "which locks it" in refused
 
 
 async def test_writes_need_the_scope_and_the_role(world: World) -> None:

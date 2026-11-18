@@ -20,6 +20,7 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   schedule: "",
   timezone: "",
   fields: [],
+  states: [],
   action: "iki/protein.compute_properties",
   action_label: "Compute properties",
   input: "protein",

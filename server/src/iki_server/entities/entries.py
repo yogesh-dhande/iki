@@ -36,7 +36,7 @@ from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import access, registry, services, unique
+from iki_server.entities import access, registry, services, states, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, shape, to_db, to_json
 from iki_server.org import permissions
@@ -315,6 +315,9 @@ def move(user: User, record: Entity, *, reason: str = "") -> Moved:
             raise Refused(f"{old.hrid} wasn't superseded: there's nothing to move it to.")
         if locked.archived_at is not None:
             raise Refused("The record is archived: restore it before moving it.")
+        why = states.locked_why(locked, doing="be moved")
+        if why:
+            raise Refused(why)
         why = services.frozen(shape(locked.type))
         if why:
             raise Refused(why)
@@ -347,10 +350,11 @@ def move(user: User, record: Entity, *, reason: str = "") -> Moved:
 def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str) -> list[Entity]:
     """The project's own records that refer to ``old``, referring to ``new`` instead, each
     a revision: immutable references too, as the entry they named was a mistake. Archived
-    records keep theirs, as do those of a detached plugin's types."""
+    records keep theirs, as do locked ones (ADR 0118) and those of a detached plugin's
+    types."""
     done: list[Entity] = []
     own = Entity.objects.filter(
-        owner_project=project, archived_at__isnull=True, purged_at__isnull=True
+        owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked=False
     )
     for qualified in sorted(registry.types()):
         entity_type = registry.types()[qualified]

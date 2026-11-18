@@ -81,9 +81,11 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         COMPUTE,
         "acme/protein.fetch_proteins",
         "acme/protein.import_proteins",
+        "acme/protein.import_samples",
+        "acme/protein.measure_purity",
         RELAX,
     ]
-    predict, _, _, _, compute, _, _, _ = actions
+    predict, _, _, _, compute, *_ = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"

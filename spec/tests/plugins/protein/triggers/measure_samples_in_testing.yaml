@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Trigger
+name: measure_samples_in_testing
+label: Measure samples as their testing starts
+on: entity.transitioned
+type: Sample
+states: [in_testing]
+run: measure_purity

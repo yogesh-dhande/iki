@@ -461,6 +461,25 @@ class Entities(_Part):
         """Restores an archived entity."""
         return self._patch(ref, {"archived": False, "reason": reason}, revision)
 
+    def transition(self, ref: str, name: str, *, revision: int, reason: str = "") -> EntityOut:
+        """Moves a record to another state by one of its type's transitions, such as
+        ``"approve"``: those its ``can["transitions"]`` lists, with whether you may make
+        each and why not. A transition needs one of its lab roles in the record's project,
+        and may need a ``reason``. ``revision`` is the one you read, as for :meth:`update`::
+
+            sample = iki.entities.get("SMP-000012")
+            iki.entities.transition("SMP-000012", "approve", revision=sample["revision"])
+        """
+        return cast(
+            "EntityOut",
+            self._client.request(
+                "POST",
+                _path("/entities/{ref}/transitions/{name}", ref=ref, name=name),
+                json={"reason": reason},
+                headers={"If-Match": f'"{revision}"'},
+            ),
+        )
+
     def _patch(self, ref: str, body: dict[str, Any], revision: int) -> EntityOut:
         return cast(
             "EntityOut",

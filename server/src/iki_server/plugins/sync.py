@@ -21,6 +21,9 @@ build installed (:mod:`iki_server.entities.registry`):
   step with a unique column, so the database refuses a second entity in a
   project with the same value. Values already there are filled in, and if
   entities already share one, the sync stops, saying which.
+- **Locked records' guards** (ADR 0118): a trigger on every table holding
+  the values of records that have states refuses a change to a record its
+  state locks, whatever writes it. Tables that no longer need one lose it.
 - **Plugins' states** (ADR 0091): each plugin the lockfile installs, updates,
   detaches or reattaches is audited, by the deploy that does it.
 - **An analyst role**, if ``IKI_DB_ANALYST_ROLE`` names one. It gets
@@ -41,7 +44,7 @@ from django.db.models.functions import Now
 from psycopg import sql
 
 from iki_server.audit import log as audit
-from iki_server.entities import hrids, registry, unique
+from iki_server.entities import hrids, registry, states, unique
 from iki_server.entities.values import shape
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
@@ -70,6 +73,7 @@ class Report:
     #: What changed about each plugin, such as ``dna detached``.
     plugins: list[str] = field(default_factory=list)
     unique: list[str] = field(default_factory=list)
+    guards: list[str] = field(default_factory=list)
     analyst: str | None = None
 
 
@@ -97,6 +101,7 @@ def sync(analyst_role: str | None = None) -> Report:
         report.unique = unique.install(
             cursor, unique.columns((model, fields) for _, model, fields, _ in _tables())
         )
+        report.guards = states.install_guards(cursor, states.guarded_tables())
         report.views = _views(cursor)
         report.plugins = _states()
         if analyst_role:

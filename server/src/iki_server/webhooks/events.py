@@ -112,6 +112,13 @@ _register(
     ),
     EventType("entity.archived", "Someone archives an entity.", project=True, org=True),
     EventType("entity.restored", "Someone restores an entity.", project=True, org=True),
+    EventType(
+        "entity.transitioned",
+        "Someone moves a record to another state, with `transition`: which, and between "
+        "which states (ADR 0118).",
+        project=True,
+        org=True,
+    ),
     EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),
     EventType(
         "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True

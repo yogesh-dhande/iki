@@ -133,7 +133,25 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
       return valueText(f, value, e);
     },
   }));
-  return [id, ...(type.subtypes.length ? [kind] : []), ...fields, updated];
+  // A record's state (ADR 0118), beside its ID: the first thing a lab asks of it.
+  const state: Column = {
+    key: "state",
+    label: "State",
+    cell: (e) =>
+      e.state ? (
+        <>
+          {e.state.label}
+          {e.locked ? <span className="cell-meta">Locked</span> : null}
+        </>
+      ) : null,
+  };
+  return [
+    id,
+    ...(type.subtypes.length ? [kind] : []),
+    ...(type.states.length ? [state] : []),
+    ...fields,
+    updated,
+  ];
 }
 
 function unitOf(field: FieldDef): string {

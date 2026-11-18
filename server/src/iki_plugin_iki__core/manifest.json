@@ -266,7 +266,9 @@
             "tracks": []
           }
         ],
-        "file": "types/alignment.yaml"
+        "file": "types/alignment.yaml",
+        "states": {},
+        "transitions": {}
       },
       "iki/core.App": {
         "plugin": "iki/core",
@@ -706,7 +708,9 @@
         },
         "display_title": "{{ name }}",
         "viewers": [],
-        "file": "types/app.yaml"
+        "file": "types/app.yaml",
+        "states": {},
+        "transitions": {}
       },
       "iki/core.Collection": {
         "plugin": "iki/core",
@@ -917,7 +921,9 @@
         },
         "display_title": "{{ name }}",
         "viewers": [],
-        "file": "types/collection.yaml"
+        "file": "types/collection.yaml",
+        "states": {},
+        "transitions": {}
       },
       "iki/core.Entity": {
         "plugin": "iki/core",
@@ -934,7 +940,9 @@
         "fields": {},
         "display_title": null,
         "viewers": [],
-        "file": "types/entity.yaml"
+        "file": "types/entity.yaml",
+        "states": {},
+        "transitions": {}
       },
       "iki/core.Sequence": {
         "plugin": "iki/core",
@@ -1048,7 +1056,9 @@
         },
         "display_title": null,
         "viewers": [],
-        "file": "types/sequence.yaml"
+        "file": "types/sequence.yaml",
+        "states": {},
+        "transitions": {}
       },
       "iki/core.View": {
         "plugin": "iki/core",
@@ -1729,7 +1739,9 @@
         },
         "display_title": "{{ name }}",
         "viewers": [],
-        "file": "types/view.yaml"
+        "file": "types/view.yaml",
+        "states": {},
+        "transitions": {}
       }
     },
     "extensions": [],

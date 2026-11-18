@@ -542,6 +542,7 @@ def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dic
     "/entries/{ref}/revisions",
     response=Page[RevisionOut],
     summary="A registry entry's revisions",
+    by_alias=True,
 )
 def list_entry_revisions(
     request: HttpRequest, ref: str, params: Query[PageParams]
@@ -567,6 +568,7 @@ def list_entry_revisions(
     "/entries/{ref}/revisions/{number}",
     response=RevisionDetailOut,
     summary="A registry entry as it was at a revision",
+    by_alias=True,
 )
 def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
     """Its values then and what the revision changed, which every holder sees, as reviewing

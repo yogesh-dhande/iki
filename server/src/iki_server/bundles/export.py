@@ -25,7 +25,7 @@ from iki_server.accounts.models import Kind, User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import keys
-from iki_server.entities import access, registry
+from iki_server.entities import access, registry, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Part, Shape, shape
@@ -525,6 +525,7 @@ def _entity(
         "created_at": entity.created_at.isoformat(),
         "created_by": _json(entity.created_by_id),
         "archived_at": _json(entity.archived_at),
+        **({"state": state} if (state := states.state_of(entity)) is not None else {}),
         **({"entry": str(entity.entry_id)} if entity.entry_id is not None else {}),
         "revisions": [
             {
@@ -538,6 +539,11 @@ def _entity(
                 "agent": _json(r.agent_id),
                 "reason": r.reason,
                 "created_at": r.created_at.isoformat(),
+                **(
+                    {"transition": {"name": r.transition, "from": r.state_from, "to": r.state_to}}
+                    if r.transition
+                    else {}
+                ),
             }
             for r in revisions
         ],

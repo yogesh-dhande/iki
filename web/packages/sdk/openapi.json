@@ -2345,6 +2345,11 @@
             "title": "Id",
             "type": "string"
           },
+          "locked": {
+            "description": "Its state locks it: nothing changes its values until a transition.",
+            "title": "Locked",
+            "type": "boolean"
+          },
           "owner_project": {
             "anyOf": [
               {
@@ -2379,6 +2384,17 @@
             "title": "Revision",
             "type": "integer"
           },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
+          },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
             "title": "Title",
@@ -2412,6 +2428,8 @@
           "updated_at",
           "archived",
           "archived_at",
+          "state",
+          "locked",
           "values",
           "refs",
           "files",
@@ -3130,13 +3148,22 @@
       "EntityCan": {
         "properties": {
           "edit": {
-            "description": "Change it, archive or restore it: false for everyone when its plugin is detached.",
+            "description": "Change it, archive or restore it: false for everyone when its plugin is detached, or while its state locks it.",
             "title": "Edit",
             "type": "boolean"
+          },
+          "transitions": {
+            "description": "The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.",
+            "items": {
+              "$ref": "#/components/schemas/TransitionCan"
+            },
+            "title": "Transitions",
+            "type": "array"
           }
         },
         "required": [
-          "edit"
+          "edit",
+          "transitions"
         ],
         "title": "EntityCan",
         "type": "object"
@@ -3332,6 +3359,11 @@
             "title": "Id",
             "type": "string"
           },
+          "locked": {
+            "description": "Its state locks it: nothing changes its values until a transition.",
+            "title": "Locked",
+            "type": "boolean"
+          },
           "owner_project": {
             "anyOf": [
               {
@@ -3355,6 +3387,17 @@
             "description": "Its latest revision. Send it back as If-Match to change it.",
             "title": "Revision",
             "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -3389,6 +3432,8 @@
           "updated_at",
           "archived",
           "archived_at",
+          "state",
+          "locked",
           "values",
           "refs",
           "files",
@@ -3546,12 +3591,28 @@
             "title": "Plugin",
             "type": "string"
           },
+          "states": {
+            "description": "The states its records move through (ADR 0118), the initial one first: its own, or the ancestor's that declares them. Empty if it has none.",
+            "items": {
+              "$ref": "#/components/schemas/StateOut"
+            },
+            "title": "States",
+            "type": "array"
+          },
           "subtypes": {
             "description": "The types that extend it, at any depth.",
             "items": {
               "type": "string"
             },
             "title": "Subtypes",
+            "type": "array"
+          },
+          "transitions": {
+            "description": "How records go between them.",
+            "items": {
+              "$ref": "#/components/schemas/TransitionOut"
+            },
+            "title": "Transitions",
             "type": "array"
           },
           "values_schema": {
@@ -3601,7 +3662,9 @@
           "identity",
           "fields",
           "values_schema",
-          "viewers"
+          "viewers",
+          "states",
+          "transitions"
         ],
         "title": "EntityTypeOut",
         "type": "object"
@@ -4675,6 +4738,8 @@
           "event": {
             "enum": [
               "entity.created",
+              "entity.registered",
+              "entity.transitioned",
               "entity.updated",
               "schedule"
             ],
@@ -6915,6 +6980,11 @@
             "title": "Id",
             "type": "string"
           },
+          "locked": {
+            "description": "Its state locks it: nothing changes its values until a transition.",
+            "title": "Locked",
+            "type": "boolean"
+          },
           "owner_project": {
             "anyOf": [
               {
@@ -6946,6 +7016,17 @@
             "description": "Its latest revision. Send it back as If-Match to change it.",
             "title": "Revision",
             "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -6980,6 +7061,8 @@
           "updated_at",
           "archived",
           "archived_at",
+          "state",
+          "locked",
           "values",
           "refs",
           "files",
@@ -9565,9 +9648,11 @@
             "title": "Next Run At"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.",
             "enum": [
               "entity.created",
+              "entity.registered",
+              "entity.transitioned",
               "entity.updated",
               "schedule"
             ],
@@ -9606,6 +9691,14 @@
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
             "title": "Schedule",
             "type": "string"
+          },
+          "states": {
+            "description": "For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
           },
           "tier": {
             "anyOf": [
@@ -9658,6 +9751,7 @@
           "schedule",
           "timezone",
           "fields",
+          "states",
           "action",
           "action_label",
           "input",
@@ -10786,7 +10880,8 @@
               "restored",
               "curated",
               "superseded",
-              "moved"
+              "moved",
+              "transitioned"
             ],
             "title": "Kind",
             "type": "string"
@@ -10817,6 +10912,17 @@
               }
             ],
             "description": "The run that made it, when `via` is `run` and you can read the run's project."
+          },
+          "transition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionTransitionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a transition (ADR 0118): which, and between which states."
           },
           "user": {
             "anyOf": [
@@ -10850,6 +10956,7 @@
           "client",
           "agent",
           "reason",
+          "transition",
           "created_at",
           "values",
           "changes",
@@ -10910,7 +11017,8 @@
               "restored",
               "curated",
               "superseded",
-              "moved"
+              "moved",
+              "transitioned"
             ],
             "title": "Kind",
             "type": "string"
@@ -10933,6 +11041,17 @@
               }
             ],
             "description": "The run that made it, when `via` is `run` and you can read the run's project."
+          },
+          "transition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionTransitionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a transition (ADR 0118): which, and between which states."
           },
           "user": {
             "anyOf": [
@@ -10960,9 +11079,44 @@
           "client",
           "agent",
           "reason",
+          "transition",
           "created_at"
         ],
         "title": "RevisionOut",
+        "type": "object"
+      },
+      "RevisionTransitionOut": {
+        "properties": {
+          "from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "The transition, or `iki.moved` when a plugin's migration moved the record out of a state it removed.",
+            "title": "Name",
+            "type": "string"
+          },
+          "to": {
+            "$ref": "#/components/schemas/StateOut"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "from",
+          "to"
+        ],
+        "title": "RevisionTransitionOut",
         "type": "object"
       },
       "RevokeIn": {
@@ -13697,6 +13851,41 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StateOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "locks": {
+            "description": "A record in it can't change until a transition takes it out.",
+            "title": "Locks",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "locks"
+        ],
+        "title": "StateOut",
+        "type": "object"
+      },
       "StepBatchOut": {
         "properties": {
           "hrid": {
@@ -14141,6 +14330,163 @@
         "title": "TrackOut",
         "type": "object"
       },
+      "TransitionCan": {
+        "description": "A transition from the record's state (ADR 0118), and whether you may make it.",
+        "properties": {
+          "allowed": {
+            "description": "You may make it now.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether it asks why: required, optional, or not at all (null).",
+            "title": "Reason"
+          },
+          "to": {
+            "description": "The state it leads to.",
+            "title": "To",
+            "type": "string"
+          },
+          "to_label": {
+            "title": "To Label",
+            "type": "string"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "to",
+          "to_label",
+          "reason",
+          "allowed",
+          "why_not"
+        ],
+        "title": "TransitionCan",
+        "type": "object"
+      },
+      "TransitionIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why: a transition may require it, and keeps it.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "TransitionIn",
+        "type": "object"
+      },
+      "TransitionOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "from": {
+            "description": "The states it leads out of.",
+            "items": {
+              "type": "string"
+            },
+            "title": "From",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_by": {
+            "description": "Whoever made the latest of these transitions on a record can't make this one: separation of duties.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Not By",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "roles": {
+            "description": "The lab roles that may make it: any one (ADR 0116).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "from",
+          "to",
+          "roles",
+          "reason",
+          "not_by"
+        ],
+        "title": "TransitionOut",
+        "type": "object"
+      },
       "TriggerFiredOut": {
         "properties": {
           "enabled_by": {
@@ -14276,9 +14622,11 @@
             "type": "string"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.",
             "enum": [
               "entity.created",
+              "entity.registered",
+              "entity.transitioned",
               "entity.updated",
               "schedule"
             ],
@@ -14298,6 +14646,14 @@
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
             "title": "Schedule",
             "type": "string"
+          },
+          "states": {
+            "description": "For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
           },
           "tier": {
             "anyOf": [
@@ -14338,6 +14694,7 @@
           "schedule",
           "timezone",
           "fields",
+          "states",
           "action",
           "action_label",
           "input",
@@ -18981,7 +19338,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,\n``in``.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -19848,6 +20205,99 @@
           }
         ],
         "summary": "An entity as it was at a revision",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/transitions/{name}": {
+      "post": {
+        "description": "Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of\nits own, with your reason. It needs one of the transition's lab roles in the record's\nproject (ADR 0116), and someone other than whoever made the transitions it names in\n`not_by`. Send If-Match with the ETag you read.",
+        "operationId": "iki_server_api_entities_transition_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Move a record to another state",
         "tags": [
           "entities"
         ]

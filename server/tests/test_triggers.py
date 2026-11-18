@@ -38,6 +38,7 @@ __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 NEW = "acme/protein.weigh_new_proteins"
 NIGHTLY = "acme/protein.fetch_hemoglobin_nightly"
 CHANGED = "acme/protein.weigh_changed_proteins"
+IN_TESTING = "acme/protein.measure_samples_in_testing"
 
 
 @pytest.fixture(autouse=True)
@@ -87,8 +88,10 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 def test_lists_installed_triggers(world: World) -> None:
     found = api_as(world, "viewer").get("/triggers").json()
-    assert [t["name"] for t in found] == [NIGHTLY, CHANGED, NEW]
-    assert found[2] == {
+    assert [t["name"] for t in found] == [NIGHTLY, IN_TESTING, CHANGED, NEW]
+    assert found[1]["on"] == "entity.transitioned"
+    assert found[1]["states"] == ["in_testing"]
+    assert found[3] == {
         "name": NEW,
         "plugin": "acme/protein",
         "label": "Weigh new proteins",
@@ -98,6 +101,7 @@ def test_lists_installed_triggers(world: World) -> None:
         "schedule": "",
         "timezone": "",
         "fields": [],
+        "states": [],
         "action": COMPUTE,
         "action_label": "Compute properties",
         "input": "protein",

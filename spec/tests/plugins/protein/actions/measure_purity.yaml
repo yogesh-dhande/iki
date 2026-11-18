@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: Action
+name: measure_purity
+label: Measure purity
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [purity] }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/purity.py]
+deterministic: true
+timeout: 5m

@@ -16,7 +16,7 @@ from django.db.models.functions import Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.entities import checks
-from iki_server.entities.fields import QuantityField
+from iki_server.entities.fields import QuantityField, StateField
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
 

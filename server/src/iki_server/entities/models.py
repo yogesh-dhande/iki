@@ -87,6 +87,14 @@ class Entity(models.Model):
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
+    #: Its state locks it (ADR 0118): nothing changes its values until a transition takes
+    #: it out. Kept with its state, which is in its type's table; triggers on the tables
+    #: holding its values refuse changes while it's set.
+    locked = models.BooleanField(
+        default=False,
+        db_default=False,
+        db_comment="Its state locks it (ADR 0118): its values can't change while this is set.",
+    )
     updated_at = models.DateTimeField(db_default=Now())
     #: Its plugin's data was purged (ADR 0092): this row is its tombstone, and its values
     #: are gone. It's in no list or search, and reading it says so.
@@ -334,6 +342,8 @@ class RevisionKind(models.TextChoices):
     EDITED = "edited", "Edited"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
+    #: Moved from one state to another (ADR 0118).
+    TRANSITIONED = "transitioned", "Transitioned"
     #: A registrar changed a registry entry's facts (ADR 0115).
     CURATED = "curated", "Curated"
     #: A registry entry a registrar superseded with another (ADR 0115).
@@ -373,6 +383,11 @@ class Revision(models.Model):
     )
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
+    #: For a transition (ADR 0118): its name, or ``iki.moved`` for a plugin's migration
+    #: moving records out of a state it removed; and the states it went from and to.
+    transition = models.CharField(max_length=63, blank=True, default="", db_default="")
+    state_from = models.CharField(max_length=50, blank=True, default="", db_default="")
+    state_to = models.CharField(max_length=50, blank=True, default="", db_default="")
     #: For a record that moved (ADR 0115): the superseded entry it held before.
     moved_from = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
@@ -393,6 +408,20 @@ class Revision(models.Model):
             models.CheckConstraint(condition=Q(number__gte=1), name="iki_revision_number_min"),
             models.CheckConstraint(
                 condition=Q(kind__in=RevisionKind.values), name="iki_revision_kind"
+            ),
+            # A transition names itself and its states; nothing else does.
+            models.CheckConstraint(
+                condition=Q(kind="transitioned", transition__gt="", state_to__gt="")
+                | (~Q(kind="transitioned") & Q(transition="", state_from="", state_to="")),
+                name="iki_revision_transition",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            # Separation of duties reads who made a record's latest transitions.
+            models.Index(
+                fields=["entity", "transition", "number"],
+                name="iki_revision_transitions",
+                condition=Q(kind="transitioned"),
             ),
         ]
 

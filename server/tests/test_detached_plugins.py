@@ -399,7 +399,7 @@ def test_the_api_says_what_a_detached_plugin_keeps(
 ) -> None:
     editor = api_as(world, "editor")
     abl = protein(editor, world.project)
-    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": True}
+    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": True, "transitions": []}
     deployed("acme/prediction")
     structure = editor.get("/entity-types/acme/protein.ProteinStructure").json()
     assert structure["detached"] is False
@@ -410,4 +410,4 @@ def test_the_api_says_what_a_detached_plugin_keeps(
     deployed("acme/protein", "acme/prediction")
     assert editor.get("/entity-types/acme/protein.Protein").json()["detached"] is True
     assert editor.get("/entity-types/acme/dna.DNASequence").json()["detached"] is False
-    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": False}
+    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": False, "transitions": []}

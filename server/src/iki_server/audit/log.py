@@ -133,6 +133,7 @@ ACTIONS: dict[str, str] = {
     "budget.threshold_reached": "A budget's spending passed a threshold",
     "entity.unlinked": "Took an entity out of a project",
     "entity.moved": "Moved a project's record to the entry that superseded its own",
+    "entity.transitioned": "Moved a record to another state",
     "entry.superseded": "Superseded a registry entry with another",
     "registry.facts_changed": "Changed a registry entry's facts",
     "registry.created": "Added a registry",

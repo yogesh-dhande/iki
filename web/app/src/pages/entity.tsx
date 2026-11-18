@@ -54,6 +54,7 @@ import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
+import { EntityState, StateBadges } from "./entity-state";
 import {
   Badge,
   Button,
@@ -122,7 +123,15 @@ export const KIND: Record<string, string> = {
   curated: "Facts changed",
   superseded: "Superseded",
   moved: "Moved",
+  transitioned: "Moved to another state",
 };
+
+/** What a revision did: its kind, or for a transition (ADR 0118), which, from where to where. */
+export function revisionWhat(revision: Revision): string {
+  const t = revision.transition;
+  if (!t) return KIND[revision.kind] ?? revision.kind;
+  return t.from ? `${t.label}: ${t.from.label} to ${t.to.label}` : `${t.label}: to ${t.to.label}`;
+}
 
 /** The entity the page is about, from the `$ref` in its address, and `?project=` for a
  * record of a registry entry. */
@@ -554,6 +563,7 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         badge={
           <>
             {entity.title !== entity.hrid ? <Badge>{entity.hrid}</Badge> : null}
+            <StateBadges entity={entity} />
             {entity.archived ? (
               <>
                 {" "}
@@ -885,6 +895,7 @@ export function EntityOverview() {
           </p>
         </div>
       ) : null}
+      {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
       {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
       {app ? <AppPanel app={entity} types={types} /> : null}
       {entry ? (
@@ -1093,7 +1104,7 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
     <li className="row row-stacked">
       <div className="row-main">
         <span className="row-title">
-          Revision {revision.number}: {KIND[revision.kind] ?? revision.kind} by {who}
+          Revision {revision.number}: {revisionWhat(revision)} by {who}
         </span>
         <span className="row-meta">
           {revision.created_at ? <RelativeTime value={revision.created_at} /> : null}{" "}

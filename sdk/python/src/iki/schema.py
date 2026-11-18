@@ -571,6 +571,8 @@ class CreatedOut(TypedDict):
     files: dict[str, FileRef]
     hrid: str
     id: str
+    #: Its state locks it: nothing changes its values until a transition.
+    locked: bool
     #: The project that owns it, and decides its changes. Null if you can't see it.
     owner_project: ProjectRef | None
     #: The entities its values refer to that you can read, by ID.
@@ -581,6 +583,8 @@ class CreatedOut(TypedDict):
     reused: bool
     #: Its latest revision. Send it back as If-Match to change it.
     revision: int
+    #: Its state, for a record of a type with states (ADR 0118). Only a transition changes it.
+    state: StateOut | None
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -750,8 +754,10 @@ class EntityAppOut(TypedDict):
 
 
 class EntityCan(TypedDict):
-    #: Change it, archive or restore it: false for everyone when its plugin is detached.
+    #: Change it, archive or restore it: false for everyone when its plugin is detached, or while its state locks it.
     edit: bool
+    #: The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.
+    transitions: list[TransitionCan]
 
 
 class EntityFilters(TypedDict):
@@ -794,12 +800,16 @@ class EntityOut(TypedDict):
     files: dict[str, FileRef]
     hrid: str
     id: str
+    #: Its state locks it: nothing changes its values until a transition.
+    locked: bool
     #: The project that owns it, and decides its changes. Null if you can't see it.
     owner_project: ProjectRef | None
     #: The entities its values refer to that you can read, by ID.
     refs: dict[str, RefOut]
     #: Its latest revision. Send it back as If-Match to change it.
     revision: int
+    #: Its state, for a record of a type with states (ADR 0118). Only a transition changes it.
+    state: StateOut | None
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -840,8 +850,12 @@ class EntityTypeOut(TypedDict):
     #: Qualified: plugin.Type.
     name: str
     plugin: str
+    #: The states its records move through (ADR 0118), the initial one first: its own, or the ancestor's that declares them. Empty if it has none.
+    states: list[StateOut]
     #: The types that extend it, at any depth.
     subtypes: list[str]
+    #: How records go between them.
+    transitions: list[TransitionOut]
     #: A JSON Schema (2020-12) of the entity's values.
     values_schema: dict[str, Any]
     #: Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
@@ -1088,7 +1102,7 @@ class FiringOut(TypedDict):
     #: Whose change fired it; null on a schedule.
     entity: FiredEntityOut | None
     error: FiringErrorOut | None
-    event: Literal['entity.created', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.transitioned', 'entity.updated', 'schedule']
     fired_at: str | None
     id: str
     label: str
@@ -1622,6 +1636,8 @@ class MovedOut(TypedDict):
     files: dict[str, FileRef]
     hrid: str
     id: str
+    #: Its state locks it: nothing changes its values until a transition.
+    locked: bool
     #: The project that owns it, and decides its changes. Null if you can't see it.
     owner_project: ProjectRef | None
     #: The entities its values refer to that you can read, by ID.
@@ -1630,6 +1646,8 @@ class MovedOut(TypedDict):
     repointed: list[RefOut]
     #: Its latest revision. Send it back as If-Match to change it.
     revision: int
+    #: Its state, for a record of a type with states (ADR 0118). Only a transition changes it.
+    state: StateOut | None
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -2169,8 +2187,8 @@ class ProjectTriggerOut(TypedDict):
     name: str
     #: On a schedule, while it's on: when it next runs.
     next_run_at: str | None
-    #: What fires it: an entity of its type created, or changed, or its schedule.
-    on: Literal['entity.created', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.transitioned', 'entity.updated', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: On a schedule: the service account its runs are launched as.
@@ -2179,6 +2197,8 @@ class ProjectTriggerOut(TypedDict):
     run_as_choices: list[PersonRef]
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
+    #: For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+    states: list[str]
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
     tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
     #: On a schedule: the timezone of its times.
@@ -2432,13 +2452,15 @@ class RevisionDetailOut(TypedDict):
     entry: NotRequired[bool]
     #: The files its values and changes refer to that you can read, by ID.
     files: dict[str, FileRef]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved']
+    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'transitioned']
     number: int
     reason: str
     #: The entities its values and changes refer to that you can read, by ID.
     refs: dict[str, RefOut]
     #: The run that made it, when `via` is `run` and you can read the run's project.
     run: NotRequired[RunRefOut | None]
+    #: For a transition (ADR 0118): which, and between which states.
+    transition: RevisionTransitionOut | None
     #: Who, or for a run, who launched it.
     user: UserOut | None
     #: Every field's value as it was at this revision.
@@ -2456,15 +2478,28 @@ class RevisionOut(TypedDict):
     created_at: str | None
     #: It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
     entry: NotRequired[bool]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved']
+    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'transitioned']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project.
     run: NotRequired[RunRefOut | None]
+    #: For a transition (ADR 0118): which, and between which states.
+    transition: RevisionTransitionOut | None
     #: Who, or for a run, who launched it.
     user: UserOut | None
     #: How: web, api, mcp, run, …
     via: str
+
+
+RevisionTransitionOut = TypedDict(
+    'RevisionTransitionOut',
+    {
+        'from': 'StateOut | None',
+        'label': 'str',
+        'name': 'str',
+        'to': 'StateOut',
+    },
+)
 
 
 class RevokeIn(TypedDict):
@@ -3045,6 +3080,14 @@ class StartedOut(TypedDict):
     state: Literal['pending', 'checking', 'ready', 'failed', 'cancelled', 'expired']
 
 
+class StateOut(TypedDict):
+    description: NotRequired[str | None]
+    label: str
+    #: A record in it can't change until a transition takes it out.
+    locks: bool
+    name: str
+
+
 class StepBatchOut(TypedDict):
     #: Such as BAT-000123.
     hrid: str
@@ -3154,6 +3197,41 @@ class TrackOut(TypedDict):
     min: float | None
 
 
+class TransitionCan(TypedDict):
+    """A transition from the record's state (ADR 0118), and whether you may make it."""
+    #: You may make it now.
+    allowed: bool
+    label: str
+    name: str
+    #: Whether it asks why: required, optional, or not at all (null).
+    reason: Literal['required', 'optional'] | None
+    #: The state it leads to.
+    to: str
+    to_label: str
+    #: Why you may not, when you may not.
+    why_not: str | None
+
+
+class TransitionIn(TypedDict):
+    #: Why: a transition may require it, and keeps it.
+    reason: NotRequired[str]
+
+
+TransitionOut = TypedDict(
+    'TransitionOut',
+    {
+        'description': 'str | None',
+        'from': 'list[str]',
+        'label': 'str',
+        'name': 'str',
+        'not_by': 'list[str]',
+        'reason': "Literal['required', 'optional'] | None",
+        'roles': 'list[str]',
+        'to': 'str',
+    },
+)
+
+
 class TriggerFiredOut(TypedDict):
     #: The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as.
     enabled_by: PersonRef
@@ -3184,12 +3262,14 @@ class TriggerOut(TypedDict):
     label: str
     #: Its qualified name, such as `protein.weigh_new_proteins`.
     name: str
-    #: What fires it: an entity of its type created, or changed, or its schedule.
-    on: Literal['entity.created', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.transitioned', 'entity.updated', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
+    #: For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+    states: list[str]
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
     tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
     #: On a schedule: the timezone of its times.
@@ -3628,4 +3708,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionTransitionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TransitionCan', 'TransitionIn', 'TransitionOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']

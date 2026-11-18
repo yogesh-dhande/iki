@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import HttpRequest, HttpResponse
@@ -43,15 +44,16 @@ from iki_server.api.schemas import (
     UserOut,
     agent_out,
 )
-from iki_server.entities import access, registry, schema, search, services, unique
-from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.entities import access, registry, schema, search, services, states, unique
+from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
+from iki_server.plugins.operations import SyncStates
 from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
-from iki_spec.model import EntityType, Track, Viewer
+from iki_spec.model import EntityType, State, Track, Viewer
 from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
@@ -165,6 +167,27 @@ ViewerOut = Annotated[
 ]
 
 
+class StateOut(Schema):
+    name: str
+    label: str
+    description: str | None = None
+    locks: bool = Field(description="A record in it can't change until a transition takes it out.")
+
+
+class TransitionOut(Schema):
+    name: str
+    label: str
+    description: str | None
+    from_: list[str] = Field(alias="from", description="The states it leads out of.")
+    to: str
+    roles: list[str] = Field(description="The lab roles that may make it: any one (ADR 0116).")
+    reason: Literal["required", "optional"] | None
+    not_by: list[str] = Field(
+        description="Whoever made the latest of these transitions on a record can't make this "
+        "one: separation of duties."
+    )
+
+
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -192,12 +215,35 @@ class EntityTypeOut(Schema):
         description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
         "nearest parent's."
     )
+    states: list[StateOut] = Field(
+        description="The states its records move through (ADR 0118), the initial one first: "
+        "its own, or the ancestor's that declares them. Empty if it has none."
+    )
+    transitions: list[TransitionOut] = Field(description="How records go between them.")
+
+
+class TransitionCan(Schema):
+    """A transition from the record's state (ADR 0118), and whether you may make it."""
+
+    name: str
+    label: str
+    to: str = Field(description="The state it leads to.")
+    to_label: str
+    reason: Literal["required", "optional"] | None = Field(
+        description="Whether it asks why: required, optional, or not at all (null)."
+    )
+    allowed: bool = Field(description="You may make it now.")
+    why_not: str | None = Field(description="Why you may not, when you may not.")
 
 
 class EntityCan(Schema):
     edit: bool = Field(
         description="Change it, archive or restore it: false for everyone when its plugin is "
-        "detached."
+        "detached, or while its state locks it."
+    )
+    transitions: list[TransitionCan] = Field(
+        description="The transitions from its state, each with whether you may make it and "
+        "why not (ADR 0118). Empty for a type without states.",
     )
 
 
@@ -255,6 +301,13 @@ class EntityOut(Schema):
     updated_at: datetime
     archived: bool
     archived_at: datetime | None
+    state: StateOut | None = Field(
+        description="Its state, for a record of a type with states (ADR 0118). Only a "
+        "transition changes it.",
+    )
+    locked: bool = Field(
+        description="Its state locks it: nothing changes its values until a transition."
+    )
     values: dict[str, Any] = Field(description="Its fields' values, as its type's schema says.")
     refs: dict[str, RefOut] = Field(
         description="The entities its values refer to that you can read, by ID."
@@ -296,6 +349,22 @@ class EntityPatch(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
+class TransitionIn(Schema):
+    reason: str = Field(
+        "", max_length=2000, description="Why: a transition may require it, and keeps it."
+    )
+
+
+class RevisionTransitionOut(Schema):
+    name: str = Field(
+        description="The transition, or `iki.moved` when a plugin's migration moved the "
+        "record out of a state it removed."
+    )
+    label: str
+    from_: StateOut | None = Field(alias="from")
+    to: StateOut
+
+
 class RunRefOut(Schema):
     id: UUID
     hrid: str
@@ -304,7 +373,16 @@ class RunRefOut(Schema):
 
 class RevisionOut(Schema):
     number: int
-    kind: Literal["created", "edited", "archived", "restored", "curated", "superseded", "moved"]
+    kind: Literal[
+        "created",
+        "edited",
+        "archived",
+        "restored",
+        "curated",
+        "superseded",
+        "moved",
+        "transitioned",
+    ]
     entry: bool = Field(
         False,
         description="It's a revision of the record's registry entry (ADR 0115), not of the "
@@ -325,6 +403,9 @@ class RevisionOut(Schema):
         description="The run that made it, when `via` is `run` and you can read the run's project.",
     )
     reason: str
+    transition: RevisionTransitionOut | None = Field(
+        description="For a transition (ADR 0118): which, and between which states."
+    )
     created_at: datetime | None
 
 
@@ -520,6 +601,40 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "fields": fields,
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
+        **_machine_out(name),
+    }
+
+
+def _state_out(state: State) -> dict[str, Any]:
+    return {
+        "name": state.name,
+        "label": state.label,
+        "description": state.description,
+        "locks": state.locks,
+    }
+
+
+def _machine_out(type_name: str) -> dict[str, Any]:
+    """A type's states and transitions, as ``EntityTypeOut`` has them."""
+    found = states.machine(type_name)
+    if found is None:
+        return {"states": [], "transitions": []}
+    live = sorted((s for s in found.states.values() if not s.removed), key=lambda s: not s.initial)
+    return {
+        "states": [_state_out(s) for s in live],
+        "transitions": [
+            {
+                "name": t.name,
+                "label": t.label,
+                "description": t.description,
+                "from": list(t.from_states),
+                "to": t.to,
+                "roles": list(t.roles),
+                "reason": t.reason,
+                "not_by": list(t.not_by),
+            }
+            for t in found.transitions.values()
+        ],
     }
 
 
@@ -552,14 +667,24 @@ def _display(unit: str | None, display_unit: str | None) -> dict[str, float | No
     return {"display_scale": scale, "display_offset": offset}
 
 
-@router.get("/entity-types", response=list[EntityTypeOut], summary="The installed entity types")
+@router.get(
+    "/entity-types",
+    response=list[EntityTypeOut],
+    summary="The installed entity types",
+    by_alias=True,
+)
 def list_types(request: HttpRequest) -> list[dict[str, Any]]:
     """Every type the deployment's plugins define, abstract ones included, by name."""
     caller(request)
     return [_type_out(t) for _, t in sorted(_types().items())]
 
 
-@router.get("/entity-types/{qualified:name}", response=EntityTypeOut, summary="An entity type")
+@router.get(
+    "/entity-types/{qualified:name}",
+    response=EntityTypeOut,
+    summary="An entity type",
+    by_alias=True,
+)
 def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
     caller(request)
     found = _types().get(name)
@@ -666,8 +791,11 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
     entries = _entries_of(user, entities)
+    current = states.states_of(entities)
+    made = states.made_by(entities)
     out = []
     for entity in entities:
+        state = states.state(entity.type, current.get(entity.pk))
         fields = shape(entity.type).fields()
         mine = _ids_in(fields, values[entity.pk])
         shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
@@ -686,14 +814,44 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "updated_at": entity.updated_at,
                 "archived": entity.archived_at is not None,
                 "archived_at": entity.archived_at,
+                "state": _state_out(state) if state is not None else None,
+                "locked": entity.locked,
                 "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
-                "can": {"edit": entity.owner_project_id in editable and entity.type not in frozen},
+                "can": {
+                    "edit": entity.owner_project_id in editable
+                    and entity.type not in frozen
+                    and not entity.locked,
+                    "transitions": _transitions_can(
+                        user, entity, current.get(entity.pk), made.get(entity.pk)
+                    ),
+                },
             }
         )
     return out
+
+
+def _transitions_can(
+    user: User, entity: Entity, current: str | None, made: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    if current is None:
+        return []
+    found = states.machine(entity.type)
+    assert found is not None  # noqa: S101 - it has a state
+    return [
+        {
+            "name": o.transition.name,
+            "label": o.transition.label,
+            "to": o.transition.to,
+            "to_label": found.states[o.transition.to].label,
+            "reason": o.transition.reason,
+            "allowed": o.why_not is None,
+            "why_not": o.why_not,
+        }
+        for o in states.options(user, entity, current, made)
+    ]
 
 
 def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
@@ -897,6 +1055,8 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     ``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's
     record of its run; ``source``, an imported record's word), all matching one making,
     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
+    A type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,
+    ``in``.
     A search may run for 15 seconds: conditions on indexed fields keep it fast.
     """
     me = caller(request)
@@ -1132,11 +1292,59 @@ def _current(entity: Entity) -> int:
     return Entity.objects.values_list("revision", flat=True).get(pk=entity.pk)
 
 
+@router.post(
+    "/entities/{ref}/transitions/{name}",
+    response=EntityOut,
+    summary="Move a record to another state",
+)
+def transition_entity(
+    request: HttpRequest,
+    ref: str,
+    name: str,
+    payload: TransitionIn,
+    response: HttpResponse,
+    project: UUID | None = None,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+) -> dict[str, Any]:
+    """Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of
+    its own, with your reason. It needs one of the transition's lab roles in the record's
+    project (ADR 0116), and someone other than whoever made the transitions it names in
+    `not_by`. Send If-Match with the ETag you read."""
+    me = caller(request)
+    entity = _find(me, ref, project)
+    expected = _expected(if_match)
+    try:
+        states.transition(me, entity, name, expected_revision=expected, reason=payload.reason)
+    except PermissionDenied as denied:
+        raise Problem(403, str(denied)) from None
+    except services.Stale as stale:
+        raise Problem(
+            412,
+            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
+            "Read it again, then make your change.",
+            code="stale",
+            headers={"ETag": f'"{stale.current}"'},
+        ) from None
+    except Invalid as error:
+        raise Problem(
+            422,
+            "The transition needs more.",
+            errors=[
+                {"pointer": f"#/{key}", "detail": " ".join(messages)}
+                for key, messages in error.errors.items()
+            ],
+        ) from None
+    return _one(me, _find(me, str(entity.pk)), response)
+
+
 # --- History -------------------------------------------------------------------------------------
 
 
 @router.get(
-    "/entities/{ref}/revisions", response=Page[RevisionOut], summary="An entity's revisions"
+    "/entities/{ref}/revisions",
+    response=Page[RevisionOut],
+    summary="An entity's revisions",
+    by_alias=True,
 )
 def list_revisions(
     request: HttpRequest, ref: str, params: Query[PageParams], project: UUID | None = None
@@ -1156,6 +1364,7 @@ def list_revisions(
     "/entities/{ref}/revisions/{number}",
     response=RevisionDetailOut,
     summary="An entity as it was at a revision",
+    by_alias=True,
 )
 def get_revision(
     request: HttpRequest, ref: str, number: int, project: UUID | None = None
@@ -1231,7 +1440,37 @@ def _revision(
         "agent": agent_out(revision.agent, revision.client),
         "run": None if of_entry else runs.get(revision.number),
         "reason": revision.reason,
+        "transition": _revision_transition(revision),
         "created_at": revision.created_at,
+    }
+
+
+def _revision_transition(revision: Revision) -> dict[str, Any] | None:
+    if revision.kind != RevisionKind.TRANSITIONED:
+        return None
+    found = states.machine(Entity.objects.values_list("type", flat=True).get(pk=revision.entity_id))
+
+    def state(name: str) -> dict[str, Any] | None:
+        if not name:
+            return None
+        known = found.states.get(name) if found else None
+        return _state_out(known) if known else {"name": name, "label": name, "locks": False}
+
+    known = found.transitions.get(revision.transition) if found else None
+    label = (
+        known.label
+        if known
+        else (
+            "Moved by its plugin"
+            if revision.transition == SyncStates.MOVED
+            else revision.transition
+        )
+    )
+    return {
+        "name": revision.transition,
+        "label": label,
+        "from": state(revision.state_from),
+        "to": state(revision.state_to),
     }
 
 
@@ -1249,6 +1488,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
         "agent": None,
         "run": None,
         "reason": "",
+        "transition": None,
         "created_at": None,
     }
 
@@ -1257,6 +1497,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
     "/entities/{ref}/provenance",
     response=dict[str, RevisionOut],
     summary="Where each value came from",
+    by_alias=True,
 )
 def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     """For each field, the revision that set its current value: who or what, how and when."""

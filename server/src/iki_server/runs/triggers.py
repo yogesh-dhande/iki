@@ -72,7 +72,11 @@ RECOVER_AFTER = timedelta(minutes=1)
 #: The most firings one housekeeping pass fires.
 RECOVER_AT_MOST = 500
 
-_EVENTS = {RevisionKind.CREATED: "entity.created", RevisionKind.EDITED: "entity.updated"}
+_EVENTS = {
+    RevisionKind.CREATED: "entity.created",
+    RevisionKind.EDITED: "entity.updated",
+    RevisionKind.TRANSITIONED: "entity.transitioned",
+}
 
 #: The run whose results are being written, while they are.
 _writing: ContextVar[ActionRun | None] = ContextVar("iki_trigger_writing", default=None)
@@ -111,7 +115,9 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
     event = _EVENTS.get(RevisionKind(revision.kind))
     if event is None:
         return 0
-    events = [(event, revision.changed_fields)]
+    # A transition's "changes" are the state it entered (ADR 0118).
+    changed = [revision.state_to] if event == "entity.transitioned" else revision.changed_fields
+    events = [(event, changed)]
     if registered is not None:
         events.append(
             ("entity.registered", sorted({*revision.changed_fields, *registered.changed_fields}))
@@ -146,7 +152,8 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
 def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> bool:
     if spec.on != event or not services.is_a(entity_type, spec.type):
         return False
-    return not spec.fields or bool(set(spec.fields) & set(changed))
+    watched = spec.states if event == "entity.transitioned" else spec.fields
+    return not watched or bool(set(watched) & set(changed))
 
 
 # --- Firing ------------------------------------------------------------------------------------

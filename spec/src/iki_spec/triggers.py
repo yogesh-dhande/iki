@@ -39,6 +39,7 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         schedule=body.get("schedule") or "",
         timezone=body.get("timezone") or "",
         fields=tuple(body.get("fields") or ()),
+        states=tuple(body.get("states") or ()),
         run=body["run"],
         # Filled in by `check` when it's left out and one input takes the type.
         input=body.get("input") or "",
@@ -103,6 +104,7 @@ class _Rules:
             target = self.s.reference(trigger.type, source, ("type",))
             if target is not None:
                 self.watched(trigger, source)
+                self.entered(trigger, source)
             if (
                 target is not None
                 and trigger.on == "entity.registered"
@@ -167,7 +169,7 @@ class _Rules:
         return trigger
 
     def scheduled(self, trigger: Trigger, source: Document) -> None:
-        for name in ("type", "fields", "input"):
+        for name in ("type", "fields", "states", "input"):
             if getattr(trigger, name):
                 self.add(
                     "trigger-schedule-entity",
@@ -235,6 +237,40 @@ class _Rules:
                     hint=schemas._did_you_mean(
                         name, [n for n, x in fields.items() if not x.removed]
                     ),
+                )
+
+    def entered(self, trigger: Trigger, source: Document) -> None:
+        """A trigger on transitions: its type has states, and it names some of them."""
+        if trigger.on != "entity.transitioned":
+            if trigger.states:
+                self.add(
+                    "trigger-states-not-transitioned",
+                    "Only a transition enters a state: `states` is for `on: entity.transitioned`.",
+                    source,
+                    ("states",),
+                    key=True,
+                )
+            return
+        target = self.s.types[trigger.type]
+        machine = next((t for t in [target, *self.s.ancestors(target)] if t.states), None)
+        if machine is None:
+            self.add(
+                "trigger-transitioned-without-states",
+                f"`{trigger.type}` has no states, so its records never make a transition.",
+                source,
+                ("on",),
+                hint="Declare `states:` and `transitions:` on the type, or use another `on:`.",
+            )
+            return
+        live = machine.live_states
+        for index, name in enumerate(trigger.states):
+            if name not in live:
+                self.add(
+                    "unknown-state",
+                    f"`{name}` isn't one of `{machine.qualified_name}`'s states, or it's removed.",
+                    source,
+                    ("states", index),
+                    hint=schemas._did_you_mean(name, list(live)),
                 )
 
     def given(self, trigger: Trigger, action: Action, source: Document) -> str:

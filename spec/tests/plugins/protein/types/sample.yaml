@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+label: Sample
+schema_version: 1
+hrid: { prefix: SMP }
+fields:
+  label: { type: string, required: true, unique: true, indexed: true, max_length: 200 }
+  protein: { type: ref, to: Protein }
+  purity: { type: float, min: 0, max: 100 }
+  tags: { type: list, items: { type: string, max_length: 40 } }
+  notes: { type: text }
+states:
+  received: { label: Received, initial: true }
+  in_testing: { label: In testing }
+  in_review: { label: In review }
+  reviewed: { label: Reviewed, locks: true }
+  released: { label: Released, locks: true, description: Its results can be used. }
+transitions:
+  start: { label: Start testing, from: [received], to: in_testing, roles: [analyst] }
+  submit: { label: Submit for review, from: [in_testing], to: in_review, roles: [analyst] }
+  approve: { label: Approve, from: [in_review], to: reviewed, roles: [reviewer], not_by: [submit] }
+  send_back:
+    label: Send back
+    from: [in_review, reviewed]
+    to: in_testing
+    roles: [reviewer, qa]
+    reason: required
+  release:
+    label: Release
+    from: [reviewed]
+    to: released
+    roles: [qa]
+    not_by: [submit, approve]
+    reason: optional
+  reopen: { label: Reopen, from: [released], to: in_testing, roles: [qa], reason: required }

@@ -19,6 +19,10 @@ type's history:
   current and historical (``ConvertUnit``).
 - When a type is renamed, the migration renames it in ``iki_entity.type``.
 - A new history table is made append-only for every role (``AppendOnly``).
+- A type's states (ADR 0118) are kept: a state that disappears is refused
+  unless the manifest marks it removed and says where its records go, and
+  the migration moves them and keeps which records are locked
+  (``SyncStates``). A type can't drop its states.
 
 Migrations are written as Django renders them, never through a code
 formatter, so every machine writes the same files.
@@ -35,6 +39,8 @@ from pathlib import Path
 from typing import Any
 
 HISTORY = "_history"
+#: The column a record's state is kept in (ADR 0118), as iki_spec.model names it.
+STATE_COLUMN = "iki_state"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -106,7 +112,12 @@ def _autodetector() -> type:
     from django.db.migrations.migration import Migration
     from django.db.migrations.state import ProjectState
 
-    from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+    from iki_server.plugins.operations import (
+        AppendOnly,
+        ConvertUnit,
+        RenameEntityType,
+        SyncStates,
+    )
 
     class PluginAutodetector(MigrationAutodetector):
         def __init__(
@@ -131,6 +142,9 @@ def _autodetector() -> type:
                     if any(isinstance(op, AppendOnly) for op in operations):
                         # AppendOnly's trigger function.
                         needs.append(("iki_entities", "0002_history_append_only"))
+                    if any(isinstance(op, SyncStates) for op in operations):
+                        # Transition revisions' columns, and iki_entity.locked.
+                        needs.append(("iki_entities", "0012_states"))
                     if any(_uses_trigrams(op) for op in operations):
                         # Trigram indexes need pg_trgm.
                         needs.append(("iki_entities", "0004_search"))
@@ -167,6 +181,21 @@ def _autodetector() -> type:
                         "  If you renamed the type, run this again and answer yes when asked "
                         "whether it was renamed."
                     )
+                if isinstance(op, migrations.RemoveField) and op.name == STATE_COLUMN:
+                    owner = self._describe(app_label, op.model_name, self.from_state)
+                    raise CommandError(
+                        f"{owner} no longer has states, but its records are each in one. "
+                        "A type keeps its states once it has them (ADR 0118).\n"
+                        "  Put them back. To retire some, mark each `removed: true` with "
+                        "`moved_to:` a state that remains."
+                    )
+                if isinstance(op, migrations.AddField) and op.name == STATE_COLUMN:
+                    # Records there already start in the initial state; some may lock.
+                    out.append(SyncStates(op.model_name, {}, getattr(op.field, "locking", ()), ()))
+                if isinstance(op, migrations.AlterField) and op.name == STATE_COLUMN:
+                    old = self.from_state.models[app_label, op.model_name.lower()].fields[op.name]
+                    out.append(self._states(app_label, op, old))
+                    continue
                 if isinstance(op, migrations.AlterField):
                     old = self.from_state.models[app_label, op.model_name.lower()].fields[op.name]
                     if _is_history(op.model_name):
@@ -182,6 +211,22 @@ def _autodetector() -> type:
                         RenameEntityType(f"{plugin}.{op.old_name}", f"{plugin}.{op.new_name}")
                     )
             return out
+
+        def _states(self, app_label: str, op: Any, old: Any) -> Any:  # noqa: ANN401 - Django fields and operations
+            """What keeps records in their states as the type's change (ADR 0118)."""
+            gone = [s for s in old.states if s not in op.field.states]
+            stranded = [s for s in gone if s not in op.field.moved]
+            if stranded:
+                owner = self._describe(app_label, op.model_name, self.from_state)
+                names = ", ".join(f"`{s}`" for s in stranded)
+                raise CommandError(
+                    f"{owner} no longer has the state{'s' if len(stranded) > 1 else ''} "
+                    f"{names}, which records may be in.\n"
+                    "  Keep each in the manifest, marked `removed: true` with `moved_to:` the "
+                    "state its records move to. The migration moves them, with a revision each."
+                )
+            moved = {s: op.field.moved[s] for s in gone}
+            return SyncStates(op.model_name, moved, op.field.locking, old.locking)
 
         def _describe(self, app_label: str, model_name: str, state: ProjectState) -> str:
             name = state.models[app_label, model_name.lower()].name

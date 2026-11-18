@@ -1337,3 +1337,138 @@ def test_lab_roles_need_a_name_and_a_label(tmp_path: Path, roles: str) -> None:
 def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:
     plugin = PLUGIN + "roles:\n  qa: { label: QA }\n  quality: { label: qa }\n"
     assert "both called" in only(make(tmp_path, TYPE, plugin), "duplicate-role-label")
+
+
+# --- Record states (ADR 0118) ------------------------------------------------------------------
+
+STATES = """\
+states:
+  received: { label: Received, initial: true }
+  testing: { label: In testing }
+  released: { label: Released, locks: true }
+transitions:
+  start: { label: Start, from: [received], to: testing, roles: [analyst] }
+  release: { label: Release, from: [testing], to: released, roles: [qa], not_by: [start] }
+  reopen: { label: Reopen, from: [released], to: testing, roles: [qa], reason: required }
+"""
+RELEASED = "  released: { label: Released, locks: true }\n"
+
+
+def states(body: str = STATES) -> str:
+    return TYPE + body
+
+
+def test_a_type_declares_states_and_transitions(tmp_path: Path) -> None:
+    result = make(tmp_path, states(), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    assert assay.initial_state == "received"
+    assert assay.live_states == ("received", "testing", "released")
+    assert assay.locking_states == {"released"}
+    release = assay.transitions["release"]
+    assert (release.from_states, release.to, release.roles, release.not_by) == (
+        ("testing",),
+        "released",
+        ("acme/lab.qa",),
+        ("start",),
+    )
+    assert assay.transitions["reopen"].reason == "required"
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code", "message"),
+    [
+        (STATES.replace(", initial: true", ""), "state-initial", "Exactly one state"),
+        (
+            STATES.replace("{ label: In testing }", "{ label: In testing, initial: true }"),
+            "state-initial",
+            "`received`, `testing` all are",
+        ),
+        (
+            STATES.replace("Received, initial: true", "Received, initial: true, locks: true"),
+            "state-initial",
+            "can't lock them",
+        ),
+        (
+            STATES.replace("to: testing, roles: [analyst]", "to: tested, roles: [analyst]"),
+            "unknown-state",
+            "`tested`",
+        ),
+        (STATES.replace("not_by: [start]", "not_by: [begin]"), "unknown-transition", "`begin`"),
+        (
+            STATES.replace("roles: [analyst]", "roles: [chemist]"),
+            "unknown-role",
+            "no lab role `chemist`",
+        ),
+        (
+            STATES.replace("from: [received], to: testing", "from: [testing], to: testing"),
+            "transition-to-itself",
+            "to itself",
+        ),
+        (
+            STATES.replace(RELEASED, RELEASED + "  lost: { label: Lost }\n"),
+            "state-unreachable",
+            "No transitions lead to `lost`",
+        ),
+        (
+            STATES.replace(
+                RELEASED, RELEASED + "  old: { label: Old, removed: true, moved_to: gone }\n"
+            ),
+            "unknown-state",
+            "`gone`",
+        ),
+    ],
+)
+def test_states_are_checked(tmp_path: Path, body: str, code: str, message: str) -> None:
+    assert message in only(make(tmp_path, states(body), ROLES), code)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        STATES.replace("transitions:", "steps:"),  # states without transitions
+        STATES.replace("roles: [analyst]", "roles: []"),  # a transition anyone may make
+        STATES.replace(", roles: [analyst]", ""),
+        STATES.replace("reason: required", "reason: maybe"),
+        STATES.replace("Released, locks: true", "Released, removed: true"),  # nowhere to go
+        STATES.replace("received:", "Received:"),
+    ],
+)
+def test_states_must_be_well_formed(tmp_path: Path, body: str) -> None:
+    assert "schema" in codes(make(tmp_path, states(body), ROLES))
+
+
+def test_a_removed_state_says_where_its_records_go(tmp_path: Path) -> None:
+    body = STATES.replace(
+        RELEASED, RELEASED + "  queued: { label: Queued, removed: true, moved_to: received }\n"
+    )
+    result = make(tmp_path, states(body), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    assert "queued" not in assay.live_states
+    assert assay.states["queued"].moved_to == "received"
+
+
+def test_a_subtype_has_its_parents_states(tmp_path: Path) -> None:
+    child = (
+        "apiVersion: iki/v1\nkind: EntityType\nname: Elisa\nextends: Assay\n"
+        "schema_version: 1\nhrid: { prefix: ELI }\n"
+    )
+    assert (
+        make(tmp_path, {"types/assay.yaml": states(), "types/elisa.yaml": child}, ROLES).problems
+        == []
+    )
+    own = child + STATES
+    message = only(
+        make(tmp_path, {"types/assay.yaml": states(), "types/elisa.yaml": own}, ROLES),
+        "states-inherited",
+    )
+    assert "extends `acme/lab.Assay`, which has states" in message
+
+
+def test_fields_named_iki_are_reserved(tmp_path: Path) -> None:
+    body = TYPE + "fields:\n  iki_state: { type: string }\n"
+    assert "`iki_state` is reserved" in only(make(tmp_path, body), "reserved-name")
