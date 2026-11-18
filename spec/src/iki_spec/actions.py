@@ -705,6 +705,16 @@ class _Rules:
                         name, [n for n, x in fields.items() if not x.removed]
                     ),
                 )
+            elif f.type == "state":
+                self.add(
+                    "updates-state",
+                    f"`{name}` is a state field: people with its states' lab roles set it, "
+                    "one revision each (ADR 0125), not an action's results.",
+                    source,
+                    where,
+                    hint="Read it as an input instead, or trigger the action on "
+                    "`entity.state_changed`.",
+                )
             elif f.immutable:
                 self.add(
                     "updates-immutable",

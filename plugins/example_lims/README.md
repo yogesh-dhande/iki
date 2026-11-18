@@ -26,24 +26,29 @@ It shows the parts of Iki such a plugin needs:
   proxy. The deployment names the host in the `lims_host` setting, which
   `network: ["{settings.lims_host}"]` refers to
   ([ADR 0083](../../docs/adr/0083-a-setting-can-name-a-host-an-action-reaches.md)).
-- **Lab roles**: Analyst, Reviewer and QA, which a project's Admins give
-  its members on the Members page, beside their project role
+- **Lab roles**: Coordinator, Engineer, Analyst, Reviewer and QA, which a
+  project's Admins give its members on the Members page, beside their
+  project role
   ([ADR 0116](../../docs/adr/0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)).
   They grant no access by themselves; what needs each is listed with it.
-- **`Sample`**, a protein's sample as the lab tests it, with states
-  ([ADR 0118](../../docs/adr/0118-a-record-moves-through-its-types-states.md)):
+- **`Sample`**, a protein's sample as the lab tests it, with a `status`
+  state field
+  ([ADR 0125](../../docs/adr/0125-a-state-is-a-field-each-state-says-who-sets-it.md)):
   Registered, Received, In testing, In review, then Approved, Released or
-  Rejected. Analysts receive, test and submit it; a Reviewer who didn't
-  submit it approves it or sends it back, with a reason; QA, who neither
-  submitted nor approved it, releases or rejects it. Approved, Released and
-  Rejected lock it: its results can't change, by anyone or anything, until
-  it's sent back or reopened, and each move is kept in its history with who
-  made it and why.
+  Rejected. Each state says which lab roles set it, from any other:
+  Coordinators register and receive samples, Analysts test and submit
+  them, Reviewers approve them, and QA releases or rejects them. Sending one
+  back to testing, rejecting it, or registering it again asks why. Approved,
+  Released and Rejected lock it: its results can't change, by anyone or
+  anything, until someone sets its status back, and each change is kept in
+  its history with who made it and why. Keeping the reviewer apart from the
+  analyst who submitted it (four eyes) comes with guards, rules a plugin
+  declares on top of who may set a state.
 - **Who has each sample**
   ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
   its `analyst`, `reviewer` and `qa`, each someone in the project with that
   lab role, and its `due_on` date. Each is assigned the sample in its turn:
-  the analyst while it's Received or In testing, the reviewer while it's In
+  the analyst while its status is Received or In testing, the reviewer while it's In
   review, QA once it's Approved, and it's on their My work, soonest due
   first. A received sample nobody has is open to everyone with the
   Analyst role, who can take it. An approved sample is locked, its people
@@ -59,7 +64,11 @@ It also books instruments, to show a component that shows many entities
 ([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places.md)):
 
 - **`Instrument`** and **`Booking`**, types of its own: a booking is time on
-  an instrument, from `starts_at` to `ends_at`, for a `purpose`.
+  an instrument, from `starts_at` to `ends_at`, for a `purpose`. An
+  instrument has two state fields, set on their own: its `service` (In
+  service, Out of service or Retired, which locks it) and its `calibration`
+  (Due, Calibrated or Failed). Engineers set both; an Analyst can say it's
+  out of service, with a reason, and QA that its calibration is due.
 - **`booking_calendar`**, a component that draws bookings by day, a month at
   a time. It's a tab on each instrument's page (its bookings), a way to show
   the grid of bookings ("Show as: Calendar"), a section of each project's

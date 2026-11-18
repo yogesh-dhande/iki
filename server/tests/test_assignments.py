@@ -12,7 +12,7 @@ from org_world import World, build_world
 from test_api_entities import api_as, create, patch
 from test_lab_roles import give, membership
 from test_runs import world
-from test_states import ANALYST, QA, REVIEWER, SAMPLE, imported_values, moved, roles
+from test_states import ANALYST, QA, REVIEWER, SAMPLE, imported_values, roles, set_
 from test_workers import keep_connection
 
 from iki_server.accounts import service_accounts
@@ -83,7 +83,11 @@ def test_a_type_says_which_fields_name_people(world: World) -> None:
         "role_label": "Analyst",
         "assignment": True,
     }
-    assert fields["analyst"]["assignment_states"] == ["received", "in_testing"]
+    assert (fields["analyst"]["assignment_field"], fields["analyst"]["assignment_states"]) == (
+        "status",
+        ["received", "in_testing"],
+    )
+    assert fields["helpers"]["assignment_field"] is None
     assert (fields["helpers"]["items"], fields["helpers"]["assignment"]) == ("person", True)
     assert (fields["received_by"]["role"], fields["received_by"]["assignment"]) == (None, False)
     assert found["due"] == "due_on"
@@ -202,7 +206,7 @@ def test_assigning_is_audited_and_told(world: World) -> None:
     assert told(world.users["editor"], "assignment.assigned") == []
 
 
-def test_my_work_follows_the_records_state(world: World) -> None:
+def test_my_work_follows_the_records_state_field(world: World) -> None:
     roles(world, viewer=(ANALYST,), runner=(REVIEWER,), admin=(QA,))
     first = made(world, {"analyst": pk(world, "viewer"), "due_on": "2026-12-01"}, "S-1")
     second = made(world, {"analyst": pk(world, "viewer"), "due_on": "2026-11-20"}, "S-2")
@@ -222,40 +226,60 @@ def test_my_work_follows_the_records_state(world: World) -> None:
     rest = api_as(world, "viewer").get(f"/me/work?limit=2&cursor={page['next_cursor']}").json()
     assert hrids(page["items"] + rest["items"]) == hrids(mine)
     assert rest["next_cursor"] is None
-    assert hrids(work(world, "viewer", "?state=in_review")) == []
+    assert hrids(work(world, "viewer", "?state=status.in_review")) == []
+    # A state is named with its field: a bare one isn't a state field's.
+    bare = problem(
+        api_as(world, "viewer").get("/me/work?state=in_review"), 422, "validation_failed"
+    )
+    assert "`in_review` isn't a state field's state" in bare["errors"][0]["detail"]
     assert hrids(work(world, "runner")) == []
 
-    # Once it's in review, it's its reviewer's work, no longer its analyst's.
+    # Once its status is In review, it's its reviewer's work, no longer its analyst's.
     edit(world, first["id"], {"reviewer": pk(world, "runner")})
-    moved(world, "viewer", first["id"], "start")
-    moved(world, "viewer", first["id"], "submit")
+    set_(world, "viewer", first["id"], "status", "in_testing")
+    set_(world, "viewer", first["id"], "status", "in_review")
     assert hrids(work(world, "runner")) == [first["hrid"]]
     assert first["hrid"] not in hrids(work(world, "viewer"))
-    assert hrids(work(world, "runner", "?state=in_review")) == [first["hrid"]]
-    assert hrids(work(world, "runner", "?state=received")) == []
+    assert hrids(work(world, "runner", "?state=status.in_review")) == [first["hrid"]]
+    assert hrids(work(world, "runner", "?state=status.received")) == []
+    # Several of a field's states are any of them; several fields, all of them.
+    both = "?state=status.received&state=status.in_review"
+    assert hrids(work(world, "runner", both)) == [first["hrid"]]
+    assert hrids(work(world, "runner", both + "&state=custody.in_lab")) == [first["hrid"]]
+    assert hrids(work(world, "runner", both + "&state=custody.quarantined")) == []
+    # Its other state field doesn't change whose work it is.
+    set_(world, "admin", first["id"], "custody", "disposed", "Used up")
+    assert hrids(work(world, "runner")) == [first["hrid"]]
+    # A type without the state field named has none.
+    assert hrids(work(world, "runner", "?state=stage.in_review")) == []
 
 
 def test_whoever_is_named_is_told_when_its_their_turn(world: World) -> None:
     roles(world, viewer=(ANALYST,), runner=(REVIEWER,))
     body = made(world, {"reviewer": pk(world, "runner")})
-    # Named before it's in review: not theirs yet, so they aren't told yet.
+    # Named before its status is In review: not theirs yet, so they aren't told yet.
     assert told(world.users["runner"], "assignment.assigned") == []
     assert hrids(work(world, "runner")) == []
-    moved(world, "viewer", body["id"], "start")
-    moved(world, "viewer", body["id"], "submit")
+    set_(world, "viewer", body["id"], "status", "in_testing")
+    set_(world, "viewer", body["id"], "status", "in_review")
     (ready,) = told(world.users["runner"], "assignment.ready")
     assert ready.title == f"{body['hrid']} is ready for you, as Reviewer"
     assert hrids(work(world, "runner")) == [body["hrid"]]
+    # Set again to a state it's theirs in, or its other state field changing: told once.
+    roles(world, viewer=(ANALYST, QA))
+    set_(world, "viewer", body["id"], "custody", "quarantined", "Leaking")
+    set_(world, "viewer", body["id"], "custody", "in_lab")
+    assert len(told(world.users["runner"], "assignment.ready")) == 1
 
 
 def test_a_locked_records_people_are_locked_with_it(world: World) -> None:
     roles(world, editor=(ANALYST,), admin=(REVIEWER, QA), viewer=(ANALYST, QA))
     body = made(world)
-    moved(world, "editor", body["id"], "start")
-    moved(world, "editor", body["id"], "submit")
-    moved(world, "admin", body["id"], "approve")
+    set_(world, "editor", body["id"], "status", "in_testing")
+    set_(world, "editor", body["id"], "status", "in_review")
+    set_(world, "admin", body["id"], "status", "reviewed")
     refused = problem(edit(world, body["id"], {"analyst": pk(world, "viewer")}), 409, "refused")
-    assert "which locks it" in refused["detail"]
+    assert "is locked by its Status (Reviewed)" in refused["detail"]
     bulk = api_as(world, "admin").post(
         "/entities/assign",
         {"entities": [body["id"]], "field": "analyst", "person": pk(world, "viewer")},
@@ -266,7 +290,7 @@ def test_a_locked_records_people_are_locked_with_it(world: World) -> None:
     # The database refuses too, for a list naming people as for its other values.
     table = assignments.of(SAMPLE)[0].part.list_model("helpers")._meta.db_table
     with (
-        pytest.raises(IntegrityError, match="is locked by its state"),
+        pytest.raises(IntegrityError, match="is locked by its status"),
         transaction.atomic(),
         connection.cursor() as cursor,
     ):
@@ -275,15 +299,8 @@ def test_a_locked_records_people_are_locked_with_it(world: World) -> None:
             [body["id"], pk(world, "viewer")],
         )
     # Out of the locking state, it can be reassigned again.
-    moved(world, "viewer", body["id"], "release")
-    api = api_as(world, "viewer")
-    etag = api.get(f"/entities/{body['id']}")["ETag"]
-    reopened = api.post(
-        f"/entities/{body['id']}/transitions/reopen",
-        {"reason": "Wrong lot"},
-        headers={"If-Match": etag},
-    )
-    assert reopened.status_code == 200, reopened.content
+    set_(world, "viewer", body["id"], "status", "released")
+    set_(world, "viewer", body["id"], "status", "in_testing", "Wrong lot")
     changed = edit(world, body["id"], {"analyst": pk(world, "viewer")})
     assert changed.status_code == 200, changed.content
     event = AuditEvent.objects.filter(action="entity.assigned", target_id=body["id"]).first()
@@ -413,9 +430,9 @@ def test_many_are_reassigned_at_once_and_each_person_is_told_once(world: World) 
     )
     ids = [made(world, {"analyst": pk(world, "viewer")}, f"S-{n}")["id"] for n in range(3)]
     locked = made(world, {}, "S-L")
-    moved(world, "editor", locked["id"], "start")
-    moved(world, "editor", locked["id"], "submit")
-    moved(world, "admin", locked["id"], "approve")
+    set_(world, "editor", locked["id"], "status", "in_testing")
+    set_(world, "editor", locked["id"], "status", "in_review")
+    set_(world, "admin", locked["id"], "status", "reviewed")
     Notification.objects.all().delete()
     answer = api_as(world, "editor").post(
         "/entities/assign",

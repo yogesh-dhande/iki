@@ -1,7 +1,7 @@
 /**
  * People in records (ADR 0122) against a fake API: whom a record names and taking it,
- * naming people in a transition, My work, finding records by whom they name, and
- * reassigning many from the grid.
+ * whose work it is in its state fields' states (ADR 0125), My work, finding records by
+ * whom they name, and reassigning many from the grid.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -20,10 +20,21 @@ const RECEIVED: Schemas["StateOut"] = {
   name: "received",
   label: "Received",
   description: null,
+  set_by: ["iki/lims.analyst"],
   locks: false,
+  reason: null,
 };
 const IN_TESTING: Schemas["StateOut"] = { ...RECEIVED, name: "in_testing", label: "In testing" };
 const IN_REVIEW: Schemas["StateOut"] = { ...RECEIVED, name: "in_review", label: "In review" };
+
+const STATUS = field({
+  name: "status",
+  label: "Status",
+  type: "state",
+  plugin: "iki/lims",
+  initial: "received",
+  states: [RECEIVED, IN_TESTING, IN_REVIEW],
+});
 
 const ANALYST = field({
   name: "analyst",
@@ -32,6 +43,7 @@ const ANALYST = field({
   role: "iki/lims.analyst",
   role_label: "Analyst",
   assignment: true,
+  assignment_field: "status",
   assignment_states: ["received", "in_testing"],
 });
 const REVIEWER = field({
@@ -41,6 +53,7 @@ const REVIEWER = field({
   role: "iki/lims.reviewer",
   role_label: "Reviewer",
   assignment: true,
+  assignment_field: "status",
   assignment_states: ["in_review"],
 });
 
@@ -53,20 +66,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   description: null,
   hrid_prefix: "SMP",
   identity: [],
-  fields: [nth(PROTEIN.fields, 0), ANALYST, REVIEWER],
-  states: [RECEIVED, IN_TESTING, IN_REVIEW],
-  transitions: [
-    {
-      name: "submit",
-      label: "Submit for review",
-      description: null,
-      from: ["in_testing"],
-      to: "in_review",
-      roles: ["iki/lims.analyst"],
-      reason: null,
-      not_by: [],
-    },
-  ],
+  fields: [nth(PROTEIN.fields, 0), STATUS, ANALYST, REVIEWER],
 };
 
 function person(id: string, name: string, email: string | null = null): Schemas["PersonOut"] {
@@ -80,25 +80,10 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     type: "iki/lims.Sample",
     title: "Lot 7",
     revision: 2,
-    values: { name: "Lot 7", analyst: ANA, reviewer: null },
+    values: { name: "Lot 7", status: "in_testing", analyst: ANA, reviewer: null },
     people: { [ANA]: person(ANA, "Ana Lima", "ana@example.com") },
-    state: IN_TESTING,
     needs_reassigning: [],
-    can: {
-      edit: true,
-      take: [],
-      transitions: [
-        {
-          name: "submit",
-          label: "Submit for review",
-          to: "in_review",
-          to_label: "In review",
-          reason: null,
-          allowed: true,
-          why_not: null,
-        },
-      ],
-    },
+    can: { edit: true, take: [], states: {} },
     ...overrides,
   });
 }
@@ -115,7 +100,7 @@ describe("whom a record names", () => {
   it("shows its assignees, whose work it is now, and who needs replacing", async () => {
     onSample(
       sample({
-        values: { name: "Lot 7", analyst: ANA, reviewer: BO },
+        values: { name: "Lot 7", status: "in_testing", analyst: ANA, reviewer: BO },
         people: {
           [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
           [BO]: { ...person(BO, "Bo Chen"), active: false },
@@ -127,9 +112,9 @@ describe("whom a record names", () => {
     const card = await screen.findByRole("region", { name: "Assigned" });
     const rows = within(card).getAllByRole("listitem");
     expect(nth(rows, 0)).toHaveTextContent("Analyst: Ana Lima");
-    expect(nth(rows, 0)).toHaveTextContent("Their work now: it’s In testing.");
+    expect(nth(rows, 0)).toHaveTextContent("Their work now: its Status is In testing.");
     expect(nth(rows, 1)).toHaveTextContent("Reviewer: Bo Chen (deactivated) Needs reassigning");
-    expect(nth(rows, 1)).toHaveTextContent("Their work once it’s In review.");
+    expect(nth(rows, 1)).toHaveTextContent("Their work once its Status is In review.");
     expect(within(card).getByRole("note")).toHaveTextContent(
       "Bo Chen (deactivated) can’t be Reviewer any more (They were deactivated.)",
     );
@@ -138,20 +123,18 @@ describe("whom a record names", () => {
   it("lets someone with the field's lab role take open work", async () => {
     onSample(
       sample({
-        state: IN_REVIEW,
-        values: { name: "Lot 7", analyst: ANA, reviewer: null },
-        can: { edit: true, take: ["reviewer"], transitions: [] },
+        values: { name: "Lot 7", status: "in_review", analyst: ANA, reviewer: null },
+        can: { edit: true, take: ["reviewer"], states: {} },
       }),
     );
     const taken = sample({
       revision: 3,
-      state: IN_REVIEW,
-      values: { name: "Lot 7", analyst: ANA, reviewer: ME.id },
+      values: { name: "Lot 7", status: "in_review", analyst: ANA, reviewer: ME.id },
       people: {
         [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
         [ME.id]: person(ME.id, ME.name, ME.email),
       },
-      can: { edit: true, take: [], transitions: [] },
+      can: { edit: true, take: [], states: {} },
     });
     answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, taken);
     const { user } = await renderApp("/entities/SMP-000001/");
@@ -217,16 +200,16 @@ describe("My work", () => {
     );
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "Samples");
-    await user.selectOptions(screen.getByRole("combobox", { name: "State" }), "In testing");
+    await user.selectOptions(screen.getByRole("combobox", { name: "State" }), "Status: In testing");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/lims.Sample",
-        state: "in_testing",
+        state: "status.in_testing",
       });
     });
     const sent = calls("GET", "/api/v1/me/work");
     expect(sent.at(-1)?.query.getAll("type")).toEqual(["iki/lims.Sample"]);
-    expect(sent.at(-1)?.query.getAll("state")).toEqual(["in_testing"]);
+    expect(sent.at(-1)?.query.getAll("state")).toEqual(["status.in_testing"]);
     expect(sent.at(-1)?.query.get("sort")).toBe("due");
   });
 
@@ -236,7 +219,15 @@ describe("My work", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/me/work/open",
-      page([{ entity: sample({ state: IN_REVIEW }), fields: ["reviewer"], due: null }]),
+      page([
+        {
+          entity: sample({
+            values: { name: "Lot 7", status: "in_review", analyst: ANA, reviewer: null },
+          }),
+          fields: ["reviewer"],
+          due: null,
+        },
+      ]),
     );
     answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, sample({ revision: 3 }));
     const { user } = await renderApp("/work/?open=true");

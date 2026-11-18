@@ -75,7 +75,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import is_a
 from iki_spec import schemas
-from iki_spec.model import STATE_COLUMN, Software
+from iki_spec.model import Software
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -1268,12 +1268,7 @@ def _insert_part(
     new = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE {condition}"
     key = part.model._meta.db_table
     meta = part.model._meta
-    # A record's state starts as its type's initial one, the column's default (ADR 0118).
-    columns = [
-        (f.name, _column(f))
-        for f in meta.local_concrete_fields
-        if not f.primary_key and f.name != STATE_COLUMN
-    ]
+    columns = [(f.name, _column(f)) for f in meta.local_concrete_fields if not f.primary_key]
     renames = "".join(
         f" || jsonb_build_object({_literal(column)}, s.parts->{_literal(key)}->{_literal(name)})"
         for name, column in columns

@@ -158,7 +158,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "create_entity",
         "update_entity",
         "set_entity_archived",
-        "transition_entity",
+        "set_entity_state",
         "describe_apps",
         "check_app",
         "create_app",
@@ -191,7 +191,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "create_entity",
         "update_entity",
         "set_entity_archived",
-        "transition_entity",
+        "set_entity_state",
         "run_action",
         "run_batch",
         "cancel_run",
@@ -654,9 +654,9 @@ async def test_agents_create_and_change_entities_on_the_record(world: World) -> 
     ]
 
 
-async def test_agents_move_records_through_their_states(world: World) -> None:
-    """ADR 0118: an agent sees what the person may do, does it on the record, and can't
-    change a record its state locks."""
+async def test_agents_set_records_states(world: World) -> None:
+    """ADR 0125: an agent sees which states the person may set, sets one on the record, and
+    can't change a record a state locks."""
     from test_lab_roles import give, membership
 
     from iki_server.entities.models import Entity
@@ -677,35 +677,42 @@ async def test_agents_move_records_through_their_states(world: World) -> None:
         )
     )
     found = data(await tool(token, "get_entity", ref=made["hrid"]))["entity"]
-    assert found["state"]["name"] == "received"
-    assert [(t["name"], t["allowed"]) for t in found["can"]["transitions"]] == [("start", True)]
+    assert found["values"]["status"] == "received"
+    assert [(o["name"], o["allowed"]) for o in found["can"]["states"]["status"]] == [
+        ("in_testing", True),
+        ("in_review", True),
+        ("reviewed", False),
+        ("released", False),
+    ]
     unknown = error(
         await tool(
             token,
-            "transition_entity",
+            "set_entity_state",
             ref=made["hrid"],
             revision=1,
-            transition="ship",
+            field="stage",
+            state="shipped",
             reason="Testing",
         )
     )
-    assert "(409" in unknown and "no transition `ship`" in unknown
+    assert "(409" in unknown and "no state field `stage`" in unknown
     moved = data(
         await tool(
             token,
-            "transition_entity",
+            "set_entity_state",
             ref=made["hrid"],
             revision=1,
-            transition="start",
+            field="status",
+            state="in_testing",
             reason="Bench 4",
         )
     )
-    assert (moved["state"]["name"], moved["revision"]) == ("in_testing", 2)
+    assert (moved["values"]["status"], moved["revision"]) == ("in_testing", 2)
     (latest, _) = data(await tool(token, "get_entity_history", ref=made["hrid"]))["items"]
-    assert (latest["kind"], latest["via"], latest["transition"]["name"]) == (
-        "transitioned",
+    assert (latest["kind"], latest["via"], latest["state"]["to"]["name"]) == (
+        "state_changed",
         "mcp",
-        "start",
+        "in_testing",
     )
     assert latest["client"].startswith("Notebook")
 
@@ -714,9 +721,9 @@ async def test_agents_move_records_through_their_states(world: World) -> None:
         from iki_server.entities import registry
 
         registry.model("acme/protein.Sample")._default_manager.filter(pk=made["id"]).update(
-            iki_state="reviewed"
+            status="reviewed"
         )
-        Entity.objects.filter(pk=made["id"]).update(locked=True)
+        Entity.objects.filter(pk=made["id"]).update(locked_by=["status"])
 
     await sync_to_async(lock)()
     refused = error(
@@ -724,12 +731,12 @@ async def test_agents_move_records_through_their_states(world: World) -> None:
             token, "update_entity", ref=made["hrid"], revision=2, values={"notes": "x"}, reason="y"
         )
     )
-    assert "(409" in refused and "which locks it" in refused
+    assert "(409" in refused and "is locked by its Status (Reviewed)" in refused
 
 
 async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:
     """ADR 0122: my_work is the person's own, read-only; records name people by email
-    address or ID, and their state says whose work they are."""
+    address or ID, and their state fields say whose work they are."""
     from test_lab_roles import give, membership
 
     def roles() -> None:
@@ -773,17 +780,19 @@ async def test_agents_read_their_persons_work_and_name_people(world: World) -> N
     assert [(i["entity"]["hrid"], i["due"]) for i in mine["items"]] == [
         (made["hrid"], "2026-12-01")
     ]
-    for revision, transition in enumerate(("start", "submit"), start=1):
+    for revision, state in enumerate(("in_testing", "in_review"), start=1):
         await tool(
             token,
-            "transition_entity",
+            "set_entity_state",
             ref=made["hrid"],
             revision=revision,
-            transition=transition,
+            field="status",
+            state=state,
             reason="Bench 4",
         )
-    # In review: the reviewer's now, not the analyst's.
+    # Its status is In review: the reviewer's now, not the analyst's.
     assert data(await tool(token, "my_work"))["items"] == []
+    assert data(await tool(token, "my_work", state=["status.in_testing"]))["items"] == []
     theirs = data(await tool(await token_for(world, "admin"), "my_work"))
     assert [i["entity"]["hrid"] for i in theirs["items"]] == [made["hrid"]]
 

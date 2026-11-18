@@ -85,7 +85,7 @@ reviewing an analyst's results or releasing a sample
 ([ADR 0116](../docs/adr/0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)).
 A project's Admins give them to its members, people or teams, beside their
 project role. A lab role grants no access of its own: it's what a workflow
-approval, a record's transition or a signature can require.
+approval, a state field's state or a signature can require.
 
 ```yaml
 roles:
@@ -203,54 +203,72 @@ Every identity has at least one required field.
 
 ### States
 
-A type can declare the states its records move through, and the transitions
-between them, each limited to lab roles
-([ADR 0118](../docs/adr/0118-a-record-moves-through-its-types-states.md)):
+A state field (`type: state`) holds where a record is in a process: one of
+its states, which new records start in `initial`
+([ADR 0125](../docs/adr/0125-a-state-is-a-field-each-state-says-who-sets-it.md)).
+A type can have several, each set on its own: a lot's production status and
+its QA disposition, an instrument's service and its calibration.
 
 ```yaml
-states:
-  received: { label: Received, initial: true }
-  in_testing: { label: In testing }
-  in_review: { label: In review }
-  approved: { label: Approved, locks: true }
-  released: { label: Released, locks: true, description: Its results can be used. }
-transitions:
-  start_testing: { label: Start testing, from: [received], to: in_testing, roles: [analyst] }
-  submit: { label: Submit for review, from: [in_testing], to: in_review, roles: [analyst] }
-  approve: { label: Approve, from: [in_review], to: approved, roles: [reviewer], not_by: [submit] }
-  send_back:
-    label: Send back
-    from: [in_review, approved]
-    to: in_testing
-    roles: [reviewer, qa]
-    reason: required
-  release:
-    { label: Release, from: [approved], to: released, roles: [qa], not_by: [submit, approve] }
-  reopen: { label: Reopen, from: [released], to: in_testing, roles: [qa], reason: required }
+fields:
+  status:
+    type: state
+    initial: received
+    states:
+      received: { label: Received, set_by: [analyst] }
+      in_testing: { label: In testing, set_by: [analyst, reviewer, qa], reason: optional }
+      in_review: { label: In review, set_by: [analyst] }
+      approved: { label: Approved, set_by: [reviewer], locks: true }
+      released:
+        { label: Released, set_by: [qa], locks: true, description: Its results can be used. }
+  custody:
+    type: state
+    initial: in_lab
+    states:
+      in_lab: { label: In the lab, set_by: [analyst, qa] }
+      quarantined: { label: Quarantined, set_by: [qa], locks: true, reason: required }
 ```
 
-- A type has 2 to 30 states and up to 60 transitions, named as fields are.
-  Exactly one is `initial`: every record starts there, and it can't lock
-  (`state-initial`). Every state is reached from it (`state-unreachable`).
-- Each transition leads from one or more states to another one
-  (`transition-to-itself`), and names the lab roles that may make it, any one
-  of them (`unknown-role`). `reason` asks whoever makes it why: `required` or
-  `optional`.
-- `not_by` names earlier transitions: whoever made the latest of each on a
-  record can't make this one, so the analyst who submitted results doesn't
-  approve them ([ADR 0119](../docs/adr/0119-a-transition-can-keep-its-maker-apart-from-earlier-ones.md)).
-- A state that `locks` keeps its records from changing, by any path, until
-  a transition takes them out of it
-  ([ADR 0120](../docs/adr/0120-a-state-can-lock-a-record-and-the-database-holds-the-lock.md)).
+- A state field has 2 to 30 states, named as fields are, each with a
+  `label` (its name in words, if left out) and a `description`. `initial`
+  is one of them, and can't lock (`state-initial`).
+- `set_by` names the lab roles whose holders may set the field to the
+  state, from any other state, in the record's project (`unknown-role`).
+  Every state but the initial one has some (`state-unreachable`). That's all
+  core decides: which states may follow which, and keeping who sets one apart
+  from who set another (four eyes), are a plugin's policy, for guards to come.
+- `reason: required` or `optional` asks whoever sets it why.
+- A state that `locks` keeps the record's other fields from changing, by
+  any path, and keeps it from being archived, restored or moved to another
+  registry entry, while the field is in it. A record is locked while any of
+  its state fields is in a state that locks. State fields stay settable by
+  their roles, which is how a record is unlocked.
+- `signatures` is reserved for the electronic signatures a state will
+  require (`state-signatures-reserved`).
+- A state field is set on its own, never with a record's other values, nor
+  by an action's results (`updates-state`). It's a type's own: an extension
+  (`state-field-in-extension`) or a list (`state-field-in-list`) can't have
+  one, and it's never part of an identity. Subtypes have their parents'.
 - A state can't be taken out of a manifest once records may be in it: it's
   kept, `removed: true`, with `moved_to:` the state its records move to,
   which can't be removed itself (`unknown-state`). A removed state doesn't
-  lock (`state-removed`), and no transition leads to or from it
-  ([ADR 0121](../docs/adr/0121-a-plugin-cant-strand-records-in-a-state-it-removes.md)).
-- States are declared on a type whose ancestors have none
-  (`states-inherited`): its subtypes go through the same ones. Fields named
-  `iki_…` are reserved (`reserved-name`): a record's state is the column
-  `iki_state` of its declaring type's table.
+  lock, and isn't initial (`state-removed`).
+- A state field is removed like any field, `removed: true`, and its
+  records' states move to another of the type's own state fields, as its
+  `moved_to` says (`unknown-field`, `state-removed`):
+
+  ```yaml
+  custody:
+    type: state
+    removed: true
+    moved_to: { field: status, states: { in_lab: received, quarantined: in_review } }
+  ```
+
+  Without `moved_to`, its plugin's migration is refused while the type has
+  any records. Each record a migration moves gets a revision of its own, by no
+  one, via the system.
+
+Fields named `iki_…`, `locked` and `locked_by` are reserved (`reserved-name`).
 
 ### People in records
 
@@ -265,16 +283,18 @@ address and gives back their ID, with their name in the record's
 
 An `assignment` field assigns the record to whomever it names: it's on
 their My work, and they're told. `assignment: true` counts in every
-state; `assignment: { states: [...] }` only in those, so a reviewer has a
-sample only while it's in review. `due:` names a date or datetime field
+state; `assignment: { field: status, states: [...] }` only while that state
+field ([States](#states)) is in one of those, so a reviewer has a sample
+only while its status is In review. `due:` names a date or datetime field
 My work sorts by. A state that locks a record locks whom it names too,
 so name whoever has it next before it gets there.
 
 ```yaml
 fields:
   due_on: { type: date, label: Due }
-  analyst: { type: person, role: analyst, assignment: { states: [received, in_testing] } }
-  reviewer: { type: person, role: reviewer, assignment: { states: [in_review] } }
+  analyst:
+    { type: person, role: analyst, assignment: { field: status, states: [received, in_testing] } }
+  reviewer: { type: person, role: reviewer, assignment: { field: status, states: [in_review] } }
   witnesses: { type: list, items: { type: person }, max_items: 5 }
 due: due_on
 ```
@@ -282,9 +302,9 @@ due: due_on
 - `role` names a lab role, the plugin's own or a dependency's
   (`unknown-role`).
 - Only a field naming people can be an `assignment`
-  (`assignment-not-people`), and its `states` are its type's
-  (`unknown-state`); a type without states uses `assignment: true`
-  (`assignment-without-states`).
+  (`assignment-not-people`). Its `field` is one of its type's state
+  fields (`assignment-without-states`) and its `states` are that field's
+  (`unknown-state`); a type without state fields uses `assignment: true`.
 - `due` is a `date` or `datetime` field of the type's
   (`unknown-field`, `due-not-a-date`), and not a registry's
   (`due-in-registry`).
@@ -366,6 +386,7 @@ type's history. Identity fields can't be removed.
 | `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records). |
 | `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.      |
 | `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.        |
+| `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.             |
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
@@ -727,13 +748,16 @@ input: protein # which input takes the entity; left out when only one can
 params: {} # values; a string starting with `$` is written `$$`
 ```
 
-On a type with states (ADR 0118), `entity.transitioned` runs it when a record
-moves to another state; `states` narrows it to those entering one of them
-(`trigger-transitioned-without-states`, `trigger-states-not-transitioned`).
+`entity.state_changed` runs it when one of a record's state fields is set
+(ADR 0125): `field` names which (`trigger-state-field-missing`,
+`trigger-not-a-state-field`), and `states` narrows it to those set to one
+of them (`trigger-state-not-state-changed`). `entity.updated` doesn't watch
+state fields (`trigger-field-is-state`).
 
 ```yaml
-on: entity.transitioned
+on: entity.state_changed
 type: Sample
+field: status
 states: [released]
 ```
 
@@ -1584,38 +1608,38 @@ refused, so what is reviewed is what Iki reads.
 
 Every problem has a stable `code`, shown in brackets and in `--format json`:
 
-| Code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | What's wrong                    |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                                                                                                                                                                                                                                                                                                                            | The YAML itself                 |
-| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                            | The file                        |
-| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                | Where manifests are             |
-| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                       | A manifest's header             |
-| `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Anything the JSON Schemas catch |
-| `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                    | Names                           |
-| `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Lab roles                       |
-| `states-inherited`, `state-initial`, `state-removed`, `unknown-state`, `transition-to-itself`, `unknown-transition`, `state-unreachable`                                                                                                                                                                                                                                                                                                                                                                                               | States                          |
-| `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                        | People in records               |
-| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                               | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                    | Field options                   |
-| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                | Indexes                         |
-| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Units                           |
-| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Files, JSON fields and titles   |
-| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                              | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                              | Dependencies                    |
-| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                                                                                                    | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                          | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                    | Actions                         |
-| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                  | What actions write              |
-| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                     | Where actions run               |
-| `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                    | Reuse and retries               |
-| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                                                                               | Workflows                       |
-| `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-states-not-transitioned`, `trigger-transitioned-without-states`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
-| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                  | Components                      |
-| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                | Environments                    |
-| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                                                                                                                                | Pinned packages                 |
-| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                      | Volumes and setup               |
-| `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                                                                                  | Action tests                    |
-| `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                          | Compute templates               |
-| `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                        | Bindings                        |
+| Code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What's wrong                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The YAML itself                 |
+| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The file                        |
+| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where manifests are             |
+| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A manifest's header             |
+| `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
+| `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
+| `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
+| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures-reserved`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                | States                          |
+| `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
+| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                              | Identities                      |
+| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
+| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
+| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
+| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
+| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
+| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Settings                        |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                         | Lockfiles                       |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                                                                   | Actions                         |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
+| `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Reuse and retries               |
+| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                                                                                                                              | Workflows                       |
+| `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                 | Components                      |
+| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
+| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Pinned packages                 |
+| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Volumes and setup               |
+| `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                                                                                                                                 | Action tests                    |
+| `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                         | Compute templates               |
+| `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                       | Bindings                        |

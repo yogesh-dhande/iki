@@ -24,7 +24,7 @@ from django.conf import settings
 from django.test import Client
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
-from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, run_tasks, serve, server_env
 
@@ -1775,7 +1775,10 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
     dialog = page.get_by_role("dialog", name="Lab roles for Viewer")
     qa = dialog.get_by_role("checkbox", name="QA", exact=True)
     qa.wait_for()
-    dialog.get_by_text("Needed to approve “Weigh” in Release, then weigh.").wait_for()
+    dialog.get_by_text(
+        "Needed to approve “Weigh” in Release, then weigh; to set Status to In testing or "
+        "Released on samples; to set Custody to In the lab, Quarantined or Disposed on samples."
+    ).wait_for()
     assert_clean(page)
     qa.check()
     dialog.get_by_role("checkbox", name="Reviewer", exact=True).check()
@@ -1791,10 +1794,11 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
     page.context.close()
 
 
-def test_a_record_moves_through_its_states(open_as: Any, world: World) -> None:
-    """A sample's state and the transitions its reader can make (ADR 0118), with why not,
-    and a reason asked for where the plugin wants one. Its card by its heading: in Firefox,
-    finding a region by name and then running axe crashes the page (see above)."""
+def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world: World) -> None:
+    """A sample's state fields (ADR 0125): a control for each, the states its reader may set
+    and why not of the others, a reason where a state asks for one, and the lock a state
+    puts on it. Its card by its heading: in Firefox, finding a region by name and then
+    running axe crashes the page (see above)."""
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
     from iki_server.org import permissions
@@ -1809,47 +1813,48 @@ def test_a_record_moves_through_its_states(open_as: Any, world: World) -> None:
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
 
     page: Page = open_as("editor", f"/entities/{hrid}/")
-
-    def card(label: str) -> Locator:
-        heading = page.get_by_role("heading", name=f"State: {label}")
-        heading.wait_for()
-        return page.locator("section", has=heading)
-
-    state = card("Received")
-    state.get_by_role("button", name="Start testing").click()
-    dialog = page.get_by_role("alertdialog", name=f"Start testing {hrid}?")
-    dialog.get_by_role("button", name="Start testing").click()
-    page.get_by_text(f"{hrid} is In testing now.").wait_for()
-    state = card("In testing")
-    state.get_by_role("button", name="Submit for review").click()
-    page.get_by_role("alertdialog").get_by_role("button", name="Submit for review").click()
-    state = card("In review")
-    # They submitted it, so they can't approve it: the button says why.
-    approve = state.get_by_role("button", name="Approve")
-    approve.wait_for()
-    assert approve.get_attribute("aria-disabled") == "true"
-    state.get_by_text("so someone else makes “Approve”").wait_for()
+    heading = page.get_by_role("heading", name="States")
+    heading.wait_for()
+    card = page.locator("section", has=heading)
+    card.get_by_text("Status: Received").wait_for()
+    # Custody's states are QA's to set: its control says so.
+    custody = card.get_by_role("button", name="Set Custody")
+    assert custody.get_attribute("aria-disabled") == "true"
+    card.get_by_text("It needs someone with the QA role in").wait_for()
     assert_clean(page)
-    # Sending it back asks why.
-    state.get_by_role("button", name="Send back").click()
-    dialog = page.get_by_role("alertdialog", name=f"Send back {hrid}?")
-    dialog.get_by_role("button", name="Send back").click()
-    dialog.get_by_text("“Send back” needs a reason: say why.").wait_for()
+
+    card.get_by_role("button", name="Set Status").click()
+    dialog = page.get_by_role("alertdialog", name=f"Set Status of {hrid}")
+    assert dialog.get_by_role("radio", name=re.compile("^In testing")).is_checked()
+    released = dialog.get_by_role("radio", name=re.compile("^Released"))
+    assert released.is_disabled()
+    dialog.get_by_text("It needs someone with the QA role in").first.wait_for()
     assert_clean(page)
-    dialog.get_by_role("textbox", name="Reason").fill("Purity looks off")
-    dialog.get_by_role("button", name="Send back").click()
-    card("In testing").wait_for()
+    dialog.get_by_role("textbox", name=re.compile("^Reason")).fill("Bench 4")
+    dialog.get_by_role("button", name="Set Status").click()
+    page.get_by_text(f"{hrid}’s Status is In testing now.").wait_for()
+    card.get_by_text("Status: In testing").wait_for()
+
+    # A state that locks it: its other values can't change, but its states can.
+    card.get_by_role("button", name="Set Status").click()
+    dialog = page.get_by_role("alertdialog", name=f"Set Status of {hrid}")
+    dialog.get_by_role("radio", name=re.compile("^Reviewed")).check()
+    dialog.get_by_role("button", name="Set Status").click()
+    card.get_by_text("Locked, as its Status is Reviewed").wait_for()
+    assert page.get_by_role("link", name="Edit", exact=True).count() == 0
+    assert card.get_by_role("button", name="Set Status").get_attribute("aria-disabled") is None
+    assert_clean(page)
     page.get_by_role("link", name="History").click()
-    page.get_by_text("Send back: In review to In testing by Editor").wait_for()
-    page.get_by_text("“Purity looks off”").wait_for()
+    page.get_by_text("Status set to Reviewed, from In testing by Editor").wait_for()
+    page.get_by_text("“Bench 4”").wait_for()
     assert_clean(page)
     page.context.close()
 
 
 def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, world: World) -> None:
     """People in records (ADR 0122): open work taken from My work, a reviewer named with
-    the picker, their work once it's in review, and reassigning from the grid. By role,
-    never by label, and each card by its heading (Firefox; see above)."""
+    the picker, their work once its Status is In review (ADR 0125), and reassigning from
+    the grid. By role, never by label, and each card by its heading (Firefox; see above)."""
     from iki_server.entities import services as entities
     from iki_server.org import permissions
     from iki_server.org.models import LabRoleGrant
@@ -1879,7 +1884,8 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     page.get_by_role("link", name="Assigned to me").click()
     page.get_by_role("list", name="Your work").get_by_role("link", name=hrid, exact=True).click()
 
-    page.get_by_role("heading", name="State: Received").wait_for()
+    states = page.locator("section", has=page.get_by_role("heading", name="States"))
+    states.get_by_text("Status: Received").wait_for()
     # Whoever reviews it is named before it's theirs.
     page.get_by_role("link", name="Edit", exact=True).click()
     page.get_by_role("combobox", name="Reviewer").fill("adm")
@@ -1889,12 +1895,13 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     page.get_by_role("button", name="Save changes").click()
     page.get_by_text(f"Saved revision 3 of {hrid}.").wait_for()
     page.get_by_role("listitem").filter(has_text="Reviewer: Admin").wait_for()
-    page.get_by_role("button", name="Start testing").click()
-    page.get_by_role("alertdialog").get_by_role("button", name="Start testing").click()
-    page.get_by_text(f"{hrid} is In testing now.").wait_for()
-    page.get_by_role("button", name="Submit for review").click()
-    page.get_by_role("alertdialog").get_by_role("button", name="Submit for review").click()
-    page.get_by_role("heading", name="State: In review").wait_for()
+    for state in ("In testing", "In review"):
+        states.get_by_role("button", name="Set Status").click()
+        dialog = page.get_by_role("alertdialog", name=f"Set Status of {hrid}")
+        dialog.get_by_role("radio", name=re.compile(f"^{state}")).check()
+        dialog.get_by_role("button", name="Set Status").click()
+        page.get_by_text(f"{hrid}’s Status is {state} now.").wait_for()
+    states.get_by_text("Status: In review").wait_for()
     page.context.close()
 
     # It's the admin's now, and the grid finds it by whom it names.

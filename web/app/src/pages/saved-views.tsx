@@ -102,6 +102,7 @@ const ADD_FIELD: FieldDef = {
   role: null,
   role_label: null,
   assignment: false,
+  assignment_field: null,
   assignment_states: [],
   name: "add",
   label: "Add another entity",
@@ -126,6 +127,8 @@ const ADD_FIELD: FieldDef = {
   display_offset: null,
   input_units: [],
   values: [],
+  initial: null,
+  states: [],
 };
 
 function SaveView({

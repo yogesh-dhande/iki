@@ -20,7 +20,6 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "NUMERIC_OPERATORS",
-    "STATE_COLUMN",
     "TIERS",
     "Action",
     "Approval",
@@ -36,7 +35,7 @@ __all__ = [
     "Plugin",
     "Resources",
     "State",
-    "Transition",
+    "StateMove",
     "Updates",
     "Volume",
     "Workflow",
@@ -127,13 +126,31 @@ class Field:
     #: its qualified name (ADR 0116). None names anyone who can read the project.
     role: str | None = None
     #: For a field naming people (or a list of them): whoever it names is assigned the
-    #: record (ADR 0122), while it's in one of ``assignment_states`` (any, if empty).
+    #: record (ADR 0122), while its state field ``assignment_field`` (ADR 0125) is in one
+    #: of ``assignment_states``; in any state, without one.
     assignment: bool = False
+    assignment_field: str | None = None
     assignment_states: tuple[str, ...] = ()
     items: Field | None = None
     min_items: int | None = None
     max_items: int | None = None
     schema: dict[str, Any] | None = None
+    #: A state field's (``type: state``, ADR 0125): the states it can hold, by name, and
+    #: the one new records start in.
+    states: dict[str, State] = field(default_factory=dict)
+    initial: str | None = None
+    #: A removed state field's: where its records' states go (ADR 0125).
+    moved_to: StateMove | None = None
+
+    @property
+    def live_states(self) -> tuple[str, ...]:
+        """A state field's states a record can be in: not the removed ones."""
+        return tuple(n for n, s in self.states.items() if not s.removed)
+
+    @property
+    def locking_states(self) -> frozenset[str]:
+        """A state field's states that lock a record (ADR 0125)."""
+        return frozenset(n for n, s in self.states.items() if s.locks and not s.removed)
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> Field:
@@ -141,6 +158,7 @@ class Field:
         to = data.get("to")
         role = data.get("role")
         assignment = data.get("assignment", False)
+        moved = data.get("moved_to") if data.get("type") == "state" else None
         return cls(
             name=name,
             type=data["type"],
@@ -170,6 +188,7 @@ class Field:
             to=qualify(to, plugin) if isinstance(to, str) else None,
             role=(role if "." in role else f"{plugin}.{role}") if isinstance(role, str) else None,
             assignment=bool(assignment),
+            assignment_field=assignment.get("field") if isinstance(assignment, dict) else None,
             assignment_states=tuple(assignment.get("states") or ())
             if isinstance(assignment, dict)
             else (),
@@ -179,6 +198,17 @@ class Field:
             min_items=data.get("min_items"),
             max_items=data.get("max_items"),
             schema=data.get("schema"),
+            states={
+                n: State.from_manifest(n, st, plugin=plugin)
+                for n, st in (data.get("states") or {}).items()
+                if isinstance(st, dict)
+            },
+            initial=data.get("initial"),
+            moved_to=StateMove(
+                field=moved["field"], states=tuple(sorted((moved.get("states") or {}).items()))
+            )
+            if isinstance(moved, dict) and isinstance(moved.get("field"), str)
+            else None,
         )
 
 
@@ -211,40 +241,55 @@ def split_entry(
     return record, entry
 
 
+def lab_role_name(role: str, plugin: str) -> str:
+    """A lab role in full: a plugin's own `qa` is `namespace/plugin.qa` (ADR 0116)."""
+    return role if "." in role else f"{plugin}.{role}"
+
+
 @dataclass(frozen=True)
 class State:
-    """One of the states a type's records move through (ADR 0118)."""
+    """One of the states a state field can hold (ADR 0125)."""
 
     name: str
     label: str
     description: str | None = None
-    initial: bool = False
-    #: A record in it can't change until a transition takes it out.
+    #: Qualified lab roles (ADR 0116): someone with any one of them in a record's project
+    #: may set the field to this state, from any other.
+    set_by: tuple[str, ...] = ()
+    #: A record with a field in it is locked: its other fields can't change.
     locks: bool = False
+    #: "required" or "optional": whether whoever sets it says why; None asks nothing.
+    reason: str | None = None
     #: No record is in it any more: its records moved to ``moved_to``.
     removed: bool = False
     moved_to: str | None = None
+    #: Reserved for the electronic signatures setting it will require (21 CFR Part 11):
+    #: as the manifest gives them, which no plugin may yet.
+    signatures: Any = None
+
+    @classmethod
+    def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
+        return cls(
+            name=name,
+            label=data.get("label") or name.replace("_", " ").capitalize(),
+            description=data.get("description"),
+            set_by=tuple(lab_role_name(r, plugin) for r in data.get("set_by") or ()),
+            locks=bool(data.get("locks", False)),
+            reason=data.get("reason"),
+            removed=bool(data.get("removed", False)),
+            moved_to=data.get("moved_to"),
+            signatures=data.get("signatures"),
+        )
 
 
 @dataclass(frozen=True)
-class Transition:
-    """A way from some states to another, made by someone with one of ``roles``."""
+class StateMove:
+    """Where a removed state field's records go (ADR 0125): another state field of the
+    type, each of its states to one of that field's."""
 
-    name: str
-    label: str
-    from_states: tuple[str, ...]
-    to: str
-    #: Qualified lab roles (ADR 0116), any one of which may make it.
-    roles: tuple[str, ...]
-    description: str | None = None
-    #: "required" or "optional": whether whoever makes it says why; None asks nothing.
-    reason: str | None = None
-    #: Separation of duties: whoever made the latest of these on the record can't make it.
-    not_by: tuple[str, ...] = ()
-
-
-#: The column a record's state is kept in, in its declaring type's table (ADR 0118).
-STATE_COLUMN = "iki_state"
+    field: str
+    #: (its state, the other field's), sorted.
+    states: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -265,10 +310,6 @@ class EntityType:
     display_title: str | None = None
     viewers: tuple[Viewer, ...] = ()
     file: str | None = None
-    #: The states its records move through, and how (ADR 0118). Subtypes have their
-    #: ancestor's: see :func:`state_machine`.
-    states: dict[str, State] = field(default_factory=dict)
-    transitions: dict[str, Transition] = field(default_factory=dict)
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
     due: str | None = None
@@ -276,19 +317,6 @@ class EntityType:
     @property
     def qualified_name(self) -> str:
         return f"{self.plugin}.{self.name}"
-
-    @property
-    def initial_state(self) -> str | None:
-        return next((s.name for s in self.states.values() if s.initial), None)
-
-    @property
-    def live_states(self) -> tuple[str, ...]:
-        """The states a record can be in: not the removed ones."""
-        return tuple(s.name for s in self.states.values() if not s.removed)
-
-    @property
-    def locking_states(self) -> frozenset[str]:
-        return frozenset(s.name for s in self.states.values() if s.locks and not s.removed)
 
     @property
     def table(self) -> str:
@@ -536,7 +564,7 @@ APPROVAL_ROLES = ("viewer", "editor", "runner", "admin")
 @dataclass(frozen=True)
 class LabRole:
     """A named role a plugin declares, such as QA (ADR 0116). A project's Admins give it to
-    members beside their project role, and transitions and approvals can require it."""
+    members beside their project role, and state fields and approvals can require it."""
 
     plugin: str
     name: str
@@ -628,17 +656,17 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), a record moved to another state (ADR 0118), an entity changed,
-#: or its schedule.
+#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, or
+#: its schedule.
 TRIGGER_EVENTS = (
     "entity.created",
     "entity.registered",
-    "entity.transitioned",
+    "entity.state_changed",
     "entity.updated",
     "schedule",
 )
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.transitioned", "entity.updated")
+ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
 
 
 @dataclass(frozen=True)
@@ -659,8 +687,9 @@ class Trigger:
     timezone: str = ""
     #: For entity.updated: it fires only when one of these changed; empty for any change.
     fields: tuple[str, ...] = ()
-    #: For entity.transitioned: it fires only when a record enters one of these; empty for
-    #: any transition.
+    #: For entity.state_changed: the state field it watches (ADR 0125), and the states
+    #: it fires on a record entering; empty for any. Its manifest calls it ``field``.
+    state_field: str = ""
     states: tuple[str, ...] = ()
     #: The plugin's action it runs.
     run: str = ""
@@ -847,7 +876,7 @@ def parse_duration(text: str) -> int:
 _DATACLASSES = (
     Field,
     State,
-    Transition,
+    StateMove,
     EntityType,
     Extension,
     Plugin,
@@ -896,17 +925,6 @@ def _viewer(data: dict[str, Any]) -> Viewer:
     return Viewer(**{**data, "tracks": tracks})
 
 
-def _transition(data: dict[str, Any]) -> Transition:
-    return Transition(
-        **{
-            **data,
-            "from_states": tuple(data["from_states"]),
-            "roles": tuple(data["roles"]),
-            "not_by": tuple(data["not_by"]),
-        }
-    )
-
-
 def plugin_from_dict(data: dict[str, Any]) -> Plugin:
     return Plugin(
         **{
@@ -920,11 +938,6 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
-                        # ...or states.
-                        "states": {n: State(**s) for n, s in (v.get("states") or {}).items()},
-                        "transitions": {
-                            n: _transition(t) for n, t in (v.get("transitions") or {}).items()
-                        },
                     }
                 )
                 for k, v in data["types"].items()
@@ -940,7 +953,12 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             # ...or triggers.
             "triggers": {
                 k: Trigger(
-                    **{**v, "fields": tuple(v["fields"]), "states": tuple(v.get("states", ()))}
+                    **{
+                        **v,
+                        "fields": tuple(v["fields"]),
+                        "state_field": v.get("state_field", ""),
+                        "states": tuple(v.get("states", ())),
+                    }
                 )
                 for k, v in (data.get("triggers") or {}).items()
             },
@@ -1045,6 +1063,7 @@ def _environment(data: dict[str, Any]) -> Environment:
 
 
 def _field(data: dict[str, Any]) -> Field:
+    moved = data.get("moved_to")
     return Field(
         **{
             **data,
@@ -1052,5 +1071,15 @@ def _field(data: dict[str, Any]) -> Field:
             "media_types": tuple(data["media_types"]),
             "items": _field(data["items"]) if data["items"] is not None else None,
             "assignment_states": tuple(data.get("assignment_states") or ()),
+            # Plugins built before state fields have none.
+            "states": {
+                n: State(**{**st, "set_by": tuple(st["set_by"])})
+                for n, st in (data.get("states") or {}).items()
+            },
+            "moved_to": StateMove(
+                field=moved["field"], states=tuple((a, b) for a, b in moved["states"])
+            )
+            if moved
+            else None,
         }
     )

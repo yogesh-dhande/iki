@@ -95,8 +95,8 @@ def nameable(
 class WorkItemOut(Schema):
     entity: EntityOut
     fields: list[str] = Field(
-        description="The assignment fields naming you that count in its state; for open work, "
-        "the ones you could take it in."
+        description="The assignment fields naming you that count in its states; for open "
+        "work, the ones you could take it in."
     )
     due: dt.date | dt.datetime | None = Field(
         description="When it's due, from its type's `due` field, if it has one."
@@ -108,7 +108,12 @@ class WorkFilters(Schema):
     type: list[str] = Field(
         default_factory=list, description="Only these types' records (and their subtypes')."
     )
-    state: list[str] = Field(default_factory=list, description="Only records in these states.")
+    state: list[str] = Field(
+        default_factory=list,
+        description="Only records whose state fields (ADR 0125) are in these states, each "
+        "`field.state` such as `status.in_review`: in any of a field's, and of every field "
+        "named. Types without those state fields have none.",
+    )
     sort: Literal["due", "updated"] = Field(
         "due",
         description="`due`: soonest due first, undated ones last; `updated`: latest changed first.",
@@ -119,10 +124,26 @@ class WorkFilters(Schema):
 
 def _work(request: HttpRequest, filters: WorkFilters, *, open_: bool) -> dict[str, Any]:
     me = caller(request)
+    by_field: dict[str, list[str]] = {}
+    for given in filters.state:
+        name, dot, state = given.partition(".")
+        if not dot or not name or not state:
+            raise Problem(
+                422,
+                "Some fields are invalid.",
+                errors=[
+                    {
+                        "parameter": "state",
+                        "detail": f"`{given}` isn't a state field's state: say it as "
+                        "`field.state`, such as `status.in_review`.",
+                    }
+                ],
+            )
+        by_field.setdefault(name, []).append(state)
     wanted = assignments.WorkFilters(
         projects=tuple(filters.project),
         types=tuple(t for t in filters.type if t in registry.types()),
-        states=tuple(filters.state),
+        states={n: tuple(v) for n, v in by_field.items()},
         sort=filters.sort,
     )
     if filters.type and not wanted.types:
@@ -148,8 +169,9 @@ def _work(request: HttpRequest, filters: WorkFilters, *, open_: bool) -> dict[st
 @router.get("/me/work", response=Page[WorkItemOut], summary="What's assigned to you")
 def my_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
     """Everything assigned to you now (ADR 0122), across the projects you read: records an
-    assignment field names you in, while their state is one it counts in. You drop off a
-    record's work when you can't be named in it any more (you left its project, say)."""
+    assignment field names you in, while their state fields are in states it counts in. You
+    drop off a record's work when you can't be named in it any more (you left its project,
+    say)."""
     return _work(request, filters, open_=False)
 
 
@@ -157,7 +179,7 @@ def my_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]
 def open_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
     """Records nobody is assigned that one of your lab roles could take (ADR 0122): an
     assignment field limited to a role you hold in the record's project counts in its
-    state, and names nobody who can be named there now. Take one with `POST
+    states, and names nobody who can be named there now. Take one with `POST
     /entities/{ref}/take`, or simply do it: a locked record's people can't change."""
     return _work(request, filters, open_=True)
 

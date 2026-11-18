@@ -1,6 +1,6 @@
 # 0122. Records name people, and each person has their work
 
-- Status: Accepted
+- Status: Accepted (assignment states name a state field, amended by [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md))
 - Date: 2026-11-18
 - Refines: [0116](0116-lab-roles-are-declared-by-plugins-and-given-per-project.md),
   [0118](0118-a-record-moves-through-its-types-states.md),

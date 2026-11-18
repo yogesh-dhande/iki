@@ -35,9 +35,10 @@ export interface Schemaed {
   values_schema: EntityType["values_schema"];
 }
 
-/** The fields people type in: not computed ones, nor a detached plugin's, which keep their values. */
+/** The fields people type in: not computed ones, nor a detached plugin's, which keep their
+ * values, nor state fields, which are set on their own (ADR 0125). */
 export function formFields(type: EntityType): FieldDef[] {
-  return type.fields.filter((f) => !f.computed && !f.detached);
+  return type.fields.filter((f) => !f.computed && !f.detached && f.type !== "state");
 }
 
 export function itemField(field: FieldDef): FieldDef {

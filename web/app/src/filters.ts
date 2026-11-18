@@ -75,7 +75,10 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     role: null,
     role_label: null,
     assignment: false,
+    assignment_field: null,
     assignment_states: [],
+    initial: null,
+    states: [],
   };
 }
 
@@ -90,20 +93,15 @@ export const SOFTWARE = builtIn("software", "Software", "string");
 /** The parts of a making's draft, in order. */
 export type MakingDraft = [software: string, kind: string, by: string];
 
-/** The labels of a state field's values, by the values' list: a filter's copies keep it. */
-const LABELS = new WeakMap<readonly string[], Record<string, string>>();
-
-/** An enum value's label: a state's (ADR 0118), or the value itself. */
+/** An enum value's label: a state's (ADR 0125), or the value itself. */
 export function optionLabel(field: FieldDef, value: string): string {
-  return LABELS.get(field.values)?.[value] ?? value;
+  return field.states.find((s) => s.name === value)?.label ?? value;
 }
 
-/** A type's records' state, as a field to filter by: null for a type without states. */
-export function stateField(type: EntityType | undefined): FieldDef | null {
-  if (!type?.states.length) return null;
-  const values = type.states.map((s) => s.name);
-  LABELS.set(values, Object.fromEntries(type.states.map((s) => [s.name, s.label])));
-  return { ...builtIn("state", "State", "enum"), values };
+/** A state field (ADR 0125) as a filter takes it: an enum of its states, by name. */
+function asEnum(field: FieldDef): FieldDef {
+  if (field.type !== "state") return field;
+  return { ...field, type: "enum", values: field.states.map((s) => s.name) };
 }
 
 /** Who's assigned a record now (ADR 0122), in any assignment field counting in its state. */
@@ -114,26 +112,21 @@ export const ASSIGNED: FieldDef = {
 /** Records whose assignee can't be assigned them any more. */
 export const NEEDS_REASSIGNING = builtIn("needs_reassigning", "Needs reassigning", "bool");
 
-/** What a grid can filter by: every entity's ID and times, its state, who it's assigned
- * to, the type's fields, and how each was made. */
+/** What a grid can filter by: every entity's ID and times, its state fields (ADR 0125),
+ * who it's assigned to, the type's other fields, and how each was made. */
 export function filterable(type: EntityType | undefined): FieldDef[] {
-  const state = stateField(type);
-  const assigned = type?.fields.some((f) => f.assignment) ? [ASSIGNED, NEEDS_REASSIGNING] : [];
-  return [
-    HRID,
-    ...(state ? [state] : []),
-    ...assigned,
-    ...(type?.fields ?? []),
-    CREATED,
-    UPDATED,
-    MADE,
-  ];
+  const fields = type?.fields ?? [];
+  const states = fields.filter((f) => f.type === "state");
+  const rest = fields.filter((f) => f.type !== "state");
+  const assigned = fields.some((f) => f.assignment) ? [ASSIGNED, NEEDS_REASSIGNING] : [];
+  return [HRID, ...states.map(asEnum), ...assigned, ...rest, CREATED, UPDATED, MADE];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
 const SORTABLE = new Set([
   "string",
   "enum",
+  "state",
   "int",
   "float",
   "quantity",
@@ -164,6 +157,7 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
           ["contains", "contains"],
         ];
       case "enum":
+      case "state":
       case "bool":
       case "ref":
         return [

@@ -410,9 +410,9 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     assert rows[str(here.pk)]["action"] == "update"
 
 
-def test_a_record_arrives_in_its_state_with_its_transitions(world: World, tmp_path: Path) -> None:
-    """ADR 0118: a bundle carries each record's state and the transitions that took it
-    there, and a state that locks it locks it here (ADR 0120)."""
+def test_a_record_arrives_in_its_states_with_their_changes(world: World, tmp_path: Path) -> None:
+    """ADR 0125: a bundle carries each record's state fields as values and each change to
+    them as a revision, and a state that locks it locks it here."""
     from iki_server.entities import states
     from iki_server.org.models import LabRoleGrant
 
@@ -434,9 +434,11 @@ def test_a_record_arrives_in_its_state_with_its_transitions(world: World, tmp_pa
     def tested() -> list[Any]:
         made = services.create(admin, "acme/protein.Sample", world.project, {"label": "S-1"})
         sample = Entity.objects.get(pk=made.entity.pk)
-        states.transition(editor, sample, "start", expected_revision=1)
-        states.transition(editor, sample, "submit", expected_revision=2)
-        states.transition(admin, sample, "approve", expected_revision=3, reason="Looks right")
+        states.set_state(editor, sample, "status", "in_testing", expected_revision=1)
+        states.set_state(editor, sample, "status", "in_review", expected_revision=2)
+        states.set_state(
+            admin, sample, "status", "reviewed", expected_revision=3, reason="Looks right"
+        )
         return [Entity.objects.get(pk=sample.pk)]
 
     path = bundle_of(world, tmp_path, tested)
@@ -445,14 +447,16 @@ def test_a_record_arrives_in_its_state_with_its_transitions(world: World, tmp_pa
     assert done["state"] == "applied", done
     (row,) = entities_of(api, done)
     here = api.get(f"/entities/{row['hrid_here']}").json()
-    assert (here["state"]["name"], here["locked"], here["revision"]) == ("reviewed", True, 4)
+    assert (here["values"]["status"], here["locked_by"], here["revision"]) == (
+        "reviewed",
+        ["status"],
+        4,
+    )
     history = api.get(f"/entities/{row['hrid_here']}/revisions").json()["items"]
-    assert [(r["transition"] or {}).get("name") for r in history] == [
-        "approve",
-        "submit",
-        "start",
-        None,
-    ]
+    assert [
+        (r["state"]["field"]["name"], r["state"]["to"]["name"]) if r["state"] else None
+        for r in history
+    ] == [("status", "reviewed"), ("status", "in_review"), ("status", "in_testing"), None]
     assert history[0]["reason"] == "Looks right"
     # Locked here as it was there.
     changed = api.patch(

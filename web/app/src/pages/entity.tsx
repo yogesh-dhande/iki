@@ -124,14 +124,16 @@ export const KIND: Record<string, string> = {
   curated: "Facts changed",
   superseded: "Superseded",
   moved: "Moved",
-  transitioned: "Moved to another state",
+  state_changed: "State set",
 };
 
-/** What a revision did: its kind, or for a transition (ADR 0118), which, from where to where. */
+/** What a revision did: its kind, or for a state change (ADR 0125), which field, from
+ * which state to which: “Status set to Approved, from In review”. */
 export function revisionWhat(revision: Revision): string {
-  const t = revision.transition;
-  if (!t) return KIND[revision.kind] ?? revision.kind;
-  return t.from ? `${t.label}: ${t.from.label} to ${t.to.label}` : `${t.label}: to ${t.to.label}`;
+  const s = revision.state;
+  if (!s) return KIND[revision.kind] ?? revision.kind;
+  const set = `${s.field.label} set to ${s.to.label}`;
+  return s.from ? `${set}, from ${s.from.label}` : set;
 }
 
 /** The entity the page is about, from the `$ref` in its address, and `?project=` for a
@@ -577,7 +579,7 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         badge={
           <>
             {entity.title !== entity.hrid ? <Badge>{entity.hrid}</Badge> : null}
-            <StateBadges entity={entity} />
+            <StateBadges entity={entity} type={type} />
             {entity.archived ? (
               <>
                 {" "}

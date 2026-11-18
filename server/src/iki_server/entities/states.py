@@ -1,20 +1,25 @@
-"""Records' states and the transitions between them (ADR 0118).
+"""Records' state fields (ADR 0125).
 
-A type declares its states and transitions; its subtypes have the same. A
-record's state is ``iki_state`` in its declaring type's table, and only a
-transition changes it: :func:`transition`, a numbered revision of its own.
-Each transition is limited to lab roles (ADR 0116), may need a reason, and
-may refuse whoever made earlier ones (``not_by``, separation of duties).
+A type's fields can include state fields (``type: state``), each with its own
+states: a lot's production status beside its QA disposition, an instrument's
+service beside its calibration. Each state says which lab roles (ADR 0116) may
+set the field to it, from any other, and whether it locks the record. Setting
+one is :func:`set_state`, a numbered revision of its own with who, how and why.
+That's all core decides: which states may follow which, and who may not set
+one after setting another, are a plugin's policy, for guards to come.
 
-In a state that locks, a record's values can't change by any path. The
-services refuse with :func:`locked_why`, and the database refuses too:
-``iki_entity.locked`` follows the state, and triggers on the tables holding
-a record's values refuse changes while it's set (:func:`install_guards`).
+While any of a record's state fields is in a state that locks, the record is
+locked: its other fields can't change by any path, and it can't be archived,
+restored or moved to another registry entry. Its state fields stay settable by
+their roles, which is how it's unlocked. The services refuse with
+:func:`locked_why`, and the database refuses too: ``iki_entity.locked_by``
+names the state fields locking it, and triggers on the tables holding a
+record's values refuse changes while it names any (:func:`install_guards`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,170 +30,173 @@ from psycopg import sql
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.entities import registry
-from iki_server.entities.models import Entity, Revision, RevisionKind
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import STATE_COLUMN, EntityType, State, Transition
+from iki_spec.model import Field, State
+
+__all__ = [
+    "Option",
+    "install_guards",
+    "locked_why",
+    "locking",
+    "options",
+    "set_state",
+    "state_fields",
+    "values_of",
+    "why_not",
+]
 
 #: The triggers' names start with this; ``sync_plugins`` drops those no table needs.
 TRIGGER_PREFIX = "iki_locked__"
-#: The longest reason a transition keeps.
+#: The longest reason a state change keeps.
 MAX_REASON = 2000
 
 
-def machine(type_name: str) -> EntityType | None:
-    """The type whose states ``type_name``'s records move through: its own, or the
-    ancestor's that declares them. None if they have none."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
-        return None
-    return next((t for t in [entity_type, *registry.ancestors(entity_type)] if t.states), None)
+def state_fields(type_name: str) -> dict[str, Field]:
+    """A type's state fields that records have values in, its ancestors' first, in the
+    order they're declared. Empty for a type without any."""
+    from iki_server.entities.values import shape
+
+    if type_name not in registry.types():
+        return {}
+    form = shape(type_name)
+    return {
+        name: f
+        for part in form.parts
+        if not part.entry
+        for name, f in part.fields.items()
+        if f.type == "state" and not f.removed
+    }
 
 
-def state_of(entity: Entity) -> str | None:
-    """A record's state, read from its declaring type's table. None for an entry, or a
-    type without states."""
-    found = machine(entity.type)
-    if found is None or entity.registry_id is not None:
-        return None
-    model = registry.model(found.qualified_name)
-    value = model._default_manager.filter(pk=entity.pk).values_list(STATE_COLUMN, flat=True)
-    return value.first()
+def locking(fields: Mapping[str, Field], values: Mapping[str, Any]) -> list[str]:
+    """The state fields whose values lock a record, in their order."""
+    return [name for name, f in fields.items() if values.get(name) in f.locking_states]
 
 
-def states_of(entities: Iterable[Entity]) -> dict[Any, str]:
-    """Each record's state, for those that have one, in a query per declaring type."""
-    by_machine: dict[str, list[Any]] = {}
-    for entity in entities:
-        found = machine(entity.type) if entity.registry_id is None else None
-        if found is not None:
-            by_machine.setdefault(found.qualified_name, []).append(entity.pk)
-    out: dict[Any, str] = {}
-    for name, ids in by_machine.items():
-        model = registry.model(name)
-        out.update(model._default_manager.filter(pk__in=ids).values_list("pk", STATE_COLUMN))
+def values_of(entity: Entity) -> dict[str, str]:
+    """A record's state fields' values, read from its type's tables. Empty for a registry
+    entry, and for a type without state fields."""
+    from iki_server.entities.values import shape
+
+    if entity.registry_id is not None or not state_fields(entity.type):
+        return {}
+    out: dict[str, str] = {}
+    for part in shape(entity.type).parts:
+        names = [n for n, f in part.fields.items() if f.type == "state" and not f.removed]
+        if part.entry or not names:
+            continue
+        row = part.model._default_manager.filter(pk=entity.pk).values(*names).first()
+        out.update(row or {})
     return out
 
 
-def state(type_name: str, name: str | None) -> State | None:
-    found = machine(type_name)
-    if found is None or name is None:
-        return None
-    return found.states.get(name)
+def _label(f: Field, state: str | None) -> str:
+    found = f.states.get(state or "")
+    return found.label if found is not None else str(state)
 
 
 def locked_why(entity: Entity, *, doing: str = "be changed") -> str | None:
-    """Why a record can't change now because its state locks it, or None if it can."""
+    """Why a record can't change now because a state locks it, or None if it can: which
+    state fields lock it, and the states that would unlock it, with who sets them."""
     if not entity.locked:
         return None
-    found = machine(entity.type)
-    current = state_of(entity)
-    label = found.states[current].label if found and current in found.states else current
-    out = [
-        f"“{t.label}”"
-        for t in (found.transitions.values() if found else ())
-        if current in t.from_states and not (found and found.states[t.to].locks)
+    fields = state_fields(entity.type)
+    values = values_of(entity)
+    # In its type's order, whichever order they came to lock it in.
+    by = [name for name in fields if name in entity.locked_by] or list(entity.locked_by)
+    held = [
+        f"its {fields[n].label} ({_label(fields[n], values.get(n))})" if n in fields else n
+        for n in by
     ]
-    how = f" until {_either(out)} takes it out" if out else ""
-    return f"{entity.hrid} is {label}, which locks it: it can’t {doing}{how}."
+    until = []
+    for name in by:
+        f = fields.get(name)
+        if f is None:
+            continue
+        ways = [
+            f"{st.label} ({_either([lab_roles.label(r) for r in st.set_by])})"
+            for st in f.states.values()
+            if not st.removed and not st.locks and st.set_by
+        ]
+        if ways:
+            until.append(f"its {f.label} is set to {_either(ways)}")
+    how = f" until {_and(until)}" if until else ""
+    return f"{entity.hrid} is locked by {_and(held)}: it can’t {doing}{how}."
 
 
 def _either(words: list[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
 
 
-# --- Transitions --------------------------------------------------------------------------------
+def _and(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+# --- Setting a state ----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Option:
-    """A transition from a record's state, and whether this person may make it."""
+    """A state a record's state field could be set to, and why this person may not."""
 
-    transition: Transition
+    field: Field
+    state: State
     why_not: str | None
 
 
-def options(
-    user: User,
-    entity: Entity,
-    current: str | None = None,
-    made: dict[str, Any] | None = None,
-) -> list[Option]:
-    """The transitions from the record's state, each with why ``user`` may not make it.
-    ``made``: who made the latest of each of its transitions, from :func:`made_by`."""
-    found = machine(entity.type)
-    if found is None or entity.registry_id is not None:
-        return []
-    current = current if current is not None else state_of(entity)
-    return [
-        Option(t, why_not(user, entity, t, made))
-        for t in found.transitions.values()
-        if current in t.from_states
-    ]
-
-
-def made_by(entities: Iterable[Entity]) -> dict[Any, dict[str, Any]]:
-    """For each record, who made the latest of each transition on it: one query."""
-    ids = [e.pk for e in entities if machine(e.type) is not None]
-    out: dict[Any, dict[str, Any]] = {pk: {} for pk in ids}
-    if not ids:
-        return out
-    latest = (
-        Revision.objects.filter(entity_id__in=ids, kind=RevisionKind.TRANSITIONED)
-        .order_by("entity_id", "transition", "-number")
-        .distinct("entity_id", "transition")
-        .values_list("entity_id", "transition", "user_id")
-    )
-    for entity_id, name, by in latest:
-        out[entity_id][name] = by
+def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, list[Option]]:
+    """For each of a record's state fields, the states it could be set to (every one but
+    the one it's in), each with why ``user`` may not set it. ``values``: the record's."""
+    if entity.registry_id is not None:
+        return {}
+    out: dict[str, list[Option]] = {}
+    for name, f in state_fields(entity.type).items():
+        current = values.get(name)
+        out[name] = [
+            Option(f, st, why_not(user, entity, f, st))
+            for st in f.states.values()
+            if not st.removed and st.name != current
+        ]
     return out
 
 
-def why_not(
-    user: User, entity: Entity, t: Transition, made: dict[str, Any] | None = None
-) -> str | None:
-    """Why ``user`` may not make ``t`` on the record now, or None if they may. The record's
-    state isn't checked here: :func:`transition` does that, under its lock. ``made``: who
-    made the latest of each transition on it, if it's known already."""
+def why_not(user: User, entity: Entity, f: Field, state: State) -> str | None:
+    """Why ``user`` may not set ``f`` to ``state`` on the record now, or None if they may.
+    Its current state isn't checked here: :func:`set_state` does that, under its lock."""
+    refusal = _refusal(user, entity, state)
+    return refusal[0] if refusal is not None else None
+
+
+def _refusal(user: User, entity: Entity, state: State) -> tuple[str, bool] | None:
+    """Why not, and whether it's for who they are (True) rather than the record's own
+    condition (False)."""
     owner = entity.owner_project
     if owner is None:
-        return "It's a registry entry: its projects' records have states, not it."
+        return "It's a registry entry: its projects' records have states, not it.", False
     if entity.purged_at is not None:
-        return "Its plugin's data was purged."
+        return "Its plugin's data was purged.", False
     if entity.archived_at is not None:
-        return "It's archived: restore it first."
+        return "It's archived: restore it first.", False
     if registry.detached() and _frozen(entity):
-        return "Its plugin is detached: its records can be read but not changed."
-    if not permissions.can(user, Action.PROJECT_TRANSITION, owner):
+        return "Its plugin is detached: its records can be read but not changed.", False
+    if not permissions.can(user, Action.PROJECT_SET_STATE, owner):
         if permissions.token_limits(user) is not None and permissions.can(
             user, Action.PROJECT_READ, owner
         ):
-            return "This token can't change records in the project."
+            return "This token can't change records in the project.", True
         if owner.is_archived:
-            return f"{owner.name} is archived."
-        return f"It needs a role in {owner.name}."
-    held = permissions.lab_roles(user, owner)
-    if not held & set(t.roles):
-        roles = _either([lab_roles.label(r) for r in t.roles])
-        return f"It needs someone with the {roles} role in {owner.name}."
-    if t.not_by:
-        # Whoever made the latest of each named transition: a submitter isn't the approver.
-        latest = made if made is not None else made_by([entity]).get(entity.pk, {})
-        yours = [name for name in t.not_by if latest.get(name) == user.pk]
-        if yours:
-            found = machine(entity.type)
-            labels = [f"“{found.transitions[n].label if found else n}”" for n in yours]
-            return (
-                f"You made {_and(labels)} on it, so someone else makes “{t.label}”: "
-                "the plugin keeps them apart."
-            )
+            return f"{owner.name} is archived.", False
+        return f"It needs a role in {owner.name}.", True
+    if not state.set_by:
+        return f"No one sets it to {state.label}: new records start in it.", False
+    if not permissions.lab_roles(user, owner) & set(state.set_by):
+        roles = _either([lab_roles.label(r) for r in state.set_by])
+        return f"It needs someone with the {roles} role in {owner.name}.", True
     return None
-
-
-def _and(words: list[str]) -> str:
-    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
 def _frozen(entity: Entity) -> bool:
@@ -198,18 +206,19 @@ def _frozen(entity: Entity) -> bool:
     return services.frozen(shape(entity.type)) is not None
 
 
-def transition(
+def set_state(
     user: User,
     entity: Entity,
-    name: str,
+    field: str,
+    state: str,
     *,
     expected_revision: int,
     reason: str = "",
 ) -> Revision:
-    """Moves the record along transition ``name``: checked, then a revision of its own,
-    told to webhooks and triggers. Raises :class:`PermissionDenied` when ``user`` may not
-    make it, :class:`Refused` when the record can't take it now, and :class:`Invalid` for a
-    missing reason."""
+    """Sets the record's state field ``field`` to ``state``: checked, then a revision of
+    its own, told to webhooks and triggers, and in the audit log. Raises
+    :class:`PermissionDenied` when ``user`` may not, :class:`Refused` when the record
+    can't take it now, and :class:`Invalid` for an unknown state or a missing reason."""
     from iki_server.entities import services
 
     with transaction.atomic():
@@ -218,55 +227,51 @@ def transition(
             .select_related("owner_project")
             .get(pk=entity.pk)
         )
-        found = machine(locked.type)
-        if found is None or locked.registry_id is not None:
-            raise Refused(f"{locked.hrid} has no states.")
-        t = found.transitions.get(name)
-        if t is None:
-            raise Refused(f"{found.label} records have no transition `{name}`.")
+        if locked.registry_id is not None:
+            raise Refused(f"{locked.hrid} is a registry entry: its projects' records have states.")
+        fields = state_fields(locked.type)
+        f = fields.get(field)
+        if f is None:
+            type_label = registry.types()[locked.type].label
+            raise Refused(f"{type_label} records have no state field `{field}`.")
+        target = f.states.get(state)
+        if target is None or target.removed:
+            live = ", ".join(f"`{n}`" for n in f.live_states)
+            raise Invalid({"state": [f"{f.label} has no state `{state}`: it's one of {live}."]})
         if locked.revision != expected_revision:
             raise services.Stale(locked.revision)
-        current = state_of(locked)
-        if current not in t.from_states:
-            label = found.states[current].label if current in found.states else current
-            raise Refused(
-                f"{locked.hrid} is {label}: “{t.label}” leads from "
-                + _either([found.states[s].label for s in t.from_states])
-                + "."
-            )
-        why = why_not(user, locked, t)
-        if why is not None:
-            owner = locked.owner_project
-            if (
-                owner is not None
-                and permissions.can(user, Action.PROJECT_TRANSITION, owner)
-                and set(t.roles) & permissions.lab_roles(user, owner)
-            ):
-                raise Refused(why)  # separation of duties, or the record's own condition
-            raise PermissionDenied(why)
+        values = values_of(locked)
+        current = values.get(field)
+        if current == state:
+            raise Refused(f"{locked.hrid}'s {f.label} is {target.label} already.")
+        refusal = _refusal(user, locked, target)
+        if refusal is not None:
+            why, forbidden = refusal
+            raise PermissionDenied(why) if forbidden else Refused(why)
         reason = reason.strip()
-        if t.reason == "required" and not reason:
-            raise Invalid({"reason": [f"“{t.label}” needs a reason: say why."]})
-        target = found.states[t.to]
-        model = registry.model(found.qualified_name)
-        # The state changes while the record is unlocked, under its row's lock: the
+        if target.reason == "required" and not reason:
+            raise Invalid(
+                {"reason": [f"Setting its {f.label} to {target.label} needs a reason: say why."]}
+            )
+        if len(reason) > MAX_REASON:
+            raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
+        # The field changes while the record is unlocked, under its row's lock: the
         # database's guard refuses every change to a locked record, this one too.
-        if locked.locked:
-            Entity.objects.filter(pk=locked.pk).update(locked=False)
-        model._default_manager.filter(pk=locked.pk).update(**{STATE_COLUMN: t.to})
-        if target.locks:
-            Entity.objects.filter(pk=locked.pk).update(locked=True)
-        revision = services.transitioned(locked, t, current or "", user, reason)
-        # Beside its history: the audit log is where QA reviews who released what.
+        if locked.locked_by:
+            Entity.objects.filter(pk=locked.pk).update(locked_by=[])
+        revision = services.state_changed(user, locked, f, current or "", state, reason)
+        after = locking(fields, {**values, field: state})
+        if after:
+            Entity.objects.filter(pk=locked.pk).update(locked_by=after)
         log.record(
-            "entity.transitioned",
+            "entity.state_changed",
             actor=user,
             target=locked,
             project=locked.owner_project,
             data={
-                "transition": t.name,
+                "field": field,
                 "from": current or "",
-                "to": t.to,
+                "to": state,
                 "revision": revision.number,
                 "reason": reason,
             },
@@ -278,35 +283,27 @@ def transition(
 
 
 def guarded_tables() -> list[tuple[str, str]]:
-    """Every table holding values of records that have states, with its column naming the
+    """Every table holding values of records with state fields, with its column naming the
     record: (table, column)."""
-    from iki_server.entities.values import shape
+    from iki_server.entities.values import is_list_table, shape
 
     out: dict[str, str] = {}
     for entity_type in registry.types().values():
-        if entity_type.abstract or machine(entity_type.qualified_name) is None:
+        if entity_type.abstract or not state_fields(entity_type.qualified_name):
             continue
-        form = shape(entity_type.qualified_name)
-        for part in form.parts:
+        for part in shape(entity_type.qualified_name).parts:
             if part.entry:
                 continue
             out[part.model._meta.db_table] = "entity_id"
             for f in part.fields.values():
-                if f.removed:
-                    continue
-                if _is_list(f):
+                if not f.removed and is_list_table(f):
                     out[part.list_model(f.name)._meta.db_table] = "entity_id"
     return sorted(out.items())
 
 
-def _is_list(f: Any) -> bool:  # noqa: ANN401 - a spec field
-    from iki_server.entities.values import is_list_table
-
-    return bool(is_list_table(f))
-
-
-def install_guards(cursor: Any, wanted: list[tuple[str, str]]) -> list[str]:  # noqa: ANN401 - Django's cursor
+def install_guards(cursor: Any, wanted: Iterable[tuple[str, str]]) -> list[str]:  # noqa: ANN401 - Django's cursor
     """Puts the guard on each table, and takes it off tables that no longer need it."""
+    wanted = list(wanted)
     cursor.execute(
         "SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
         "WHERE t.tgname LIKE %s",

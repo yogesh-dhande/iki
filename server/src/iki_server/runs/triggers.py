@@ -75,7 +75,7 @@ RECOVER_AT_MOST = 500
 _EVENTS = {
     RevisionKind.CREATED: "entity.created",
     RevisionKind.EDITED: "entity.updated",
-    RevisionKind.TRANSITIONED: "entity.transitioned",
+    RevisionKind.STATE_CHANGED: "entity.state_changed",
 }
 
 #: The run whose results are being written, while they are.
@@ -115,8 +115,12 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
     event = _EVENTS.get(RevisionKind(revision.kind))
     if event is None:
         return 0
-    # A transition's "changes" are the state it entered (ADR 0118).
-    changed = [revision.state_to] if event == "entity.transitioned" else revision.changed_fields
+    # A state change's "changes" are the field and the state it entered (ADR 0125).
+    changed = (
+        [revision.state_field, revision.state_to]
+        if event == "entity.state_changed"
+        else revision.changed_fields
+    )
     events = [(event, changed)]
     if registered is not None:
         events.append(
@@ -152,8 +156,10 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
 def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> bool:
     if spec.on != event or not services.is_a(entity_type, spec.type):
         return False
-    watched = spec.states if event == "entity.transitioned" else spec.fields
-    return not watched or bool(set(watched) & set(changed))
+    if event == "entity.state_changed":
+        field, state = changed
+        return spec.state_field == field and (not spec.states or state in spec.states)
+    return not spec.fields or bool(set(spec.fields) & set(changed))
 
 
 # --- Firing ------------------------------------------------------------------------------------

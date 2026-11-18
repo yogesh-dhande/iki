@@ -332,19 +332,23 @@ def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: C
     }
 
 
-def test_transitions_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
-    path = "/api/v1/entities/SMP-000001/transitions/send_back"
+def test_state_changes_name_the_revision_they_were_decided_on(
+    fake: FakeIki, client: Client
+) -> None:
+    path = "/api/v1/entities/SAM-000001/states/status"
     fake.on("POST", path, entity(name="S1"))
-    client.entities.transition("SMP-000001", "send_back", revision=4, reason="Purity looks off")
+    client.entities.set_state(
+        "SAM-000001", "status", "in_testing", revision=4, reason="Purity looks off"
+    )
     sent = fake.sent("POST", path)[0]
     assert sent.headers["If-Match"] == '"4"'
-    assert json.loads(sent.content) == {"reason": "Purity looks off"}
-    # A dataframe of records with states has a column of them.
-    sample = entity("SMP-000001", name="S1")
-    sample["state"] = {"name": "in_testing", "label": "In testing", "locks": False}
+    assert json.loads(sent.content) == {"state": "in_testing", "reason": "Purity looks off"}
+    # A dataframe of records with state fields has a column for each, of its states.
+    sample = entity("SAM-000001", name="S1", status="in_testing", custody="in_lab")
     fake.on("POST", "/api/v1/entities/search", page([sample]))
     frame = client.entities.search("acme/lims.Sample").to_pandas()
-    assert frame.loc["SMP-000001", "state"] == "in_testing"
+    assert frame.loc["SAM-000001", "status"] == "in_testing"
+    assert frame.loc["SAM-000001", "custody"] == "in_lab"
 
 
 def test_a_record_is_taken(fake: FakeIki, client: Client) -> None:
@@ -377,12 +381,16 @@ def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> N
 def test_work_is_listed_page_by_page(fake: FakeIki, client: Client) -> None:
     item = {"entity": entity("SMP-000001"), "fields": ["analyst"], "due": "2026-12-01"}
     fake.on("GET", "/api/v1/me/work", page([item], "next"), page([item]))
-    found = list(client.work.mine(project=PROJECT, type="acme/lims.Sample", state=["received"]))
+    found = list(
+        client.work.mine(
+            project=PROJECT, type="acme/lims.Sample", state={"status": ["received", "in_testing"]}
+        )
+    )
     assert found == [item, item]
     first, second = fake.sent("GET", "/api/v1/me/work")
     assert first.url.params.get_list("project") == [PROJECT]
     assert first.url.params.get_list("type") == ["acme/lims.Sample"]
-    assert first.url.params.get_list("state") == ["received"]
+    assert first.url.params.get_list("state") == ["status.received", "status.in_testing"]
     assert (first.url.params["sort"], second.url.params["cursor"]) == ("due", "next")
     fake.on("GET", "/api/v1/me/work/open", page([]))
     assert list(client.work.open(sort="updated")) == []

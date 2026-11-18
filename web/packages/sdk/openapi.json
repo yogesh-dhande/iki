@@ -2435,9 +2435,17 @@
             "type": "string"
           },
           "locked": {
-            "description": "Its state locks it: nothing changes its values until a transition.",
+            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
             "title": "Locked",
             "type": "boolean"
+          },
+          "locked_by": {
+            "description": "The state fields whose states lock it, in its type's order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Locked By",
+            "type": "array"
           },
           "needs_reassigning": {
             "description": "Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.",
@@ -2489,17 +2497,6 @@
             "title": "Revision",
             "type": "integer"
           },
-          "state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/StateOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
-          },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
             "title": "Title",
@@ -2533,8 +2530,8 @@
           "updated_at",
           "archived",
           "archived_at",
-          "state",
           "locked",
+          "locked_by",
           "values",
           "refs",
           "files",
@@ -3253,9 +3250,20 @@
       "EntityCan": {
         "properties": {
           "edit": {
-            "description": "Change it, archive or restore it: false for everyone when its plugin is detached, or while its state locks it.",
+            "description": "Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.",
             "title": "Edit",
             "type": "boolean"
+          },
+          "states": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/StateCan"
+              },
+              "type": "array"
+            },
+            "description": "For each of its state fields (ADR 0125), the states it could be set to: every one but the one it's in, each with whether you may set it and why not. Empty for a type without state fields.",
+            "title": "States",
+            "type": "object"
           },
           "take": {
             "description": "The assignment fields you may take it in (ADR 0122), with `POST /entities/{ref}/take`: each names nobody who can be named now, and you can be.",
@@ -3264,19 +3272,11 @@
             },
             "title": "Take",
             "type": "array"
-          },
-          "transitions": {
-            "description": "The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.",
-            "items": {
-              "$ref": "#/components/schemas/TransitionCan"
-            },
-            "title": "Transitions",
-            "type": "array"
           }
         },
         "required": [
           "edit",
-          "transitions"
+          "states"
         ],
         "title": "EntityCan",
         "type": "object"
@@ -3473,9 +3473,17 @@
             "type": "string"
           },
           "locked": {
-            "description": "Its state locks it: nothing changes its values until a transition.",
+            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
             "title": "Locked",
             "type": "boolean"
+          },
+          "locked_by": {
+            "description": "The state fields whose states lock it, in its type's order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Locked By",
+            "type": "array"
           },
           "needs_reassigning": {
             "description": "Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.",
@@ -3517,17 +3525,6 @@
             "title": "Revision",
             "type": "integer"
           },
-          "state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/StateOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
-          },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
             "title": "Title",
@@ -3561,8 +3558,8 @@
           "updated_at",
           "archived",
           "archived_at",
-          "state",
           "locked",
+          "locked_by",
           "values",
           "refs",
           "files",
@@ -3732,28 +3729,12 @@
             "title": "Plugin",
             "type": "string"
           },
-          "states": {
-            "description": "The states its records move through (ADR 0118), the initial one first: its own, or the ancestor's that declares them. Empty if it has none.",
-            "items": {
-              "$ref": "#/components/schemas/StateOut"
-            },
-            "title": "States",
-            "type": "array"
-          },
           "subtypes": {
             "description": "The types that extend it, at any depth.",
             "items": {
               "type": "string"
             },
             "title": "Subtypes",
-            "type": "array"
-          },
-          "transitions": {
-            "description": "How records go between them.",
-            "items": {
-              "$ref": "#/components/schemas/TransitionOut"
-            },
-            "title": "Transitions",
             "type": "array"
           },
           "values_schema": {
@@ -3803,9 +3784,7 @@
           "identity",
           "fields",
           "values_schema",
-          "viewers",
-          "states",
-          "transitions"
+          "viewers"
         ],
         "title": "EntityTypeOut",
         "type": "object"
@@ -4416,12 +4395,24 @@
       "FieldOut": {
         "properties": {
           "assignment": {
-            "description": "Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.",
+            "description": "Whoever it names is assigned the record (ADR 0122): it's on their My work while the record's state field `assignment_field` is in one of `assignment_states`, and they're told.",
             "title": "Assignment",
             "type": "boolean"
           },
+          "assignment_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state field (ADR 0125) whose states say when it's their work. Null: it's their work in every state.",
+            "title": "Assignment Field"
+          },
           "assignment_states": {
-            "description": "The states in which it's their work. Empty: every state.",
+            "description": "The states of `assignment_field` in which it's their work.",
             "items": {
               "type": "string"
             },
@@ -4498,6 +4489,18 @@
             "description": "Can be set once, and can't change after.",
             "title": "Immutable",
             "type": "boolean"
+          },
+          "initial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "State fields (ADR 0125): the state new records start in. Null otherwise.",
+            "title": "Initial"
           },
           "input_units": {
             "description": "Quantities: common units values can be given in. Any convertible UCUM unit works.",
@@ -4589,6 +4592,14 @@
             "description": "What people call that role.",
             "title": "Role Label"
           },
+          "states": {
+            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/StateOut"
+            },
+            "title": "States",
+            "type": "array"
+          },
           "to": {
             "anyOf": [
               {
@@ -4668,7 +4679,10 @@
           "role",
           "role_label",
           "assignment",
-          "assignment_states"
+          "assignment_field",
+          "assignment_states",
+          "initial",
+          "states"
         ],
         "title": "FieldOut",
         "type": "object"
@@ -4921,7 +4935,7 @@
             "enum": [
               "entity.created",
               "entity.registered",
-              "entity.transitioned",
+              "entity.state_changed",
               "entity.updated",
               "schedule"
             ],
@@ -6216,15 +6230,16 @@
       "LabRoleUseOut": {
         "properties": {
           "description": {
-            "description": "What it lets them do: approve “Weigh” in Review, …",
+            "description": "What it lets them do: approve “Weigh” in Review, set Status to Approved or Released on samples, …",
             "title": "Description",
             "type": "string"
           },
           "kind": {
-            "description": "approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role.",
+            "description": "approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets.",
             "enum": [
               "approval",
-              "field"
+              "field",
+              "state"
             ],
             "title": "Kind",
             "type": "string"
@@ -7166,9 +7181,17 @@
             "type": "string"
           },
           "locked": {
-            "description": "Its state locks it: nothing changes its values until a transition.",
+            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
             "title": "Locked",
             "type": "boolean"
+          },
+          "locked_by": {
+            "description": "The state fields whose states lock it, in its type's order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Locked By",
+            "type": "array"
           },
           "needs_reassigning": {
             "description": "Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.",
@@ -7218,17 +7241,6 @@
             "title": "Revision",
             "type": "integer"
           },
-          "state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/StateOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Its state, for a record of a type with states (ADR 0118). Only a transition changes it."
-          },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
             "title": "Title",
@@ -7262,8 +7274,8 @@
           "updated_at",
           "archived",
           "archived_at",
-          "state",
           "locked",
+          "locked_by",
           "values",
           "refs",
           "files",
@@ -7350,6 +7362,24 @@
           "email"
         ],
         "title": "NameableOut",
+        "type": "object"
+      },
+      "NamedOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "NamedOut",
         "type": "object"
       },
       "NotificationActor": {
@@ -8728,12 +8758,24 @@
         "description": "A param is a field, as entity types' are, with its default and limits.",
         "properties": {
           "assignment": {
-            "description": "Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.",
+            "description": "Whoever it names is assigned the record (ADR 0122): it's on their My work while the record's state field `assignment_field` is in one of `assignment_states`, and they're told.",
             "title": "Assignment",
             "type": "boolean"
           },
+          "assignment_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state field (ADR 0125) whose states say when it's their work. Null: it's their work in every state.",
+            "title": "Assignment Field"
+          },
           "assignment_states": {
-            "description": "The states in which it's their work. Empty: every state.",
+            "description": "The states of `assignment_field` in which it's their work.",
             "items": {
               "type": "string"
             },
@@ -8814,6 +8856,18 @@
             "description": "Can be set once, and can't change after.",
             "title": "Immutable",
             "type": "boolean"
+          },
+          "initial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "State fields (ADR 0125): the state new records start in. Null otherwise.",
+            "title": "Initial"
           },
           "input_units": {
             "description": "Quantities: common units values can be given in. Any convertible UCUM unit works.",
@@ -8960,6 +9014,14 @@
             "description": "What people call that role.",
             "title": "Role Label"
           },
+          "states": {
+            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/StateOut"
+            },
+            "title": "States",
+            "type": "array"
+          },
           "to": {
             "anyOf": [
               {
@@ -9039,7 +9101,10 @@
           "role",
           "role_label",
           "assignment",
+          "assignment_field",
           "assignment_states",
+          "initial",
+          "states",
           "min",
           "max",
           "min_length",
@@ -9990,6 +10055,11 @@
             ],
             "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has."
           },
+          "field": {
+            "description": "For `entity.state_changed`: the state field it watches. Empty otherwise.",
+            "title": "Field",
+            "type": "string"
+          },
           "fields": {
             "description": "For `entity.updated`: it fires only when one of these changed. Empty for any change.",
             "items": {
@@ -10038,11 +10108,11 @@
             "title": "Next Run At"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
-              "entity.transitioned",
+              "entity.state_changed",
               "entity.updated",
               "schedule"
             ],
@@ -10083,7 +10153,7 @@
             "type": "string"
           },
           "states": {
-            "description": "For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.",
+            "description": "For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.",
             "items": {
               "type": "string"
             },
@@ -10141,6 +10211,7 @@
           "schedule",
           "timezone",
           "fields",
+          "field",
           "states",
           "action",
           "action_label",
@@ -11297,7 +11368,7 @@
               "curated",
               "superseded",
               "moved",
-              "transitioned"
+              "state_changed"
             ],
             "title": "Kind",
             "type": "string"
@@ -11337,16 +11408,16 @@
             ],
             "description": "The run that made it, when `via` is `run` and you can read the run's project."
           },
-          "transition": {
+          "state": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RevisionTransitionOut"
+                "$ref": "#/components/schemas/RevisionStateOut"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "For a transition (ADR 0118): which, and between which states."
+            "description": "For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`."
           },
           "user": {
             "anyOf": [
@@ -11380,7 +11451,7 @@
           "client",
           "agent",
           "reason",
-          "transition",
+          "state",
           "created_at",
           "values",
           "changes",
@@ -11442,7 +11513,7 @@
               "curated",
               "superseded",
               "moved",
-              "transitioned"
+              "state_changed"
             ],
             "title": "Kind",
             "type": "string"
@@ -11466,16 +11537,16 @@
             ],
             "description": "The run that made it, when `via` is `run` and you can read the run's project."
           },
-          "transition": {
+          "state": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RevisionTransitionOut"
+                "$ref": "#/components/schemas/RevisionStateOut"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "For a transition (ADR 0118): which, and between which states."
+            "description": "For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`."
           },
           "user": {
             "anyOf": [
@@ -11503,44 +11574,40 @@
           "client",
           "agent",
           "reason",
-          "transition",
+          "state",
           "created_at"
         ],
         "title": "RevisionOut",
         "type": "object"
       },
-      "RevisionTransitionOut": {
+      "RevisionStateOut": {
         "properties": {
+          "field": {
+            "$ref": "#/components/schemas/NamedOut",
+            "description": "The state field set."
+          },
           "from": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/StateOut"
+                "$ref": "#/components/schemas/NamedOut"
               },
               {
                 "type": "null"
               }
-            ]
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "name": {
-            "description": "The transition, or `iki.moved` when a plugin's migration moved the record out of a state it removed.",
-            "title": "Name",
-            "type": "string"
+            ],
+            "description": "The state it was in."
           },
           "to": {
-            "$ref": "#/components/schemas/StateOut"
+            "$ref": "#/components/schemas/NamedOut",
+            "description": "The state it was set to."
           }
         },
         "required": [
-          "name",
-          "label",
+          "field",
           "from",
           "to"
         ],
-        "title": "RevisionTransitionOut",
+        "title": "RevisionStateOut",
         "type": "object"
       },
       "RevokeIn": {
@@ -14299,7 +14366,90 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StateCan": {
+        "description": "A state a record's state field could be set to (ADR 0125), and whether you may.",
+        "properties": {
+          "allowed": {
+            "description": "You may set it now.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "locks": {
+            "title": "Locks",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether it asks why: required, optional, or not at all (null).",
+            "title": "Reason"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "locks",
+          "reason",
+          "allowed",
+          "why_not"
+        ],
+        "title": "StateCan",
+        "type": "object"
+      },
+      "StateIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why: a state may require it, and its history keeps it.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state to set it to, by name.",
+            "maxLength": 50,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "StateIn",
+        "type": "object"
+      },
       "StateOut": {
+        "description": "One of a state field's states (ADR 0125).",
         "properties": {
           "description": {
             "anyOf": [
@@ -14317,19 +14467,45 @@
             "type": "string"
           },
           "locks": {
-            "description": "A record in it can't change until a transition takes it out.",
+            "description": "A record in it is locked: its other fields can't change, and it can't be archived, restored or moved, until its state field is set to a state that doesn't.",
             "title": "Locks",
             "type": "boolean"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether setting it asks why: required, optional, or not at all (null).",
+            "title": "Reason"
+          },
+          "set_by": {
+            "description": "The lab roles (ADR 0116) whose holders may set the field to it, from any other state: any one, in the record's project. Empty for an initial state no one sets.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Set By",
+            "type": "array"
           }
         },
         "required": [
           "name",
           "label",
-          "locks"
+          "set_by",
+          "locks",
+          "reason"
         ],
         "title": "StateOut",
         "type": "object"
@@ -14799,163 +14975,6 @@
         "title": "TrackOut",
         "type": "object"
       },
-      "TransitionCan": {
-        "description": "A transition from the record's state (ADR 0118), and whether you may make it.",
-        "properties": {
-          "allowed": {
-            "description": "You may make it now.",
-            "title": "Allowed",
-            "type": "boolean"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "enum": [
-                  "required",
-                  "optional"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Whether it asks why: required, optional, or not at all (null).",
-            "title": "Reason"
-          },
-          "to": {
-            "description": "The state it leads to.",
-            "title": "To",
-            "type": "string"
-          },
-          "to_label": {
-            "title": "To Label",
-            "type": "string"
-          },
-          "why_not": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Why you may not, when you may not.",
-            "title": "Why Not"
-          }
-        },
-        "required": [
-          "name",
-          "label",
-          "to",
-          "to_label",
-          "reason",
-          "allowed",
-          "why_not"
-        ],
-        "title": "TransitionCan",
-        "type": "object"
-      },
-      "TransitionIn": {
-        "properties": {
-          "reason": {
-            "default": "",
-            "description": "Why: a transition may require it, and keeps it.",
-            "maxLength": 2000,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "title": "TransitionIn",
-        "type": "object"
-      },
-      "TransitionOut": {
-        "properties": {
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "from": {
-            "description": "The states it leads out of.",
-            "items": {
-              "type": "string"
-            },
-            "title": "From",
-            "type": "array"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "not_by": {
-            "description": "Whoever made the latest of these transitions on a record can't make this one: separation of duties.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Not By",
-            "type": "array"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "enum": [
-                  "required",
-                  "optional"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "roles": {
-            "description": "The lab roles that may make it: any one (ADR 0116).",
-            "items": {
-              "type": "string"
-            },
-            "title": "Roles",
-            "type": "array"
-          },
-          "to": {
-            "title": "To",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "label",
-          "description",
-          "from",
-          "to",
-          "roles",
-          "reason",
-          "not_by"
-        ],
-        "title": "TransitionOut",
-        "type": "object"
-      },
       "TriggerFiredOut": {
         "properties": {
           "enabled_by": {
@@ -15068,6 +15087,11 @@
             ],
             "title": "Description"
           },
+          "field": {
+            "description": "For `entity.state_changed`: the state field it watches. Empty otherwise.",
+            "title": "Field",
+            "type": "string"
+          },
           "fields": {
             "description": "For `entity.updated`: it fires only when one of these changed. Empty for any change.",
             "items": {
@@ -15091,11 +15115,11 @@
             "type": "string"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
-              "entity.transitioned",
+              "entity.state_changed",
               "entity.updated",
               "schedule"
             ],
@@ -15117,7 +15141,7 @@
             "type": "string"
           },
           "states": {
-            "description": "For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.",
+            "description": "For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.",
             "items": {
               "type": "string"
             },
@@ -15163,6 +15187,7 @@
           "schedule",
           "timezone",
           "fields",
+          "field",
           "states",
           "action",
           "action_label",
@@ -15981,7 +16006,7 @@
             "type": "string"
           },
           "state": {
-            "description": "Only records in these states.",
+            "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
             "items": {
               "type": "string"
             },
@@ -16023,7 +16048,7 @@
             "$ref": "#/components/schemas/EntityOut"
           },
           "fields": {
-            "description": "The assignment fields naming you that count in its state; for open work, the ones you could take it in.",
+            "description": "The assignment fields naming you that count in its states; for open work, the ones you could take it in.",
             "items": {
               "type": "string"
             },
@@ -19947,7 +19972,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,\n``in``.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -20819,6 +20844,99 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/states/{field}": {
+      "post": {
+        "description": "Sets one of the record's state fields (ADR 0125) to one of its states, from any other,\nas a revision of its own, with your reason. It needs one of the state's lab roles in the\nrecord's project (ADR 0116): `can.states` lists each state with whether you may and why\nnot. A state that locks the record freezes its other fields until the field is set to\none that doesn't; state fields stay settable. Send If-Match with the ETag you read.",
+        "operationId": "iki_server_api_entities_set_entity_state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set one of a record's state fields",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/take": {
       "post": {
         "description": "Names you in an assignment field limited to one of your lab roles (ADR 0122),\nwhile it names nobody who can be named: open work, as `can.take` lists it. A revision,\nlike any edit. Send If-Match with the ETag you read.",
@@ -20883,99 +21001,6 @@
         "summary": "Assign a record to yourself",
         "tags": [
           "work"
-        ]
-      }
-    },
-    "/api/v1/entities/{ref}/transitions/{name}": {
-      "post": {
-        "description": "Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of\nits own, with your reason. It needs one of the transition's lab roles in the record's\nproject (ADR 0116), and someone other than whoever made the transitions it names in\n`not_by`. Send If-Match with the ETag you read.",
-        "operationId": "iki_server_api_entities_transition_entity",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "ref",
-            "required": true,
-            "schema": {
-              "title": "Ref",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "project",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Project"
-            }
-          },
-          {
-            "in": "header",
-            "name": "If-Match",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "If-Match"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransitionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EntityOut"
-                }
-              }
-            },
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Move a record to another state",
-        "tags": [
-          "entities"
         ]
       }
     },
@@ -22145,7 +22170,7 @@
     },
     "/api/v1/me/work": {
       "get": {
-        "description": "Everything assigned to you now (ADR 0122), across the projects you read: records an\nassignment field names you in, while their state is one it counts in. You drop off a\nrecord's work when you can't be named in it any more (you left its project, say).",
+        "description": "Everything assigned to you now (ADR 0122), across the projects you read: records an\nassignment field names you in, while their state fields are in states it counts in. You\ndrop off a record's work when you can't be named in it any more (you left its project,\nsay).",
         "operationId": "iki_server_api_work_my_work",
         "parameters": [
           {
@@ -22178,12 +22203,12 @@
             }
           },
           {
-            "description": "Only records in these states.",
+            "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
             "in": "query",
             "name": "state",
             "required": false,
             "schema": {
-              "description": "Only records in these states.",
+              "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
               "items": {
                 "type": "string"
               },
@@ -22266,7 +22291,7 @@
     },
     "/api/v1/me/work/open": {
       "get": {
-        "description": "Records nobody is assigned that one of your lab roles could take (ADR 0122): an\nassignment field limited to a role you hold in the record's project counts in its\nstate, and names nobody who can be named there now. Take one with `POST\n/entities/{ref}/take`, or simply do it: a locked record's people can't change.",
+        "description": "Records nobody is assigned that one of your lab roles could take (ADR 0122): an\nassignment field limited to a role you hold in the record's project counts in its\nstates, and names nobody who can be named there now. Take one with `POST\n/entities/{ref}/take`, or simply do it: a locked record's people can't change.",
         "operationId": "iki_server_api_work_open_work",
         "parameters": [
           {
@@ -22299,12 +22324,12 @@
             }
           },
           {
-            "description": "Only records in these states.",
+            "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
             "in": "query",
             "name": "state",
             "required": false,
             "schema": {
-              "description": "Only records in these states.",
+              "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
               "items": {
                 "type": "string"
               },

@@ -600,6 +600,23 @@ def test_updates(tmp_path: Path) -> None:
     assert only(make(tmp_path, action(effects=twice)), "duplicate-updates")
 
 
+def test_updates_leave_state_fields_to_people(tmp_path: Path) -> None:
+    status = (
+        "  status:\n    type: state\n    initial: open\n"
+        "    states: { open: {}, done: { set_by: [qa] } }\n"
+    )
+    files = {
+        "plugin.yaml": PLUGIN + "roles:\n  qa: { label: QA }\n",
+        "types/types.yaml": TYPES.replace(
+            "  old: { type: int, removed: true }\n",
+            "  old: { type: int, removed: true }\n" + status,
+        ),
+    }
+    updates = "{ updates: [{ input: assay, fields: [score, status] }] }"
+    result = make(tmp_path, action(effects=updates), files=files)
+    assert "set it, one revision each" in only(result, "updates-state")
+
+
 def test_updates_reach_inherited_and_extension_fields(tmp_path: Path) -> None:
     plugin = PLUGIN + 'dependencies: { acme/protein: { types: { Protein: ">=1" } } }\n'
     other = action(

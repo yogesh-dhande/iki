@@ -1339,134 +1339,239 @@ def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:
     assert "both called" in only(make(tmp_path, TYPE, plugin), "duplicate-role-label")
 
 
-# --- Record states (ADR 0118) ------------------------------------------------------------------
+# --- State fields (ADR 0125) -------------------------------------------------------------------
 
-STATES = """\
-states:
-  received: { label: Received, initial: true }
-  testing: { label: In testing }
-  released: { label: Released, locks: true }
-transitions:
-  start: { label: Start, from: [received], to: testing, roles: [analyst] }
-  release: { label: Release, from: [testing], to: released, roles: [qa], not_by: [start] }
-  reopen: { label: Reopen, from: [released], to: testing, roles: [qa], reason: required }
+STATUS = """\
+fields:
+  status:
+    type: state
+    label: Status
+    initial: received
+    states:
+      received: { label: Received, set_by: [analyst] }
+      testing: { label: In testing, set_by: [analyst, qa], reason: optional }
+      released: { label: Released, set_by: [qa], locks: true, reason: required }
+  custody:
+    type: state
+    initial: in_lab
+    states:
+      in_lab: { set_by: [qa] }
+      quarantined: { set_by: [qa], locks: true }
 """
-RELEASED = "  released: { label: Released, locks: true }\n"
+RELEASED = "      released: { label: Released, set_by: [qa], locks: true, reason: required }\n"
 
 
-def states(body: str = STATES) -> str:
+def states(body: str = STATUS) -> str:
     return TYPE + body
 
 
-def test_a_type_declares_states_and_transitions(tmp_path: Path) -> None:
+def test_a_type_has_state_fields_each_with_its_states(tmp_path: Path) -> None:
     result = make(tmp_path, states(), ROLES)
     assert result.problems == []
     assert result.plugin is not None
     assay = result.plugin.types["acme/lab.Assay"]
-    assert assay.initial_state == "received"
-    assert assay.live_states == ("received", "testing", "released")
-    assert assay.locking_states == {"released"}
-    release = assay.transitions["release"]
-    assert (release.from_states, release.to, release.roles, release.not_by) == (
-        ("testing",),
-        "released",
+    status = assay.fields["status"]
+    assert (status.type, status.initial) == ("state", "received")
+    assert status.live_states == ("received", "testing", "released")
+    assert status.locking_states == {"released"}
+    released = status.states["released"]
+    assert (released.label, released.set_by, released.reason) == (
+        "Released",
         ("acme/lab.qa",),
-        ("start",),
+        "required",
     )
-    assert assay.transitions["reopen"].reason == "required"
+    assert status.states["testing"].set_by == ("acme/lab.analyst", "acme/lab.qa")
+    # A state's label defaults to its name, in words.
+    assert assay.fields["custody"].states["in_lab"].label == "In lab"
+    assert assay.fields["custody"].locking_states == {"quarantined"}
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
 @pytest.mark.parametrize(
     ("body", "code", "message"),
     [
-        (STATES.replace(", initial: true", ""), "state-initial", "Exactly one state"),
+        (STATUS.replace("initial: received", "initial: queued"), "unknown-state", "`queued`"),
         (
-            STATES.replace("{ label: In testing }", "{ label: In testing, initial: true }"),
-            "state-initial",
-            "`received`, `testing` all are",
-        ),
-        (
-            STATES.replace("Received, initial: true", "Received, initial: true, locks: true"),
+            STATUS.replace("initial: received", "initial: released"),
             "state-initial",
             "can't lock them",
         ),
         (
-            STATES.replace("to: testing, roles: [analyst]", "to: tested, roles: [analyst]"),
-            "unknown-state",
-            "`tested`",
-        ),
-        (STATES.replace("not_by: [start]", "not_by: [begin]"), "unknown-transition", "`begin`"),
-        (
-            STATES.replace("roles: [analyst]", "roles: [chemist]"),
+            STATUS.replace("set_by: [analyst] }", "set_by: [chemist] }"),
             "unknown-role",
             "no lab role `chemist`",
         ),
         (
-            STATES.replace("from: [received], to: testing", "from: [testing], to: testing"),
-            "transition-to-itself",
-            "to itself",
-        ),
-        (
-            STATES.replace(RELEASED, RELEASED + "  lost: { label: Lost }\n"),
+            STATUS.replace(RELEASED, RELEASED + "      lost: { label: Lost }\n"),
             "state-unreachable",
-            "No transitions lead to `lost`",
+            "No one can set `status` to `lost`",
         ),
         (
-            STATES.replace(
-                RELEASED, RELEASED + "  old: { label: Old, removed: true, moved_to: gone }\n"
+            STATUS.replace(
+                RELEASED,
+                RELEASED + "      old: { label: Old, removed: true, moved_to: gone }\n",
             ),
             "unknown-state",
             "`gone`",
         ),
+        (
+            STATUS.replace(RELEASED, RELEASED + "      old: { label: Old, removed: true }\n"),
+            "state-removed",
+            "say which, with `moved_to`",
+        ),
+        (
+            STATUS.replace(
+                RELEASED,
+                RELEASED + "      old: { removed: true, moved_to: received, locks: true }\n",
+            ),
+            "state-removed",
+            "no record is in it to lock",
+        ),
+        (
+            STATUS.replace(
+                "{ label: Received, set_by: [analyst] }",
+                "{ label: Received, removed: true, moved_to: testing }",
+            ),
+            "state-initial",
+            "can't be removed",
+        ),
+        (
+            STATUS.replace("set_by: [analyst] }", "set_by: [analyst], moved_to: testing }"),
+            "state-removed",
+            "`moved_to` is for a removed state",
+        ),
+        (
+            STATUS.replace(
+                "reason: required }", "reason: required, signatures: [{ meaning: Approved }] }"
+            ),
+            "state-signatures-reserved",
+            "21 CFR Part 11",
+        ),
     ],
 )
-def test_states_are_checked(tmp_path: Path, body: str, code: str, message: str) -> None:
+def test_state_fields_are_checked(tmp_path: Path, body: str, code: str, message: str) -> None:
     assert message in only(make(tmp_path, states(body), ROLES), code)
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        STATES.replace("transitions:", "steps:"),  # states without transitions
-        STATES.replace("roles: [analyst]", "roles: []"),  # a transition anyone may make
-        STATES.replace(", roles: [analyst]", ""),
-        STATES.replace("reason: required", "reason: maybe"),
-        STATES.replace("Released, locks: true", "Released, removed: true"),  # nowhere to go
-        STATES.replace("received:", "Received:"),
+        STATUS.replace("    initial: received\n", ""),  # no initial state
+        STATUS.replace("set_by: [qa] }", "set_by: [] }"),  # set by no one, explicitly
+        STATUS.replace("reason: optional", "reason: maybe"),
+        STATUS.replace("received:", "Received:"),
+        STATUS.replace(
+            "{ set_by: [qa], locks: true }", "{ set_by: [qa], locks: true, not_by: [in_lab] }"
+        ),
+        STATUS.replace(
+            "    states:\n      in_lab: { set_by: [qa] }\n", "    states:\n"
+        ),  # one state
+        STATUS.replace("type: state\n    label: Status", "type: state\n    required: true"),
     ],
 )
-def test_states_must_be_well_formed(tmp_path: Path, body: str) -> None:
+def test_state_fields_must_be_well_formed(tmp_path: Path, body: str) -> None:
     assert "schema" in codes(make(tmp_path, states(body), ROLES))
 
 
 def test_a_removed_state_says_where_its_records_go(tmp_path: Path) -> None:
-    body = STATES.replace(
-        RELEASED, RELEASED + "  queued: { label: Queued, removed: true, moved_to: received }\n"
+    body = STATUS.replace(
+        RELEASED, RELEASED + "      queued: { label: Queued, removed: true, moved_to: received }\n"
     )
     result = make(tmp_path, states(body), ROLES)
     assert result.problems == []
     assert result.plugin is not None
-    assay = result.plugin.types["acme/lab.Assay"]
-    assert "queued" not in assay.live_states
-    assert assay.states["queued"].moved_to == "received"
+    status = result.plugin.types["acme/lab.Assay"].fields["status"]
+    assert "queued" not in status.live_states
+    assert status.states["queued"].moved_to == "received"
 
 
-def test_a_subtype_has_its_parents_states(tmp_path: Path) -> None:
+CUSTODY_MOVED = """\
+    removed: true
+    moved_to:
+      field: status
+      states: { in_lab: received, quarantined: released }
+"""
+
+
+def test_a_removed_state_field_says_where_its_records_states_go(tmp_path: Path) -> None:
+    body = STATUS + "    " + CUSTODY_MOVED.strip().replace("\n", "\n    ") + "\n"
+    body = STATUS.replace(
+        "  custody:\n    type: state\n", "  custody:\n    type: state\n" + CUSTODY_MOVED
+    )
+    result = make(tmp_path, states(body), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    custody = result.plugin.types["acme/lab.Assay"].fields["custody"]
+    assert custody.removed
+    assert custody.moved_to is not None
+    assert custody.moved_to.field == "status"
+    assert dict(custody.moved_to.states) == {"in_lab": "received", "quarantined": "released"}
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+    # Without moved_to it's allowed: the migration refuses while records have it.
+    alone = STATUS.replace(
+        "  custody:\n    type: state\n", "  custody:\n    type: state\n    removed: true\n"
+    )
+    assert make(tmp_path, states(alone), ROLES).problems == []
+
+
+@pytest.mark.parametrize(
+    ("moved", "code", "message"),
+    [
+        ("{ in_lab: received }", "state-removed", "records in `quarantined`"),
+        ("{ in_lab: received, quarantined: lost }", "unknown-state", "`lost`"),
+        (
+            "{ in_lab: received, quarantined: released, gone: received }",
+            "unknown-state",
+            "`gone`",
+        ),
+    ],
+)
+def test_a_removed_state_fields_moves_are_checked(
+    tmp_path: Path, moved: str, code: str, message: str
+) -> None:
+    body = STATUS.replace(
+        "  custody:\n    type: state\n",
+        "  custody:\n    type: state\n"
+        + CUSTODY_MOVED.replace("{ in_lab: received, quarantined: released }", moved),
+    )
+    assert message in only(make(tmp_path, states(body), ROLES), code)
+
+
+def test_a_removed_state_field_moves_to_another_of_its_types(tmp_path: Path) -> None:
+    body = STATUS.replace(
+        "  custody:\n    type: state\n",
+        "  custody:\n    type: state\n" + CUSTODY_MOVED.replace("field: status", "field: custody"),
+    )
+    assert "own state fields" in only(make(tmp_path, states(body), ROLES), "unknown-field")
+    body = (
+        STATUS.replace(
+            "  custody:\n    type: state\n",
+            "  custody:\n    type: state\n"
+            + CUSTODY_MOVED.replace("field: status", "field: notes"),
+        )
+        + "  notes: { type: text }\n"
+    )
+    assert "own state fields" in only(make(tmp_path, states(body), ROLES), "unknown-field")
+
+
+def test_state_fields_are_a_types_own(tmp_path: Path) -> None:
+    items = "{ type: state, initial: one, states: { one: {}, two: { set_by: [qa] } } }"
+    listed = TYPE + f"fields:\n  stages:\n    type: list\n    items: {items}\n"
+    assert "can't be states" in only(make(tmp_path, listed, ROLES), "state-field-in-list")
+    stage = "stage:\n  type: state\n  initial: one\n  states:\n    one: {}\n    two: {}\n"
+    result = make(tmp_path, extension(stage), DNA_PIN, with_=(DNA,))
+    assert "an extension can't add one" in only(result, "state-field-in-extension")
+
+
+def test_a_subtype_has_its_parents_state_fields(tmp_path: Path) -> None:
     child = (
         "apiVersion: iki/v1\nkind: EntityType\nname: Elisa\nextends: Assay\n"
         "schema_version: 1\nhrid: { prefix: ELI }\n"
+        "fields:\n  plate:\n    type: state\n    initial: open\n"
+        "    states:\n      open: {}\n      read: { set_by: [analyst] }\n"
     )
-    assert (
-        make(tmp_path, {"types/assay.yaml": states(), "types/elisa.yaml": child}, ROLES).problems
-        == []
-    )
-    own = child + STATES
-    message = only(
-        make(tmp_path, {"types/assay.yaml": states(), "types/elisa.yaml": own}, ROLES),
-        "states-inherited",
-    )
-    assert "extends `acme/lab.Assay`, which has states" in message
+    result = make(tmp_path, {"types/assay.yaml": states(), "types/elisa.yaml": child}, ROLES)
+    assert result.problems == []
 
 
 # --- People in records (ADR 0122) --------------------------------------------------------------
@@ -1474,15 +1579,22 @@ def test_a_subtype_has_its_parents_states(tmp_path: Path) -> None:
 PEOPLE = """\
 fields:
   due_on: { type: date }
-  analyst: { type: person, role: analyst, assignment: { states: [received, testing] } }
+  analyst:
+    type: person
+    role: analyst
+    assignment: { field: status, states: [received, testing] }
   helpers: { type: list, items: { type: person }, assignment: true, max_items: 5 }
   received_by: { type: person }
 due: due_on
 """
+#: The state field (ADR 0125) the analyst's work follows.
+PEOPLE_STATES = STATUS.removeprefix("fields:\n")
 
 
-def people(body: str = PEOPLE, machine: str = STATES) -> str:
-    return TYPE + body + machine
+def people(body: str = PEOPLE, machine: str = PEOPLE_STATES) -> str:
+    """A type of people fields, with its state fields after them."""
+    head, due = body.split("due: ", 1)
+    return TYPE + head + machine + "due: " + due
 
 
 def test_fields_name_people_and_assign_records_to_them(tmp_path: Path) -> None:
@@ -1492,10 +1604,17 @@ def test_fields_name_people_and_assign_records_to_them(tmp_path: Path) -> None:
     assay = result.plugin.types["acme/lab.Assay"]
     analyst = assay.fields["analyst"]
     assert (analyst.type, analyst.role, analyst.assignment) == ("person", "acme/lab.analyst", True)
-    assert analyst.assignment_states == ("received", "testing")
+    assert (analyst.assignment_field, analyst.assignment_states) == (
+        "status",
+        ("received", "testing"),
+    )
     helpers = assay.fields["helpers"]
     assert helpers.items is not None and helpers.items.type == "person"
-    assert (helpers.assignment, helpers.assignment_states) == (True, ())
+    assert (helpers.assignment, helpers.assignment_field, helpers.assignment_states) == (
+        True,
+        None,
+        (),
+    )
     assert not assay.fields["received_by"].assignment
     assert assay.due == "due_on"
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
@@ -1506,30 +1625,47 @@ def test_fields_name_people_and_assign_records_to_them(tmp_path: Path) -> None:
     [
         (
             PEOPLE.replace("role: analyst", "role: chemist"),
-            STATES,
+            PEOPLE_STATES,
             "unknown-role",
             "no lab role `chemist`",
         ),
         (
             PEOPLE.replace("states: [received, testing]", "states: [received, tested]"),
-            STATES,
+            PEOPLE_STATES,
             "unknown-state",
             "`tested`",
         ),
         (PEOPLE, "", "assignment-without-states", "can't be assigned only in some"),
         (
+            PEOPLE.replace("field: status", "field: stats"),
+            PEOPLE_STATES,
+            "assignment-without-states",
+            "`stats` isn't a state field",
+        ),
+        (
+            PEOPLE.replace("field: status", "field: due_on"),
+            PEOPLE_STATES,
+            "assignment-without-states",
+            "`due_on` isn't a state field",
+        ),
+        (
             PEOPLE.replace(
                 "due: due_on",
                 "  tags: { type: list, items: { type: string }, assignment: true }\ndue: due_on",
             ),
-            STATES,
+            PEOPLE_STATES,
             "assignment-not-people",
             "only a field naming people",
         ),
-        (PEOPLE.replace("due: due_on", "due: due_by"), STATES, "unknown-field", "`due_by`"),
+        (
+            PEOPLE.replace("due: due_on", "due: due_by"),
+            PEOPLE_STATES,
+            "unknown-field",
+            "`due_by`",
+        ),
         (
             PEOPLE.replace("due: due_on", "due: received_by"),
-            STATES,
+            PEOPLE_STATES,
             "due-not-a-date",
             "what's due is due on a date",
         ),
@@ -1544,7 +1680,8 @@ def test_people_fields_are_checked(
 @pytest.mark.parametrize(
     "body",
     [
-        PEOPLE.replace("assignment: true", "assignment: { states: [] }"),
+        PEOPLE.replace("assignment: true", "assignment: { field: status, states: [] }"),
+        PEOPLE.replace("{ field: status, states", "{ states"),
         PEOPLE.replace("assignment: true", "assignment: always"),
         PEOPLE.replace("due: due_on", "  code: { type: string, assignment: true }\ndue: due_on"),
         PEOPLE.replace("received_by: { type: person }", "received_by: { type: string, role: qa }"),

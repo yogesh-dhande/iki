@@ -11,7 +11,16 @@ import { useId } from "react";
 import { problemOf, projectsQuery, useApiMutation } from "../api";
 import { recordSearch, typeLabel, typesQuery, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
-import { AFTER_ASSIGNING, dueText, personLabel, take, workQuery, type WorkItem } from "../people";
+import {
+  AFTER_ASSIGNING,
+  dueText,
+  personLabel,
+  take,
+  workQuery,
+  workStateFields,
+  workStates,
+  type WorkItem,
+} from "../people";
 import { Badge, Button, Loading, PageHeader, ProblemAlert, SelectField, useMessages } from "../ui";
 
 export interface WorkSearch {
@@ -33,9 +42,21 @@ export function validateWorkSearch(search: Record<string, unknown>): WorkSearch 
   return out;
 }
 
-/** Each type with assignment fields, and the states any of them has. */
+/** Each type with assignment fields. */
 function assignedTypes(types: EntityType[] | undefined): EntityType[] {
   return (types ?? []).filter((t) => !t.abstract && t.fields.some((f) => f.assignment));
+}
+
+/** The states to filter work by, each `field.state` (what the API takes), with a label
+ * naming the field: “Status: In review”. */
+function stateOptions(types: EntityType[]): { value: string; label: string }[] {
+  const out = new Map<string, string>();
+  for (const t of types) {
+    for (const f of workStateFields(t)) {
+      for (const s of f.states) out.set(`${f.name}.${s.name}`, `${f.label}: ${s.label}`);
+    }
+  }
+  return [...out].map(([value, label]) => ({ value, label }));
 }
 
 export function Work() {
@@ -48,9 +69,7 @@ export function Work() {
   const items = work.data?.pages.flatMap((p) => p.items) ?? [];
   const assigned = assignedTypes(types);
   const chosenType = assigned.find((t) => t.name === search.type);
-  const states = chosenType
-    ? chosenType.states
-    : [...new Map(assigned.flatMap((t) => t.states).map((s) => [s.name, s] as const)).values()];
+  const states = stateOptions(chosenType ? [chosenType] : assigned);
   const set = (change: Partial<WorkSearch>) => {
     void navigate({ search: (was) => ({ ...was, ...change }), replace: true });
   };
@@ -108,10 +127,7 @@ export function Work() {
             onChange={(value) => {
               set({ state: value || undefined });
             }}
-            options={[
-              { value: "", label: "Any state" },
-              ...states.map((s) => ({ value: s.name, label: s.label })),
-            ]}
+            options={[{ value: "", label: "Any state" }, ...states]}
           />
         ) : null}
         <SelectField
@@ -207,7 +223,12 @@ function WorkRow({
           <Link to="/entities/$ref/" params={{ ref: entity.hrid }} search={recordSearch(entity)}>
             {entity.title !== entity.hrid ? `${entity.title} (${entity.hrid})` : entity.hrid}
           </Link>{" "}
-          {entity.state ? <Badge muted>{entity.state.label}</Badge> : null}
+          {workStates(type, entity).map((label, index) => (
+            <span key={index}>
+              {" "}
+              <Badge muted>{label}</Badge>
+            </span>
+          ))}
           {due?.late ? (
             <>
               {" "}

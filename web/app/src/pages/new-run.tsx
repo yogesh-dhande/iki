@@ -123,6 +123,7 @@ export function inputField(input: Input): FieldDef {
     role: null,
     role_label: null,
     assignment: false,
+    assignment_field: null,
     assignment_states: [],
     name: input.name,
     label: input.label,
@@ -145,6 +146,8 @@ export function inputField(input: Input): FieldDef {
     display_offset: null,
     input_units: [],
     values: [],
+    initial: null,
+    states: [],
   };
 }
 

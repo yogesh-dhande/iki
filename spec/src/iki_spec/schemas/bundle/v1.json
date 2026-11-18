@@ -450,11 +450,6 @@
             }
           ]
         },
-        "state": {
-          "description": "Its state, for a record of a type with states (ADR 0118). An import that doesn't know it starts the record in its type's initial state.",
-          "type": "string",
-          "maxLength": 50
-        },
         "entry": {
           "description": "For a record of a registry entry (ADR 0115), the entry's ID: a line of `entries.ndjson`. Its HRID is the entry's.",
           "$ref": "#/$defs/uuid"
@@ -500,7 +495,7 @@
           "minimum": 1
         },
         "kind": {
-          "enum": ["created", "edited", "archived", "restored", "moved", "transitioned"]
+          "enum": ["created", "edited", "archived", "restored", "moved", "state_changed"]
         },
         "changed_fields": {
           "type": "array",
@@ -543,15 +538,15 @@
         "created_at": {
           "$ref": "#/$defs/time"
         },
-        "transition": {
-          "description": "For a transition (ADR 0118): its name, and the states it went from and to.",
+        "state": {
+          "description": "For a state change (ADR 0125): the state field set, and the states it went from and to.",
           "type": "object",
-          "required": ["name", "from", "to"],
+          "required": ["field", "from", "to"],
           "additionalProperties": false,
           "properties": {
-            "name": {
+            "field": {
               "type": "string",
-              "maxLength": 63
+              "maxLength": 50
             },
             "from": {
               "type": "string",

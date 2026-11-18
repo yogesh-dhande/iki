@@ -889,8 +889,7 @@ export interface paths {
          *     ``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's
          *     record of its run; ``source``, an imported record's word), all matching one making,
          *     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
-         *     A type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,
-         *     ``in``.
+         *     A state field (ADR 0125) is searched as an enum of its states, by name.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];
@@ -1186,6 +1185,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/states/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set one of a record's state fields
+         * @description Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
+         *     as a revision of its own, with your reason. It needs one of the state's lab roles in the
+         *     record's project (ADR 0116): `can.states` lists each state with whether you may and why
+         *     not. A state that locks the record freezes its other fields until the field is set to
+         *     one that doesn't; state fields stay settable. Send If-Match with the ETag you read.
+         */
+        post: operations["iki_server_api_entities_set_entity_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/take": {
         parameters: {
             query?: never;
@@ -1202,29 +1225,6 @@ export interface paths {
          *     like any edit. Send If-Match with the ETag you read.
          */
         post: operations["iki_server_api_work_take"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/entities/{ref}/transitions/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Move a record to another state
-         * @description Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of
-         *     its own, with your reason. It needs one of the transition's lab roles in the record's
-         *     project (ADR 0116), and someone other than whoever made the transitions it names in
-         *     `not_by`. Send If-Match with the ETag you read.
-         */
-        post: operations["iki_server_api_entities_transition_entity"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1651,8 +1651,9 @@ export interface paths {
         /**
          * What's assigned to you
          * @description Everything assigned to you now (ADR 0122), across the projects you read: records an
-         *     assignment field names you in, while their state is one it counts in. You drop off a
-         *     record's work when you can't be named in it any more (you left its project, say).
+         *     assignment field names you in, while their state fields are in states it counts in. You
+         *     drop off a record's work when you can't be named in it any more (you left its project,
+         *     say).
          */
         get: operations["iki_server_api_work_my_work"];
         put?: never;
@@ -1674,7 +1675,7 @@ export interface paths {
          * Work open to your lab roles
          * @description Records nobody is assigned that one of your lab roles could take (ADR 0122): an
          *     assignment field limited to a role you hold in the record's project counts in its
-         *     state, and names nobody who can be named there now. Take one with `POST
+         *     states, and names nobody who can be named there now. Take one with `POST
          *     /entities/{ref}/take`, or simply do it: a locked record's people can't change.
          */
         get: operations["iki_server_api_work_open_work"];
@@ -4596,9 +4597,14 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description Its state locks it: nothing changes its values until a transition.
+             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
              */
             locked: boolean;
+            /**
+             * Locked By
+             * @description The state fields whose states lock it, in its type's order.
+             */
+            locked_by: string[];
             /**
              * Needs Reassigning
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
@@ -4635,8 +4641,6 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
-            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
-            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -4979,19 +4983,21 @@ export interface components {
         EntityCan: {
             /**
              * Edit
-             * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while its state locks it.
+             * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
              */
             edit: boolean;
+            /**
+             * States
+             * @description For each of its state fields (ADR 0125), the states it could be set to: every one but the one it's in, each with whether you may set it and why not. Empty for a type without state fields.
+             */
+            states: {
+                [key: string]: components["schemas"]["StateCan"][];
+            };
             /**
              * Take
              * @description The assignment fields you may take it in (ADR 0122), with `POST /entities/{ref}/take`: each names nobody who can be named now, and you can be.
              */
             take?: string[];
-            /**
-             * Transitions
-             * @description The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.
-             */
-            transitions: components["schemas"]["TransitionCan"][];
         };
         /** EntityFilters */
         EntityFilters: {
@@ -5090,9 +5096,14 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description Its state locks it: nothing changes its values until a transition.
+             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
              */
             locked: boolean;
+            /**
+             * Locked By
+             * @description The state fields whose states lock it, in its type's order.
+             */
+            locked_by: string[];
             /**
              * Needs Reassigning
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
@@ -5119,8 +5130,6 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
-            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
-            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -5216,20 +5225,10 @@ export interface components {
             /** Plugin */
             plugin: string;
             /**
-             * States
-             * @description The states its records move through (ADR 0118), the initial one first: its own, or the ancestor's that declares them. Empty if it has none.
-             */
-            states: components["schemas"]["StateOut"][];
-            /**
              * Subtypes
              * @description The types that extend it, at any depth.
              */
             subtypes: string[];
-            /**
-             * Transitions
-             * @description How records go between them.
-             */
-            transitions: components["schemas"]["TransitionOut"][];
             /**
              * Values Schema
              * @description A JSON Schema (2020-12) of the entity's values.
@@ -5559,12 +5558,17 @@ export interface components {
         FieldOut: {
             /**
              * Assignment
-             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.
+             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record's state field `assignment_field` is in one of `assignment_states`, and they're told.
              */
             assignment: boolean;
             /**
+             * Assignment Field
+             * @description The state field (ADR 0125) whose states say when it's their work. Null: it's their work in every state.
+             */
+            assignment_field: string | null;
+            /**
              * Assignment States
-             * @description The states in which it's their work. Empty: every state.
+             * @description The states of `assignment_field` in which it's their work.
              */
             assignment_states: string[];
             /**
@@ -5595,6 +5599,11 @@ export interface components {
              * @description Can be set once, and can't change after.
              */
             immutable: boolean;
+            /**
+             * Initial
+             * @description State fields (ADR 0125): the state new records start in. Null otherwise.
+             */
+            initial: string | null;
             /**
              * Input Units
              * @description Quantities: common units values can be given in. Any convertible UCUM unit works.
@@ -5636,6 +5645,11 @@ export interface components {
              * @description What people call that role.
              */
             role_label: string | null;
+            /**
+             * States
+             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
+             */
+            states: components["schemas"]["StateOut"][];
             /**
              * To
              * @description References: the type they refer to.
@@ -5777,7 +5791,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
             /** Fired At */
             fired_at: string | null;
             /**
@@ -6396,15 +6410,15 @@ export interface components {
         LabRoleUseOut: {
             /**
              * Description
-             * @description What it lets them do: approve “Weigh” in Review, …
+             * @description What it lets them do: approve “Weigh” in Review, set Status to Approved or Released on samples, …
              */
             description: string;
             /**
              * Kind
-             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role.
+             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets.
              * @enum {string}
              */
-            kind: "approval" | "field";
+            kind: "approval" | "field" | "state";
             /**
              * Name
              * @description The step or field.
@@ -6888,9 +6902,14 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description Its state locks it: nothing changes its values until a transition.
+             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
              */
             locked: boolean;
+            /**
+             * Locked By
+             * @description The state fields whose states lock it, in its type's order.
+             */
+            locked_by: string[];
             /**
              * Needs Reassigning
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
@@ -6922,8 +6941,6 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
-            /** @description Its state, for a record of a type with states (ADR 0118). Only a transition changes it. */
-            state: components["schemas"]["StateOut"] | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -6979,6 +6996,13 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Name */
+            name: string;
+        };
+        /** NamedOut */
+        NamedOut: {
+            /** Label */
+            label: string;
             /** Name */
             name: string;
         };
@@ -7504,12 +7528,17 @@ export interface components {
         ParamOut: {
             /**
              * Assignment
-             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.
+             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record's state field `assignment_field` is in one of `assignment_states`, and they're told.
              */
             assignment: boolean;
             /**
+             * Assignment Field
+             * @description The state field (ADR 0125) whose states say when it's their work. Null: it's their work in every state.
+             */
+            assignment_field: string | null;
+            /**
              * Assignment States
-             * @description The states in which it's their work. Empty: every state.
+             * @description The states of `assignment_field` in which it's their work.
              */
             assignment_states: string[];
             /**
@@ -7545,6 +7574,11 @@ export interface components {
              * @description Can be set once, and can't change after.
              */
             immutable: boolean;
+            /**
+             * Initial
+             * @description State fields (ADR 0125): the state new records start in. Null otherwise.
+             */
+            initial: string | null;
             /**
              * Input Units
              * @description Quantities: common units values can be given in. Any convertible UCUM unit works.
@@ -7596,6 +7630,11 @@ export interface components {
              * @description What people call that role.
              */
             role_label: string | null;
+            /**
+             * States
+             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
+             */
+            states: components["schemas"]["StateOut"][];
             /**
              * To
              * @description References: the type they refer to.
@@ -8047,6 +8086,11 @@ export interface components {
             /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has. */
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
+             * Field
+             * @description For `entity.state_changed`: the state field it watches. Empty otherwise.
+             */
+            field: string;
+            /**
              * Fields
              * @description For `entity.updated`: it fires only when one of these changed. Empty for any change.
              */
@@ -8072,10 +8116,10 @@ export interface components {
             next_run_at: string | null;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -8096,7 +8140,7 @@ export interface components {
             schedule: string;
             /**
              * States
-             * @description For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+             * @description For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
              */
             states: string[];
             /**
@@ -8654,7 +8698,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "transitioned";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /**
@@ -8675,8 +8719,8 @@ export interface components {
             };
             /** @description The run that made it, when `via` is `run` and you can read the run's project. */
             run?: components["schemas"]["RunRefOut"] | null;
-            /** @description For a transition (ADR 0118): which, and between which states. */
-            transition: components["schemas"]["RevisionTransitionOut"] | null;
+            /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
+            state: components["schemas"]["RevisionStateOut"] | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
@@ -8715,15 +8759,15 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "transitioned";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /** Reason */
             reason: string;
             /** @description The run that made it, when `via` is `run` and you can read the run's project. */
             run?: components["schemas"]["RunRefOut"] | null;
-            /** @description For a transition (ADR 0118): which, and between which states. */
-            transition: components["schemas"]["RevisionTransitionOut"] | null;
+            /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
+            state: components["schemas"]["RevisionStateOut"] | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
@@ -8732,17 +8776,14 @@ export interface components {
              */
             via: string;
         };
-        /** RevisionTransitionOut */
-        RevisionTransitionOut: {
-            from: components["schemas"]["StateOut"] | null;
-            /** Label */
-            label: string;
-            /**
-             * Name
-             * @description The transition, or `iki.moved` when a plugin's migration moved the record out of a state it removed.
-             */
-            name: string;
-            to: components["schemas"]["StateOut"];
+        /** RevisionStateOut */
+        RevisionStateOut: {
+            /** @description The state field set. */
+            field: components["schemas"]["NamedOut"];
+            /** @description The state it was in. */
+            from: components["schemas"]["NamedOut"] | null;
+            /** @description The state it was set to. */
+            to: components["schemas"]["NamedOut"];
         };
         /** RevokeIn */
         RevokeIn: {
@@ -10002,7 +10043,51 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
-        /** StateOut */
+        /**
+         * StateCan
+         * @description A state a record's state field could be set to (ADR 0125), and whether you may.
+         */
+        StateCan: {
+            /**
+             * Allowed
+             * @description You may set it now.
+             */
+            allowed: boolean;
+            /** Label */
+            label: string;
+            /** Locks */
+            locks: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Reason
+             * @description Whether it asks why: required, optional, or not at all (null).
+             */
+            reason: ("required" | "optional") | null;
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not: string | null;
+        };
+        /** StateIn */
+        StateIn: {
+            /**
+             * Reason
+             * @description Why: a state may require it, and its history keeps it.
+             * @default
+             */
+            reason: string;
+            /**
+             * State
+             * @description The state to set it to, by name.
+             */
+            state: string;
+        };
+        /**
+         * StateOut
+         * @description One of a state field's states (ADR 0125).
+         */
         StateOut: {
             /** Description */
             description?: string | null;
@@ -10010,11 +10095,21 @@ export interface components {
             label: string;
             /**
              * Locks
-             * @description A record in it can't change until a transition takes it out.
+             * @description A record in it is locked: its other fields can't change, and it can't be archived, restored or moved, until its state field is set to a state that doesn't.
              */
             locks: boolean;
             /** Name */
             name: string;
+            /**
+             * Reason
+             * @description Whether setting it asks why: required, optional, or not at all (null).
+             */
+            reason: ("required" | "optional") | null;
+            /**
+             * Set By
+             * @description The lab roles (ADR 0116) whose holders may set the field to it, from any other state: any one, in the record's project. Empty for an initial state no one sets.
+             */
+            set_by: string[];
         };
         /** StepBatchOut */
         StepBatchOut: {
@@ -10251,75 +10346,6 @@ export interface components {
              */
             min: number | null;
         };
-        /**
-         * TransitionCan
-         * @description A transition from the record's state (ADR 0118), and whether you may make it.
-         */
-        TransitionCan: {
-            /**
-             * Allowed
-             * @description You may make it now.
-             */
-            allowed: boolean;
-            /** Label */
-            label: string;
-            /** Name */
-            name: string;
-            /**
-             * Reason
-             * @description Whether it asks why: required, optional, or not at all (null).
-             */
-            reason: ("required" | "optional") | null;
-            /**
-             * To
-             * @description The state it leads to.
-             */
-            to: string;
-            /** To Label */
-            to_label: string;
-            /**
-             * Why Not
-             * @description Why you may not, when you may not.
-             */
-            why_not: string | null;
-        };
-        /** TransitionIn */
-        TransitionIn: {
-            /**
-             * Reason
-             * @description Why: a transition may require it, and keeps it.
-             * @default
-             */
-            reason: string;
-        };
-        /** TransitionOut */
-        TransitionOut: {
-            /** Description */
-            description: string | null;
-            /**
-             * From
-             * @description The states it leads out of.
-             */
-            from: string[];
-            /** Label */
-            label: string;
-            /** Name */
-            name: string;
-            /**
-             * Not By
-             * @description Whoever made the latest of these transitions on a record can't make this one: separation of duties.
-             */
-            not_by: string[];
-            /** Reason */
-            reason: ("required" | "optional") | null;
-            /**
-             * Roles
-             * @description The lab roles that may make it: any one (ADR 0116).
-             */
-            roles: string[];
-            /** To */
-            to: string;
-        };
         /** TriggerFiredOut */
         TriggerFiredOut: {
             /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
@@ -10372,6 +10398,11 @@ export interface components {
             /** Description */
             description: string | null;
             /**
+             * Field
+             * @description For `entity.state_changed`: the state field it watches. Empty otherwise.
+             */
+            field: string;
+            /**
              * Fields
              * @description For `entity.updated`: it fires only when one of these changed. Empty for any change.
              */
@@ -10390,10 +10421,10 @@ export interface components {
             name: string;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), moved to another state (ADR 0118) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.transitioned" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -10407,7 +10438,7 @@ export interface components {
             schedule: string;
             /**
              * States
-             * @description For `entity.transitioned`: it fires only when a record enters one of these. Empty for any transition.
+             * @description For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
              */
             states: string[];
             /**
@@ -10779,7 +10810,7 @@ export interface components {
             sort: "due" | "updated";
             /**
              * State
-             * @description Only records in these states.
+             * @description Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.
              */
             state?: string[];
             /**
@@ -10798,7 +10829,7 @@ export interface components {
             entity: components["schemas"]["EntityOut"];
             /**
              * Fields
-             * @description The assignment fields naming you that count in its state; for open work, the ones you could take it in.
+             * @description The assignment fields naming you that count in its states; for open work, the ones you could take it in.
              */
             fields: string[];
         };
@@ -12961,20 +12992,23 @@ export interface operations {
             };
         };
     };
-    iki_server_api_work_take: {
+    iki_server_api_entities_set_entity_state: {
         parameters: {
-            query?: never;
+            query?: {
+                project?: string | null;
+            };
             header?: {
                 "If-Match"?: string | null;
             };
             path: {
                 ref: string;
+                field: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TakeIn"];
+                "application/json": components["schemas"]["StateIn"];
             };
         };
         responses: {
@@ -12989,23 +13023,20 @@ export interface operations {
             };
         };
     };
-    iki_server_api_entities_transition_entity: {
+    iki_server_api_work_take: {
         parameters: {
-            query?: {
-                project?: string | null;
-            };
+            query?: never;
             header?: {
                 "If-Match"?: string | null;
             };
             path: {
                 ref: string;
-                name: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TransitionIn"];
+                "application/json": components["schemas"]["TakeIn"];
             };
         };
         responses: {
@@ -13586,7 +13617,7 @@ export interface operations {
                 project?: string[];
                 /** @description Only these types' records (and their subtypes'). */
                 type?: string[];
-                /** @description Only records in these states. */
+                /** @description Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none. */
                 state?: string[];
                 /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
                 sort?: "due" | "updated";
@@ -13618,7 +13649,7 @@ export interface operations {
                 project?: string[];
                 /** @description Only these types' records (and their subtypes'). */
                 type?: string[];
-                /** @description Only records in these states. */
+                /** @description Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none. */
                 state?: string[];
                 /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
                 sort?: "due" | "updated";

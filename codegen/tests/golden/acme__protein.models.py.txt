@@ -330,12 +330,6 @@ class Sample(Entity):
         db_column='entity_id',
         related_name='+',
     )
-    iki_state = StateField(
-        states=['received', 'in_testing', 'in_review', 'reviewed', 'released'],
-        locking=['reviewed', 'released'],
-        db_default='received',
-        db_comment='Its state (ADR 0118): one of received, in_testing, in_review, reviewed, released.',
-    )
     label = models.CharField(max_length=200, db_index=True)
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
     purity = models.FloatField(null=True)
@@ -345,16 +339,22 @@ class Sample(Entity):
     reviewer = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
     received_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
     due_on = models.DateField(null=True)
+    status = StateField(
+        states=['received', 'in_testing', 'in_review', 'reviewed', 'released'],
+        locking=['reviewed', 'released'],
+        db_default='received',
+        db_comment='A state field (ADR 0125): one of received, in_testing, in_review, reviewed, released.',
+    )
+    custody = StateField(
+        states=['in_lab', 'quarantined', 'disposed'],
+        locking=['quarantined'],
+        db_default='in_lab',
+        db_comment='A state field (ADR 0125): one of in_lab, quarantined, disposed.',
+    )
 
     class Meta:
         db_table = 'acme__protein_sample'
         constraints = [
-            models.CheckConstraint(
-                condition=Q(
-                    iki_state__in=['received', 'in_testing', 'in_review', 'reviewed', 'released'],
-                ),
-                name='acme__protein_sample__iki_state__known',
-            ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('label'), 1),
                 name='acme__protein_sample__label__not_empty',
@@ -391,6 +391,16 @@ class Sample(Entity):
                 condition=GreaterThanOrEqual(Length('notes'), 1),
                 name='acme__protein_sample__notes__not_empty',
             ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=['received', 'in_testing', 'in_review', 'reviewed', 'released'],
+                ),
+                name='acme__protein_sample__status__known',
+            ),
+            models.CheckConstraint(
+                condition=Q(custody__in=['in_lab', 'quarantined', 'disposed']),
+                name='acme__protein_sample__custody__known',
+            ),
         ]
         indexes = [
             GinIndex(
@@ -421,6 +431,8 @@ class Sample_History(models.Model):
     helpers = ArrayField(models.UUIDField(), null=True)
     received_by = models.UUIDField(db_column='received_by_id', null=True)
     due_on = models.DateField(null=True)
+    status = models.TextField(null=True)
+    custody = models.TextField(null=True)
 
     class Meta:
         db_table = 'acme__protein_sample__history'

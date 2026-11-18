@@ -133,6 +133,15 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
         // The unit is in the column's heading.
         return valueText(f, value, e).replace(/\s\S+$/, "");
       }
+      if (f.type === "state") {
+        // A state that locks the record says so (ADR 0125).
+        return (
+          <>
+            {valueText(f, value, e)}
+            {e.locked_by.includes(f.name) ? <span className="cell-meta">Locked</span> : null}
+          </>
+        );
+      }
       // Who's named and can't be any more (ADR 0122) says so beside them.
       if (f.assignment && (e.needs_reassigning ?? []).some((s) => s.field === f.name)) {
         return (
@@ -145,25 +154,10 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
       return valueText(f, value, e);
     },
   }));
-  // A record's state (ADR 0118), beside its ID: the first thing a lab asks of it.
-  const state: Column = {
-    key: "state",
-    label: "State",
-    cell: (e) =>
-      e.state ? (
-        <>
-          {e.state.label}
-          {e.locked ? <span className="cell-meta">Locked</span> : null}
-        </>
-      ) : null,
-  };
-  return [
-    id,
-    ...(type.subtypes.length ? [kind] : []),
-    ...(type.states.length ? [state] : []),
-    ...fields,
-    updated,
-  ];
+  // A record's state fields (ADR 0125), beside its ID: the first thing a lab asks of it.
+  const states = fields.filter((_, index) => type.fields[index]?.type === "state");
+  const rest = fields.filter((_, index) => type.fields[index]?.type !== "state");
+  return [id, ...(type.subtypes.length ? [kind] : []), ...states, ...rest, updated];
 }
 
 function unitOf(field: FieldDef): string {

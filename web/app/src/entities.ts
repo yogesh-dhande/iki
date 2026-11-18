@@ -439,9 +439,21 @@ export function valueText(
     }
     case "json":
       return JSON.stringify(value);
+    case "state":
+      return stateLabel(field, value as string);
     default:
       return typeof value === "string" ? value : JSON.stringify(value);
   }
+}
+
+/** A state field's state (ADR 0125), as people read it: its label, or its name. */
+export function stateLabel(field: Pick<FieldDef, "states">, state: string): string {
+  return field.states.find((s) => s.name === state)?.label ?? state;
+}
+
+/** A type's state fields (ADR 0125), in its order. */
+export function stateFields(type: EntityType | undefined): FieldDef[] {
+  return (type?.fields ?? []).filter((f) => f.type === "state");
 }
 
 /** Who did something: their name, their email address if they gave no name. */

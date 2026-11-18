@@ -11,33 +11,32 @@ fields:
   tags: { type: list, items: { type: string, max_length: 40 } }
   notes: { type: text }
   # People in records (ADR 0122): who tests it, who reviews it, and when it's due.
-  analyst: { type: person, role: analyst, assignment: { states: [received, in_testing] } }
-  reviewer: { type: person, role: reviewer, assignment: { states: [in_review] } }
+  analyst:
+    { type: person, role: analyst, assignment: { field: status, states: [received, in_testing] } }
+  reviewer: { type: person, role: reviewer, assignment: { field: status, states: [in_review] } }
   helpers: { type: list, items: { type: person }, assignment: true, max_items: 5 }
   received_by: { type: person }
   due_on: { type: date }
+  # Its state fields (ADR 0125): where it is in testing, and where it is.
+  status:
+    type: state
+    initial: received
+    states:
+      received: { label: Received, set_by: [analyst] }
+      in_testing: { label: In testing, set_by: [analyst, reviewer, qa], reason: optional }
+      in_review: { label: In review, set_by: [analyst] }
+      reviewed: { label: Reviewed, set_by: [reviewer], locks: true }
+      released:
+        label: Released
+        set_by: [qa]
+        locks: true
+        reason: optional
+        description: Its results can be used.
+  custody:
+    type: state
+    initial: in_lab
+    states:
+      in_lab: { label: In the lab, set_by: [analyst, qa] }
+      quarantined: { label: Quarantined, set_by: [qa], locks: true, reason: required }
+      disposed: { label: Disposed, set_by: [qa], reason: required }
 due: due_on
-states:
-  received: { label: Received, initial: true }
-  in_testing: { label: In testing }
-  in_review: { label: In review }
-  reviewed: { label: Reviewed, locks: true }
-  released: { label: Released, locks: true, description: Its results can be used. }
-transitions:
-  start: { label: Start testing, from: [received], to: in_testing, roles: [analyst] }
-  submit: { label: Submit for review, from: [in_testing], to: in_review, roles: [analyst] }
-  approve: { label: Approve, from: [in_review], to: reviewed, roles: [reviewer], not_by: [submit] }
-  send_back:
-    label: Send back
-    from: [in_review, reviewed]
-    to: in_testing
-    roles: [reviewer, qa]
-    reason: required
-  release:
-    label: Release
-    from: [reviewed]
-    to: released
-    roles: [qa]
-    not_by: [submit, approve]
-    reason: optional
-  reopen: { label: Reopen, from: [released], to: in_testing, roles: [qa], reason: required }

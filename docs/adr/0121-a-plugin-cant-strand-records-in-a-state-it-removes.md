@@ -1,6 +1,6 @@
 # 0121. A plugin can't strand records in a state it removes
 
-- Status: Accepted
+- Status: Accepted (per state field, amended by [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md))
 - Date: 2026-11-17
 - Refines: [0033](0033-plugin-codegen-and-migrations.md),
   [0118](0118-a-record-moves-through-its-types-states.md),

@@ -58,9 +58,9 @@ def _readable(value: Any, refs: Mapping[str, Any]) -> Any:  # noqa: ANN401 - a v
 
 
 def entities(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
-    """One row per entity, indexed by HRID: what every entity has, its state if its type
-    has states, then its values, one column per field. References show the HRIDs of the
-    entities they refer to."""
+    """One row per entity, indexed by HRID: what every entity has, then its values, one
+    column per field; a state field's are its states' names. References show the HRIDs of
+    the entities they refer to."""
     pd = _pandas()
     rows = []
     for entity in items:
@@ -69,10 +69,6 @@ def entities(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
         row.update({key: entity.get(key) for key in _ENTITY_COLUMNS})
         owner = entity.get("owner_project")
         row["project"] = owner.get("slug") if isinstance(owner, Mapping) else None
-        state = entity.get("state")
-        if isinstance(state, Mapping):
-            # A record of a type with states (ADR 0118): its state's name.
-            row["state"] = state.get("name")
         for field, value in (entity.get("values") or {}).items():
             # A field named like a column above keeps both: the field gets a prefix.
             row[field if field not in row else f"values.{field}"] = _readable(value, refs)

@@ -29,18 +29,22 @@
       "description": "For a type with an identity, or an extension of one: the field is its registry entry's, which every project holding the entry sees, rather than each project's record's (ADR 0115). `derived`: derived from the identity alone, set once at registration (a formula, a weight, a canonical form). `fact`: a curated fact the identity doesn't determine (a CAS number, an INN, a hazard class), which anyone holding the entry may set while it's empty, and only a registrar changes after."
     },
     "assignment": {
-      "description": "For a field that names people (`type: person`, or a list of them): whoever it names is assigned the record, which is on their My work while it's in one of `states` (in any state, with `true`), and they're told (ADR 0122). A type can have several, such as an analyst and a reviewer.",
+      "description": "For a field that names people (`type: person`, or a list of them): whoever it names is assigned the record, which is on their My work while its state field `field` is in one of `states` (in any state, with `true`), and they're told (ADR 0122, 0125). A type can have several, such as an analyst and a reviewer.",
       "oneOf": [
         {
           "type": "boolean"
         },
         {
           "type": "object",
-          "required": ["states"],
+          "required": ["field", "states"],
           "additionalProperties": false,
           "properties": {
+            "field": {
+              "description": "The record's state field (ADR 0125) whose states say when it's their work, such as `status`.",
+              "$ref": "#/$defs/fieldName"
+            },
             "states": {
-              "description": "The states of the record's type in which it's their work: a sample's reviewer reviews it while it's in review.",
+              "description": "The states of `field` in which it's their work: a sample's reviewer reviews it while its status is In review.",
               "type": "array",
               "minItems": 1,
               "maxItems": 30,
@@ -170,7 +174,8 @@
             "ref",
             "person",
             "list",
-            "json"
+            "json",
+            "state"
           ]
         },
         "format": {
@@ -256,6 +261,44 @@
         "schema": {
           "description": "A JSON Schema (draft 2020-12) the value must match.",
           "type": "object"
+        },
+        "initial": {
+          "description": "A state field's state new records start in (ADR 0125).",
+          "$ref": "#/$defs/fieldName"
+        },
+        "states": {
+          "description": "A state field's states, by name (ADR 0125). Each says which lab roles may set the field to it, from any other state, and whether a record in it is locked.",
+          "type": "object",
+          "minProperties": 2,
+          "maxProperties": 30,
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/state"
+          }
+        },
+        "moved_to": {
+          "description": "A removed state field's: another state field of the type that its records' states move to, each of its states to one of that field's (ADR 0125). Without it, a state field that records have values in can't be removed.",
+          "type": "object",
+          "required": ["field", "states"],
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/fieldName"
+            },
+            "states": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 30,
+              "propertyNames": {
+                "$ref": "#/$defs/fieldName"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/fieldName"
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -699,6 +742,31 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "state"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["initial", "states"],
+            "propertyNames": {
+              "enum": [
+                "type",
+                "label",
+                "description",
+                "indexed",
+                "removed",
+                "initial",
+                "states",
+                "moved_to"
+              ]
+            }
+          }
         }
       ]
     },
@@ -714,6 +782,48 @@
         }
       },
       "unevaluatedProperties": false
+    },
+    "state": {
+      "description": "One of a state field's states (ADR 0125).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "set_by": {
+          "description": "The lab roles that may set the field to this state, from any other (ADR 0116): any one of them, in the record's project, is enough. A project role never is. Without it, no one sets it: only new records start in it.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/roleRef"
+          }
+        },
+        "locks": {
+          "description": "A record with the field in this state is locked: its other fields can't change, nor can it be archived or restored, until someone sets a state field to a state that doesn't lock.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Whether whoever sets this state says why: `required`, or `optional`. Without it, no reason is asked for.",
+          "enum": ["required", "optional"]
+        },
+        "removed": {
+          "description": "No record is in it any more: those that were are moved to `moved_to` by the migration that removes it.",
+          "const": true
+        },
+        "moved_to": {
+          "description": "For a removed state: the state its records move to.",
+          "$ref": "#/$defs/fieldName"
+        },
+        "signatures": {
+          "description": "Reserved for the electronic signatures setting this state will require (21 CFR Part 11). Not yet in use."
+        }
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 # 0119. A transition can keep its maker apart from earlier ones
 
-- Status: Accepted
+- Status: Superseded by [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md)
 - Date: 2026-11-17
 - Refines: [0118](0118-a-record-moves-through-its-types-states.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)

@@ -10,7 +10,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
-import { inSentence, typeLabel, typesQuery } from "../entities";
+import { inSentence, stateLabel, typeLabel, typesQuery, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
   projectTriggersQuery,
@@ -59,22 +59,21 @@ function waits(trigger: ProjectTrigger): boolean {
 }
 
 /** "Each new protein", "A change to a protein's organism or sequence": what fires it. */
-function firedBy(
-  trigger: ProjectTrigger,
-  typeLabel: string,
-  stateLabels: Map<string, string>,
-): string {
+function firedBy(trigger: ProjectTrigger, typeLabel: string, type: EntityType | undefined): string {
   if (trigger.on === "schedule") return `Each time its schedule comes round`;
   if (trigger.on === "entity.created") return `Each new ${typeLabel}`;
   if (trigger.on === "entity.registered") return `Each ${typeLabel} new to the registry`;
-  if (trigger.on === "entity.transitioned") {
-    const states = trigger.states.map((s) => stateLabels.get(s) ?? s);
-    if (!states.length) return `Each ${typeLabel} moved to another state`;
+  if (trigger.on === "entity.state_changed") {
+    // A state field's states, as its records are set to them (ADR 0125): “in testing”.
+    const field = type?.fields.find((f) => f.name === trigger.field);
+    const name = inSentence(field?.label ?? trigger.field.replaceAll("_", " "));
+    const states = trigger.states.map((s) => inSentence(field ? stateLabel(field, s) : s));
+    if (!states.length) return `Each ${typeLabel} whose ${name} is set`;
     const list =
       states.length === 1
         ? states[0]
         : `${states.slice(0, -1).join(", ")} or ${states[states.length - 1] ?? ""}`;
-    return `Each ${typeLabel} moved to ${list ?? ""}`;
+    return `Each ${typeLabel} whose ${name} is set to ${list ?? ""}`;
   }
   if (trigger.fields.length === 0) return `Each change to a ${typeLabel}`;
   const fields = trigger.fields.map((f) => f.replaceAll("_", " "));
@@ -91,11 +90,6 @@ export function ProjectTriggers() {
   const triggers = useQuery(projectTriggersQuery(project.id));
   const types = useQuery(typesQuery).data;
   const label = (name: string) => inSentence(typeLabel(types, name));
-  // A state's label, as its type's records are in it (ADR 0118): “In testing”.
-  const stateLabels = (name: string) =>
-    new Map(
-      (types?.find((t) => t.name === name)?.states ?? []).map((s) => [s.name, inSentence(s.label)]),
-    );
   return (
     <>
       <p className="muted">
@@ -117,7 +111,11 @@ export function ProjectTriggers() {
               key={t.name}
               project={project}
               trigger={t}
-              fires={firedBy(t, label(t.type), stateLabels(t.type))}
+              fires={firedBy(
+                t,
+                label(t.type),
+                types?.find((type) => type.name === t.type),
+              )}
             />
           ))}
         </ul>

@@ -89,8 +89,8 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 def test_lists_installed_triggers(world: World) -> None:
     found = api_as(world, "viewer").get("/triggers").json()
     assert [t["name"] for t in found] == [NIGHTLY, IN_TESTING, CHANGED, NEW]
-    assert found[1]["on"] == "entity.transitioned"
-    assert found[1]["states"] == ["in_testing"]
+    assert found[1]["on"] == "entity.state_changed"
+    assert (found[1]["field"], found[1]["states"]) == ("status", ["in_testing"])
     assert found[3] == {
         "name": NEW,
         "plugin": "acme/protein",
@@ -101,6 +101,7 @@ def test_lists_installed_triggers(world: World) -> None:
         "schedule": "",
         "timezone": "",
         "fields": [],
+        "field": "",
         "states": [],
         "action": COMPUTE,
         "action_label": "Compute properties",

@@ -87,13 +87,14 @@ class Entity(models.Model):
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
-    #: Its state locks it (ADR 0118): nothing changes its values until a transition takes
-    #: it out. Kept with its state, which is in its type's table; triggers on the tables
-    #: holding its values refuse changes while it's set.
-    locked = models.BooleanField(
-        default=False,
-        db_default=False,
-        db_comment="Its state locks it (ADR 0118): its values can't change while this is set.",
+    #: The state fields whose states lock it (ADR 0125): while any does, its other fields
+    #: can't change. Kept with the fields, which are in its type's tables; triggers on the
+    #: tables holding its values refuse changes while it's locked.
+    locked_by = ArrayField(
+        models.CharField(max_length=50),
+        default=list,
+        db_default=models.Value([], output_field=ArrayField(models.CharField(max_length=50))),
+        db_comment="The state fields whose states lock it (ADR 0125).",
     )
     updated_at = models.DateTimeField(db_default=Now())
     #: Its plugin's data was purged (ADR 0092): this row is its tombstone, and its values
@@ -169,6 +170,11 @@ class Entity(models.Model):
 
     def __str__(self) -> str:
         return self.hrid
+
+    @property
+    def locked(self) -> bool:
+        """Whether a state field locks it (ADR 0125): its other values can't change."""
+        return bool(self.locked_by)
 
     @property
     def is_entry(self) -> bool:
@@ -342,8 +348,8 @@ class RevisionKind(models.TextChoices):
     EDITED = "edited", "Edited"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
-    #: Moved from one state to another (ADR 0118).
-    TRANSITIONED = "transitioned", "Transitioned"
+    #: One of its state fields set to another state (ADR 0125).
+    STATE_CHANGED = "state_changed", "State changed"
     #: A registrar changed a registry entry's facts (ADR 0115).
     CURATED = "curated", "Curated"
     #: A registry entry a registrar superseded with another (ADR 0115).
@@ -383,9 +389,10 @@ class Revision(models.Model):
     )
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
-    #: For a transition (ADR 0118): its name, or ``iki.moved`` for a plugin's migration
-    #: moving records out of a state it removed; and the states it went from and to.
-    transition = models.CharField(max_length=63, blank=True, default="", db_default="")
+    #: For a state change (ADR 0125): the state field set, and the states it went from
+    #: and to. A plugin's migration moving records out of a state it removed makes one by no
+    #: one, ``via`` the system.
+    state_field = models.CharField(max_length=50, blank=True, default="", db_default="")
     state_from = models.CharField(max_length=50, blank=True, default="", db_default="")
     state_to = models.CharField(max_length=50, blank=True, default="", db_default="")
     #: For a record that moved (ADR 0115): the superseded entry it held before.
@@ -409,19 +416,19 @@ class Revision(models.Model):
             models.CheckConstraint(
                 condition=Q(kind__in=RevisionKind.values), name="iki_revision_kind"
             ),
-            # A transition names itself and its states; nothing else does.
+            # A state change names its field and states; nothing else does.
             models.CheckConstraint(
-                condition=Q(kind="transitioned", transition__gt="", state_to__gt="")
-                | (~Q(kind="transitioned") & Q(transition="", state_from="", state_to="")),
-                name="iki_revision_transition",
+                condition=Q(kind="state_changed", state_field__gt="", state_to__gt="")
+                | (~Q(kind="state_changed") & Q(state_field="", state_from="", state_to="")),
+                name="iki_revision_state",
             ),
         ]
         indexes: ClassVar[list[models.Index]] = [
-            # Separation of duties reads who made a record's latest transitions.
+            # A record's state history, field by field: who set which state when.
             models.Index(
-                fields=["entity", "transition", "number"],
-                name="iki_revision_transitions",
-                condition=Q(kind="transitioned"),
+                fields=["entity", "state_field", "number"],
+                name="iki_revision_states",
+                condition=Q(kind="state_changed"),
             ),
         ]
 

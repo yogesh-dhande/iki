@@ -24,16 +24,25 @@ settings:
       The LIMS's host name, such as lims.example.org. Runs reach it, and only
       it, over HTTPS, and each protein's LIMS ID links to its page there.
 roles:
+  coordinator:
+    label: Coordinator
+    description: >-
+      Logs samples as they're sent, and receives them in the lab.
+  engineer:
+    label: Engineer
+    description: >-
+      Services and calibrates instruments, and retires them.
   analyst:
     label: Analyst
     description: >-
-      Tests samples and records their results, then submits them for review.
+      Tests samples and records their results, then submits them for review,
+      and says when an instrument is out of service.
   reviewer:
     label: Reviewer
     description: >-
-      Checks another analyst's results, and approves them or sends them back.
+      Checks analysts' results, and approves them or sends them back.
   qa:
     label: QA
     description: >-
-      Releases reviewed samples, and reopens released ones when they need
-      correcting.
+      Releases or rejects approved samples, sends released ones back when they
+      need correcting, and says when an instrument's calibration is due.

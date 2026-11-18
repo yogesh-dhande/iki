@@ -38,6 +38,7 @@ export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" |
     role: null,
     role_label: null,
     assignment: false,
+    assignment_field: null,
     assignment_states: [],
     description: null,
     plugin: "iki/protein",
@@ -57,6 +58,8 @@ export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" |
     to: null,
     values: [],
     items: null,
+    initial: null,
+    states: [],
     ...overrides,
   };
 }
@@ -74,8 +77,6 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   hrid_prefix: "PRT",
   identity: ["sequence"],
   viewers: [],
-  states: [],
-  transitions: [],
   values_schema: {},
   fields: [
     field({ name: "name", label: "Name", type: "string" }),
@@ -186,12 +187,12 @@ export function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["
     updated_at: "2026-03-15T09:00:00Z",
     archived: false,
     archived_at: null,
-    state: null,
     locked: false,
+    locked_by: [],
     values,
     refs: {},
     files: {},
-    can: { edit: true, transitions: [] },
+    can: { edit: true, states: {} },
     ...overrides,
   };
 }
@@ -207,7 +208,7 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
     client: "",
     agent: null,
     user: ALICE,
-    transition: null,
+    state: null,
     created_at: "2026-03-14T09:00:00Z",
     ...overrides,
   };

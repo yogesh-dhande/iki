@@ -113,9 +113,9 @@ _register(
     EventType("entity.archived", "Someone archives an entity.", project=True, org=True),
     EventType("entity.restored", "Someone restores an entity.", project=True, org=True),
     EventType(
-        "entity.transitioned",
-        "Someone moves a record to another state, with `transition`: which, and between "
-        "which states (ADR 0118).",
+        "entity.state_changed",
+        "Someone sets one of a record's state fields, with `state`: which field, and the "
+        "states it went from and to (ADR 0125).",
         project=True,
         org=True,
     ),

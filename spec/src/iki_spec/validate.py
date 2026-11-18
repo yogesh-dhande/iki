@@ -45,9 +45,7 @@ from iki_spec.model import (
     Field,
     LabRole,
     Plugin,
-    State,
     Track,
-    Transition,
     Trigger,
     Viewer,
     Workflow,
@@ -117,6 +115,8 @@ RESERVED_FIELD_NAMES = frozenset(
         "archived_at",
         "archived_by",
         "identity_hash",
+        "locked",
+        "locked_by",
         "revision",
         "revisions",
         "schema_version",
@@ -159,7 +159,19 @@ SECRET_WORDS = frozenset(
 SECRET_PAIRS = (("api", "key"), ("private", "key"), ("access", "key"), ("client", "secret"))
 
 INDEXABLE = frozenset(
-    {"string", "int", "float", "bool", "enum", "date", "datetime", "quantity", "ref", "person"}
+    {
+        "string",
+        "int",
+        "float",
+        "bool",
+        "enum",
+        "state",
+        "date",
+        "datetime",
+        "quantity",
+        "ref",
+        "person",
+    }
 )
 TITLE_TYPES = frozenset(
     {"string", "text", "int", "float", "enum", "date", "datetime", "quantity", "bool"}
@@ -676,37 +688,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         file=document.file,
         due=body.get("due"),
-        states={
-            n: State(
-                name=n,
-                label=s["label"],
-                description=s.get("description"),
-                initial=bool(s.get("initial", False)),
-                locks=bool(s.get("locks", False)),
-                removed=bool(s.get("removed", False)),
-                moved_to=s.get("moved_to"),
-            )
-            for n, s in (body.get("states") or {}).items()
-        },
-        transitions={
-            n: Transition(
-                name=n,
-                label=t["label"],
-                description=t.get("description"),
-                from_states=tuple(t["from"]),
-                to=t["to"],
-                roles=tuple(_lab_role_name(r, plugin) for r in t["roles"]),
-                reason=t.get("reason"),
-                not_by=tuple(t.get("not_by") or ()),
-            )
-            for n, t in (body.get("transitions") or {}).items()
-        },
     )
-
-
-def _lab_role_name(role: str, plugin: str) -> str:
-    """A lab role in full: a plugin's own `qa` is `namespace/plugin.qa` (ADR 0116)."""
-    return role if "." in role else f"{plugin}.{role}"
 
 
 #: The formats the structure viewer reads, by media type, as Mol* names them.
@@ -1187,142 +1169,133 @@ class _Semantics:
         if entity_type.viewers:
             present = {n: f for n, f in names.items() if not f.removed}
             self.viewers(entity_type, source, present)
-        if entity_type.states:
-            self.states(entity_type, source)
+        for name, f in entity_type.fields.items():
+            if f.type == "state":
+                self.state_field(entity_type, f, source, ("fields", name), names)
         self.assignments(entity_type.fields, entity_type, source)
         if entity_type.due is not None:
             self.due(entity_type, source, every)
 
-    def states(self, entity_type: EntityType, source: Document) -> None:
-        """A type's states and transitions (ADR 0118)."""
-        above = next((a for a in self.ancestors(entity_type) if a.states), None)
-        if above is not None:
-            self.add(
-                "states-inherited",
-                f"`{entity_type.name}` extends `{above.qualified_name}`, which has states: its "
-                "records move through those, so it can't declare its own.",
-                source,
-                ("states",),
-                key=True,
-                hint="Remove `states` and `transitions` here, or change the parent's.",
-            )
-            return
-        states = entity_type.states
-        live = [s for s in states.values() if not s.removed]
-        initial = [s.name for s in states.values() if s.initial]
-        if len(initial) != 1:
-            self.add(
-                "state-initial",
-                "Exactly one state is `initial: true`, where new records start"
-                + (f": {', '.join(f'`{n}`' for n in initial)} all are." if initial else "."),
-                source,
-                ("states",),
-                key=True,
-            )
-        for state in states.values():
-            path: Path = ("states", state.name)
-            if state.initial and (state.locks or state.removed):
+    def state_field(
+        self,
+        entity_type: EntityType,
+        f: Field,
+        source: Document,
+        path: Path,
+        fields: dict[str, Field],
+    ) -> None:
+        """A state field (ADR 0125): its states, who sets each, and where a removed one's
+        records go."""
+        live = f.live_states
+        if f.initial is not None:
+            first = f.states.get(f.initial)
+            if first is None:
+                self.state_ref(f.initial, set(live), source, (*path, "initial"))
+            elif first.locks and not first.removed:
                 self.add(
                     "state-initial",
-                    f"`{state.name}` is where new records start, so it can't "
-                    + ("lock them." if state.locks else "be removed."),
+                    f"`{f.initial}` is where new records start, so it can't lock them: they "
+                    "couldn't be filled in.",
                     source,
-                    path,
+                    (*path, "states", f.initial, "locks"),
                     key=True,
                 )
-            if state.removed and state.locks:
+        for state in f.states.values():
+            at: Path = (*path, "states", state.name)
+            for index, role in enumerate(state.set_by):
+                self.lab_role(role, source, (*at, "set_by", index))
+            if state.signatures is not None:
+                self.add(
+                    "state-signatures-reserved",
+                    "`signatures` is reserved for the electronic signatures a state will "
+                    "require (21 CFR Part 11), which Iki doesn't support yet.",
+                    source,
+                    (*at, "signatures"),
+                    key=True,
+                    hint="Remove it for now.",
+                )
+            if f.removed and f.moved_to is not None:
+                continue  # Where its records go is the field's `moved_to`.
+            if state.removed:
+                if state.locks:
+                    self.add(
+                        "state-removed",
+                        f"`{state.name}` is removed: no record is in it to lock.",
+                        source,
+                        (*at, "locks"),
+                        key=True,
+                    )
+                if state.name == f.initial:
+                    self.add(
+                        "state-initial",
+                        f"`{state.name}` is where new records start, so it can't be removed.",
+                        source,
+                        at,
+                        key=True,
+                        hint="Make another state `initial` first.",
+                    )
+                if state.moved_to is None:
+                    self.add(
+                        "state-removed",
+                        f"`{state.name}` is removed, so the records in it move to another "
+                        "state: say which, with `moved_to`.",
+                        source,
+                        at,
+                        key=True,
+                    )
+                elif state.moved_to not in live:
+                    self.state_ref(state.moved_to, set(live), source, (*at, "moved_to"))
+            elif state.moved_to is not None:
                 self.add(
                     "state-removed",
-                    f"`{state.name}` is removed: no record is in it to lock.",
+                    f"`{state.name}` isn't removed, so its records stay in it: `moved_to` is "
+                    "for a removed state.",
                     source,
-                    (*path, "locks"),
+                    (*at, "moved_to"),
                     key=True,
                 )
-            if state.moved_to is not None and not any(s.name == state.moved_to for s in live):
+            elif not state.set_by and state.name != f.initial and not f.removed:
                 self.add(
-                    "unknown-state",
-                    f"`{state.moved_to}` isn't a state records can be in.",
+                    "state-unreachable",
+                    f"No one can set `{f.name}` to `{state.name}`: it isn't where records "
+                    "start, and no lab role sets it.",
                     source,
-                    (*path, "moved_to"),
-                    hint=schemas._did_you_mean(state.moved_to, [s.name for s in live]),
+                    at,
+                    key=True,
+                    hint="Give it `set_by:` the lab roles that may, or mark it `removed: true`.",
                 )
-        names = {s.name for s in live}
-        leads: dict[str, set[str]] = {}
-        before = len(self.checker.problems)
-        for transition in entity_type.transitions.values():
-            path = ("transitions", transition.name)
-            for index, name in enumerate(transition.from_states):
-                if name not in names:
-                    self.state_ref(name, names, source, (*path, "from", index))
-                leads.setdefault(name, set()).add(transition.to)
-            if transition.to not in names:
-                self.state_ref(transition.to, names, source, (*path, "to"))
-            elif transition.to in transition.from_states:
-                self.add(
-                    "transition-to-itself",
-                    f"`{transition.name}` leads from `{transition.to}` to itself.",
-                    source,
-                    (*path, "to"),
-                )
-            for index, other in enumerate(transition.not_by):
-                if other not in entity_type.transitions:
-                    self.add(
-                        "unknown-transition",
-                        f"`{entity_type.name}` has no transition `{other}`.",
-                        source,
-                        (*path, "not_by", index),
-                        hint=schemas._did_you_mean(other, list(entity_type.transitions)),
-                    )
-            for index, role in enumerate(transition.roles):
-                self.lab_role(role, source, (*path, "roles", index))
-        # Reachability says more once every transition leads somewhere it can.
-        if len(initial) == 1 and initial[0] in names and len(self.checker.problems) == before:
-            reached, todo = {initial[0]}, [initial[0]]
-            while todo:
-                for nxt in leads.get(todo.pop(), ()):
-                    if nxt in names and nxt not in reached:
-                        reached.add(nxt)
-                        todo.append(nxt)
-            for state in live:
-                if state.name not in reached:
-                    self.add(
-                        "state-unreachable",
-                        f"No transitions lead to `{state.name}` from `{initial[0]}`, where "
-                        "records start.",
-                        source,
-                        ("states", state.name),
-                        key=True,
-                        hint="Add a transition to it, or mark it `removed: true` with `moved_to`.",
-                    )
-
-    def machine(self, entity_type: EntityType) -> EntityType | None:
-        """The type whose states ``entity_type``'s records move through, if any (ADR 0118)."""
-        return next((t for t in [entity_type, *self.ancestors(entity_type)] if t.states), None)
+        if f.removed and f.moved_to is not None:
+            self.state_move(entity_type, f, source, path, fields)
 
     def assignments(
         self, fields: dict[str, Field], entity_type: EntityType, source: Document
     ) -> None:
-        """Assignment fields' states are states of the records' type (ADR 0122)."""
-        machine = self.machine(entity_type)
+        """An assignment field counting in some states names a state field of the records'
+        type, and states of it (ADR 0122, 0125)."""
+        every = self.all_fields(entity_type)
         for name, f in fields.items():
-            if not f.assignment_states:
+            if f.assignment_field is None:
                 continue
-            path: Path = ("fields", name, "assignment", "states")
-            if machine is None:
+            path: Path = ("fields", name, "assignment")
+            found = every.get(f.assignment_field)
+            target = found[0] if found is not None else None
+            if target is None or target.type != "state" or target.removed:
+                states = [n for n, (g, _) in every.items() if g.type == "state" and not g.removed]
                 self.add(
                     "assignment-without-states",
-                    f"`{entity_type.name}` has no states, so `{name}` can't be assigned only in "
-                    "some of them.",
+                    f"`{f.assignment_field}` isn't a state field of `{entity_type.name}`, so "
+                    f"`{name}` can't be assigned only in some of its states.",
                     source,
-                    path,
-                    key=True,
-                    hint="Use `assignment: true`.",
+                    (*path, "field"),
+                    hint=schemas._did_you_mean(f.assignment_field, states)
+                    if states
+                    else "Use `assignment: true`, or add a `type: state` field.",
                 )
                 continue
-            names = set(machine.live_states)
+            names = set(target.live_states)
             for index, state in enumerate(f.assignment_states):
                 if state not in names:
-                    self.state_ref(state, names, source, (*path, index))
+                    self.state_ref(state, names, source, (*path, "states", index))
 
     def due(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -1368,6 +1341,50 @@ class _Semantics:
             path,
             hint=schemas._did_you_mean(name, sorted(names)),
         )
+
+    def state_move(
+        self,
+        entity_type: EntityType,
+        f: Field,
+        source: Document,
+        path: Path,
+        fields: dict[str, Field],
+    ) -> None:
+        """Where a removed state field's records go: another of the type's own state fields,
+        each of its states to one of that field's."""
+        assert f.moved_to is not None  # noqa: S101 - checked by the caller
+        to = entity_type.fields.get(f.moved_to.field)
+        if to is None or to.removed or to.type != "state" or to is f:
+            self.add(
+                "unknown-field",
+                f"`{f.moved_to.field}` isn't another of `{entity_type.name}`'s own state fields.",
+                source,
+                (*path, "moved_to", "field"),
+                hint=schemas._did_you_mean(
+                    f.moved_to.field,
+                    [n for n, x in entity_type.fields.items() if x.type == "state" and x is not f],
+                ),
+            )
+            return
+        mapped = dict(f.moved_to.states)
+        for name in f.live_states:
+            target = mapped.get(name)
+            if target is None:
+                self.add(
+                    "state-removed",
+                    f"`{f.name}` is removed: say which of `{to.name}`'s states records in "
+                    f"`{name}` move to.",
+                    source,
+                    (*path, "moved_to", "states"),
+                    key=True,
+                )
+            elif target not in to.live_states:
+                self.state_ref(
+                    target, set(to.live_states), source, (*path, "moved_to", "states", name)
+                )
+        for name in mapped:
+            if name not in f.live_states:
+                self.state_ref(name, set(f.live_states), source, (*path, "moved_to", "states"))
 
     def identity(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -1807,6 +1824,14 @@ class _Semantics:
         names = {n: f for n, (f, _) in self.all_fields(target).items()} | dict(extension.fields)
         for name, f in extension.fields.items():
             field_path: Path = ("fields", name)
+            if f.type == "state":
+                self.add(
+                    "state-field-in-extension",
+                    "A state field is its type's own plugin's (ADR 0125): an extension can't "
+                    "add one.",
+                    source,
+                    (*field_path, "type"),
+                )
             if name in taken:
                 self.add(
                     "extension-field-conflict",
@@ -1828,7 +1853,7 @@ class _Semantics:
                     key=True,
                 )
             self.field(f, source, field_path, siblings=names)
-            if f.assignment_states:
+            if f.assignment_field is not None:
                 self.assignments({name: f}, target, source)
             if f.registry is None:
                 continue
@@ -1947,6 +1972,13 @@ class _Semantics:
                     (*path, "schema", *error.path),
                 )
         if f.type == "list" and f.items is not None:
+            if f.items.type == "state":
+                self.add(
+                    "state-field-in-list",
+                    "A list's items can't be states: give the type a state field of its own.",
+                    source,
+                    (*path, "items", "type"),
+                )
             self.field(f.items, source, (*path, "items"), siblings=siblings, item=True)
         if f.has_default:
             for message in value_problems(f, f.default):
@@ -2182,6 +2214,10 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
     if kind == "enum":
         if value not in f.values:
             return [f"must be one of: {', '.join(f'`{v}`' for v in f.values)}."]
+        return []
+    if kind == "state":
+        if value not in f.live_states:
+            return [f"must be one of its states: {', '.join(f'`{v}`' for v in f.live_states)}."]
         return []
     if kind == "date":
         return (

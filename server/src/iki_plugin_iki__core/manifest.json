@@ -53,11 +53,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "description": {
             "name": "description",
@@ -88,11 +92,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "reference": {
             "name": "reference",
@@ -123,11 +131,15 @@
             "to": "iki/core.Sequence",
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "members": {
             "name": "members",
@@ -158,6 +170,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": {
               "name": "members",
@@ -188,15 +201,22 @@
               "to": "iki/core.Sequence",
               "role": null,
               "assignment": false,
+              "assignment_field": null,
               "assignment_states": [],
               "items": null,
               "min_items": null,
               "max_items": null,
-              "schema": null
+              "schema": null,
+              "states": {},
+              "initial": null,
+              "moved_to": null
             },
             "min_items": null,
             "max_items": 10000,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "aligned": {
             "name": "aligned",
@@ -231,11 +251,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "method": {
             "name": "method",
@@ -266,11 +290,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           }
         },
         "display_title": "{{ name }}",
@@ -288,8 +316,6 @@
           }
         ],
         "file": "types/alignment.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       },
       "iki/core.App": {
@@ -334,11 +360,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "description": {
             "name": "description",
@@ -369,11 +399,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "spec": {
             "name": "spec",
@@ -404,6 +438,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
@@ -734,14 +769,15 @@
                   ]
                 }
               }
-            }
+            },
+            "states": {},
+            "initial": null,
+            "moved_to": null
           }
         },
         "display_title": "{{ name }}",
         "viewers": [],
         "file": "types/app.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       },
       "iki/core.Collection": {
@@ -786,11 +822,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "description": {
             "name": "description",
@@ -821,11 +861,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "members": {
             "name": "members",
@@ -856,6 +900,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": {
               "name": "members",
@@ -886,15 +931,22 @@
               "to": "iki/core.Entity",
               "role": null,
               "assignment": false,
+              "assignment_field": null,
               "assignment_states": [],
               "items": null,
               "min_items": null,
               "max_items": null,
-              "schema": null
+              "schema": null,
+              "states": {},
+              "initial": null,
+              "moved_to": null
             },
             "min_items": null,
             "max_items": 10000,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "search": {
             "name": "search",
@@ -925,6 +977,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
@@ -963,14 +1016,15 @@
                   "type": "boolean"
                 }
               }
-            }
+            },
+            "states": {},
+            "initial": null,
+            "moved_to": null
           }
         },
         "display_title": "{{ name }}",
         "viewers": [],
         "file": "types/collection.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       },
       "iki/core.Entity": {
@@ -989,8 +1043,6 @@
         "display_title": null,
         "viewers": [],
         "file": "types/entity.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       },
       "iki/core.Sequence": {
@@ -1035,11 +1087,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "description": {
             "name": "description",
@@ -1070,11 +1126,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "organism": {
             "name": "organism",
@@ -1105,18 +1165,20 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           }
         },
         "display_title": null,
         "viewers": [],
         "file": "types/sequence.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       },
       "iki/core.View": {
@@ -1161,11 +1223,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "description": {
             "name": "description",
@@ -1196,11 +1262,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "target": {
             "name": "target",
@@ -1231,11 +1301,15 @@
             "to": "iki/core.Entity",
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "target_revision": {
             "name": "target_revision",
@@ -1266,11 +1340,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "viewer": {
             "name": "viewer",
@@ -1305,11 +1383,15 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
             "max_items": null,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "targets": {
             "name": "targets",
@@ -1340,6 +1422,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": {
               "name": "targets",
@@ -1370,15 +1453,22 @@
               "to": "iki/core.Entity",
               "role": null,
               "assignment": false,
+              "assignment_field": null,
               "assignment_states": [],
               "items": null,
               "min_items": null,
               "max_items": null,
-              "schema": null
+              "schema": null,
+              "states": {},
+              "initial": null,
+              "moved_to": null
             },
             "min_items": 1,
             "max_items": 20,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "target_revisions": {
             "name": "target_revisions",
@@ -1409,6 +1499,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": {
               "name": "target_revisions",
@@ -1439,15 +1530,22 @@
               "to": null,
               "role": null,
               "assignment": false,
+              "assignment_field": null,
               "assignment_states": [],
               "items": null,
               "min_items": null,
               "max_items": null,
-              "schema": null
+              "schema": null,
+              "states": {},
+              "initial": null,
+              "moved_to": null
             },
             "min_items": 1,
             "max_items": 20,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "viewers": {
             "name": "viewers",
@@ -1478,6 +1576,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": {
               "name": "viewers",
@@ -1512,15 +1611,22 @@
               "to": null,
               "role": null,
               "assignment": false,
+              "assignment_field": null,
               "assignment_states": [],
               "items": null,
               "min_items": null,
               "max_items": null,
-              "schema": null
+              "schema": null,
+              "states": {},
+              "initial": null,
+              "moved_to": null
             },
             "min_items": 1,
             "max_items": 20,
-            "schema": null
+            "schema": null,
+            "states": {},
+            "initial": null,
+            "moved_to": null
           },
           "state": {
             "name": "state",
@@ -1551,6 +1657,7 @@
             "to": null,
             "role": null,
             "assignment": false,
+            "assignment_field": null,
             "assignment_states": [],
             "items": null,
             "min_items": null,
@@ -1829,14 +1936,15 @@
                   }
                 }
               ]
-            }
+            },
+            "states": {},
+            "initial": null,
+            "moved_to": null
           }
         },
         "display_title": "{{ name }}",
         "viewers": [],
         "file": "types/view.yaml",
-        "states": {},
-        "transitions": {},
         "due": null
       }
     },

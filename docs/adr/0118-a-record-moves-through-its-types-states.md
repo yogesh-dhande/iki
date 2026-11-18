@@ -1,6 +1,6 @@
 # 0118. A record moves through its type's states, and only a transition moves it
 
-- Status: Accepted
+- Status: Superseded by [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md)
 - Date: 2026-11-17
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0035](0035-entity-revisions-provenance-and-edit-rules.md),

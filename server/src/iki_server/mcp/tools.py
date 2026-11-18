@@ -217,7 +217,11 @@ def build() -> MCPServer:
             list[str] | None, Field(description="Only these types' records (and subtypes').")
         ] = None,
         state: Annotated[
-            list[str] | None, Field(description="Only records in these states.")
+            list[str] | None,
+            Field(
+                description="Only records whose state fields are in these states, each "
+                "field.state, such as status.in_review."
+            ),
         ] = None,
         sort: Annotated[
             Literal["due", "updated"],
@@ -228,7 +232,7 @@ def build() -> MCPServer:
     ) -> CallToolResult:
         """What's assigned to the person you act for, across their projects (ADR 0122):
         records an assignment field names them in, such as a sample's analyst, while the
-        record's state is one it's their work in. Each item has the record, the fields
+        record's state fields are in states it's their work in. Each item has the record, the fields
         naming them, and when it's due. Read-only: assigning someone is changing a record."""
         query: dict[str, Any] = {
             "project": [str(p) for p in project or []] or None,
@@ -296,10 +300,10 @@ def build() -> MCPServer:
             Condition | None,
             Field(
                 description="Conditions on fields: {field, op, value}, or {all|any: [...]}, "
-                "or {not: ...}. Fields and their operators are in describe_entity_type; a type "
-                "with states takes state too, by a state's name. Fields naming people take an "
-                "ID, an email address or {{ me }}; assigned finds what someone is assigned, "
-                "and needs_reassigning work whose assignee can't be any more."
+                "or {not: ...}. Fields and their operators are in describe_entity_type; a "
+                "state field takes its states' names. Fields naming people take an ID, an "
+                "email address or {{ me }}; assigned finds what someone is assigned, and "
+                "needs_reassigning work whose assignee can't be any more."
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
@@ -374,9 +378,10 @@ def build() -> MCPServer:
         imported, `origins` says from where: a database's record (with its version, link
         and when it was fetched) or a file's. `making` says how it was made, one tool at a
         time: `by: iki` is Iki's record of the run that made it, `by: source` what a record
-        it was imported from claims, which Iki can't check. A type with states gives the
-        record's `state`, whether it's `locked`, and `can.transitions`: each transition from
-        it, whether the person may make it, and why not (make one with transition_entity)."""
+        it was imported from claims, which Iki can't check. A state field's value is its
+        state; `locked` says whether a state locks the record (`locked_by`: which fields),
+        and `can.states` lists, per state field, the states it could be set to, whether the
+        person may set each, and why not (set one with set_entity_state)."""
         found = await call(
             "GET",
             path("/entities/{ref}", ref=ref),
@@ -468,8 +473,9 @@ def build() -> MCPServer:
         reason: Reason,
     ) -> CallToolResult:
         """Changes some of an entity's values, as one new revision. Its owning project
-        decides who may: the person must be an Editor there. A record its state locks
-        (locked: true) can't change until transition_entity takes it out of that state."""
+        decides who may: the person must be an Editor there. State fields aren't changed
+        here: use set_entity_state. A record a state locks (locked: true) can't change until
+        set_entity_state sets that field to a state that doesn't lock."""
         return answer(
             await call(
                 "PATCH",
@@ -497,29 +503,30 @@ def build() -> MCPServer:
             )
         )
 
-    @server.tool(annotations=CHANGE, title="Move a record to another state")
-    async def transition_entity(
+    @server.tool(annotations=CHANGE, title="Set a record's state")
+    async def set_entity_state(
         ref: Ref,
         revision: Revision,
-        transition: Annotated[
+        field: Annotated[
             str,
-            Field(
-                description="The transition's name, from the record's can.transitions, "
-                "such as approve."
-            ),
+            Field(description="The state field, such as status: a key of can.states."),
+        ],
+        state: Annotated[
+            str,
+            Field(description="The state to set it to, by name, such as approved."),
         ],
         reason: Reason,
     ) -> CallToolResult:
-        """Makes a transition from a record's state to another (ADR 0118), such as
-        received to in testing: the ones get_entity lists in can.transitions, with whether
-        the person may make each and why not. It takes one of the transition's lab roles in
-        the record's project, and some can't be made by whoever made an earlier one. A
-        state may lock the record: then nothing changes it until a transition out."""
+        """Sets one of a record's state fields (ADR 0125) to one of its states, from any
+        other: those get_entity lists in can.states, with whether the person may set each
+        and why not. It takes one of the state's lab roles in the record's project. Some
+        states need a reason. A state may lock the record: then its other fields can't
+        change until the field is set to a state that doesn't lock."""
         return answer(
             await call(
                 "POST",
-                path("/entities/{ref}/transitions/{name}", ref=ref, name=transition),
-                body={"reason": reason},
+                path("/entities/{ref}/states/{field}", ref=ref, field=field),
+                body={"state": state, "reason": reason},
                 if_match=f'"{revision}"',
             )
         )

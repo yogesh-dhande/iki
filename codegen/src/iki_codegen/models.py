@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from iki_spec import naming
-from iki_spec.model import FORMATS, STATE_COLUMN, EntityType, Extension, Field, Plugin, split_entry
+from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
 
@@ -206,40 +206,8 @@ def _type(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> lis
             ),
         )
     )
-    if t.states:
-        _state(model, t)
     record, _ = split_entry(t.fields, t.identity)
     return _with_fields(model, t.qualified_name, record, plugin.name, types)
-
-
-def _state(model: _Model, t: EntityType) -> None:
-    """A record's state (ADR 0118): one of the type's, the initial one to begin with. It's
-    not a field, so it has no history column: transitions are revisions of their own."""
-    live = list(t.live_states)
-    moved = {s.name: s.moved_to for s in t.states.values() if s.removed and s.moved_to}
-    options: dict[str, Any] = {"states": live}
-    if moved:
-        options["moved"] = dict(sorted(moved.items()))
-    locking = [name for name in live if name in t.locking_states]
-    if locking:
-        options["locking"] = locking
-    model.fields.append(
-        (
-            STATE_COLUMN,
-            _call(
-                "StateField",
-                **options,
-                db_default=t.initial_state,
-                db_comment=f"Its state (ADR 0118): one of {', '.join(live)}.",
-            ),
-        )
-    )
-    model.constraints.append(
-        _check(
-            f"Q({STATE_COLUMN}__in={live!r})",
-            naming.constraint_name(t.table, STATE_COLUMN, "known"),
-        )
-    )
 
 
 def _entry(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:
@@ -355,7 +323,9 @@ def _with_fields(
         if _is_list_table(f):
             lists.append(_list_model(model, owner, f, plugin, types))
             continue
-        model.fields.append((f.name, _column(f, plugin, types)))
+        model.fields.append(
+            (f.name, _state_column(f, fields) if f.type == "state" else _column(f, plugin, types))
+        )
         model.constraints.extend(_checks(model.table, f))
         model.indexes.extend(_indexes(model.table, f))
     history = _Model(
@@ -478,6 +448,36 @@ def _column(
     raise AssertionError(kind)  # pragma: no cover
 
 
+def _state_column(f: Field, fields: Mapping[str, Field]) -> str:
+    """A state field's column (ADR 0125): one of its states, the initial one to begin with.
+    Its states are part of the column, so migrations see them change: records in a state
+    the plugin removes move where it says (``moved``), as do a removed state field's
+    records into this one (``moved_from``), and which lock decides who's locked."""
+    live = list(f.live_states)
+    options: dict[str, Any] = {"states": live}
+    moved = {n: st.moved_to for n, st in f.states.items() if st.removed and st.moved_to}
+    if moved:
+        options["moved"] = dict(sorted(moved.items()))
+    locking = [n for n in live if n in f.locking_states]
+    if locking:
+        options["locking"] = locking
+    moved_from = {
+        other.name: dict(other.moved_to.states)
+        for other in fields.values()
+        if other.removed and other.moved_to is not None and other.moved_to.field == f.name
+    }
+    if moved_from:
+        options["moved_from"] = dict(sorted(moved_from.items()))
+    if f.indexed:
+        options["db_index"] = True
+    return _call(
+        "StateField",
+        **options,
+        db_default=f.initial,
+        db_comment=f"A state field (ADR 0125): one of {', '.join(live)}.",
+    )
+
+
 def _ref_target(to: str, plugin: str, types: Mapping[str, EntityType]) -> str:
     """What a reference to ``to`` is a foreign key to: the entries of a type with an
     identity, ``iki_entity`` for an abstract type (whose subtypes may have entries or
@@ -529,6 +529,7 @@ _HISTORY_TYPES = {
     "string": "models.TextField",
     "text": "models.TextField",
     "enum": "models.TextField",
+    "state": "models.TextField",
     "int": "models.BigIntegerField",
     "float": "models.FloatField",
     "bool": "models.BooleanField",
@@ -562,6 +563,8 @@ def _checks(table: str, f: Field) -> list[str]:
         rules += _text_rules(column, f, item=False)
     elif kind == "enum":
         rules.append(("values", f"Q({column}__in={list(f.values)!r})"))
+    elif kind == "state":
+        rules.append(("known", f"Q({column}__in={list(f.live_states)!r})"))
     elif kind == "int":
         rules += _bounds(column, f)
     elif kind in ("float", "quantity"):

@@ -4,7 +4,8 @@ The schema describes the ``values`` object the API returns and accepts:
 
 - ``required`` lists what a new entity needs. An edit sends only the fields
   it changes.
-- ``readOnly`` marks computed fields: only actions set them.
+- ``readOnly`` marks computed fields, which only actions set, and state
+  fields (``x-iki-state``, ADR 0125), which are set on their own.
 - ``x-iki-immutable`` marks fields that can be set once.
 - Quantities are numbers in ``x-iki-unit`` (UCUM). An input may instead be
   ``{"value": …, "unit": …}`` in any convertible unit.
@@ -60,12 +61,12 @@ def for_params(title: str, params: dict[str, Field]) -> dict[str, Any]:
 
 def field_schema(f: Field) -> dict[str, Any]:
     schema = _value(f)
-    if not f.required:
+    if not f.required and f.type != "state":
         schema = {"anyOf": [schema, {"type": "null"}]}
     schema["title"] = f.label
     if f.description:
         schema["description"] = f.description
-    if f.computed:
+    if f.computed or f.type == "state":
         schema["readOnly"] = True
     if f.immutable:
         schema["x-iki-immutable"] = True
@@ -109,6 +110,9 @@ def _value(f: Field) -> dict[str, Any]:
         return {"type": "boolean"}
     if kind == "enum":
         return {"type": "string", "enum": list(f.values)}
+    if kind == "state":
+        # Set on its own, by its states' lab roles (ADR 0125): never with other values.
+        return {"type": "string", "enum": list(f.live_states), "x-iki-state": True}
     if kind == "date":
         return {"type": "string", "format": "date"}
     if kind == "datetime":

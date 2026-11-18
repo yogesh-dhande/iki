@@ -21,8 +21,8 @@ build installed (:mod:`iki_server.entities.registry`):
   step with a unique column, so the database refuses a second entity in a
   project with the same value. Values already there are filled in, and if
   entities already share one, the sync stops, saying which.
-- **Locked records' guards** (ADR 0118): a trigger on every table holding
-  the values of records that have states refuses a change to a record its
+- **Locked records' guards** (ADR 0125): a trigger on every table holding
+  the values of records with state fields refuses a change to a record a
   state locks, whatever writes it. Tables that no longer need one lose it.
 - **Plugins' states** (ADR 0091): each plugin the lockfile installs, updates,
   detaches or reattaches is audited, by the deploy that does it.

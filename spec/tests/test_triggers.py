@@ -14,6 +14,8 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+roles:
+  analyst: { label: Analyst }
 """
 
 TYPES = """\
@@ -34,6 +36,10 @@ hrid: { prefix: ASY }
 fields:
   score: { type: float, computed: true }
   plate: { type: string }
+  stage:
+    type: state
+    initial: queued
+    states: { queued: {}, read: { set_by: [analyst] }, failed: { set_by: [analyst] } }
 ---
 apiVersion: iki/v1
 kind: EntityType
@@ -322,6 +328,59 @@ def test_a_dollar_is_written_twice(tmp_path: Path) -> None:
 def test_names_are_unique(tmp_path: Path) -> None:
     result = make(tmp_path, GOOD, GOOD)
     assert codes(result) == ["duplicate-trigger"]
+
+
+def test_a_state_change_names_its_field_and_states(tmp_path: Path) -> None:
+    body = "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [read]\nrun: describe\n"
+    result = make(tmp_path, trigger(body))
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.triggers["on_assay"]
+    assert (found.on, found.state_field, found.states) == (
+        "entity.state_changed",
+        "stage",
+        ("read",),
+    )
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+    # Without states, any of the field's.
+    body = "on: entity.state_changed\ntype: Assay\nfield: stage\nrun: describe\n"
+    assert make(tmp_path, trigger(body)).problems == []
+
+
+@pytest.mark.parametrize(
+    ("body", "code", "message"),
+    [
+        (
+            "on: entity.state_changed\ntype: Assay\nstates: [read]\nrun: describe\n",
+            "trigger-state-field-missing",
+            "",
+        ),
+        (
+            "on: entity.state_changed\ntype: Assay\nfield: plate\nrun: describe\n",
+            "trigger-not-a-state-field",
+            "`plate`",
+        ),
+        (
+            "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [done]\nrun: describe\n",
+            "unknown-state",
+            "`done`",
+        ),
+        (
+            "on: entity.updated\ntype: Assay\nfield: stage\nrun: describe\n",
+            "trigger-state-not-state-changed",
+            "",
+        ),
+        (
+            "on: entity.updated\ntype: Assay\nfields: [stage]\nrun: describe\n",
+            "trigger-field-is-state",
+            "`stage`",
+        ),
+    ],
+)
+def test_state_change_triggers_are_checked(
+    tmp_path: Path, body: str, code: str, message: str
+) -> None:
+    assert message in only(make(tmp_path, trigger(body)), code)
 
 
 def test_triggers_live_under_triggers(tmp_path: Path) -> None:

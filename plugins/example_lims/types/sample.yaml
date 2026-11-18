@@ -6,8 +6,8 @@ label: Sample
 schema_version: 1
 description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
-  reviewed by another, then released by QA. Once it's approved its results
-  can't change, unless it's sent back or reopened, with a reason. Its analyst,
+  reviewed, then released by QA. Once it's approved its results can't change,
+  unless someone with the role sets it back, with a reason. Its analyst,
   reviewer and QA are assigned it in turn, and each has it on My work while
   it's theirs.
 hrid: { prefix: SAM }
@@ -62,12 +62,12 @@ fields:
   analyst:
     type: person
     role: analyst
-    assignment: { states: [received, in_testing] }
+    assignment: { field: status, states: [received, in_testing] }
     description: Who tests it. Received samples nobody has are open to analysts.
   reviewer:
     type: person
     role: reviewer
-    assignment: { states: [in_review] }
+    assignment: { field: status, states: [in_review] }
     description: >-
       Who checks its results, named before it's submitted. In review samples
       nobody has are open to reviewers.
@@ -75,86 +75,49 @@ fields:
     type: person
     label: QA
     role: qa
-    assignment: { states: [approved] }
+    assignment: { field: status, states: [approved] }
     description: >-
       Who releases or rejects it, named before it's approved: an approved sample
       is locked, its people with it. Approved samples nobody has are open to QA.
+  status:
+    type: state
+    label: Status
+    initial: registered
+    description: Where it is in testing. Each lab role sets the states that are its own.
+    states:
+      registered:
+        label: Registered
+        description: Logged, and on its way to the lab.
+        set_by: [coordinator]
+        reason: required
+      received:
+        label: Received
+        description: In the lab, waiting to be tested.
+        set_by: [coordinator, analyst]
+      in_testing:
+        label: In testing
+        description: An analyst is testing it and recording the results.
+        set_by: [analyst, reviewer, qa]
+        reason: optional
+      in_review:
+        label: In review
+        description: Its results wait for a reviewer.
+        set_by: [analyst]
+      approved:
+        label: Approved
+        description: A reviewer checked its results; they can't change now.
+        set_by: [reviewer]
+        locks: true
+      released:
+        label: Released
+        description: QA released it, so its results can be used.
+        set_by: [qa]
+        locks: true
+        reason: optional
+      rejected:
+        label: Rejected
+        description: QA rejected it; it's kept, with its results, but not used.
+        set_by: [qa]
+        locks: true
+        reason: required
 due: due_on
-states:
-  registered:
-    label: Registered
-    initial: true
-    description: Logged, and on its way to the lab.
-  received:
-    label: Received
-    description: In the lab, waiting to be tested.
-  in_testing:
-    label: In testing
-    description: An analyst is testing it and recording the results.
-  in_review:
-    label: In review
-    description: Its results wait for a reviewer.
-  approved:
-    label: Approved
-    locks: true
-    description: A reviewer checked its results; they can't change now.
-  released:
-    label: Released
-    locks: true
-    description: QA released it, so its results can be used.
-  rejected:
-    label: Rejected
-    locks: true
-    description: QA rejected it; it's kept, with its results, but not used.
-transitions:
-  receive:
-    label: Receive
-    from: [registered]
-    to: received
-    roles: [analyst]
-  start_testing:
-    label: Start testing
-    from: [received]
-    to: in_testing
-    roles: [analyst]
-  submit:
-    label: Submit for review
-    from: [in_testing]
-    to: in_review
-    roles: [analyst]
-  approve:
-    label: Approve
-    from: [in_review]
-    to: approved
-    roles: [reviewer]
-    not_by: [submit]
-    description: Someone other than whoever submitted it checks its results.
-  send_back:
-    label: Send back
-    from: [in_review, approved]
-    to: in_testing
-    roles: [reviewer, qa]
-    reason: required
-    description: Its results need more work; the analyst sees why.
-  release:
-    label: Release
-    from: [approved]
-    to: released
-    roles: [qa]
-    not_by: [submit, approve]
-    reason: optional
-    description: Neither its analyst nor its reviewer releases it.
-  reject:
-    label: Reject
-    from: [in_review, approved]
-    to: rejected
-    roles: [qa]
-    not_by: [submit, approve]
-    reason: required
-  reopen:
-    label: Reopen
-    from: [released, rejected]
-    to: in_testing
-    roles: [qa]
-    reason: required
-    description: For a correction after release; the reason is kept with it.

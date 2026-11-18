@@ -1,6 +1,6 @@
 # 0120. A state can lock a record, and the database holds the lock
 
-- Status: Accepted
+- Status: Accepted (state fields and their locks amended by [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md))
 - Date: 2026-11-17
 - Refines: [0118](0118-a-record-moves-through-its-types-states.md),
   [0035](0035-entity-revisions-provenance-and-edit-rules.md),

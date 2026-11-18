@@ -120,8 +120,10 @@ def orm(build: Path, database: str, code: str) -> Any:
 
 
 def query(database: str, statement: str, *params: object) -> list[tuple[Any, ...]]:
+    """The rows ``statement`` gives, or none for one that gives none (an insert)."""
     with psycopg.connect(database) as connection:
-        return connection.execute(statement, params).fetchall()
+        cursor = connection.execute(statement, params)
+        return cursor.fetchall() if cursor.description is not None else []
 
 
 @pytest.fixture
@@ -830,97 +832,111 @@ roles:
 """
 
 STATES = """\
-states:
-  received: { label: Received, initial: true }
-  on_hold: { label: On hold }
-  released: { label: Released, locks: true }
-transitions:
-  hold: { label: Hold, from: [received], to: on_hold, roles: [analyst] }
-  release: { label: Release, from: [received, on_hold], to: released, roles: [qa] }
+  status:
+    type: state
+    initial: received
+    states:
+      received: { label: Received, set_by: [analyst] }
+      on_hold: { label: On hold, set_by: [analyst] }
+      released: { label: Released, set_by: [qa], locks: true }
+  stage:
+    type: state
+    initial: open
+    states:
+      open: { set_by: [analyst] }
+      closed: { set_by: [qa], locks: true }
+"""
+STAGE = """\
+  stage:
+    type: state
+    initial: open
+    states:
+      open: { set_by: [analyst] }
+      closed: { set_by: [qa], locks: true }
+"""
+STRING_STAGE = STATES.replace(STAGE, "  stage: { type: string }\n")
+ON_HOLD = "      on_hold: { label: On hold, set_by: [analyst] }\n"
+#: The live rows' states, by HRID.
+STATUS = (
+    "SELECT e.hrid, t.status, t.stage, e.locked_by FROM acme__lab_sample t "
+    "JOIN iki_entity e ON e.id = t.entity_id ORDER BY e.hrid"
+)
+TWO = """
+from iki_plugin_acme__lab.models import Sample, Sample_History
+from iki_server.entities.models import Entity
+held = Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000001",
+                             owner_project=project, name="S1")
+kept = Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000002",
+                             owner_project=project, name="S2")
+Sample.objects.filter(pk=held.pk).update(status="on_hold", stage="closed")
+Entity.objects.filter(pk=held.pk).update(locked_by=["stage"])
+Entity.objects.filter(pk__in=[held.pk, kept.pk]).update(revision=1)
+# Their first revisions' values, as Iki's services keep them.
+for row in Sample.objects.filter(pk__in=[held.pk, kept.pk]):
+    Sample_History.objects.create(entity_id=row.pk, revision=1, name=row.name,
+                                  status=row.status, stage=row.stage)
+result = [str(held.pk), Sample.objects.get(pk=kept.pk).status]
 """
 
 
-def test_states_migrate_and_a_removed_one_moves_its_records(lab: Path, database: str) -> None:
-    """ADR 0118: a type's states are its table's, records in a removed state move where the
-    plugin says, as revisions, and a state that locks now locks its records."""
+def write_states(lab: Path, states: str = STATES) -> None:
     (lab.parent / "lab" / "plugin.yaml").write_text(LAB + LAB_ROLES)
-    (lab / "types" / "sample.yaml").write_text(SAMPLE + STATES)
+    (lab / "types" / "sample.yaml").write_text(SAMPLE + states)
+
+
+def test_state_fields_migrate_and_a_removed_state_moves_its_records(
+    lab: Path, database: str
+) -> None:
+    """ADR 0125: a state field's states are its column's, records in a removed state move
+    where the plugin says, as revisions with history, and a state that locks now locks."""
+    write_states(lab)
     made("lab", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
-    made_ = orm(
-        out,
-        database,
-        """
-        from iki_plugin_acme__lab.models import Sample
-        from iki_server.entities.models import Entity
-        held = Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000001",
-                                     owner_project=project, name="S1")
-        kept = Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000002",
-                                     owner_project=project, name="S2")
-        Sample.objects.filter(pk=held.pk).update(iki_state="on_hold")
-        Entity.objects.filter(pk__in=[held.pk, kept.pk]).update(revision=1)
-        result = [str(held.pk), Sample.objects.get(pk=kept.pk).iki_state]
-        """,
-    )
-    held_id, initial = made_
+    held_id, initial = orm(out, database, TWO)
     assert initial == "received"
-    states = query(
-        database,
-        "SELECT t.iki_state FROM acme__lab_sample t JOIN iki_entity e ON e.id = t.entity_id "
-        "ORDER BY e.hrid",
-    )
-    assert states == [("on_hold",), ("received",)]
-    unknown = "INSERT INTO acme__lab_sample (entity_id, iki_state) VALUES (%s, 'shipped')"
+    assert query(database, STATUS) == [
+        ("SMP-000001", "on_hold", "closed", ["stage"]),
+        ("SMP-000002", "received", "open", []),
+    ]
+    unknown = "UPDATE acme__lab_sample SET status = 'shipped' WHERE entity_id = %s"
     with pytest.raises(psycopg.errors.CheckViolation):
         query(database, unknown, held_id)
 
     # Taking a state away strands its records, unless the plugin says where they go.
-    write_states = (lab / "types" / "sample.yaml").write_text
-    write_states(
-        SAMPLE
-        + STATES.replace("  on_hold: { label: On hold }\n", "")
-        .replace("  hold: { label: Hold, from: [received], to: on_hold, roles: [analyst] }\n", "")
-        .replace("[received, on_hold]", "[received]")
-    )
+    write_states(lab, STATES.replace(ON_HOLD, ""))
     refused = iki("plugin", "makemigrations", "lab", "--no-input", cwd=lab.parent)
     assert refused.returncode == 1, refused.stdout
     assert "on_hold" in refused.stderr and "moved_to" in refused.stderr, refused.stderr
 
-    # Kept, removed and moved: and released locks only now it's there.
+    # Kept, removed and moved.
     write_states(
-        SAMPLE
-        + STATES.replace(
-            "  on_hold: { label: On hold }",
-            "  on_hold: { label: On hold, removed: true, moved_to: received }",
-        )
-        .replace("  hold: { label: Hold, from: [received], to: on_hold, roles: [analyst] }\n", "")
-        .replace("[received, on_hold]", "[received]")
+        lab,
+        STATES.replace(
+            ON_HOLD, "      on_hold: { label: On hold, removed: true, moved_to: received }\n"
+        ),
     )
     text = made("lab", "--name", "states", cwd=lab.parent)
     migration = (lab / "migrations" / "0002_states.py").read_text()
     assert "iki_server.plugins.operations.SyncStates(" in migration, text
     out = build(lab.parent, "lab")
     migrate(out, database)
-    assert query(
-        database,
-        "SELECT t.iki_state FROM acme__lab_sample t JOIN iki_entity e ON e.id = t.entity_id "
-        "ORDER BY e.hrid",
-    ) == [
-        ("received",),
-        ("received",),
+    assert query(database, STATUS) == [
+        ("SMP-000001", "received", "closed", ["stage"]),
+        ("SMP-000002", "received", "open", []),
     ]
     revisions = query(
         database,
-        "SELECT number, kind, transition, state_from, state_to, via, user_id, reason "
-        "FROM iki_revision WHERE entity_id = %s ORDER BY number",
+        "SELECT number, kind, changed_fields, state_field, state_from, state_to, via, user_id,"
+        " reason FROM iki_revision WHERE entity_id = %s ORDER BY number",
         held_id,
     )
     assert revisions == [
         (
             2,
-            "transitioned",
-            "iki.moved",
+            "state_changed",
+            ["status"],
+            "status",
             "on_hold",
             "received",
             "system",
@@ -929,23 +945,27 @@ def test_states_migrate_and_a_removed_one_moves_its_records(lab: Path, database:
         )
     ]
     assert query(database, "SELECT revision FROM iki_entity WHERE id = %s", held_id) == [(2,)]
+    # Its history has the revision's values: the record's, with its new state.
+    history = "SELECT revision, name, status, stage FROM acme__lab_sample__history"
+    history += " WHERE entity_id = %s ORDER BY revision"
+    assert query(database, history, held_id) == [
+        (1, "S1", "on_hold", "closed"),
+        (2, "S1", "received", "closed"),
+    ]
 
     # Backwards, it goes back where it was, as a revision too.
     migrate(out, database, "acme__lab", "0001")
-    assert query(
-        database,
-        "SELECT t.iki_state FROM acme__lab_sample t JOIN iki_entity e ON e.id = t.entity_id "
-        "ORDER BY e.hrid",
-    ) == [
-        ("on_hold",),
-        ("received",),
-    ]
+    assert query(database, STATUS)[0] == ("SMP-000001", "on_hold", "closed", ["stage"])
     assert query(database, "SELECT revision FROM iki_entity WHERE id = %s", held_id) == [(3,)]
+    assert query(database, history, held_id) == [
+        (1, "S1", "on_hold", "closed"),
+        (2, "S1", "received", "closed"),
+        (3, "S1", "on_hold", "closed"),
+    ]
 
 
 def test_a_state_that_locks_locks_the_records_in_it(lab: Path, database: str) -> None:
-    (lab.parent / "lab" / "plugin.yaml").write_text(LAB + LAB_ROLES)
-    (lab / "types" / "sample.yaml").write_text(SAMPLE + STATES.replace(", locks: true", ""))
+    write_states(lab, STATES.replace(", locks: true }", " }"))
     made("lab", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
@@ -955,28 +975,146 @@ def test_a_state_that_locks_locks_the_records_in_it(lab: Path, database: str) ->
         """
         from iki_plugin_acme__lab.models import Sample
         Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000001", owner_project=project,
-                              name="S1", iki_state="released")
+                              name="S1", status="released", stage="closed")
+        Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000002", owner_project=project,
+                              name="S2", stage="closed")
         result = None
         """,
     )
-    assert query(database, "SELECT locked FROM iki_entity WHERE hrid = 'SMP-000001'") == [(False,)]
-    (lab / "types" / "sample.yaml").write_text(SAMPLE + STATES)
+    # Locked while its locked_by names a field (ADR 0125).
+    locks = (
+        "SELECT hrid, cardinality(locked_by) > 0, locked_by FROM iki_entity "
+        "WHERE hrid LIKE 'SMP-%%' ORDER BY hrid"
+    )
+    assert query(database, locks) == [("SMP-000001", False, []), ("SMP-000002", False, [])]
+    write_states(lab)
     made("lab", "--name", "locks", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
-    assert query(database, "SELECT locked FROM iki_entity WHERE hrid = 'SMP-000001'") == [(True,)]
+    # Each field locks the records in its locking states, on its own.
+    first, second = query(database, locks)
+    assert (first[1], sorted(first[2])) == (True, ["stage", "status"])
+    assert second == ("SMP-000002", True, ["stage"])
     migrate(out, database, "acme__lab", "0001")
-    assert query(database, "SELECT locked FROM iki_entity WHERE hrid = 'SMP-000001'") == [(False,)]
+    assert query(database, locks) == [("SMP-000001", False, []), ("SMP-000002", False, [])]
 
 
-def test_a_type_cant_lose_its_states(lab: Path) -> None:
-    (lab.parent / "lab" / "plugin.yaml").write_text(LAB + LAB_ROLES)
-    (lab / "types" / "sample.yaml").write_text(SAMPLE + STATES)
+STAGE_MOVED = """\
+    removed: true
+    moved_to: { field: status, states: { open: received, closed: released } }
+"""
+
+
+def test_a_removed_state_field_moves_its_records_states(lab: Path, database: str) -> None:
+    write_states(lab)
     made("lab", "--no-input", cwd=lab.parent)
-    (lab / "types" / "sample.yaml").write_text(SAMPLE)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    held_id, _ = orm(out, database, TWO)
+
+    # Removed with nowhere for its states to go, its migration is refused while records
+    # have it.
+    write_states(
+        lab,
+        STATES.replace(
+            "  stage:\n    type: state\n", "  stage:\n    type: state\n    removed: true\n"
+        ),
+    )
+    made("lab", "--name", "drop_stage", cwd=lab.parent)
+    text = (lab / "migrations" / "0002_drop_stage.py").read_text()
+    assert "iki_server.plugins.operations.RetireStateField(" in text
+    failed = django(build(lab.parent, "lab"), database, "-m", "django", "migrate", "--no-input")
+    assert failed.returncode != 0
+    assert "2 records are in its states, which would be lost" in failed.stderr, failed.stderr
+    assert query(database, STATUS)[0] == ("SMP-000001", "on_hold", "closed", ["stage"])
+    (lab / "migrations" / "0002_drop_stage.py").unlink()
+
+    # With moved_to, each record's state there moves to the field it names, as a revision,
+    # and locks as that field's states do.
+    write_states(
+        lab,
+        STATES.replace("  stage:\n    type: state\n", "  stage:\n    type: state\n" + STAGE_MOVED),
+    )
+    made("lab", "--name", "retire_stage", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    rows = "SELECT e.hrid, t.status, e.locked_by FROM acme__lab_sample t "
+    rows += "JOIN iki_entity e ON e.id = t.entity_id ORDER BY e.hrid"
+    assert query(database, rows) == [
+        ("SMP-000001", "released", ["status"]),
+        ("SMP-000002", "received", []),
+    ]
+    revisions = query(
+        database,
+        "SELECT number, state_field, state_from, state_to, reason FROM iki_revision"
+        " WHERE entity_id = %s ORDER BY number",
+        held_id,
+    )
+    assert revisions == [
+        (
+            2,
+            "status",
+            "on_hold",
+            "released",
+            "Its plugin removed the state field stage: its migration moved its closed to "
+            "status released.",
+        )
+    ]
+    history = "SELECT revision, status, stage FROM acme__lab_sample__history"
+    history += " WHERE entity_id = %s ORDER BY revision"
+    assert query(database, history, held_id) == [(1, "on_hold", "closed"), (2, "released", None)]
+
+    # Backwards, the field is back with each record's state in it, and the move undone.
+    migrate(out, database, "acme__lab", "0001")
+    assert query(database, STATUS) == [
+        ("SMP-000001", "on_hold", "closed", ["stage"]),
+        ("SMP-000002", "received", "open", []),
+    ]
+
+
+def test_a_renamed_state_field_keeps_its_locks(lab: Path, database: str) -> None:
+    write_states(lab)
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    held_id, _ = orm(out, database, TWO)
+    query(
+        database,
+        "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, via, client,"
+        " reason, state_field, state_from, state_to, created_at) VALUES (uuidv7(), %s, 2,"
+        " 'state_changed', '{stage}', 'web', '', '', 'stage', 'open', 'closed', now())",
+        held_id,
+    )
+    write_states(lab, STATES.replace("  stage:\n", "  phase:\n"))
+    text = made("lab", "--name", "phase", cwd=lab.parent, answers="y\n")
+    assert "RenameStateField(" in (lab / "migrations" / "0002_phase.py").read_text(), text
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    locked = "SELECT locked_by FROM iki_entity WHERE id = %s"
+    assert query(database, locked, held_id) == [(["phase"],)]
+    # Its earlier changes keep the name it had: history isn't rewritten.
+    field = "SELECT state_field FROM iki_revision WHERE entity_id = %s AND number = 2"
+    assert query(database, field, held_id) == [("stage",)]
+    migrate(out, database, "acme__lab", "0001")
+    assert query(database, locked, held_id) == [(["stage"],)]
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "message"),
+    [
+        (STATES, STRING_STAGE, "is a state field"),
+        (STRING_STAGE, STATES, "would become a state field"),
+    ],
+)
+def test_a_field_cant_become_or_stop_being_a_state_field(
+    lab: Path, before: str, after: str, message: str
+) -> None:
+    write_states(lab, before)
+    made("lab", "--no-input", cwd=lab.parent)
+    write_states(lab, after)
     result = iki("plugin", "makemigrations", "lab", "--no-input", cwd=lab.parent)
     assert result.returncode == 1
-    assert "no longer has states" in result.stderr, result.stderr
+    assert message in result.stderr, result.stderr
 
 
 def test_types_cant_be_deleted(lab: Path) -> None:

@@ -350,11 +350,11 @@ def move(user: User, record: Entity, *, reason: str = "") -> Moved:
 def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str) -> list[Entity]:
     """The project's own records that refer to ``old``, referring to ``new`` instead, each
     a revision: immutable references too, as the entry they named was a mistake. Archived
-    records keep theirs, as do locked ones (ADR 0118) and those of a detached plugin's
+    records keep theirs, as do locked ones (ADR 0125) and those of a detached plugin's
     types."""
     done: list[Entity] = []
     own = Entity.objects.filter(
-        owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked=False
+        owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked_by=[]
     )
     for qualified in sorted(registry.types()):
         entity_type = registry.types()[qualified]

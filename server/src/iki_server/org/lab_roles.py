@@ -1,9 +1,10 @@
 """Lab roles (ADR 0116): named roles such as Analyst, Reviewer and QA, which plugins declare and
 a project's Admins give with memberships, beside their project role.
 
-A lab role grants nothing by itself. A workflow step's approval can require one, and so can
-a record's transitions, which is what they're for. :mod:`iki_server.org.permissions` decides
-who holds one; this module knows which exist and what needs them.
+A lab role grants nothing by itself. A workflow step's approval can require one, and each of
+a state field's states names those that set it (ADR 0125), which is what they're for.
+:mod:`iki_server.org.permissions` decides who holds one; this module knows which exist and
+what needs them.
 """
 
 from dataclasses import dataclass
@@ -33,8 +34,9 @@ def label(role: str) -> str:
 class Use:
     """Something a lab role lets its holders do."""
 
-    #: ``approval``, a workflow step's, or ``field``, a type's field naming people, who
-    #: must hold it (ADR 0122).
+    #: ``approval``, a workflow step's; ``field``, a type's field naming people, who
+    #: must hold it (ADR 0122); or ``state``, a state field some of whose states its
+    #: holders set (ADR 0125).
     kind: str
     #: The workflow or type it's in, qualified.
     owner: str
@@ -74,4 +76,21 @@ def uses(role: str) -> list[Use]:
                             description=f"be named {f.label or name} on {plural}",
                         )
                     )
+            for f in entity_type.fields.values():
+                if f.type != "state" or f.removed:
+                    continue
+                # One use per state field, naming the states the role sets.
+                labels = [s.label for s in f.states.values() if not s.removed and role in s.set_by]
+                if not labels:
+                    continue
+                either = labels[0] if len(labels) == 1 else ", ".join(labels[:-1])
+                either += f" or {labels[-1]}" if len(labels) > 1 else ""
+                out.append(
+                    Use(
+                        kind="state",
+                        owner=entity_type.qualified_name,
+                        name=f.name,
+                        description=f"set {f.label} to {either} on {plural}",
+                    )
+                )
     return out

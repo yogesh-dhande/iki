@@ -2,9 +2,9 @@ import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-qu
 import { Link } from "@tanstack/react-router";
 
 import { meQuery, projectsQuery } from "../api";
-import { recordSearch } from "../entities";
+import { recordSearch, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
-import { dueText, workQuery } from "../people";
+import { dueText, workQuery, workStates } from "../people";
 import { registriesQuery } from "../registries";
 import { buttonClass, Loading, PageHeader } from "../ui";
 import { PluginSections } from "./plugin-sections";
@@ -16,6 +16,7 @@ const WORK_SHOWN = 5;
 /** The first of what's assigned to you (ADR 0122), soonest due first, if there's any. */
 function YourWork() {
   const work = useInfiniteQuery(workQuery({}));
+  const types = useQuery(typesQuery).data;
   const items = work.data?.pages[0]?.items ?? [];
   if (!items.length) return null;
   const more = items.length > WORK_SHOWN || Boolean(work.data?.pages[0]?.next_cursor);
@@ -36,7 +37,10 @@ function YourWork() {
               </Link>
               <span className="row-meta">
                 {[
-                  entity.state?.label,
+                  ...workStates(
+                    types?.find((t) => t.name === entity.type),
+                    entity,
+                  ),
                   entity.owner_project?.name,
                   due ? `Due ${dueText(due).text}` : undefined,
                 ]

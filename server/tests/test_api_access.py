@@ -120,14 +120,14 @@ def project_board(w: World) -> tuple[Any, ...]:
     return "/components/acme/protein.board/entities", {"project": str(w.project.pk)}
 
 
-def sample_transition(w: World) -> tuple[Any, ...]:
-    """A sample's first transition (ADR 0118), which needs the Analyst role nobody has."""
+def sample_state(w: World) -> tuple[Any, ...]:
+    """A sample's status set (ADR 0125), which needs a lab role nobody has."""
     from iki_server.entities import services as entities
 
     found = entities.create(w.users["editor"], "acme/protein.Sample", w.project, {"label": "S"})
     return (
-        f"/entities/{found.entity.pk}/transitions/start",
-        {"reason": ""},
+        f"/entities/{found.entity.pk}/states/status",
+        {"state": "in_testing", "reason": ""},
         {"If-Match": '"1"'},
     )
 
@@ -736,8 +736,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         entity(body={"values": {"name": "pUC19"}}, if_match=True),
         editors(200),
     ),
-    # Only those with one of its lab roles make a transition: nobody here has it.
-    ("POST", "/entities/{ref}/transitions/{name}", sample_transition, readers(403)),
+    # Only those with one of a state's lab roles set it: nobody here has one.
+    ("POST", "/entities/{ref}/states/{field}", sample_state, readers(403)),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
     ("POST", "/entities/{ref}/take", sample_take, readers(403)),
     # Reassigning many skips what you can't change, rather than refusing them all; what you

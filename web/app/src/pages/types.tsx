@@ -111,6 +111,17 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
         return "Yes or no";
       case "enum":
         return `One of: ${field.values.join(", ")}`;
+      case "state": {
+        // A state field (ADR 0125): its states, where new records start, and which lock them.
+        const states = field.states.map((st) => {
+          const notes = [
+            ...(st.name === field.initial ? ["new records start here"] : []),
+            ...(st.locks ? ["locks it"] : []),
+          ];
+          return notes.length ? `${st.label} (${notes.join(", ")})` : st.label;
+        });
+        return `State, one of: ${states.join(", ")}`;
+      }
       case "date":
         return "Date";
       case "datetime":

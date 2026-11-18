@@ -39,6 +39,7 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         schedule=body.get("schedule") or "",
         timezone=body.get("timezone") or "",
         fields=tuple(body.get("fields") or ()),
+        state_field=body.get("field") or "",
         states=tuple(body.get("states") or ()),
         run=body["run"],
         # Filled in by `check` when it's left out and one input takes the type.
@@ -169,8 +170,14 @@ class _Rules:
         return trigger
 
     def scheduled(self, trigger: Trigger, source: Document) -> None:
-        for name in ("type", "fields", "states", "input"):
-            if getattr(trigger, name):
+        for name, attribute in (
+            ("type", "type"),
+            ("fields", "fields"),
+            ("field", "state_field"),
+            ("states", "states"),
+            ("input", "input"),
+        ):
+            if getattr(trigger, attribute):
                 self.add(
                     "trigger-schedule-entity",
                     f"A scheduled trigger fires for no entity, so it has no `{name}`.",
@@ -238,36 +245,69 @@ class _Rules:
                         name, [n for n, x in fields.items() if not x.removed]
                     ),
                 )
+            elif f.type == "state":
+                self.add(
+                    "trigger-field-is-state",
+                    f"`{name}` is a state field: setting it isn't a change of the record's "
+                    "values, so it never fires `entity.updated`.",
+                    source,
+                    ("fields", index),
+                    hint=(
+                        f"Use another trigger with `on: entity.state_changed` and `field: {name}`."
+                    ),
+                )
 
     def entered(self, trigger: Trigger, source: Document) -> None:
-        """A trigger on transitions: its type has states, and it names some of them."""
-        if trigger.on != "entity.transitioned":
-            if trigger.states:
-                self.add(
-                    "trigger-states-not-transitioned",
-                    "Only a transition enters a state: `states` is for `on: entity.transitioned`.",
-                    source,
-                    ("states",),
-                    key=True,
-                )
+        """A trigger on a state field being set (ADR 0125): its type has the field, and the
+        states it names are the field's."""
+        if trigger.on != "entity.state_changed":
+            for key, value in (("field", trigger.state_field), ("states", trigger.states)):
+                if value:
+                    self.add(
+                        "trigger-state-not-state-changed",
+                        f"`{key}` is for `on: entity.state_changed`: only setting a state field "
+                        "enters a state.",
+                        source,
+                        (key,),
+                        key=True,
+                    )
             return
         target = self.s.types[trigger.type]
-        machine = next((t for t in [target, *self.s.ancestors(target)] if t.states), None)
-        if machine is None:
+        fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
+        stateful = [n for n, f in fields.items() if f.type == "state" and not f.removed]
+        if not trigger.state_field:
             self.add(
-                "trigger-transitioned-without-states",
-                f"`{trigger.type}` has no states, so its records never make a transition.",
+                "trigger-state-field-missing",
+                "A trigger `on: entity.state_changed` names the state field it watches, with "
+                "`field`.",
                 source,
-                ("on",),
-                hint="Declare `states:` and `transitions:` on the type, or use another `on:`.",
+                (),
+                hint=f"Add `field: {stateful[0]}`."
+                if stateful
+                else f"`{trigger.type}` has no state field: give it one, or use another `on:`.",
             )
             return
-        live = machine.live_states
+        f = fields.get(trigger.state_field)
+        if f is None or f.removed or f.type != "state":
+            self.add(
+                "trigger-not-a-state-field",
+                f"`{trigger.type}` has no state field `{trigger.state_field}`"
+                + (
+                    " any more (it was removed)."
+                    if f is not None and f.removed
+                    else (f": it's a {f.type} field." if f is not None else ".")
+                ),
+                source,
+                ("field",),
+                hint=schemas._did_you_mean(trigger.state_field, stateful),
+            )
+            return
+        live = f.live_states
         for index, name in enumerate(trigger.states):
             if name not in live:
                 self.add(
                     "unknown-state",
-                    f"`{name}` isn't one of `{machine.qualified_name}`'s states, or it's removed.",
+                    f"`{name}` isn't one of `{f.name}`'s states, or it's removed.",
                     source,
                     ("states", index),
                     hint=schemas._did_you_mean(name, list(live)),

@@ -26,6 +26,7 @@ import {
   entityQuery,
   inSentence,
   recordSearch,
+  stateLabel,
   typesQuery,
   type Entity,
   type EntityType,
@@ -89,6 +90,7 @@ function Fields({
   notes,
   locked,
   projectId,
+  creating = false,
 }: {
   type: EntityType;
   types: EntityType[];
@@ -98,9 +100,13 @@ function Fields({
   notes: Record<string, string>;
   locked: Set<string>;
   projectId: string;
+  /** A new record's: its state fields start in their initial states. */
+  creating?: boolean;
 }) {
   const computed = type.fields.filter((f) => f.computed && !f.detached);
   const kept = type.fields.filter((f) => f.detached);
+  // State fields (ADR 0125) start where their type says, and are set on the record's page.
+  const states = type.fields.filter((f) => f.type === "state" && !f.detached);
   const keptFrom = [...new Set(kept.map((f) => f.plugin))].join(", ");
   return (
     <>
@@ -123,6 +129,15 @@ function Fields({
       {computed.length ? (
         <p className="muted">
           Actions set {computed.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
+        </p>
+      ) : null}
+      {states.length ? (
+        <p className="muted">
+          {creating
+            ? `${states.map((f) => `${f.label} is ${stateLabel(f, f.initial ?? "")}`).join(", ")} to begin with: `
+            : `${states.map((f) => f.label).join(", ")}: `}
+          {states.length === 1 ? "it’s" : "they’re"} set on its page, by the lab roles its states
+          name.
         </p>
       ) : null}
       {kept.length ? (
@@ -346,6 +361,7 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
               setDrafts((current) => ({ ...current, [name]: draft }));
             }}
             errors={form.errors}
+            creating
             notes={notesFor(type, false, drafts, {
               project: project.name,
               registry: project.registry.name,

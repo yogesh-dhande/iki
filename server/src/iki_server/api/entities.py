@@ -59,7 +59,6 @@ from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKi
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.plugins.operations import SyncStates
 from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
@@ -77,6 +76,26 @@ RegistryMark = Literal["identity", "derived", "fact"]
 class UnitOption(Schema):
     code: str = Field(description="UCUM, as the API takes it.")
     symbol: str = Field(description="As people write it.")
+
+
+class StateOut(Schema):
+    """One of a state field's states (ADR 0125)."""
+
+    name: str
+    label: str
+    description: str | None = None
+    set_by: list[str] = Field(
+        description="The lab roles (ADR 0116) whose holders may set the field to it, from any "
+        "other state: any one, in the record's project. Empty for an initial state no one "
+        "sets."
+    )
+    locks: bool = Field(
+        description="A record in it is locked: its other fields can't change, and it can't be "
+        "archived, restored or moved, until its state field is set to a state that doesn't."
+    )
+    reason: Literal["required", "optional"] | None = Field(
+        description="Whether setting it asks why: required, optional, or not at all (null)."
+    )
 
 
 class FieldOut(Schema):
@@ -121,10 +140,22 @@ class FieldOut(Schema):
     role_label: str | None = Field(description="What people call that role.")
     assignment: bool = Field(
         description="Whoever it names is assigned the record (ADR 0122): it's on their My work "
-        "while the record is in one of `assignment_states`, and they're told.",
+        "while the record's state field `assignment_field` is in one of `assignment_states`, "
+        "and they're told.",
+    )
+    assignment_field: str | None = Field(
+        description="The state field (ADR 0125) whose states say when it's their work. Null: "
+        "it's their work in every state."
     )
     assignment_states: list[str] = Field(
-        description="The states in which it's their work. Empty: every state."
+        description="The states of `assignment_field` in which it's their work."
+    )
+    initial: str | None = Field(
+        description="State fields (ADR 0125): the state new records start in. Null otherwise."
+    )
+    states: list[StateOut] = Field(
+        description="State fields (ADR 0125): its states, in order. It's set on its own, with "
+        "POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
     )
     registry: RegistryMark | None = Field(
         None,
@@ -190,27 +221,6 @@ ViewerOut = Annotated[
 ]
 
 
-class StateOut(Schema):
-    name: str
-    label: str
-    description: str | None = None
-    locks: bool = Field(description="A record in it can't change until a transition takes it out.")
-
-
-class TransitionOut(Schema):
-    name: str
-    label: str
-    description: str | None
-    from_: list[str] = Field(alias="from", description="The states it leads out of.")
-    to: str
-    roles: list[str] = Field(description="The lab roles that may make it: any one (ADR 0116).")
-    reason: Literal["required", "optional"] | None
-    not_by: list[str] = Field(
-        description="Whoever made the latest of these transitions on a record can't make this "
-        "one: separation of duties."
-    )
-
-
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -238,11 +248,6 @@ class EntityTypeOut(Schema):
         description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
         "nearest parent's."
     )
-    states: list[StateOut] = Field(
-        description="The states its records move through (ADR 0118), the initial one first: "
-        "its own, or the ancestor's that declares them. Empty if it has none."
-    )
-    transitions: list[TransitionOut] = Field(description="How records go between them.")
     due: str | None = Field(
         None,
         description="The date or datetime field saying when its records are due (ADR 0122), "
@@ -250,28 +255,28 @@ class EntityTypeOut(Schema):
     )
 
 
-class TransitionCan(Schema):
-    """A transition from the record's state (ADR 0118), and whether you may make it."""
+class StateCan(Schema):
+    """A state a record's state field could be set to (ADR 0125), and whether you may."""
 
     name: str
     label: str
-    to: str = Field(description="The state it leads to.")
-    to_label: str
+    locks: bool
     reason: Literal["required", "optional"] | None = Field(
         description="Whether it asks why: required, optional, or not at all (null)."
     )
-    allowed: bool = Field(description="You may make it now.")
+    allowed: bool = Field(description="You may set it now.")
     why_not: str | None = Field(description="Why you may not, when you may not.")
 
 
 class EntityCan(Schema):
     edit: bool = Field(
         description="Change it, archive or restore it: false for everyone when its plugin is "
-        "detached, or while its state locks it."
+        "detached, or while a state locks it."
     )
-    transitions: list[TransitionCan] = Field(
-        description="The transitions from its state, each with whether you may make it and "
-        "why not (ADR 0118). Empty for a type without states.",
+    states: dict[str, list[StateCan]] = Field(
+        description="For each of its state fields (ADR 0125), the states it could be set to: "
+        "every one but the one it's in, each with whether you may set it and why not. Empty "
+        "for a type without state fields.",
     )
     take: list[str] = Field(
         default_factory=list,
@@ -354,12 +359,13 @@ class EntityOut(Schema):
     updated_at: datetime
     archived: bool
     archived_at: datetime | None
-    state: StateOut | None = Field(
-        description="Its state, for a record of a type with states (ADR 0118). Only a "
-        "transition changes it.",
-    )
     locked: bool = Field(
-        description="Its state locks it: nothing changes its values until a transition."
+        description="A state locks it (ADR 0125): its other fields can't change, and it can't "
+        "be archived, restored or moved, until each field in `locked_by` is set to a state "
+        "that doesn't lock."
+    )
+    locked_by: list[str] = Field(
+        description="The state fields whose states lock it, in its type's order."
     )
     values: dict[str, Any] = Field(description="Its fields' values, as its type's schema says.")
     refs: dict[str, RefOut] = Field(
@@ -410,20 +416,22 @@ class EntityPatch(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
-class TransitionIn(Schema):
+class StateIn(Schema):
+    state: str = Field(description="The state to set it to, by name.", max_length=50)
     reason: str = Field(
-        "", max_length=2000, description="Why: a transition may require it, and keeps it."
+        "", max_length=2000, description="Why: a state may require it, and its history keeps it."
     )
 
 
-class RevisionTransitionOut(Schema):
-    name: str = Field(
-        description="The transition, or `iki.moved` when a plugin's migration moved the "
-        "record out of a state it removed."
-    )
+class NamedOut(Schema):
+    name: str
     label: str
-    from_: StateOut | None = Field(alias="from")
-    to: StateOut
+
+
+class RevisionStateOut(Schema):
+    field: NamedOut = Field(description="The state field set.")
+    from_: NamedOut | None = Field(alias="from", description="The state it was in.")
+    to: NamedOut = Field(description="The state it was set to.")
 
 
 class RunRefOut(Schema):
@@ -442,7 +450,7 @@ class RevisionOut(Schema):
         "curated",
         "superseded",
         "moved",
-        "transitioned",
+        "state_changed",
     ]
     entry: bool = Field(
         False,
@@ -464,8 +472,10 @@ class RevisionOut(Schema):
         description="The run that made it, when `via` is `run` and you can read the run's project.",
     )
     reason: str
-    transition: RevisionTransitionOut | None = Field(
-        description="For a transition (ADR 0118): which, and between which states."
+    state: RevisionStateOut | None = Field(
+        description="For a state change (ADR 0125): which state field, and the states it "
+        "went from and to. One a plugin's migration made, moving records out of a state it "
+        "removed, is by no one, via `system`."
     )
     created_at: datetime | None
 
@@ -603,7 +613,12 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "role": person_role(f),
         "role_label": lab_roles.label(role) if (role := person_role(f)) is not None else None,
         "assignment": f.assignment and names_people(f),
+        "assignment_field": f.assignment_field,
         "assignment_states": list(f.assignment_states),
+        "initial": f.initial if f.type == "state" else None,
+        "states": [_state_out(st) for st in f.states.values() if not st.removed]
+        if f.type == "state"
+        else [],
     }
 
 
@@ -670,7 +685,6 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "fields": fields,
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
-        **_machine_out(name),
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
     }
 
@@ -680,31 +694,9 @@ def _state_out(state: State) -> dict[str, Any]:
         "name": state.name,
         "label": state.label,
         "description": state.description,
+        "set_by": list(state.set_by),
         "locks": state.locks,
-    }
-
-
-def _machine_out(type_name: str) -> dict[str, Any]:
-    """A type's states and transitions, as ``EntityTypeOut`` has them."""
-    found = states.machine(type_name)
-    if found is None:
-        return {"states": [], "transitions": []}
-    live = sorted((s for s in found.states.values() if not s.removed), key=lambda s: not s.initial)
-    return {
-        "states": [_state_out(s) for s in live],
-        "transitions": [
-            {
-                "name": t.name,
-                "label": t.label,
-                "description": t.description,
-                "from": list(t.from_states),
-                "to": t.to,
-                "roles": list(t.roles),
-                "reason": t.reason,
-                "not_by": list(t.not_by),
-            }
-            for t in found.transitions.values()
-        ],
+        "reason": state.reason,
     }
 
 
@@ -861,13 +853,10 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
     entries = _entries_of(user, entities)
-    current = states.states_of(entities)
-    made = states.made_by(entities)
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     out = []
     for entity in entities:
-        state = states.state(entity.type, current.get(entity.pk))
         fields = shape(entity.type).fields()
         mine = _ids_in(fields, values[entity.pk])
         shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
@@ -886,8 +875,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "updated_at": entity.updated_at,
                 "archived": entity.archived_at is not None,
                 "archived_at": entity.archived_at,
-                "state": _state_out(state) if state is not None else None,
                 "locked": entity.locked,
+                "locked_by": [n for n in fields if n in entity.locked_by],
                 "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
@@ -903,9 +892,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     "edit": entity.owner_project_id in editable
                     and entity.type not in frozen
                     and not entity.locked,
-                    "transitions": _transitions_can(
-                        user, entity, current.get(entity.pk), made.get(entity.pk)
-                    ),
+                    "states": _states_can(user, entity, values[entity.pk]),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -913,25 +900,21 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     return out
 
 
-def _transitions_can(
-    user: User, entity: Entity, current: str | None, made: dict[str, Any] | None
-) -> list[dict[str, Any]]:
-    if current is None:
-        return []
-    found = states.machine(entity.type)
-    assert found is not None  # noqa: S101 - it has a state
-    return [
-        {
-            "name": o.transition.name,
-            "label": o.transition.label,
-            "to": o.transition.to,
-            "to_label": found.states[o.transition.to].label,
-            "reason": o.transition.reason,
-            "allowed": o.why_not is None,
-            "why_not": o.why_not,
-        }
-        for o in states.options(user, entity, current, made)
-    ]
+def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        name: [
+            {
+                "name": o.state.name,
+                "label": o.state.label,
+                "locks": o.state.locks,
+                "reason": o.state.reason,
+                "allowed": o.why_not is None,
+                "why_not": o.why_not,
+            }
+            for o in found
+        ]
+        for name, found in states.options(user, entity, values).items()
+    }
 
 
 def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
@@ -1154,8 +1137,7 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     ``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's
     record of its run; ``source``, an imported record's word), all matching one making,
     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
-    A type with states (ADR 0118) has ``state``, its records' state by name: ``eq``, ``ne``,
-    ``in``.
+    A state field (ADR 0125) is searched as an enum of its states, by name.
     A search may run for 15 seconds: conditions on indexed fields keep it fast.
     """
     me = caller(request)
@@ -1392,28 +1374,31 @@ def _current(entity: Entity) -> int:
 
 
 @router.post(
-    "/entities/{ref}/transitions/{name}",
+    "/entities/{ref}/states/{field}",
     response=EntityOut,
-    summary="Move a record to another state",
+    summary="Set one of a record's state fields",
 )
-def transition_entity(
+def set_entity_state(
     request: HttpRequest,
     ref: str,
-    name: str,
-    payload: TransitionIn,
+    field: str,
+    payload: StateIn,
     response: HttpResponse,
     project: UUID | None = None,
     if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
-    """Makes one of the transitions `can.transitions` lists (ADR 0118), as a revision of
-    its own, with your reason. It needs one of the transition's lab roles in the record's
-    project (ADR 0116), and someone other than whoever made the transitions it names in
-    `not_by`. Send If-Match with the ETag you read."""
+    """Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
+    as a revision of its own, with your reason. It needs one of the state's lab roles in the
+    record's project (ADR 0116): `can.states` lists each state with whether you may and why
+    not. A state that locks the record freezes its other fields until the field is set to
+    one that doesn't; state fields stay settable. Send If-Match with the ETag you read."""
     me = caller(request)
     entity = _find(me, ref, project)
     expected = _expected(if_match)
     try:
-        states.transition(me, entity, name, expected_revision=expected, reason=payload.reason)
+        states.set_state(
+            me, entity, field, payload.state, expected_revision=expected, reason=payload.reason
+        )
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
@@ -1427,7 +1412,7 @@ def transition_entity(
     except Invalid as error:
         raise Problem(
             422,
-            "The transition needs more.",
+            "Setting that state needs more.",
             errors=[
                 {"pointer": f"#/{key}", "detail": " ".join(messages)}
                 for key, messages in error.errors.items()
@@ -1549,38 +1534,16 @@ def _revision(
         "agent": agent_out(revision.agent, revision.client),
         "run": None if of_entry else runs.get(revision.number),
         "reason": revision.reason,
-        "transition": _revision_transition(revision),
+        "state": _revision_state(revision),
         "created_at": revision.created_at,
     }
 
 
-def _revision_transition(revision: Revision) -> dict[str, Any] | None:
-    if revision.kind != RevisionKind.TRANSITIONED:
+def _revision_state(revision: Revision) -> dict[str, Any] | None:
+    if revision.kind != RevisionKind.STATE_CHANGED:
         return None
-    found = states.machine(Entity.objects.values_list("type", flat=True).get(pk=revision.entity_id))
-
-    def state(name: str) -> dict[str, Any] | None:
-        if not name:
-            return None
-        known = found.states.get(name) if found else None
-        return _state_out(known) if known else {"name": name, "label": name, "locks": False}
-
-    known = found.transitions.get(revision.transition) if found else None
-    label = (
-        known.label
-        if known
-        else (
-            "Moved by its plugin"
-            if revision.transition == SyncStates.MOVED
-            else revision.transition
-        )
-    )
-    return {
-        "name": revision.transition,
-        "label": label,
-        "from": state(revision.state_from),
-        "to": state(revision.state_to),
-    }
+    type_name = Entity.objects.values_list("type", flat=True).get(pk=revision.entity_id)
+    return services.state_change(type_name, revision)
 
 
 def undisclosed(revision: Revision) -> dict[str, Any]:
@@ -1597,7 +1560,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
         "agent": None,
         "run": None,
         "reason": "",
-        "transition": None,
+        "state": None,
         "created_at": None,
     }
 

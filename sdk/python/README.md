@@ -92,10 +92,12 @@ iki.entities.update(
 )
 iki.entities.archive("PRT-000123", revision=2, reason="Duplicate of PRT-000099")
 
-# A record of a type with states moves only by its transitions, each limited to
-# lab roles: sample["state"], and sample["can"]["transitions"] with why not.
-sample = iki.entities.get("SMP-000012")
-iki.entities.transition("SMP-000012", "send_back", revision=sample["revision"], reason="Rerun")
+# A state field is set on its own, to a state its lab roles may set:
+# sample["values"]["status"], and sample["can"]["states"]["status"] with why not.
+sample = iki.entities.get("SAM-000012")
+iki.entities.set_state(
+    "SAM-000012", "status", "in_testing", revision=sample["revision"], reason="Rerun"
+)
 
 # Fields can name people (ADR 0122), by ID or email address; a state that locks
 # a record locks whom it names too.

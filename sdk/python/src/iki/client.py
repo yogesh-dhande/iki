@@ -464,21 +464,23 @@ class Entities(_Part):
         """Restores an archived entity."""
         return self._patch(ref, {"archived": False, "reason": reason}, revision)
 
-    def transition(self, ref: str, name: str, *, revision: int, reason: str = "") -> EntityOut:
-        """Moves a record to another state by one of its type's transitions, such as
-        ``"approve"``: those its ``can["transitions"]`` lists, with whether you may make
-        each and why not. A transition needs one of its lab roles in the record's project,
+    def set_state(
+        self, ref: str, field: str, state: str, *, revision: int, reason: str = ""
+    ) -> EntityOut:
+        """Sets one of a record's state fields to one of its states, such as ``"status"``
+        to ``"approved"``: those its ``can["states"][field]`` lists, with whether you may
+        set each and why not. A state needs one of its lab roles in the record's project,
         and may need a ``reason``. ``revision`` is the one you read, as for :meth:`update`::
 
-            sample = iki.entities.get("SMP-000012")
-            iki.entities.transition("SMP-000012", "approve", revision=sample["revision"])
+            sample = iki.entities.get("SAM-000012")
+            iki.entities.set_state("SAM-000012", "status", "approved", revision=sample["revision"])
         """
         return cast(
             "EntityOut",
             self._client.request(
                 "POST",
-                _path("/entities/{ref}/transitions/{name}", ref=ref, name=name),
-                json={"reason": reason},
+                _path("/entities/{ref}/states/{field}", ref=ref, field=field),
+                json={"state": state, "reason": reason},
                 headers={"If-Match": f'"{revision}"'},
             ),
         )
@@ -575,15 +577,17 @@ class Work(_Part):
         *,
         project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None = None,
         type: str | Sequence[str] | None = None,
-        state: str | Sequence[str] | None = None,
+        state: Mapping[str, str | Sequence[str]] | None = None,
         sort: Literal["due", "updated"] = "due",
         page_size: int = 50,
     ) -> Results[WorkItemOut]:
         """Everything assigned to you now, across your projects: soonest due first, or
         latest changed. Each has its ``entity``, the ``fields`` naming you and when it's
-        ``due``::
+        ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
-            for item in iki.work.mine(type="iki/example_lims.Sample"):
+            for item in iki.work.mine(
+                type="iki/example_lims.Sample", state={"status": "in_review"}
+            ):
                 print(item["entity"]["hrid"], item["due"])
         """
         return self._list("/me/work", project, type, state, sort, page_size)
@@ -593,7 +597,7 @@ class Work(_Part):
         *,
         project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None = None,
         type: str | Sequence[str] | None = None,
-        state: str | Sequence[str] | None = None,
+        state: Mapping[str, str | Sequence[str]] | None = None,
         sort: Literal["due", "updated"] = "due",
         page_size: int = 50,
     ) -> Results[WorkItemOut]:
@@ -606,7 +610,7 @@ class Work(_Part):
         path: str,
         project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None,
         type: str | Sequence[str] | None,
-        state: str | Sequence[str] | None,
+        state: Mapping[str, str | Sequence[str]] | None,
         sort: str,
         page_size: int,
     ) -> Results[WorkItemOut]:
@@ -621,7 +625,12 @@ class Work(_Part):
         params: dict[str, Any] = {
             "project": [client._project_id(p) for p in projects],
             "type": [type] if isinstance(type, str) else list(type or []),
-            "state": [state] if isinstance(state, str) else list(state or []),
+            # Each state field's states, as field.state (ADR 0125).
+            "state": [
+                f"{name}.{s}"
+                for name, states in (state or {}).items()
+                for s in ([states] if isinstance(states, str) else states)
+            ],
             "sort": sort,
             "limit": page_size,
         }

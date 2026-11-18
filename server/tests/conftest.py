@@ -252,7 +252,7 @@ def django_db_setup(
 
 def synced_objects() -> dict[str, list[str]]:
     """What ``sync_plugins`` made beyond migrations that a migration can take away: unique
-    fields' triggers (ADR 0082), locked records' guards (ADR 0118) and analysts' views."""
+    fields' triggers (ADR 0082), locked records' guards (ADR 0125) and analysts' views."""
     from django.db import connection
 
     from iki_server.entities import states, unique

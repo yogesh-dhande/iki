@@ -26,11 +26,12 @@ class QuantityField(models.FloatField):  # type: ignore[type-arg]
 
 
 class StateField(models.CharField):  # type: ignore[type-arg]
-    """A record's state (ADR 0118), in its declaring type's table as ``iki_state``.
+    """A state field (ADR 0125): one of its states, by name.
 
     The states are part of the field, so migrations record them: a state that
     disappears is a migration, which moves its records to the state the plugin
-    says (``moved``), or is refused.
+    says (``moved``), or is refused. ``moved_from`` names removed state fields
+    whose records' states move into this one, each of theirs to one of these.
     """
 
     description = "State"
@@ -41,11 +42,13 @@ class StateField(models.CharField):  # type: ignore[type-arg]
         states: Sequence[str],
         moved: Mapping[str, str] | None = None,
         locking: Sequence[str] = (),
+        moved_from: Mapping[str, Mapping[str, str]] | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         self.states = tuple(states)
         self.moved = dict(moved or {})
         self.locking = tuple(locking)
+        self.moved_from = {k: dict(v) for k, v in (moved_from or {}).items()}
         kwargs.setdefault("max_length", 50)
         super().__init__(*args, **kwargs)
 
@@ -56,6 +59,10 @@ class StateField(models.CharField):  # type: ignore[type-arg]
             kwargs["moved"] = dict(sorted(self.moved.items()))
         if self.locking:
             kwargs["locking"] = list(self.locking)
+        if self.moved_from:
+            kwargs["moved_from"] = {
+                k: dict(sorted(v.items())) for k, v in sorted(self.moved_from.items())
+            }
         if kwargs.get("max_length") == 50:
             del kwargs["max_length"]
         return name, path, args, kwargs

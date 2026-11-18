@@ -7,7 +7,15 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { ENTITIES, formatDate, formatDateTime, type Entity, type FieldDef } from "./entities";
+import {
+  ENTITIES,
+  formatDate,
+  formatDateTime,
+  stateLabel,
+  type Entity,
+  type EntityType,
+  type FieldDef,
+} from "./entities";
 
 export type Person = Schemas["PersonOut"];
 export type Nameable = Schemas["NameableOut"];
@@ -16,6 +24,21 @@ export type Reassign = Schemas["ReassignOut"];
 export type Assigned = Schemas["AssignOut"];
 
 export const WORK = ["work"] as const;
+
+/** The state fields (ADR 0125) a type's assignment fields count in: whose states say
+ * whose work a record is. */
+export function workStateFields(type: EntityType | undefined): FieldDef[] {
+  const named = new Set((type?.fields ?? []).map((f) => f.assignment_field).filter(Boolean));
+  return (type?.fields ?? []).filter((f) => f.type === "state" && named.has(f.name));
+}
+
+/** What those state fields are on a record now, each by its state's label. */
+export function workStates(type: EntityType | undefined, entity: Entity): string[] {
+  return workStateFields(type).map((f) => {
+    const value = entity.values[f.name];
+    return stateLabel(f, typeof value === "string" ? value : "");
+  });
+}
 
 /** Whether a field names people: one (`person`), or a list of them. */
 export function namesPeople(field: Pick<FieldDef, "type" | "items">): boolean {

@@ -2,10 +2,11 @@
 
 A type marks some of its fields that name people as **assignment fields**
 (``assignment: true``): whoever such a field names is assigned the record. A type
-with states (ADR 0118) can say in which states each counts (``assignment: {states:
-[in_review]}``): a sample's reviewer reviews it while it's in review, not before.
+with state fields (ADR 0125) can say in which states of one each counts
+(``assignment: {field: status, states: [in_review]}``): a sample's reviewer reviews it
+while its status is In review, not before.
 
-Someone is **assigned** a record while an assignment field that counts in its state
+Someone is **assigned** a record while an assignment field that counts in its states
 names them and they could be named there now (:mod:`iki_server.entities.people`):
 active, able to read the record's project, holding the field's lab role. That's what
 their My work lists (:func:`work`), what the search's ``assigned`` finds, and what
@@ -49,7 +50,7 @@ from iki_server.entities.values import Part, Shape, shape, subtypes
 from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project
 from iki_spec import naming
-from iki_spec.model import STATE_COLUMN, Field, names_people, person_role
+from iki_spec.model import Field, names_people, person_role
 
 __all__ = [
     "Assignment",
@@ -75,14 +76,18 @@ class Assignment:
     label: str
     #: The lab role whoever it names holds, qualified; None for anyone in the project.
     role: str | None
-    #: The states it counts in; empty for every state.
+    #: The state field (ADR 0125) whose states it counts in; None for every state.
+    state_field: str | None
+    #: The states of ``state_field`` it counts in.
     states: tuple[str, ...]
     #: A list naming several people, rather than one.
     many: bool
     part: Part
 
-    def counts(self, state: str | None) -> bool:
-        return not self.states or state in self.states
+    def counts(self, values: Mapping[str, Any]) -> bool:
+        """Whether it counts for a record of these values: its state field is in one of
+        its states."""
+        return self.state_field is None or values.get(self.state_field) in self.states
 
 
 @cache
@@ -101,6 +106,7 @@ def of(type_name: str) -> tuple[Assignment, ...]:
                 field=f,
                 label=f.label or name,
                 role=person_role(f),
+                state_field=f.assignment_field,
                 states=f.assignment_states,
                 many=f.type == "list",
                 part=form.part_of(name),
@@ -161,10 +167,11 @@ def due_field_name(type_name: str) -> str | None:
     return None
 
 
-def _in_state(type_name: str, a: Assignment) -> Q:
-    if not a.states or states.machine(type_name) is None:
+def _in_state(form: Shape, a: Assignment) -> Q:
+    """Records whose state field ``a`` counts in is in one of its states (ADR 0125)."""
+    if a.state_field is None:
         return Q()
-    return Q(**{f"{STATE_COLUMN}__in": a.states})
+    return Q(**{f"{_column_of(form, a.state_field)}__in": a.states})
 
 
 def _named(form: Shape, a: Assignment, persons: Sequence[uuid.UUID] | None, *, able: bool) -> Q:
@@ -191,7 +198,7 @@ def _per_type(type_name: str, build: Any) -> QuerySet[Any]:  # noqa: ANN401 - a 
     form = shape(type_name)
     found = Q()
     for a in of(type_name):
-        found |= _in_state(type_name, a) & build(form, a)
+        found |= _in_state(form, a) & build(form, a)
     return form.model._default_manager.filter(type=type_name).filter(found).values("pk")
 
 
@@ -306,7 +313,7 @@ def changed(
     changes: Sequence[Change],
     actor: User | None,
     *,
-    state: str | None = None,
+    values: Mapping[str, Any] | None = None,
     took: bool = False,
     group: str = "",
 ) -> None:
@@ -318,7 +325,10 @@ def changed(
     project = Project.objects.select_related("team").get(
         pk=cast("uuid.UUID", entity.owner_project_id)
     )
-    state = state if state is not None else states.state_of(entity)
+    if values is None:
+        from iki_server.entities import services
+
+        values = services.current_values_of([entity])[entity.pk]
     names = {p for c in changes for p in (*c.added, *c.removed)}
     shown = {u.pk: u for u in User.objects.filter(pk__in=names)}
     assignments = {a.name: a for a in of(entity.type)}
@@ -343,7 +353,7 @@ def changed(
     current = own or _Batch(actor)
     for c in changes:
         a = assignments.get(c.field)
-        counting = a is not None and a.counts(state)
+        counting = a is not None and a.counts(values)
         for kind, persons in (
             ("assignment.assigned", c.added),
             ("assignment.unassigned", c.removed),
@@ -351,7 +361,7 @@ def changed(
             for person in persons:
                 current.touched.add(person)
                 if kind == "assignment.assigned" and not counting:
-                    # Theirs once the record reaches a state it counts in: told then.
+                    # Theirs once its state field reaches a state it counts in: told then.
                     continue
                 key = (person, kind, project.pk)
                 told = current.told.setdefault(key, _Told(project, kind))
@@ -360,12 +370,24 @@ def changed(
         _tell(current)
 
 
-def became(entity: Entity, revision: Revision, before: str, after: str, actor: User | None) -> None:
-    """A transition moved a record from ``before`` to ``after``: whoever an assignment field
-    names that counts now, and didn't before, is told it's theirs."""
+def became(
+    entity: Entity,
+    revision: Revision,
+    state_field: str,
+    before: str,
+    after: str,
+    actor: User | None,
+) -> None:
+    """Someone set a record's state field from ``before`` to ``after`` (ADR 0125): whoever
+    an assignment field counting in that field's states names, that counts now and didn't
+    before, is told it's theirs."""
     from iki_server.entities import services
 
-    fields = [a for a in of(entity.type) if a.counts(after) and not a.counts(before)]
+    fields = [
+        a
+        for a in of(entity.type)
+        if a.state_field == state_field and after in a.states and before not in a.states
+    ]
     if not fields:
         return
     values = services.current_values_of([entity])[entity.pk]
@@ -451,7 +473,6 @@ class WorkItem:
     #: The assignment fields that name them, or (open work) that they could take.
     fields: tuple[str, ...]
     due: dt.date | dt.datetime | None
-    state: str | None
 
 
 #: How My work can be sorted: soonest due first (undated last), or latest changed first.
@@ -467,7 +488,9 @@ class BadCursor(Exception):  # noqa: N818 - reads as "the cursor is bad"
 class WorkFilters:
     projects: tuple[uuid.UUID, ...] = ()
     types: tuple[str, ...] = ()
-    states: tuple[str, ...] = ()
+    #: Only records whose state fields are in these states (ADR 0125), by field: records
+    #: in any of a field's states, and of every field named.
+    states: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     sort: str = "due"
 
 
@@ -479,7 +502,7 @@ def work(
     def mine(type_name: str, form: Shape) -> tuple[Q, list[Assignment]]:
         found = Q()
         for a in of(type_name):
-            found |= _in_state(type_name, a) & _named(form, a, [user.pk], able=True)
+            found |= _in_state(form, a) & _named(form, a, [user.pk], able=True)
         return found, list(of(type_name))
 
     return _page(user, filters, cursor, limit, mine, assigned_to=user.pk)
@@ -489,7 +512,7 @@ def open_work(
     user: User, filters: WorkFilters, cursor: str | None, limit: int
 ) -> tuple[list[WorkItem], str | None]:
     """A page of records open to ``user``'s lab roles: an assignment field limited to a role
-    they hold in its project counts in its state, and names nobody who could be named."""
+    they hold in its project counts in its states, and names nobody who could be named."""
     readable = list(access.readable_projects(user))
     held = {p.pk: permissions.lab_roles(user, p) for p in readable}
 
@@ -504,7 +527,7 @@ def open_work(
                 continue
             fields.append(a)
             nobody = ~_named(form, a, None, able=True)
-            found |= _in_state(type_name, a) & Q(owner_project_id__in=projects) & nobody
+            found |= _in_state(form, a) & Q(owner_project_id__in=projects) & nobody
         return (found if fields else Q(pk__in=[])), fields
 
     return _page(user, filters, cursor, limit, open_to_me, assigned_to=None)
@@ -536,9 +559,13 @@ def _page(
         if filters.projects:
             found = found.filter(owner_project_id__in=filters.projects)
         if filters.states:
-            if states.machine(name) is None:
+            own = form.fields()
+            if any(
+                n not in own or own[n].type != "state" or own[n].removed for n in filters.states
+            ):
                 continue
-            found = found.filter(**{f"{STATE_COLUMN}__in": filters.states})
+            for n, wanted in filters.states.items():
+                found = found.filter(**{f"{_column_of(form, n)}__in": wanted})
         due = due_field(name)
         if key == "due":
             sort: Any = (
@@ -567,15 +594,13 @@ def _page(
     more = len(rows) > limit
     rows = rows[:limit]
     entities = [r[1] for r in rows]
-    current = states.states_of(entities)
     values = _values_of(entities) if entities else {}
     items = []
     for _sort_value, entity, fields, name in rows:
-        state = current.get(entity.pk)
         named = tuple(
             a.name
             for a in fields
-            if a.counts(state)
+            if a.counts(values.get(entity.pk, {}))
             and (
                 assigned_to is None
                 or assigned_to in _people_in(values.get(entity.pk, {}).get(a.name))
@@ -587,7 +612,6 @@ def _page(
                 entity=entity,
                 fields=named,
                 due=values.get(entity.pk, {}).get(due_name(name)) if due is not None else None,
-                state=state,
             )
         )
     last = rows[-1] if rows and more else None
@@ -667,16 +691,15 @@ class Stale:
 def stale_of(
     entities: Sequence[Entity], values: Mapping[Any, Mapping[str, Any]]
 ) -> dict[Any, list[Stale]]:
-    """For each record, who its assignment fields counting in its state name that can't be
-    named there now, and why."""
+    """For each record, who its assignment fields counting in its states name that can't
+    be named there now, and why."""
     out: dict[Any, list[Stale]] = {}
-    current = states.states_of(entities)
     wanted: dict[Any, list[tuple[Entity, Assignment, uuid.UUID]]] = defaultdict(list)
     for entity in entities:
         if entity.owner_project_id is None:
             continue
         for a in of(entity.type):
-            if not a.counts(current.get(entity.pk)):
+            if not a.counts(values.get(entity.pk, {})):
                 continue
             for person in _people_in(values.get(entity.pk, {}).get(a.name)):
                 wanted[entity.owner_project_id].append((entity, a, person))
@@ -726,7 +749,7 @@ def check_people(user_ids: Iterable[Any]) -> int:
                     form.model._default_manager.filter(
                         type=name, archived_at__isnull=True, purged_at__isnull=True
                     )
-                    .filter(_in_state(name, a) & _named(form, a, [person.pk], able=False))
+                    .filter(_in_state(form, a) & _named(form, a, [person.pk], able=False))
                     .values_list("owner_project_id", flat=True)
                 )
                 for project_id in rows:
@@ -765,22 +788,21 @@ def takeable(
     stale: Mapping[Any, Sequence[Stale]],
 ) -> dict[Any, list[str]]:
     """For each record, the assignment fields ``user`` may take it in now: limited to a lab
-    role they hold there, counting in its state, and naming nobody who can be named (a list:
-    not them already). Lab-role work: a Viewer holding the role may. Not while its state
-    locks it: its people are locked with its other values."""
+    role they hold there, counting in its states, and naming nobody who can be named (a
+    list: not them already). Lab-role work: a Viewer holding the role may. Not while a
+    state locks it: its people are locked with its other values."""
     out: dict[Any, list[str]] = {}
-    current = states.states_of(entities)
     for entity in entities:
         project = entity.owner_project
         if entity.locked or entity.archived_at is not None or project is None:
             continue
-        if not permissions.can(user, permissions.Action.PROJECT_TRANSITION, project):
+        if not permissions.can(user, permissions.Action.PROJECT_SET_STATE, project):
             continue
         held = permissions.lab_roles(user, project)
         stale_fields = {s.field for s in stale.get(entity.pk, ())}
         found = []
         for a in of(entity.type):
-            if a.role is None or a.role not in held or not a.counts(current.get(entity.pk)):
+            if a.role is None or a.role not in held or not a.counts(values.get(entity.pk, {})):
                 continue
             named = _people_in(values.get(entity.pk, {}).get(a.name))
             if user.pk in named:
@@ -812,7 +834,7 @@ def take(user: User, entity: Entity, name: str, *, expected_revision: int, reaso
             f"{assignment.label} isn't limited to a lab role: an Editor assigns it."
         )
     if assignment.role not in permissions.lab_roles(user, project) or not permissions.can(
-        user, permissions.Action.PROJECT_TRANSITION, project
+        user, permissions.Action.PROJECT_SET_STATE, project
     ):
         raise PermissionDenied(
             f"Only someone with the {lab_roles.label(assignment.role)} role in {project.name} "
@@ -824,8 +846,7 @@ def take(user: User, entity: Entity, name: str, *, expected_revision: int, reaso
     values = services.current_values_of([entity])
     stale = stale_of([entity], values)
     if name not in takeable(user, [entity], values, stale).get(entity.pk, []):
-        current_state = states.state_of(entity)
-        if not assignment.counts(current_state):
+        if not assignment.counts(values[entity.pk]):
             raise Refused(f"{entity.hrid} isn't {assignment.label}'s to work on in its state.")
         raise Refused(f"{entity.hrid} isn't open as {assignment.label}: someone has it.")
     current = values[entity.pk].get(name)

@@ -23,11 +23,11 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "on": {
-      "description": "What fires it: an entity of its type created (`entity.created`, for each project's new record) or changed (`entity.updated`), a new registry entry of a type with an identity registered (`entity.registered`, once for each identity in a registry, by the record that registered it: ADR 0115), a record of a type with states moved to another by a transition (`entity.transitioned`: ADR 0118), or the time coming round (`schedule`). Changes a triggered run makes never fire a trigger.",
+      "description": "What fires it: an entity of its type created (`entity.created`, for each project's new record) or changed (`entity.updated`), a new registry entry of a type with an identity registered (`entity.registered`, once for each identity in a registry, by the record that registered it: ADR 0115), one of a record's state fields set (`entity.state_changed`: ADR 0125), or the time coming round (`schedule`). Changes a triggered run makes never fire a trigger.",
       "enum": [
         "entity.created",
         "entity.registered",
-        "entity.transitioned",
+        "entity.state_changed",
         "entity.updated",
         "schedule"
       ]
@@ -45,7 +45,7 @@
       "maxLength": 64
     },
     "type": {
-      "description": "For `entity.created`, `entity.registered`, `entity.transitioned` and `entity.updated`: the entities it fires for, with their subtypes.",
+      "description": "For `entity.created`, `entity.registered`, `entity.state_changed` and `entity.updated`: the entities it fires for, with their subtypes.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
     },
     "fields": {
@@ -58,8 +58,12 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       }
     },
+    "field": {
+      "description": "For `entity.state_changed`: the state field it watches, one of its type's.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
     "states": {
-      "description": "For `entity.transitioned`: it fires only when a record enters one of these states of its type. Without them, any transition fires it.",
+      "description": "For `entity.state_changed`: it fires only when a record's `field` is set to one of these states. Without them, any change of the field fires it.",
       "type": "array",
       "minItems": 1,
       "maxItems": 30,

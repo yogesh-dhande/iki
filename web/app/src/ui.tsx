@@ -165,7 +165,7 @@ export function RadioField<T extends string>({
   label: string;
   value: T;
   onChange: (value: T) => void;
-  options: readonly { value: T; label: string; description?: string }[];
+  options: readonly { value: T; label: string; description?: string; disabled?: boolean }[];
   help?: string;
   error?: string | undefined;
 }) {
@@ -196,6 +196,7 @@ export function RadioField<T extends string>({
               name={name}
               value={option.value}
               checked={option.value === value}
+              disabled={option.disabled}
               onChange={() => {
                 onChange(option.value);
               }}

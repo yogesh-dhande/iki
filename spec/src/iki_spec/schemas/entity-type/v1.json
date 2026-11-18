@@ -82,30 +82,6 @@
       "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
-    "states": {
-      "description": "The states its records move through, by name (ADR 0118): exactly one `initial`, and those that `lock` a record against change. Its subtypes have the same ones.",
-      "type": "object",
-      "minProperties": 2,
-      "maxProperties": 30,
-      "propertyNames": {
-        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/state"
-      }
-    },
-    "transitions": {
-      "description": "How a record goes from one state to another, by name (ADR 0118): only these change its state, each made by someone with one of its lab roles.",
-      "type": "object",
-      "minProperties": 1,
-      "maxProperties": 60,
-      "propertyNames": {
-        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/transition"
-      }
-    },
     "display": {
       "type": "object",
       "properties": {
@@ -239,101 +215,6 @@
           }
         }
       ]
-    },
-    "state": {
-      "type": "object",
-      "required": ["label"],
-      "additionalProperties": false,
-      "properties": {
-        "label": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 60
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 1000
-        },
-        "initial": {
-          "description": "New records start here. Exactly one state is initial.",
-          "const": true
-        },
-        "locks": {
-          "description": "A record in this state can't change, by any path, until a transition takes it out.",
-          "type": "boolean"
-        },
-        "removed": {
-          "description": "No record is in it any more: those that were are moved to `moved_to` by the migration that removes it.",
-          "const": true
-        },
-        "moved_to": {
-          "description": "For a removed state: the state its records move to.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        }
-      },
-      "dependentRequired": {
-        "removed": ["moved_to"],
-        "moved_to": ["removed"]
-      }
-    },
-    "transition": {
-      "type": "object",
-      "required": ["label", "from", "to", "roles"],
-      "additionalProperties": false,
-      "properties": {
-        "label": {
-          "description": "What the button says: “Release”.",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 60
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 1000
-        },
-        "from": {
-          "description": "The states it leads out of.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 30,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-          }
-        },
-        "to": {
-          "description": "The state it leads to.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "roles": {
-          "description": "The lab roles that may make it (ADR 0116): any one of them is enough. A project role never is.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 10,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
-          }
-        },
-        "reason": {
-          "description": "Whether whoever makes it says why: `required`, or `optional`. Without it, no reason is asked for.",
-          "enum": ["required", "optional"]
-        },
-        "not_by": {
-          "description": "Separation of duties: whoever made the latest of these transitions on the record can't make this one.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 10,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-          }
-        }
-      }
     }
-  },
-  "dependentRequired": {
-    "states": ["transitions"],
-    "transitions": ["states"]
   }
 }

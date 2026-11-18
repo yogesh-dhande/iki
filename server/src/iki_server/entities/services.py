@@ -71,7 +71,7 @@ from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
-from iki_spec.model import EntityType, Field, Transition, names_people
+from iki_spec.model import EntityType, Field, names_people
 
 __all__ = [
     "Invalid",
@@ -92,6 +92,13 @@ __all__ = [
     "update",
     "values_at",
 ]
+
+
+#: Why a state field isn't set with a record's other values.
+STATE_SET_ALONE = (
+    "is a state field: it's set on its own, by someone with one of its states' lab roles "
+    "(ADR 0125). New records start in its initial state."
+)
 
 
 class Stale(Exception):  # noqa: N818 - reads as "the edit was stale"
@@ -538,6 +545,8 @@ def prepare(
             errors[name] = [kept[name]]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
+        elif f.type == "state":
+            errors[name] = [STATE_SET_ALONE]
         else:
             try:
                 given[name] = to_db(f, value, refs)
@@ -546,7 +555,9 @@ def prepare(
     for name, f in fields.items():
         if name in kept:
             continue
-        if name not in values and f.has_default and not f.computed:
+        if f.type == "state" and not f.removed:
+            given[name] = f.initial  # Where new records start (ADR 0125).
+        elif name not in values and f.has_default and not f.computed:
             given[name] = to_db(f, f.default, refs)
         if f.required and given.get(name) is None and name not in errors:
             errors[name] = ["is required."]
@@ -632,6 +643,9 @@ def update(
                 continue
             if f.computed and not by_run:
                 errors[name] = ["is computed: only actions set it."]
+                continue
+            if f.type == "state":
+                errors[name] = [STATE_SET_ALONE]
                 continue
             part = form.part_of(name)
             current = rows.value(part, f)
@@ -1020,7 +1034,12 @@ def changes(entity: Entity, revision: Revision) -> dict[str, tuple[Any, Any]]:
 
 
 #: The kinds of revision that set values.
-SETTING = (RevisionKind.CREATED, RevisionKind.EDITED, RevisionKind.CURATED)
+SETTING = (
+    RevisionKind.CREATED,
+    RevisionKind.EDITED,
+    RevisionKind.CURATED,
+    RevisionKind.STATE_CHANGED,
+)
 
 
 def provenance(entity: Entity) -> dict[str, Revision]:
@@ -1107,7 +1126,7 @@ def _revise(
     project: Project | None = None,
     registered: Revision | None = None,
     moved_from: Any = None,  # noqa: ANN401 - a UUID
-    transition: tuple[str, str, str] | None = None,
+    state: tuple[str, str, str] | None = None,
 ) -> Revision:
     """The entity's next revision. ``project``: for an entry's, the project it was made
     through; ``registered``: for a record's first, the entry's first, which it made."""
@@ -1125,8 +1144,8 @@ def _revise(
         project=project,
         moved_from_id=moved_from,
         **(
-            dict(zip(("transition", "state_from", "state_to"), transition, strict=True))
-            if transition
+            dict(zip(("state_field", "state_from", "state_to"), state, strict=True))
+            if state
             else {}
         ),
     )
@@ -1138,24 +1157,21 @@ def _revise(
     return revision
 
 
-def transitioned(
-    entity: Entity,
-    transition: Transition,
-    state_from: str,
-    user: User,
-    reason: str,
+def state_changed(
+    user: User, entity: Entity, f: Field, old: str, new: str, reason: str
 ) -> Revision:
-    """The revision of a transition the record just made (see :func:`states.transition`).
-    Whoever its new state makes it the work of is told (ADR 0122)."""
+    """Writes a record's state field's new state, as a revision of its own with its history
+    row (see :func:`states.set_state`, which checks it and keeps the lock). Whoever the new
+    state makes it the work of is told (ADR 0122)."""
+    form = shape(entity.type)
+    instance = _specific(entity)
+    rows = Rows.of(instance)
+    touched = _write(form, rows, {f.name: new}, instance.pk)
     revision = _revise(
-        entity,
-        RevisionKind.TRANSITIONED,
-        [],
-        user,
-        reason,
-        transition=(transition.name, state_from, transition.to),
+        entity, RevisionKind.STATE_CHANGED, [f.name], user, reason, state=(f.name, old, new)
     )
-    assignments.became(entity, revision, state_from, transition.to, user)
+    _write_history(touched, rows, revision.number)
+    assignments.became(entity, revision, f.name, old, new, user)
     return revision
 
 
@@ -1165,7 +1181,7 @@ _EVENTS = {
     RevisionKind.ARCHIVED: "entity.archived",
     RevisionKind.RESTORED: "entity.restored",
     RevisionKind.MOVED: "entity.updated",
-    RevisionKind.TRANSITIONED: "entity.transitioned",
+    RevisionKind.STATE_CHANGED: "entity.state_changed",
 }
 
 
@@ -1208,7 +1224,7 @@ def _announce(
             "via": revision.via,
             "reason": revision.reason,
         },
-        **_transition_data(entity, revision),
+        **_state_data(entity, revision),
         "actor": events.actor_data(user),
         "agent": agent_data(revision.agent),
     }
@@ -1219,24 +1235,34 @@ def _announce(
     triggers.noticed(entity, revision, registered=registered)
 
 
-def _transition_data(entity: Entity, revision: Revision) -> dict[str, Any]:
-    """For a transition, which one and between which states, with their labels."""
-    if revision.kind != RevisionKind.TRANSITIONED:
+def _state_data(entity: Entity, revision: Revision) -> dict[str, Any]:
+    """For a state change, which field and between which states, with their labels."""
+    if revision.kind != RevisionKind.STATE_CHANGED:
         return {}
-    found = states.machine(entity.type)
+    return {"state": state_change(entity.type, revision)}
 
-    def state(name: str) -> dict[str, Any]:
-        known = found.states.get(name) if found else None
+
+def state_change(type_name: str, revision: Revision) -> dict[str, Any]:
+    """A state change's field and states, each by name and label."""
+    found = (
+        shape(type_name).fields().get(revision.state_field)
+        if type_name in registry.types()
+        else None
+    )
+
+    def state(name: str) -> dict[str, Any] | None:
+        if not name:
+            return None
+        known = found.states.get(name) if found is not None else None
         return {"name": name, "label": known.label if known else name}
 
-    known = found.transitions.get(revision.transition) if found else None
     return {
-        "transition": {
-            "name": revision.transition,
-            "label": known.label if known else revision.transition,
-            "from": state(revision.state_from),
-            "to": state(revision.state_to),
-        }
+        "field": {
+            "name": revision.state_field,
+            "label": found.label if found is not None else revision.state_field,
+        },
+        "from": state(revision.state_from),
+        "to": state(revision.state_to),
     }
 
 
