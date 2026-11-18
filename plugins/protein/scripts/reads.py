@@ -440,6 +440,12 @@ def insertion(protein: str, spot: int, residues: str) -> str:
     return f"{protein[spot - 1]}{spot}_{protein[spot]}{spot + 1}ins{residues}"
 
 
+def lies_across(each: Placed, k: int) -> bool:
+    """Whether a read lies across the place just before position k, where others may have
+    inserted: if not, it has no observation there, `.`, not a gap."""
+    return k in each.at and k - 1 in each.at
+
+
 def covered_by(placed: Placed, protein: str) -> set[int]:
     """The protein's residues the read says what's at: a deletion, or a codon that isn't
     unresolved there (NNN covers nothing)."""
@@ -557,7 +563,9 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     ]
     for each in placed:
         row = "".join(
-            each.inserted.get(k, "").ljust(most[k], "-") + each.at.get(k, "-") for k in range(size)
+            each.inserted.get(k, "").ljust(most[k], "-" if lies_across(each, k) else ".")
+            + each.at.get(k, ".")
+            for k in range(size)
         )
         read = each.read
         frames = ", ".join(

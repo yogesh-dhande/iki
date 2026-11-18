@@ -7,8 +7,9 @@ either end are free, as in needle's defaults.
 
 It keeps the alignment as artifacts (ADR 0068): `alignment.txt`, in EMBOSS's pair
 format, and `alignment.fasta`, aligned, gaps as `-`, each record headed by its protein's
-HRID. That file is also an `iki/core.Alignment` it creates (ADR 0088), of the two proteins,
-the target its reference, so Iki's alignment viewer shows it and lineage leads back to
+HRID, or HRID/start-end when it's part of the protein (Jalview's way). That file is
+also an `iki/core.Alignment` it creates (ADR 0088), of the two proteins, the target its
+reference, so Iki's alignment viewer shows it and lineage leads back to
 both. Its metrics are the score, the alignment's length, and its identity, similarity
 and gaps as percentages of that length, as EMBOSS reports them: identical columns have
 the same residue, similar ones a pair the matrix scores above zero (so X with X, which
@@ -201,10 +202,17 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     (out_dir / "alignment.txt").write_text(
         emboss(names, (top, bottom), starts, line, header), encoding="utf-8"
     )
+    # A row that's part of its sequence, as a local alignment's are, says which part as
+    # Jalview and Pfam write it, HRID/start-end, so its residues are numbered as its own.
+    ends = (int(coordinates[0][-1]), int(coordinates[1][-1]))
+    headed = [
+        n if (start, end) == (1, len(whole)) else f"{n}/{start}-{end}"
+        for n, start, end, whole in zip(names, starts, ends, (a, b), strict=True)
+    ]
     (out_dir / "alignment.fasta").write_text(
         "".join(
             f">{n}\n" + "".join(f"{row[i : i + 60]}\n" for i in range(0, len(row), 60))
-            for n, row in zip(names, (top, bottom), strict=True)
+            for n, row in zip(headed, (top, bottom), strict=True)
         ),
         encoding="utf-8",
     )

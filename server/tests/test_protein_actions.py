@@ -137,6 +137,10 @@ def test_end_gaps_are_free_globally_and_local_finds_the_best_part(tmp_path: Path
     assert whole["metrics"]["length"] == len(HBA)
     assert local["metrics"]["length"] == 50 and local["metrics"]["identity_percent"] == 100
     assert "X-1     31 " in (tmp_path / "out" / "alignment.txt").read_text()
+    # The local rows are parts of their proteins, numbered as their own (Jalview's
+    # HRID/start-end); the whole of one is headed by its HRID alone.
+    fasta = (tmp_path / "out" / "alignment.fasta").read_text()
+    assert [line for line in fasta.splitlines() if line.startswith(">")] == [">X-1/31-80", ">X-2"]
 
 
 def test_penalties_and_matrices_change_the_alignment(tmp_path: Path) -> None:

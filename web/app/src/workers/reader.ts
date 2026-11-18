@@ -10,7 +10,8 @@ import wasmUrl from "../../wasm/iki_wasm.wasm?url";
 interface Exports {
   memory: WebAssembly.Memory;
   iki_input: (len: number) => number;
-  iki_read: () => void;
+  /** 1 nucleotides, 2 amino acids, 0 not said. */
+  iki_read: (alphabet: number) => void;
   iki_output: () => number;
   iki_output_len: () => number;
 }
@@ -31,20 +32,20 @@ async function instantiate(): Promise<Exports> {
 }
 
 /** What the module reads in `bytes`, as JSON text. */
-async function read(bytes: Uint8Array): Promise<string> {
+async function read(bytes: Uint8Array, alphabet: string | null): Promise<string> {
   module ??= instantiate();
   const wasm = await module;
   const at = wasm.iki_input(bytes.length);
   new Uint8Array(wasm.memory.buffer, at, bytes.length).set(bytes);
-  wasm.iki_read();
+  wasm.iki_read(alphabet === "nucleotide" ? 1 : alphabet === "protein" ? 2 : 0);
   // Read the memory after the call: it may have grown, which replaces its buffer.
   const out = new Uint8Array(wasm.memory.buffer, wasm.iki_output(), wasm.iki_output_len());
   return new TextDecoder().decode(out);
 }
 
 scope.addEventListener("message", (event) => {
-  const { bytes } = event.data as { bytes: ArrayBuffer };
-  read(new Uint8Array(bytes)).then(
+  const { bytes, alphabet } = event.data as { bytes: ArrayBuffer; alphabet?: string | null };
+  read(new Uint8Array(bytes), alphabet ?? null).then(
     (json) => {
       scope.postMessage({ json });
     },

@@ -180,7 +180,8 @@ def test_a_trace_is_trimmed_aligned_and_its_difference_named(tmp_path: Path) -> 
     assert read_header == (
         "clone1_M13F forward, bases 1–200 of 200 (trimmed from 216), from clone1_M13F.ab1"
     )
-    assert read_row == "-" * 100 + "".join(read) + "-" * 300
+    # `.` where the read has no observation, beyond its ends.
+    assert read_row == "." * 100 + "".join(read) + "." * 300
     assert texts(output)[:2] == [
         "The reads cover 101–300 of pTEST's 600 bases (33.3%). Not covered: 1–100, 301–600.",
         f"Differences from DNA-000001: {PLASMID[150]}151{swapped} (clone1_M13F Q40).",
@@ -220,14 +221,15 @@ def test_reads_on_the_other_strand_with_gaps_are_named_in_the_references_numberi
     assert header.startswith(f"rev1 reverse complement, bases 1–{len(forward)} of {len(forward)}")
     # The inserted T gets a column of its own, a gap in the reference's row.
     assert ref_row == PLASMID[:added] + "-" + PLASMID[added:]
+    # The deletion is `-`; beyond the read's ends it has no observation, `.`.
     assert row == (
-        "-" * 200
+        "." * 200
         + PLASMID[200:gone]
         + "-"
         + PLASMID[gone + 1 : added]
         + "T"
         + PLASMID[added:400]
-        + "-" * 200
+        + "." * 200
     )
     differences = texts(output)[1]
     assert f"{gone + 1}del{PLASMID[gone]} (rev1)" in differences
@@ -268,7 +270,8 @@ def test_a_read_across_a_circular_references_origin_aligns_in_one_piece(tmp_path
 
     assert output is not None
     (_, _), (_, row) = rows(tmp_path)
-    assert row == PLASMID[:100] + "-" * 400 + PLASMID[-100:]
+    # No observation between the read's ends is `.`, not a 400-base deletion.
+    assert row == PLASMID[:100] + "." * 400 + PLASMID[-100:]
     assert texts(output)[:2] == [
         "The reads cover 1–100, 501–600 of pTEST's 600 bases (33.3%). Not covered: 101–500.",
         "No differences from DNA-000001 where the reads cover it.",

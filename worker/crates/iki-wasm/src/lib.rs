@@ -22,7 +22,8 @@ pub struct Record {
     pub id: String,
     /// The rest of the header.
     pub description: String,
-    /// Its residues, upper case, with `-` for gaps (`.` is read as one).
+    /// Its residues, upper case, with `-` for gaps and `.` for places it has no
+    /// observation of, such as where a read doesn't reach.
     pub residues: String,
 }
 
@@ -83,7 +84,7 @@ pub fn parse_fasta(text: &str) -> Result<Vec<Record>, Problem> {
         for (column, c) in content.chars().enumerate() {
             match c {
                 c if c.is_ascii_alphabetic() => record.residues.push(c.to_ascii_uppercase()),
-                '-' | '.' => record.residues.push('-'),
+                '-' | '.' => record.residues.push(c),
                 '*' => record.residues.push('*'),
                 c if c.is_whitespace() => {}
                 other => {
@@ -112,18 +113,61 @@ pub fn parse_fasta(text: &str) -> Result<Vec<Record>, Problem> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Alphabet {
-    /// Bases: A, C, G, T or U, and N.
+    /// Bases, in IUPAC's codes: A, C, G, T or U, and the ambiguity codes, such as R and N.
     Nucleotide,
-    /// Anything else.
+    /// Amino acids.
     Protein,
 }
 
+/// Whether a byte is a gap (`-`) or a place with no observation (`.`).
+#[must_use]
+pub const fn is_gap(b: u8) -> bool {
+    matches!(b, b'-' | b'.')
+}
+
+/// IUPAC's nucleotide codes (IUBMB, 1985): the bases and their ambiguity codes.
+const fn is_base_code(b: u8) -> bool {
+    matches!(
+        b,
+        b'A' | b'C'
+            | b'G'
+            | b'T'
+            | b'U'
+            | b'R'
+            | b'Y'
+            | b'S'
+            | b'W'
+            | b'K'
+            | b'M'
+            | b'B'
+            | b'D'
+            | b'H'
+            | b'V'
+            | b'N'
+    )
+}
+
+/// The share of a file's letters that must be A, C, G, T, U or N for letters that could be
+/// either bases or amino acids to be read as bases, as sequence tools commonly guess.
+const BASE_SHARE: usize = 90;
+
+/// What the records' residues are, as their letters say: amino acids if any letter isn't
+/// one of IUPAC's nucleotide codes, or if fewer than 90% of them are A, C, G, T, U or N
+/// (most amino acids' letters are also nucleotide codes); otherwise bases. A guess: a file
+/// that says what it holds, as Iki's own do by their media types, is read as that.
 fn alphabet(records: &[Record]) -> Alphabet {
-    let bases = records
-        .iter()
-        .flat_map(|r| r.residues.bytes())
-        .all(|b| matches!(b, b'A' | b'C' | b'G' | b'T' | b'U' | b'N' | b'-' | b'*'));
-    if bases {
+    let (mut letters, mut plain) = (0usize, 0usize);
+    for b in records.iter().flat_map(|r| r.residues.bytes()) {
+        if is_gap(b) {
+            continue;
+        }
+        if !is_base_code(b) {
+            return Alphabet::Protein;
+        }
+        letters += 1;
+        plain += usize::from(matches!(b, b'A' | b'C' | b'G' | b'T' | b'U' | b'N'));
+    }
+    if plain * 100 >= letters * BASE_SHARE {
         Alphabet::Nucleotide
     } else {
         Alphabet::Protein
@@ -141,6 +185,10 @@ pub struct Row {
     pub aligned: String,
     /// How many residues it has, gaps left out.
     pub residues: usize,
+    /// The number of its first residue in its own sequence: 1, unless its header's first
+    /// word ends `/start-end` (as Jalview and Pfam write a part of a sequence) and that
+    /// span is as long as its residues.
+    pub start: usize,
 }
 
 /// An alignment's rows, and how well each of its columns is conserved.
@@ -152,6 +200,8 @@ pub struct Alignment {
     pub length: usize,
     /// What its residues are.
     pub alphabet: Alphabet,
+    /// Whether that was guessed from its letters, as it is when the file doesn't say.
+    pub alphabet_guessed: bool,
     /// A mark per column, as Clustal draws it: `*` where every row has the same residue,
     /// `:` where they're all in one of Clustal's strongly similar groups, `.` where they're
     /// all in a weakly similar one, and a space otherwise (or where any row has a gap).
@@ -179,7 +229,7 @@ const WEAK: [&str; 11] = [
 ];
 
 fn mark(column: &[u8], alphabet: Alphabet) -> char {
-    if column.contains(&b'-') {
+    if column.iter().any(|&b| is_gap(b)) {
         return ' ';
     }
     let first = column[0];
@@ -211,6 +261,7 @@ fn consensus(column: &[u8]) -> (u8, usize) {
         counts[usize::from(b)] += 1;
     }
     counts[usize::from(b'-')] = 0;
+    counts[usize::from(b'.')] = 0;
     let (residue, count) = counts
         .iter()
         .enumerate()
@@ -226,14 +277,32 @@ fn consensus(column: &[u8]) -> (u8, usize) {
     }
 }
 
+/// A header's first word, and the number of its first residue: `name/4-7` is residues 4 to
+/// 7 of `name`, when that's as many residues as the row has; anything else is the whole of
+/// a sequence, from 1.
+fn numbered(id: &str, residues: usize) -> (String, usize) {
+    if let Some((name, span)) = id.rsplit_once('/')
+        && let Some((first, last)) = span.split_once('-')
+        && let (Ok(first), Ok(last)) = (first.parse::<usize>(), last.parse::<usize>())
+        && !name.is_empty()
+        && first >= 1
+        && last >= first
+        && last - first + 1 == residues
+    {
+        return (name.to_owned(), first);
+    }
+    (id.to_owned(), 1)
+}
+
 /// The records as an alignment, if they're one: two or more rows, all the same length.
+/// Its alphabet is `declared`, if the file says, or else guessed from its letters.
 #[must_use]
-pub fn layout(records: &[Record]) -> Option<Alignment> {
+pub fn layout(records: &[Record], declared: Option<Alphabet>) -> Option<Alignment> {
     let length = records.first()?.residues.len();
     if records.len() < 2 || length == 0 || records.iter().any(|r| r.residues.len() != length) {
         return None;
     }
-    let alphabet = alphabet(records);
+    let alphabet = declared.unwrap_or_else(|| alphabet(records));
     let rows_bytes: Vec<&[u8]> = records.iter().map(|r| r.residues.as_bytes()).collect();
     let mut conservation = String::with_capacity(length);
     let mut consensus_line = String::with_capacity(length);
@@ -247,7 +316,7 @@ pub fn layout(records: &[Record]) -> Option<Alignment> {
         if m == '*' {
             identical += 1;
         }
-        if column.contains(&b'-') {
+        if column.iter().any(|&b| is_gap(b)) {
             gapped += 1;
         }
         conservation.push(m);
@@ -257,17 +326,23 @@ pub fn layout(records: &[Record]) -> Option<Alignment> {
     }
     let rows = records
         .iter()
-        .map(|r| Row {
-            id: r.id.clone(),
-            description: r.description.clone(),
-            aligned: r.residues.clone(),
-            residues: r.residues.bytes().filter(|&b| b != b'-').count(),
+        .map(|r| {
+            let residues = r.residues.bytes().filter(|&b| !is_gap(b)).count();
+            let (id, start) = numbered(&r.id, residues);
+            Row {
+                id,
+                description: r.description.clone(),
+                aligned: r.residues.clone(),
+                residues,
+                start,
+            }
         })
         .collect();
     Some(Alignment {
         rows,
         length,
         alphabet,
+        alphabet_guessed: declared.is_none(),
         conservation,
         consensus: consensus_line,
         agreement,
@@ -304,9 +379,10 @@ pub enum Reading {
     Error(Problem),
 }
 
-/// Reads a file's bytes as FASTA, and lays its records out as an alignment if they're one.
+/// Reads a file's bytes as FASTA, and lays its records out as an alignment if they're one,
+/// of the alphabet `declared` if the file's media type says, or else as its letters suggest.
 #[must_use]
-pub fn read(bytes: &[u8]) -> Reading {
+pub fn read(bytes: &[u8], declared: Option<Alphabet>) -> Reading {
     if bytes.len() > MAX_BYTES {
         return Reading::Error(Problem {
             message: format!(
@@ -326,15 +402,15 @@ pub fn read(bytes: &[u8]) -> Reading {
         Ok(records) => records,
         Err(problem) => return Reading::Error(problem),
     };
-    if let Some(alignment) = layout(&records) {
+    if let Some(alignment) = layout(&records, declared) {
         return Reading::Alignment(alignment);
     }
     Reading::Sequences {
-        alphabet: alphabet(&records),
+        alphabet: declared.unwrap_or_else(|| alphabet(&records)),
         records: records
             .into_iter()
             .map(|r| Listed {
-                length: r.residues.bytes().filter(|&b| b != b'-').count(),
+                length: r.residues.bytes().filter(|&b| !is_gap(b)).count(),
                 id: r.id,
                 description: r.description,
             })
@@ -344,8 +420,8 @@ pub fn read(bytes: &[u8]) -> Reading {
 
 /// [`read`], as JSON.
 #[must_use]
-pub fn read_json(bytes: &[u8]) -> Vec<u8> {
-    serde_json::to_vec(&read(bytes)).unwrap_or_else(|_| {
+pub fn read_json(bytes: &[u8], declared: Option<Alphabet>) -> Vec<u8> {
+    serde_json::to_vec(&read(bytes, declared)).unwrap_or_else(|_| {
         br#"{"kind":"error","message":"The reading couldn't be written out.","line":null}"#.to_vec()
     })
 }
@@ -435,11 +511,17 @@ pub mod exports {
         })
     }
 
-    /// Reads the file in the input buffer, and frees it.
+    /// Reads the file in the input buffer, and frees it. `alphabet` is what the file's media
+    /// type says it holds: 1 nucleotides, 2 amino acids, anything else not said.
     #[unsafe(no_mangle)]
-    pub extern "C" fn iki_read() {
+    pub extern "C" fn iki_read(alphabet: u32) {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::read_json(&bytes);
+        let declared = match alphabet {
+            1 => Some(super::Alphabet::Nucleotide),
+            2 => Some(super::Alphabet::Protein),
+            _ => None,
+        };
+        let json = super::read_json(&bytes, declared);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
@@ -522,7 +604,7 @@ mod tests {
         assert_eq!(read[0].description, "Hemoglobin subunit alpha");
         assert_eq!(read[0].residues, "MVLSPADK");
         assert_eq!(read[1].description, "");
-        assert_eq!(read[1].residues, "AC-G-T*");
+        assert_eq!(read[1].residues, "AC-G.T*");
     }
 
     #[test]
@@ -543,14 +625,14 @@ mod tests {
             "Line 3 has '1' at column 2, which isn't a residue, a gap or a stop."
         );
         assert!(parse_fasta("\n\n").is_err());
-        assert!(matches!(read(&[0xff, 0xfe]), Reading::Error(_)));
+        assert!(matches!(read(&[0xff, 0xfe], None), Reading::Error(_)));
     }
 
     #[test]
     fn lays_out_an_alignment_with_clustal_marks() {
         // Columns: identical (M), strong (I/L in MILV), weak (S/G in SAG), none (W/D), gap.
         let aligned =
-            layout(&records(">a\nMISW-K\n>b\nMLGDAK\n")).unwrap_or_else(|| unreachable!());
+            layout(&records(">a\nMISW-K\n>b\nMLGDAK\n"), None).unwrap_or_else(|| unreachable!());
         assert_eq!(aligned.conservation, "*:.  *");
         assert_eq!(
             (aligned.identical, aligned.gapped, aligned.length),
@@ -562,7 +644,7 @@ mod tests {
 
     #[test]
     fn says_how_much_each_column_of_a_multiple_alignment_agrees() {
-        let aligned = layout(&records(">a\nMKV-\n>b\nMRV-\n>c\nMRL-\n>d\nM-LA\n"))
+        let aligned = layout(&records(">a\nMKV-\n>b\nMRV-\n>c\nMRL-\n>d\nM-LA\n"), None)
             .unwrap_or_else(|| unreachable!());
         // R beats K (2 to 1); V and L tie, and the first in the alphabet is taken.
         assert_eq!(aligned.consensus, "MRLA");
@@ -573,14 +655,65 @@ mod tests {
 
     #[test]
     fn nucleotides_are_marked_only_where_identical() {
-        let aligned = layout(&records(">a\nACGT\n>b\nATGA\n")).unwrap_or_else(|| unreachable!());
+        let aligned =
+            layout(&records(">a\nACGT\n>b\nATGA\n"), None).unwrap_or_else(|| unreachable!());
         assert_eq!(aligned.alphabet, Alphabet::Nucleotide);
         assert_eq!(aligned.conservation, "* * ");
     }
 
     #[test]
+    fn iupac_bases_are_bases_and_a_declared_alphabet_wins() {
+        // IUBMB's codes: R is A or G. ACGTR and ACGTA are bases, not amino acids.
+        let guessed =
+            layout(&records(">a\nACGTR\n>b\nACGTA\n"), None).unwrap_or_else(|| unreachable!());
+        assert_eq!(guessed.alphabet, Alphabet::Nucleotide);
+        assert!(guessed.alphabet_guessed);
+        // Letters most amino acids share with the nucleotide codes, and few of them A, C,
+        // G, T or N: a peptide.
+        let peptide = layout(&records(">a\nKRDSHMWY\n>b\nKRDSHMWY\n"), None)
+            .unwrap_or_else(|| unreachable!());
+        assert_eq!(peptide.alphabet, Alphabet::Protein);
+        // Cys-Ala-Thr looks like bases; a file that says it holds amino acids is read so.
+        let declared = layout(&records(">a\nCAT\n>b\nCAT\n"), Some(Alphabet::Protein))
+            .unwrap_or_else(|| unreachable!());
+        assert_eq!(declared.alphabet, Alphabet::Protein);
+        assert!(!declared.alphabet_guessed);
+    }
+
+    #[test]
+    fn a_rows_header_can_say_which_part_of_its_sequence_it_is() {
+        let aligned = layout(
+            &records(">PRT-1/4-7 Kinase\nWQWY\n>PRT-2/4-7\nWQWY\n"),
+            None,
+        )
+        .unwrap_or_else(|| unreachable!());
+        assert_eq!(aligned.rows[0].id, "PRT-1");
+        assert_eq!(aligned.rows[0].start, 4);
+        // A span that isn't as long as the row's residues is part of its name.
+        let named =
+            layout(&records(">a/1-9\nWQWY\n>b\nWQWY\n"), None).unwrap_or_else(|| unreachable!());
+        assert_eq!(
+            (named.rows[0].id.as_str(), named.rows[0].start),
+            ("a/1-9", 1)
+        );
+    }
+
+    #[test]
+    fn a_place_with_no_observation_is_neither_a_residue_nor_counted() {
+        let aligned = layout(
+            &records(">ref\nACGT\n>read\nAC..\n"),
+            Some(Alphabet::Nucleotide),
+        )
+        .unwrap_or_else(|| unreachable!());
+        assert_eq!(aligned.rows[1].aligned, "AC..");
+        assert_eq!(aligned.rows[1].residues, 2);
+        assert_eq!(aligned.consensus, "ACGT");
+        assert_eq!(aligned.gapped, 2);
+    }
+
+    #[test]
     fn records_of_different_lengths_are_listed_not_aligned() {
-        let reading = read(b">a\nMKV\n>b\nMK-VL\n");
+        let reading = read(b">a\nMKV\n>b\nMK-VL\n", None);
         assert_eq!(
             reading,
             Reading::Sequences {
@@ -599,18 +732,18 @@ mod tests {
                 ],
             }
         );
-        assert!(layout(&records(">only\nMKV\n")).is_none());
+        assert!(layout(&records(">only\nMKV\n"), None).is_none());
     }
 
     #[test]
     fn its_json_says_what_kind_of_reading_it_is() {
         let json: serde_json::Value =
-            serde_json::from_slice(&read_json(b">a\nMK\n>b\nMR\n")).unwrap_or_default();
+            serde_json::from_slice(&read_json(b">a\nMK\n>b\nMR\n", None)).unwrap_or_default();
         assert_eq!(json["kind"], "alignment");
         assert_eq!(json["conservation"], "*:");
         assert_eq!(json["agreement"], serde_json::json!([100, 50]));
         let error: serde_json::Value =
-            serde_json::from_slice(&read_json(b"oops")).unwrap_or_default();
+            serde_json::from_slice(&read_json(b"oops", None)).unwrap_or_default();
         assert_eq!(error["kind"], "error");
         assert_eq!(error["line"], 1);
     }
@@ -620,9 +753,9 @@ mod tests {
         let file = b">a\nMK\n>b\nMK\n";
         assert!(!exports::iki_input(file.len()).is_null());
         exports::write_input(file);
-        exports::iki_read();
+        exports::iki_read(2);
         assert_eq!(exports::iki_output_len(), exports::output().len());
-        assert_eq!(exports::output(), read_json(file));
+        assert_eq!(exports::output(), read_json(file, Some(Alphabet::Protein)));
         assert!(!exports::iki_output().is_null());
     }
 

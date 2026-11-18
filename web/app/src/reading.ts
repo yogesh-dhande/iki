@@ -11,9 +11,12 @@ export interface AlignmentRow {
   /** Its header's first word: a sequence's HRID when it's one in Iki. */
   id: string;
   description: string;
+  /** Its residues, `-` for a gap and `.` for a place it has no observation of. */
   aligned: string;
   /** How many residues it has, gaps aside. */
   residues: number;
+  /** Its first residue's number in its own sequence: 1, or the start of a `name/4-7` header. */
+  start: number;
 }
 
 export type Alphabet = "nucleotide" | "protein";
@@ -24,6 +27,8 @@ export type Reading =
       rows: AlignmentRow[];
       length: number;
       alphabet: Alphabet;
+      /** Whether the alphabet was guessed from its letters, the file not saying. */
+      alphabet_guessed: boolean;
       /** Clustal's marks, a column each: `*` identical, `:` strongly and `.` weakly alike. */
       conservation: string;
       /** Each column's commonest residue, `-` where every row has a gap. */
@@ -75,10 +80,21 @@ export function newWorker(script: string = readerUrl): Worker {
   return new Worker(trusted as string | URL, { type: "module" });
 }
 
+/** The alphabet a FASTA file's media type says it holds, if it says. */
+export function declaredAlphabet(mediaType: string | undefined): Alphabet | null {
+  if (mediaType === "chemical/seq-aa-fasta") return "protein";
+  if (mediaType === "chemical/seq-na-fasta") return "nucleotide";
+  return null;
+}
+
 /** What iki-wasm reads in `bytes`, which are handed to the worker (and so emptied here).
+ * `alphabet` is what the file says it holds, if it says; otherwise its letters are read for it.
  * Each read has a worker of its own, ended when it's done: WebAssembly's memory never
  * shrinks, so a worker kept for later would hold on to what the largest file needed. */
-export function readInWorker(bytes: ArrayBuffer): Promise<Reading> {
+export function readInWorker(
+  bytes: ArrayBuffer,
+  alphabet: Alphabet | null = null,
+): Promise<Reading> {
   const worker = newWorker();
   return new Promise<Reading>((resolve, reject) => {
     worker.addEventListener(
@@ -95,6 +111,6 @@ export function readInWorker(bytes: ArrayBuffer): Promise<Reading> {
       worker.terminate();
       reject(new Error("The parsers stopped."));
     });
-    worker.postMessage({ bytes }, [bytes]);
+    worker.postMessage({ bytes, alphabet }, [bytes]);
   });
 }

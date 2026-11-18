@@ -267,6 +267,12 @@ def call(base: str, reference: str) -> str:
     return "unresolved"
 
 
+def lies_across(each: Placed, k: int) -> bool:
+    """Whether a read lies across the place just before position k, where others may have
+    inserted: if not, it has no observation there, `.`, not a gap."""
+    return k in each.at and k - 1 in each.at
+
+
 def covered_by(placed: Placed, reference: str) -> set[int]:
     """The reference's places the read says what's at: a deletion, or a base that isn't
     unresolved there (an N covers nothing)."""
@@ -424,7 +430,9 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     ]
     for each in placed:
         row = "".join(
-            each.inserted.get(k, "").ljust(most[k], "-") + each.at.get(k, "-") for k in range(size)
+            each.inserted.get(k, "").ljust(most[k], "-" if lies_across(each, k) else ".")
+            + each.at.get(k, ".")
+            for k in range(size)
         )
         read = each.read
         kept = f"bases {each.start + 1}–{each.end} of {len(read.bases)}"

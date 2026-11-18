@@ -126,10 +126,11 @@ export function isGap(residue: string): boolean {
   return residue === "-" || residue === ".";
 }
 
-/** A residue's number in its own sequence, from 1, at a column (from 0), or null at a gap. */
-export function residueNumber(aligned: string, column: number): number | null {
+/** A residue's number in its own sequence at a column (from 0), or null at a gap: counted
+ * from `start`, the row's first residue's number (1, or more for part of a sequence). */
+export function residueNumber(aligned: string, column: number, start = 1): number | null {
   if (column < 0 || column >= aligned.length || isGap(aligned.charAt(column))) return null;
-  let n = 0;
+  let n = start - 1;
   for (let i = 0; i <= column; i++) if (!isGap(aligned.charAt(i))) n++;
   return n;
 }

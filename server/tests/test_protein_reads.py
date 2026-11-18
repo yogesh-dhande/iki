@@ -173,7 +173,7 @@ def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named
     assert read_header == (
         "clone_F1 forward frame 1, bases 121–720 of 720 (trimmed from 728), from clone.fastq"
     )
-    assert read_row == "".join(changed) + "-" * 50
+    assert read_row == "".join(changed) + "." * 50
     assert texts(output)[:2] == [
         "The reads cover 1–200 of Kinase's 250 residues (80.0%). Not covered: 201–250.",
         f"Differences from PRT-000001: {PROTEIN[99]}100{changed[99]} (clone_F1 Q40).",
@@ -197,7 +197,7 @@ def test_a_frameshift_on_the_other_strand_is_found_and_named(tmp_path: Path) -> 
     assert output is not None
     (_, _), (header, row) = rows(tmp_path)
     assert header.startswith("r reverse complement frame 1, bases 1–150, frame 3, bases ")
-    assert row[:100] == "-" * 100
+    assert row[:100] == "." * 100
     assert row[100:150] == PROTEIN[100:150]
     assert row[151:] == PROTEIN[151:]
     assert f"{PROTEIN[150]}151fs (r)" in texts(output)[1]

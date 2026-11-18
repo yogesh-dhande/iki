@@ -98,7 +98,9 @@ they list none.
   A local alignment with nothing scoring above zero is none: the run says so
   and creates no alignment. It keeps the alignment as two artifacts
   ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
-  `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. The FASTA
+  `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`, where a row
+  that's part of its protein, as a local alignment's are, is headed
+  `HRID/start-end`, as Jalview writes it, and numbered so. The FASTA
   is also an `iki/core.Alignment` of the two, the target its reference, which
   Iki's alignment viewer shows
   ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
@@ -121,7 +123,8 @@ they list none.
   traces, FASTQ or FASTA files, up to 1,000 reads in all
   ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)). It
   asks for 1 GiB of memory, and keeps `alignment.fasta` as an artifact, which
-  is also the alignment's file.
+  is also the alignment's file: in a read's row, `-` is a deletion and `.` a
+  place it has no observation of, beyond its ends.
 
 Aligning reads to a protein: reads are read and trimmed as the dna plugin's
 `align_reads` does (the protein plugin has its own copy of that code, and a

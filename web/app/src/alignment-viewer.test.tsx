@@ -12,7 +12,9 @@ import type { Reading } from "./reading";
 import { answer } from "./test-server";
 import { readViewState } from "./views";
 
-const read = vi.hoisted(() => vi.fn<(bytes: ArrayBuffer) => Promise<Reading>>());
+const read = vi.hoisted(() =>
+  vi.fn<(bytes: ArrayBuffer, alphabet?: string | null) => Promise<Reading>>(),
+);
 vi.mock("./reading", async (original) => ({
   ...(await original<typeof import("./reading")>()),
   readInWorker: read,
@@ -63,12 +65,13 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
 const ALIGNED: Extract<Reading, { kind: "alignment" }> = {
   kind: "alignment",
   rows: [
-    { id: "PRT-000001", description: "", aligned: "MK-LV", residues: 4 },
-    { id: "PRT-000002", description: "", aligned: "MKALV", residues: 5 },
-    { id: "read_7", description: "a read", aligned: "MR-LV", residues: 4 },
+    { id: "PRT-000001", description: "", aligned: "MK-LV", residues: 4, start: 1 },
+    { id: "PRT-000002", description: "", aligned: "MKALV", residues: 5, start: 1 },
+    { id: "read_7", description: "a read", aligned: "MR-LV", residues: 4, start: 1 },
   ],
   length: 5,
   alphabet: "protein",
+  alphabet_guessed: false,
   conservation: "*   *",
   consensus: "MK-LV",
   agreement: [100, 66, 66, 100, 100],
@@ -81,7 +84,11 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function onAlignment(values: Record<string, unknown> = {}, size = FASTA.byteLength) {
+async function onAlignment(
+  values: Record<string, unknown> = {},
+  size = FASTA.byteLength,
+  mediaType = "chemical/seq-aa-fasta",
+) {
   withTypes();
   answer("GET /api/v1/entity-types", [PROTEIN, ALIGNMENT_TYPE]);
   answer(
@@ -112,7 +119,7 @@ async function onAlignment(values: Record<string, unknown> = {}, size = FASTA.by
           purged: false,
         },
       },
-      files: { [FILE]: { name: "abl.afa", media_type: "text/x-fasta", size } },
+      files: { [FILE]: { name: "abl.afa", media_type: mediaType, size } },
     }),
   );
   answer(`GET /api/v1/files/${FILE}/content-url`, {
@@ -137,6 +144,9 @@ describe("the alignment viewer", () => {
     const grid = await screen.findByRole("application", { name: "Alignment of abl.afa" });
     expect(read).toHaveBeenCalledTimes(1);
     expect(new TextDecoder().decode(read.mock.calls[0]?.[0])).toContain(">read_7");
+    // Its media type says it holds amino acids, so its letters are read as them.
+    expect(read.mock.calls[0]?.[1]).toBe("protein");
+    expect(screen.queryByText(/from its letters/)).not.toBeInTheDocument();
     // Compared with the reference: PRT-000001 has a gap at its A, read_7 that and an R.
     expect(
       screen.getByText(
@@ -174,6 +184,32 @@ describe("the alignment viewer", () => {
     expect(at()).toContain("PRT-000001, column 5: V, residue 4 of 4.");
     fireEvent.keyDown(grid, { key: "ArrowDown" });
     expect(at()).toContain("read_7, column 5");
+  });
+
+  it("says when it guessed what the residues are, the file not saying", async () => {
+    await onAlignment({}, FASTA.byteLength, "text/plain");
+    read.mockResolvedValue({ ...ALIGNED, alphabet_guessed: true });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    expect(
+      await screen.findByText(
+        "Read as amino acids from its letters: the file doesn’t say which it holds.",
+      ),
+    ).toBeVisible();
+    expect(read.mock.calls[0]?.[1]).toBeNull();
+  });
+
+  it("numbers a row that's part of its sequence from where that part starts", async () => {
+    await onAlignment();
+    read.mockResolvedValue({
+      ...ALIGNED,
+      rows: ALIGNED.rows.map((r) => (r.id === "PRT-000002" ? { ...r, start: 31 } : r)),
+    });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    await screen.findByRole("application");
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000002, column 1: M, residue 31 of 31–35.",
+    );
+    expect(screen.getByText(/cover 5 of PRT-000002’s residues 31–35 \(100%\)/)).toBeVisible();
   });
 
   it("goes to a column", async () => {
@@ -269,8 +305,8 @@ describe("the alignment viewer's parts", () => {
   it("links only the rows the alignment lists", () => {
     const rows = shownRows(
       [
-        { id: "PRT-000001", description: "", aligned: "MK", residues: 2 },
-        { id: "PRT-000009", description: "", aligned: "MK", residues: 2 },
+        { id: "PRT-000001", description: "", aligned: "MK", residues: 2, start: 1 },
+        { id: "PRT-000009", description: "", aligned: "MK", residues: 2, start: 1 },
       ],
       [ABL1],
       {
@@ -295,7 +331,7 @@ describe("the alignment viewer's parts", () => {
 
   it("links a row named by the HRID an imported entity had where it was made", () => {
     const rows = shownRows(
-      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2 }],
+      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2, start: 1 }],
       [ABL1],
       {
         [ABL1]: {
@@ -316,6 +352,9 @@ describe("the alignment viewer's parts", () => {
     expect(residueNumber("M-K-L", 1)).toBeNull();
     expect(residueNumber("M-K-L", 4)).toBe(3);
     expect(residueNumber("M-K-L", 9)).toBeNull();
+    // A row that's residues 31 onwards of its sequence; `.` is no residue either.
+    expect(residueNumber("M-K.L", 4, 31)).toBe(33);
+    expect(residueNumber("M-K.L", 3, 31)).toBeNull();
   });
 
   it("colours residues by kind where their column agrees", () => {

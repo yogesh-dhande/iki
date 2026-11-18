@@ -69,7 +69,8 @@ makes is recorded as made with it
   ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)): AB1
   traces, one read each, named by their file, or FASTQ or FASTA files, named
   by their records, up to 1,000 reads in all. It keeps `alignment.fasta` as an
-  artifact, which is also the alignment's file.
+  artifact, which is also the alignment's file: in a read's row, `-` is a
+  deletion and `.` a place it has no observation of, beyond its ends.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting

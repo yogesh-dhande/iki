@@ -35,7 +35,7 @@ import {
 } from "../alignment";
 import { formatSize, type EntityType } from "../entities";
 import { compared } from "../alignment-compare";
-import { MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
+import { declaredAlphabet, MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
 import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
 import { buttonClass, Loading } from "../ui";
@@ -104,6 +104,7 @@ export function AlignmentViewer({
           key={fileId}
           fileId={fileId}
           name={file.name}
+          mediaType={file.media_type}
           source={source}
           viewer={viewer}
           position={position}
@@ -120,6 +121,7 @@ type State =
 function AlignmentFile({
   fileId,
   name,
+  mediaType,
   source,
   viewer,
   position,
@@ -127,6 +129,8 @@ function AlignmentFile({
 }: {
   fileId: string;
   name: string;
+  /** What the file says it holds, which its letters are read as. */
+  mediaType: string;
   source: Source;
   viewer: Viewer;
   position?: Position | undefined;
@@ -136,7 +140,7 @@ function AlignmentFile({
   useEffect(() => {
     const abort = new AbortController();
     readStoredFile(fileId, abort.signal)
-      .then((bytes) => readInWorker(bytes))
+      .then((bytes) => readInWorker(bytes, declaredAlphabet(mediaType)))
       .then(
         (reading) => {
           if (!abort.signal.aborted) setState({ phase: "read", reading });
@@ -152,7 +156,7 @@ function AlignmentFile({
     return () => {
       abort.abort();
     };
-  }, [fileId, name]);
+  }, [fileId, name, mediaType]);
 
   if (state.phase === "reading") return <Loading label={`Reading ${name}…`} />;
   if (state.phase === "failed") {
@@ -467,7 +471,12 @@ function AlignmentGrid({
   const identity = length ? alignment.identical / length : 0;
   const atRow = rows[cursor.row];
   const residue = atRow?.row.aligned.charAt(cursor.column) ?? "";
-  const residueAt = atRow ? residueNumber(atRow.row.aligned, cursor.column) : null;
+  const residueAt = atRow ? residueNumber(atRow.row.aligned, cursor.column, atRow.row.start) : null;
+  /** A row's residues: their count, or which part of its sequence they are. */
+  const extent = (r: Shown) =>
+    r.row.start === 1
+      ? `of ${number.format(r.row.residues)}`
+      : `of ${number.format(r.row.start)}–${number.format(r.row.start + r.row.residues - 1)}`;
   const labelOf = (r: Shown) => r.entity?.hrid ?? r.row.id;
 
   return (
@@ -476,8 +485,10 @@ function AlignmentGrid({
         <p className="muted">
           {number.format(alignment.rows.length)} rows, {number.format(length)} columns · the others
           cover {number.format(comparison.covered)} of {labelOf(reference)}’s{" "}
-          {number.format(comparison.residues)} residues (
-          {percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
+          {reference.row.start === 1
+            ? `${number.format(comparison.residues)} residues`
+            : `residues ${number.format(reference.row.start)}–${number.format(reference.row.start + reference.row.residues - 1)}`}{" "}
+          ({percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
           differ from it at {number.format(comparison.differing)}{" "}
           {comparison.differing === 1 ? "column" : "columns"}
         </p>
@@ -488,6 +499,12 @@ function AlignmentGrid({
           {number.format(alignment.gapped)} with gaps
         </p>
       )}
+      {alignment.alphabet_guessed ? (
+        <p className="muted">
+          Read as {alignment.alphabet === "nucleotide" ? "nucleotides" : "amino acids"} from its
+          letters: the file doesn’t say which it holds.
+        </p>
+      ) : null}
       {referenceHrid && !reference ? (
         <p className="muted">
           Its reference, {referenceHrid}, isn’t one of its rows: no row is headed by its HRID.
@@ -616,7 +633,7 @@ function AlignmentGrid({
             <strong>{labelOf(atRow)}</strong>, column {number.format(cursor.column + 1)}:{" "}
             {residueAt === null
               ? "a gap"
-              : `${residue}, residue ${number.format(residueAt)} of ${number.format(atRow.row.residues)}`}
+              : `${residue}, residue ${number.format(residueAt)} ${extent(atRow)}`}
             . Consensus {alignment.consensus.charAt(cursor.column)}, where{" "}
             {String(alignment.agreement[cursor.column] ?? 0)}% of rows agree.
           </>
@@ -804,6 +821,8 @@ function draw(
     for (let c = first; c < last; c++) {
       const residue = aligned.charAt(c);
       const x = xOf(c);
+      // A place with no observation is drawn empty, apart from a gap.
+      if (residue === ".") continue;
       if (isGap(residue)) {
         context.fillStyle = palette.muted;
         context.fillText("-", x + CELL / 2, y + ROW / 2);
