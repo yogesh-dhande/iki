@@ -50,7 +50,7 @@ makes is recorded as made with it
   is found, and the project gets its record of it, or keeps the one it has. Each records the file and record it came from, with the record's
   SHA-256.
 - **`fetch_sequences`**: fetches nucleotide records from NCBI by accession
-  (up to 500, such as `NM_000546.6`, or `L09137` for the latest version), in
+  (up to 500, such as `NM_000546.6`, `NZ_CP009273.1`, or `L09137` for the latest version), in
   GenBank format with their features, and registers each as a DNA sequence.
   Each records the NCBI record and version it came from, its link, when it
   was fetched and its SHA-256. It reaches only `eutils.ncbi.nlm.nih.gov`,
@@ -79,18 +79,30 @@ his salt correction, at 50 mM Na⁺ and 50 nM primer, as Primer3 does by
 default. It's computed only for primers of A, C, G and T alone.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
-with its version (VERSION), organism, topology and features. Each feature
-keeps its type, first and last base, strand, name (its `/label`, `/gene`,
-`/locus_tag` or `/product`) and qualifiers. A location with several parts
-(`join(…)`), fuzzy ends (`<1`, `>99`) or between two bases (`5^6`) keeps
-GenBank's own text in a `location` qualifier too. Features on other
-records are left out, and the run says so. FASTA records give a name (the
-header's first word) and a description (the rest), and an accession where
-the header has one (`L09137.2`, or NCBI's `gb|L09137.2|`). FASTA doesn't say
-whether a sequence is circular, so the `topology` param does.
+with its version (VERSION), organism, topology, strandedness and features.
+LOCUS's molecule type says the strandedness: `ss-DNA` and RNA records
+(`mRNA`, `rRNA` and the like) are single-stranded, `ds-DNA` and `ds-RNA`
+double, and plain `DNA` doesn't say, so it's left at the default, double. An
+mRNA is kept as its bases in GenBank's T alphabet, as a cDNA is. Each
+feature keeps its type, where it lies, strand, name (its `/label`, `/gene`,
+`/locus_tag` or `/product`) and qualifiers. Where it lies is its first and
+last base, and, for a location with several parts (`join(…)`) or between two
+bases (`5^6`), its parts as INSDC's feature table reads them, each with its
+strand: the viewer draws and counts those, not what lies between them, so
+`join(2..4,10..12)` is six bases and `5^6` none. A join's parts are kept in
+the order they're read (a reverse-strand join's last first); a feature with
+parts on both strands is `mixed`; one crosses a circle's origin only when
+that's the shorter way round its parts. Such locations, and fuzzy ends (`<1`,
+`>99`), keep GenBank's own text in a `location` qualifier too. Features on
+other records, or whose location isn't on the sequence, are left out, and
+the run says so. FASTA records give a name (the header's first word) and a
+description (the rest), and an accession where the header has one
+(`L09137.2`, NCBI's `gb|L09137.2|`, or a RefSeq one such as
+`ref|NZ_CP009273.1|`). FASTA doesn't say whether a sequence is circular, so
+the `topology` param does.
 
-A record that can't be read (RNA, gaps, letters that aren't IUPAC bases, a
-file cut short) fails the whole import, and the run says which record and
+A record that can't be read (RNA written with U, gaps, letters that aren't
+IUPAC bases, a file cut short) fails the whole import, and the run says which record and
 why, so nothing is half imported.
 
 Fetching follows NCBI's rules for automated clients: it names itself

@@ -24,7 +24,7 @@ import {
   readFeatures,
   readTrack,
   ROW,
-  spans,
+  covered,
   trackScale,
   type Feature,
   type Kind,
@@ -294,7 +294,7 @@ function Residues({
   useEffect(() => {
     if (shown) virtualizer.scrollToIndex(Math.floor((shown.start - 1) / ROW), { align: "center" });
   }, [shown, virtualizer]);
-  const highlighted = shown ? spans(shown, sequence.length) : [];
+  const highlighted = shown ? covered(shown, sequence.length) : [];
   const digits = String(sequence.length).length;
   return (
     <figure className="sequence" aria-label={label}>
@@ -330,27 +330,32 @@ function Residues({
                   >
                     {pieces.map((p) => {
                       const kind = kindOf(p.feature.type);
-                      const arrow =
-                        p.feature.strand === "forward" && p.last
-                          ? " feature-forward"
-                          : p.feature.strand === "reverse" && p.first
-                            ? " feature-reverse"
-                            : "";
+                      const arrow = p.arrow ? ` feature-${p.arrow}` : "";
+                      const shape = p.shape === "part" ? "" : ` feature-${p.shape}`;
                       const name = featureName(p.feature);
                       return (
                         <span
-                          key={`${String(p.feature.index)}-${String(p.column)}`}
-                          className={`feature feature-${kind}${arrow}${
+                          key={`${String(p.feature.index)}-${p.shape}-${String(p.column)}`}
+                          className={`feature feature-${kind}${shape}${arrow}${
                             shown?.index === p.feature.index ? " feature-shown" : ""
                           }`}
                           title={`${name} (${p.feature.type}, ${locationText(p.feature)})`}
-                          style={{
-                            left: `${String(p.column)}ch`,
-                            width: `${String(p.width)}ch`,
-                            top: `${String(p.feature.lane * 1.25)}rem`,
-                          }}
+                          style={
+                            p.shape === "site"
+                              ? {
+                                  // On the boundary after the base, between it and the next.
+                                  left: `calc(${String(p.column + 1)}ch - 1px)`,
+                                  width: "2px",
+                                  top: `${String(p.feature.lane * 1.25)}rem`,
+                                }
+                              : {
+                                  left: `${String(p.column)}ch`,
+                                  width: `${String(p.width)}ch`,
+                                  top: `${String(p.feature.lane * 1.25)}rem`,
+                                }
+                          }
                         >
-                          {p.width >= name.length + 2 ? (
+                          {p.shape === "part" && p.width >= name.length + 2 ? (
                             <span className="feature-label">{name}</span>
                           ) : null}
                         </span>

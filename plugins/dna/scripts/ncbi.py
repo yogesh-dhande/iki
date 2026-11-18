@@ -29,11 +29,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from imports import Record, UnreadableError, finish, genbank
+from imports import ACCESSION_BODY, Record, UnreadableError, finish, genbank
 
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 TOOL = "iki-dna"
-ACCESSION = re.compile(r"^[A-Z]{1,6}_?[0-9]{1,9}(\.[0-9]+)?$")
+#: An accession, with or without its version (NM_000546.6, L09137, NZ_CP009273.1).
+ACCESSION = re.compile(rf"^{ACCESSION_BODY}(?:\.[0-9]+)?$")
 MAX_ACCESSIONS = 500
 BATCH = 100
 #: NCBI allows three requests a second without an API key, and ten with one.

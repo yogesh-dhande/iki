@@ -754,6 +754,18 @@ input:focus-visible {
   clip-path: polygon(0.5ch 0, 100% 0, 100% 100%, 0.5ch 100%, 0 50%);
 }
 
+/* The line joining a feature's parts, such as a gene's exons across an intron. */
+.feature-joining {
+  height: 2px;
+  margin-top: calc(0.5rem - 1px);
+  border-radius: 0;
+}
+
+/* A site between two bases (GenBank's 5^6): a mark on the boundary, covering neither. */
+.feature-site {
+  border-radius: 0;
+}
+
 .feature-shown {
   outline: 2px solid var(--text);
   outline-offset: 1px;

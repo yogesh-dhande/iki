@@ -40,7 +40,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
 
 BASES = re.compile(r"^[ACGTRYSWKMBDHVN]*$")
-ACCESSION = re.compile(r"^[A-Z]{1,6}_?[0-9]{5,9}\.[0-9]+$")
+#: A nucleotide accession without its version, as INSDC and RefSeq write them: letters and
+#: digits (L09137, CP009273, AAAA01000001), or RefSeq's two letters and an underscore before
+#: digits (NM_000546) or before an INSDC accession (NZ_CP009273, NZ_AAAA01000001).
+ACCESSION_BODY = r"(?:[A-Z]{2}_[A-Z]{0,6}|[A-Z]{1,6})[0-9]{5,11}"
+#: One with its version, as a FASTA header names it.
+ACCESSION = re.compile(rf"^{ACCESSION_BODY}\.[0-9]+$")
 #: The most records one run imports.
 MAX_RECORDS = 10_000_000
 #: Up to these many (and bytes of them), creates go in output.json; past them, in a file.
@@ -50,6 +55,7 @@ CREATES_FILE = "creates.ndjson"
 MAX_MESSAGES = 99
 MAX_FEATURES = 10_000
 MAX_QUALIFIERS = 50
+MAX_PARTS = 1_000
 MAX_QUALIFIER = 10_000
 LIMITS = {"name": 255, "description": 10_000, "organism": 200, "accession": 64}
 #: How NCBI's COMMENT starts for a RefSeq model, a record its annotation pipeline predicted.
@@ -208,20 +214,44 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
     accession = named[0] if named else ""
     bases = clean_bases(label, "".join(origin))
     topology = "circular" if "circular" in (w.lower() for w in locus[2:]) else "linear"
-    record.values = fit(
-        {
-            "name": name,
-            "description": " ".join(sections.get("DEFINITION", [])).strip().removesuffix("."),
-            "organism": organism,
-            "accession": accession if re.fullmatch(r"[A-Za-z0-9_.]+", accession) else "",
-            "bases": bases,
-            "topology": topology,
-            "features": _features(record, features, len(bases), topology),
-        },
-        record,
-    )
+    values = {
+        "name": name,
+        "description": " ".join(sections.get("DEFINITION", [])).strip().removesuffix("."),
+        "organism": organism,
+        "accession": accession if re.fullmatch(r"[A-Za-z0-9_.]+", accession) else "",
+        "bases": bases,
+        "topology": topology,
+        "features": _features(record, features, len(bases), topology),
+    }
+    stranded = strandedness(locus[2:])
+    if stranded:
+        values["strandedness"] = stranded
+    record.values = fit(values, record)
     record.made = made(sections.get("COMMENT", []))
     return record
+
+
+#: LOCUS's molecule types (INSDC): DNA, RNA, or a kind of RNA, maybe with ss-, ds- or ms-.
+MOLECULE = re.compile(r"^(ss-|ds-|ms-)?([a-z]*RNA|DNA)$", re.IGNORECASE)
+
+
+def strandedness(locus: list[str]) -> str | None:
+    """What LOCUS says of the molecule's strands: `single` for ss-DNA and for RNA (an mRNA
+    is kept as its cDNA's bases, GenBank's T alphabet, but the molecule is one strand),
+    `double` for ds-DNA and ds-RNA. Plain DNA doesn't say, so the field keeps its default."""
+    for word in locus:
+        found = MOLECULE.match(word)
+        if not found:
+            continue
+        prefix, kind = (found[1] or "").lower(), found[2].upper()
+        if prefix == "ms-":
+            return None  # mixed: neither
+        if prefix == "ds-":
+            return "double"
+        if prefix == "ss-" or kind.endswith("RNA"):
+            return "single"
+        return None
+    return None
 
 
 def made(comment: list[str]) -> dict[str, Any] | None:
@@ -310,14 +340,73 @@ def _features(record: Record, lines: list[str], length: int, topology: str) -> l
     return out
 
 
-def _strand(location: str) -> str:
-    """`reverse` for `complement(…)`, and for a join or order of complemented parts."""
-    if location.startswith("complement("):
-        return "reverse"
-    inner = re.fullmatch(r"(?:join|order)\((.*)\)", location)
-    if inner and all(part.startswith("complement(") for part in inner[1].split(",")):
-        return "reverse"
-    return "forward"
+class LocationError(ValueError):
+    """A location this reading of INSDC's grammar doesn't take."""
+
+
+#: A part's place: `a..b` (either end maybe fuzzy, `<a`, `>b`), `a^b` (between two bases),
+#: or a single base.
+RANGE = re.compile(r"<?([0-9]+)\.\.>?([0-9]+)")
+BETWEEN = re.compile(r"([0-9]+)\^([0-9]+)")
+BASE = re.compile(r"[<>]?([0-9]+)")
+
+
+def _top_level(text: str) -> list[str]:
+    """`text` split at the commas outside parentheses."""
+    out, depth, here = [], 0, 0
+    for at, c in enumerate(text):
+        depth += (c == "(") - (c == ")")
+        if c == "," and depth == 0:
+            out.append(text[here:at])
+            here = at + 1
+    out.append(text[here:])
+    return [part.strip() for part in out]
+
+
+def parts_of(location: str, strand: str = "forward") -> list[dict[str, Any]]:
+    """A location's parts in the order they're read (5' to 3' of what the feature is: a
+    complement's parts last first), each with its strand, as INSDC's feature table writes
+    them: `complement(…)`, `join(…)` and `order(…)`, around ranges, single bases and sites
+    between two bases (`5^6`, flagged `between`)."""
+    location = location.strip()
+    for wrapper in ("complement", "join", "order"):
+        if location.startswith(f"{wrapper}(") and location.endswith(")"):
+            inner = location[len(wrapper) + 1 : -1]
+            if wrapper == "complement":
+                flipped = "reverse" if strand == "forward" else "forward"
+                return list(reversed(parts_of(inner, flipped)))
+            return [part for piece in _top_level(inner) for part in parts_of(piece, strand)]
+    if found := RANGE.fullmatch(location):
+        return [{"start": int(found[1]), "end": int(found[2]), "strand": strand}]
+    if found := BETWEEN.fullmatch(location):
+        return [{"start": int(found[1]), "end": int(found[2]), "strand": strand, "between": True}]
+    if found := BASE.fullmatch(location):
+        return [{"start": int(found[1]), "end": int(found[1]), "strand": strand}]
+    raise LocationError(location)
+
+
+def extent(parts: list[dict[str, Any]], length: int, topology: str) -> tuple[int, int]:
+    """The stretch a feature's parts lie within, first base to last: on a circular sequence
+    the shortest way round that holds them all, which crosses the origin (an end before
+    the start) only when that's shorter; otherwise its lowest base to its highest."""
+    stretches: list[tuple[int, int]] = []
+    for part in parts:
+        a, b = part["start"], part["end"]
+        stretches.extend([(a, length), (1, b)] if a > b else [(a, b)])
+    stretches.sort()
+    if topology != "circular" or len(stretches) == 1:
+        return stretches[0][0], max(b for _, b in stretches)
+    merged: list[list[int]] = []
+    for a, b in stretches:
+        if merged and a <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    # The widest stretch none of them cover, round the circle, is what the feature isn't.
+    gaps = [(merged[i + 1][0] - merged[i][1] - 1, i) for i in range(len(merged) - 1)]
+    gaps.append((length - merged[-1][1] + merged[0][0] - 1, len(merged) - 1))
+    _, after = max(gaps)
+    return merged[(after + 1) % len(merged)][0], merged[after][1]
 
 
 def _feature(
@@ -328,16 +417,27 @@ def _feature(
             f"{record.label}: a {key} on another record ({location}) was left out."
         )
         return None
-    strand = _strand(location)
-    numbers = [int(n) for n in re.findall(r"[0-9]+", location)]
-    if not numbers or not all(1 <= n <= length for n in numbers):
+    try:
+        parts = parts_of(location)
+    except LocationError:
+        parts = []
+    circle = topology == "circular"
+
+    def fits(part: dict[str, Any]) -> bool:
+        a, b = part["start"], part["end"]
+        if not (1 <= a <= length and 1 <= b <= length):
+            return False
+        if part.get("between"):
+            # Between two neighbouring bases, or round the origin between the last and first.
+            return b == a + 1 or (circle and (a, b) == (length, 1))
+        return a <= b or circle  # a range ending before it starts crosses the origin
+
+    if not parts or not all(fits(part) for part in parts):
         record.warnings.append(f"{record.label}: a {key} at {location!r} was left out.")
         return None
-    # Forward parts run in order, and may wrap the origin of a circular sequence (an end
-    # before the start); otherwise it spans its lowest base to its highest.
-    first, last = numbers[0], numbers[-1]
-    if strand == "reverse" or (first > last and topology != "circular"):
-        first, last = min(numbers), max(numbers)
+    strands = {part["strand"] for part in parts}
+    strand = strands.pop() if len(strands) == 1 else "mixed"
+    first, last = extent(parts, length, topology)
     qualifiers: dict[str, str] = {}
     for item in raw:
         name, _, value = item[1:].partition("=")
@@ -355,6 +455,11 @@ def _feature(
             qualifiers[name] = value[:MAX_QUALIFIER]
             record.warnings.append(f"{record.label}: a {key}'s /{name} was cut.")
     feature: dict[str, Any] = {"type": key[:64], "start": first, "end": last, "strand": strand}
+    if len(parts) > 1 or parts[0].get("between"):
+        # Where it lies, part by part: a join's exons, not its introns; a site, no base.
+        feature["parts"] = parts[:MAX_PARTS]
+        if len(parts) > MAX_PARTS:
+            record.warnings.append(f"{record.label}: a {key}'s first {MAX_PARTS} parts only.")
     label = next(
         (qualifiers[q] for q in ("label", "gene", "locus_tag", "product") if q in qualifiers),
         "",

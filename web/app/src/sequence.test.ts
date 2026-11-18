@@ -42,8 +42,8 @@ describe("features", () => {
     const [wrapped] = readFeatures([{ type: "CDS", start: 2600, end: 120 }], 2686) as [Feature];
     expect(featureLength(wrapped, 2686)).toBe(87 + 120);
     expect(locationText(wrapped)).toBe("2600..120 (across the origin)");
-    expect(piecesIn([wrapped], 1, 2686)).toMatchObject([{ column: 0, width: 65, last: false }]);
-    expect(piecesIn([wrapped], 2641, 2686)).toMatchObject([{ first: false, last: false }]);
+    expect(piecesIn([wrapped], 1, 2686)).toMatchObject([{ column: 0, width: 65, arrow: null }]);
+    expect(piecesIn([wrapped], 2641, 2686)).toMatchObject([{ shape: "part", arrow: null }]);
   });
 
   it("are drawn in their row's columns, with a gap after every ten residues", () => {
@@ -53,8 +53,93 @@ describe("features", () => {
     const [mcs] = readFeatures([{ type: "misc_feature", start: 397, end: 453 }], 2686) as [Feature];
     // Row 361..420 holds 397..420: offsets 36..59.
     expect(piecesIn([mcs], 361, 2686)).toEqual([
-      { feature: mcs, column: 39, width: 26, first: true, last: false },
+      { feature: mcs, column: 39, width: 26, shape: "part", arrow: null },
     ]);
+  });
+
+  it("cover only their parts: a join's, not what's between them, and a site none", () => {
+    // INSDC: join(2..4,10..12) is six bases; 5^6 is the site between 5 and 6.
+    const [joined, site] = readFeatures(
+      [
+        {
+          type: "CDS",
+          start: 2,
+          end: 12,
+          strand: "forward",
+          parts: [
+            { start: 2, end: 4, strand: "forward" },
+            { start: 10, end: 12, strand: "forward" },
+          ],
+        },
+        {
+          type: "misc_feature",
+          start: 5,
+          end: 6,
+          parts: [{ start: 5, end: 6, between: true }],
+        },
+      ],
+      20,
+    ) as [Feature, Feature];
+    expect(featureLength(joined, 20)).toBe(6);
+    expect(locationText(joined)).toBe("join(2..4,10..12)");
+    expect(piecesIn([joined], 1, 20)).toEqual([
+      { feature: joined, column: 4, width: 5, shape: "joining", arrow: null },
+      { feature: joined, column: 1, width: 3, shape: "part", arrow: null },
+      { feature: joined, column: 9, width: 4, shape: "part", arrow: "forward" },
+    ]);
+    expect(featureLength(site, 20)).toBe(0);
+    expect(locationText(site)).toBe("5^6");
+    expect(piecesIn([site], 1, 20)).toMatchObject([{ column: 4, shape: "site", arrow: null }]);
+  });
+
+  it("cross the origin only where their parts do, the arrow at the last one's end", () => {
+    // complement(join(90..100,1..5)) on a 100-base circle: 16 bases, read 5 to 1, then
+    // 100 to 90, so it ends at 90.
+    const [reverse] = readFeatures(
+      [
+        {
+          type: "CDS",
+          start: 90,
+          end: 5,
+          strand: "reverse",
+          parts: [
+            { start: 1, end: 5, strand: "reverse" },
+            { start: 90, end: 100, strand: "reverse" },
+          ],
+        },
+      ],
+      100,
+    ) as [Feature];
+    expect(featureLength(reverse, 100)).toBe(16);
+    expect(locationText(reverse)).toBe("complement(join(90..100,1..5)) (across the origin)");
+    const pieces = piecesIn([reverse], 61, 100);
+    expect(pieces.filter((p) => p.shape === "joining")).toEqual([]);
+    expect(pieces.find((p) => p.arrow)).toMatchObject({ arrow: "reverse", column: 31 });
+    expect(piecesIn([reverse], 1, 100).every((p) => p.arrow === null)).toBe(true);
+  });
+
+  it("say when their parts lie on both strands", () => {
+    const [mixed] = readFeatures(
+      [
+        {
+          type: "mRNA",
+          start: 1,
+          end: 20,
+          strand: "mixed",
+          parts: [
+            { start: 1, end: 5, strand: "forward" },
+            { start: 10, end: 20, strand: "reverse" },
+          ],
+        },
+      ],
+      30,
+    ) as [Feature];
+    expect(mixed.strand).toBe("mixed");
+    expect(locationText(mixed)).toBe("join(1..5,complement(10..20))");
+    // Parts that don't lie on the sequence leave the feature out.
+    expect(
+      readFeatures([{ type: "CDS", start: 1, end: 5, parts: [{ start: 1, end: 50 }] }], 30),
+    ).toEqual([]);
   });
 
   it("say how many lanes each row needs", () => {
