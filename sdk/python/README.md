@@ -113,6 +113,11 @@ late = list(iki.entities.search("iki/example_lims.Sample", where=bos))
 iki.entities.assign(late, "analyst", "ana@example.com", reason="Bo is away")["skipped"]
 mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searches
 
+# Its electronic signatures (21 CFR Part 11), each as people read it, checked again.
+# They're read and checked here; only a person signing in again in the web app signs.
+for signature in iki.signatures.list("SMP-000012", verify=True)["items"]:
+    print(signature["manifestation"], signature["verification"]["valid"])
+
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from
 iki.entities.origins("DNA-000042")  # the database record or file it was imported from

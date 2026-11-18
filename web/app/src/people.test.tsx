@@ -23,6 +23,7 @@ const RECEIVED: Schemas["StateOut"] = {
   set_by: ["iki/lims.analyst"],
   locks: false,
   reason: null,
+  signatures: [],
 };
 const IN_TESTING: Schemas["StateOut"] = { ...RECEIVED, name: "in_testing", label: "In testing" };
 const IN_REVIEW: Schemas["StateOut"] = { ...RECEIVED, name: "in_review", label: "In review" };
@@ -83,7 +84,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     values: { name: "Lot 7", status: "in_testing", analyst: ANA, reviewer: null },
     people: { [ANA]: person(ANA, "Ana Lima", "ana@example.com") },
     needs_reassigning: [],
-    can: { edit: true, take: [], states: {} },
+    can: { edit: true, take: [], states: {}, sign: [] },
     ...overrides,
   });
 }
@@ -124,7 +125,7 @@ describe("whom a record names", () => {
     onSample(
       sample({
         values: { name: "Lot 7", status: "in_review", analyst: ANA, reviewer: null },
-        can: { edit: true, take: ["reviewer"], states: {} },
+        can: { edit: true, take: ["reviewer"], states: {}, sign: [] },
       }),
     );
     const taken = sample({
@@ -134,7 +135,7 @@ describe("whom a record names", () => {
         [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
         [ME.id]: person(ME.id, ME.name, ME.email),
       },
-      can: { edit: true, take: [], states: {} },
+      can: { edit: true, take: [], states: {}, sign: [] },
     });
     answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, taken);
     const { user } = await renderApp("/entities/SMP-000001/");

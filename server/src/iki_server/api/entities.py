@@ -61,8 +61,19 @@ from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
+from iki_server.signatures import changes as sig_changes
+from iki_server.signatures import models as signing_models
+from iki_server.signatures import services as sig_services
 from iki_spec import titles, units
-from iki_spec.model import EntityType, State, Track, Viewer, names_people, person_role
+from iki_spec.model import (
+    SIGNATURE_MEANINGS,
+    EntityType,
+    State,
+    Track,
+    Viewer,
+    names_people,
+    person_role,
+)
 from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
@@ -76,6 +87,23 @@ RegistryMark = Literal["identity", "derived", "fact"]
 class UnitOption(Schema):
     code: str = Field(description="UCUM, as the API takes it.")
     symbol: str = Field(description="As people write it.")
+
+
+Meaning = Literal["authorship", "review", "approval", "verification", "responsibility", "witness"]
+
+
+class WantedSignatureOut(Schema):
+    """A signature setting a state needs (ADR 0126)."""
+
+    meaning: Meaning = Field(description="What signing means (21 CFR 11.50).")
+    meaning_label: str = Field(description="The meaning as people read it: Approval.")
+    verb: str = Field(description="How its manifestation reads: “Approved by …”.")
+    label: str = Field(description="How the plugin names it: “QA approval”.")
+    statement: str = Field(description="What its signer attests to.")
+    roles: list[str] = Field(
+        description="The lab roles whoever gives it holds, any one: its own, or the state's "
+        "`set_by`."
+    )
 
 
 class StateOut(Schema):
@@ -95,6 +123,11 @@ class StateOut(Schema):
     )
     reason: Literal["required", "optional"] | None = Field(
         description="Whether setting it asks why: required, optional, or not at all (null)."
+    )
+    signatures: list[WantedSignatureOut] = Field(
+        description="The electronic signatures setting it needs (ADR 0126): it's set by the "
+        "last of them, once they're all given on the same revision, never directly. Empty for "
+        "a state set directly."
     )
 
 
@@ -266,6 +299,57 @@ class StateCan(Schema):
     )
     allowed: bool = Field(description="You may set it now.")
     why_not: str | None = Field(description="Why you may not, when you may not.")
+    signed: bool = Field(
+        description="It's set by signing for it (ADR 0126), never directly: see `can.sign`."
+    )
+
+
+class GivenSignatureOut(Schema):
+    """A signature given for setting a state, on the record's current revision."""
+
+    id: UUID
+    signer: PersonRef
+    signed_at: datetime
+    manifestation: str = Field(
+        description="As people read it: who, when (UTC), and what it means (21 CFR 11.50)."
+    )
+
+
+class SignatureCan(Schema):
+    """One of the signatures setting a record's state needs (ADR 0126): given, or whether
+    you may give it."""
+
+    index: int = Field(description="Which, from 0: send it to sign.")
+    meaning: Meaning
+    meaning_label: str
+    label: str
+    statement: str = Field(description="What you attest to by giving it.")
+    roles: list[str]
+    role_labels: list[str]
+    given: GivenSignatureOut | None = Field(description="The signature that counts for it.")
+    allowed: bool = Field(description="You may give it now.")
+    why_not: str | None = Field(description="Why you may not, when you may not.")
+    lapsed: str | None = Field(
+        description="A signature given for it that no longer counts, and why: its signer no "
+        "longer holds the role."
+    )
+
+
+class SignCan(Schema):
+    """Setting one of the record's state fields to a state that needs signatures (ADR
+    0123): each of them, given or not. Give one with POST /entities/{ref}/signatures, in
+    the web app."""
+
+    field: str = Field(description="The state field.")
+    field_label: str
+    to: str = Field(description="The state it sets.")
+    to_label: str
+    reason: Literal["required", "optional"] | None = Field(
+        description="Whether each signer says why: required, optional, or not at all (null)."
+    )
+    allowed: bool = Field(description="You may give one of its signatures now.")
+    why_not: str | None = Field(description="Why you may not, when you may not.")
+    signatures: list[SignatureCan]
 
 
 class EntityCan(Schema):
@@ -277,6 +361,10 @@ class EntityCan(Schema):
         description="For each of its state fields (ADR 0125), the states it could be set to: "
         "every one but the one it's in, each with whether you may set it and why not. Empty "
         "for a type without state fields.",
+    )
+    sign: list[SignCan] = Field(
+        description="The states its state fields may be set to now that need electronic "
+        "signatures (ADR 0126), each with its signatures, given or not.",
     )
     take: list[str] = Field(
         default_factory=list,
@@ -428,10 +516,24 @@ class NamedOut(Schema):
     label: str
 
 
+class CarriedSignatureOut(Schema):
+    id: UUID
+    manifestation: str = Field(
+        description="Who signed, when (UTC), and what it means (21 CFR 11.50); empty if the "
+        "signature is gone."
+    )
+    present: bool = Field(description="The signature is there: false only if it was deleted.")
+
+
 class RevisionStateOut(Schema):
     field: NamedOut = Field(description="The state field set.")
     from_: NamedOut | None = Field(alias="from", description="The state it was in.")
     to: NamedOut = Field(description="The state it was set to.")
+    signatures: list[CarriedSignatureOut] = Field(
+        description="The electronic signatures that set it (ADR 0126), in order: each as "
+        "people read it. Empty for a state set directly. GET /entities/{ref}/signatures has "
+        "them in full."
+    )
 
 
 class RunRefOut(Schema):
@@ -698,6 +800,19 @@ def _state_out(state: State) -> dict[str, Any]:
         "set_by": list(state.set_by),
         "locks": state.locks,
         "reason": state.reason,
+        "signatures": [_wanted_out(state, w) for w in state.signatures],
+    }
+
+
+def _wanted_out(state: State, wanted: Any) -> dict[str, Any]:  # noqa: ANN401 - a spec Signature
+    meaning = SIGNATURE_MEANINGS[wanted.meaning]
+    return {
+        "meaning": wanted.meaning,
+        "meaning_label": meaning.label,
+        "verb": meaning.verb,
+        "label": wanted.label,
+        "statement": wanted.statement,
+        "roles": [wanted.role] if wanted.role else list(state.set_by),
     }
 
 
@@ -856,6 +971,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     entries = _entries_of(user, entities)
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
+    signing = _Signing(user, entities)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -894,6 +1010,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     and entity.type not in frozen
                     and not entity.locked,
                     "states": _states_can(user, entity, values[entity.pk]),
+                    "sign": _sign_can(user, entity, values[entity.pk], signing),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -911,10 +1028,84 @@ def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str,
                 "reason": o.state.reason,
                 "allowed": o.why_not is None,
                 "why_not": o.why_not,
+                "signed": o.signed,
             }
             for o in found
         ]
         for name, found in states.options(user, entity, values).items()
+    }
+
+
+class _Signing:
+    """What the records' signed states need, read once for a page of records: their
+    signatures given, and why the caller can't sign at all, if they can't."""
+
+    def __init__(self, user: User, entities: list[Entity]) -> None:
+        self.user = user
+        self.entities = entities
+        self._given: dict[Any, list[Any]] | None = None
+        self._cant: tuple[str | None] | None = None
+
+    def given(self, entity: Entity) -> list[Any]:
+        if self._given is None:
+            self._given = sig_services.pending(self.entities)
+        return self._given.get(entity.pk, [])
+
+    def cant(self) -> str | None:
+        if self._cant is None:
+            self._cant = (sig_services.why_cant_sign(self.user),)
+        return self._cant[0]
+
+
+def _sign_can(
+    user: User, entity: Entity, values: dict[str, Any], signing: _Signing
+) -> list[dict[str, Any]]:
+    out = []
+    for change in sig_changes.signed(entity, values):
+        slots = sig_services.slots(
+            user, entity, change, given=signing.given(entity), cant=signing.cant()
+        )
+        allowed = any(s.why_not is None for s in slots)
+        open_slots = [s for s in slots if s.signature is None]
+        out.append(
+            {
+                "field": change.field,
+                "field_label": change.field_label,
+                "to": change.to,
+                "to_label": change.to_label,
+                "reason": change.reason,
+                "allowed": allowed,
+                "why_not": None
+                if allowed
+                else (open_slots[0].why_not if open_slots else "Its signatures are all given."),
+                "signatures": [_slot_out(s) for s in slots],
+            }
+        )
+    return out
+
+
+def _slot_out(slot: Any) -> dict[str, Any]:  # noqa: ANN401 - a signatures.services.Slot
+    meaning = SIGNATURE_MEANINGS[slot.wanted.meaning]
+    given = slot.signature
+    return {
+        "index": slot.index,
+        "meaning": slot.wanted.meaning,
+        "meaning_label": meaning.label,
+        "label": slot.wanted.label,
+        "statement": slot.wanted.statement,
+        "roles": list(slot.roles),
+        "role_labels": [lab_roles.label(r) for r in slot.roles],
+        "given": {
+            "id": given.pk,
+            "signer": given.signer,
+            "signed_at": given.signed_at,
+            "manifestation": sig_services.manifestation(sig_services.parsed(given)),
+        }
+        if given is not None
+        else None,
+        "allowed": slot.why_not is None,
+        "why_not": slot.why_not if given is None else None,
+        "lapsed": slot.lapsed,
     }
 
 
@@ -1397,7 +1588,9 @@ def set_entity_state(
     as a revision of its own, with your reason. It needs one of the state's lab roles in the
     record's project (ADR 0116): `can.states` lists each state with whether you may and why
     not. A state that locks the record freezes its other fields until the field is set to
-    one that doesn't; state fields stay settable. Send If-Match with the ETag you read."""
+    one that doesn't; state fields stay settable. A state that needs electronic signatures
+    (ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`
+    for it. Send If-Match with the ETag you read."""
     me = caller(request)
     entity = _find(me, ref, project)
     expected = _expected(if_match)
@@ -1405,6 +1598,8 @@ def set_entity_state(
         states.set_state(
             me, entity, field, payload.state, expected_revision=expected, reason=payload.reason
         )
+    except states.NeedsSignatures as signed:
+        raise Problem(409, str(signed), code="signatures_required") from None
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
@@ -1549,7 +1744,22 @@ def _revision_state(revision: Revision) -> dict[str, Any] | None:
     if revision.kind != RevisionKind.STATE_CHANGED:
         return None
     type_name = Entity.objects.values_list("type", flat=True).get(pk=revision.entity_id)
-    return services.state_change(type_name, revision)
+    carried = {
+        s.pk: s for s in signing_models.Signature.objects.filter(pk__in=revision.signatures or ())
+    }
+    return {
+        **services.state_change(type_name, revision),
+        "signatures": [
+            {
+                "id": i,
+                "manifestation": sig_services.manifestation(sig_services.parsed(carried[i]))
+                if i in carried
+                else "",
+                "present": i in carried,
+            }
+            for i in revision.signatures or ()
+        ],
+    }
 
 
 def undisclosed(revision: Revision) -> dict[str, Any]:

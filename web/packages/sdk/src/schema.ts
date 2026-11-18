@@ -1213,6 +1213,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/signatures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A record's electronic signatures
+         * @description Every signature given on the record, newest first, each with its manifestation and
+         *     where it stands; with `verify=true`, each checked again. `missing` lists any the
+         *     record's states were set with that are gone.
+         */
+        get: operations["iki_server_api_signatures_list_signatures"];
+        put?: never;
+        /**
+         * Start signing for a state
+         * @description Starts giving one of the signatures setting the record's state needs (ADR 0126),
+         *     as the person in
+         *     the web app's browser session: send the browser to `sign_in_url`, where the identity
+         *     provider signs them in again, however recently they did (ADR 0124). Its answer signs
+         *     the revision you read (send its ETag as If-Match), and comes back to `return_to`. No
+         *     token, app or AI agent can sign: they're refused with 403.
+         */
+        post: operations["iki_server_api_signatures_start_signing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/states/{field}": {
         parameters: {
             query?: never;
@@ -1228,7 +1259,9 @@ export interface paths {
          *     as a revision of its own, with your reason. It needs one of the state's lab roles in the
          *     record's project (ADR 0116): `can.states` lists each state with whether you may and why
          *     not. A state that locks the record freezes its other fields until the field is set to
-         *     one that doesn't; state fields stay settable. Send If-Match with the ETag you read.
+         *     one that doesn't; state fields stay settable. A state that needs electronic signatures
+         *     (ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`
+         *     for it. Send If-Match with the ETag you read.
          */
         post: operations["iki_server_api_entities_set_entity_state"];
         delete?: never;
@@ -1709,6 +1742,23 @@ export interface paths {
         head?: never;
         /** Choose which notifications you get by email */
         patch: operations["iki_server_api_notifications_change_email_settings"];
+        trace?: never;
+    };
+    "/api/v1/me/signing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether you can sign */
+        get: operations["iki_server_api_signatures_my_signing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/me/work": {
@@ -2811,6 +2861,127 @@ export interface paths {
         patch: operations["iki_server_api_service_accounts_patch_account"];
         trace?: never;
     };
+    "/api/v1/signatures/certification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The organization's certification */
+        get: operations["iki_server_api_signatures_get_certification"];
+        put?: never;
+        /**
+         * Record the organization's certification
+         * @description Records that the organization certified to the FDA that its electronic signatures
+         *     are the legally binding equivalent of handwritten ones (21 CFR 11.100(c)). Org Admins
+         *     only; each is kept, and the latest is in force.
+         */
+        post: operations["iki_server_api_signatures_certify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/signatures/{signature_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A signature */
+        get: operations["iki_server_api_signatures_get_signature"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/signatures/{signature_id}/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check a signature again
+         * @description Checks, now, from the database: the key is one this deployment trusts, it signed
+         *     the document, the signature's record, revision, signer and time are the document's,
+         *     the content kept with it is what was signed, and the record's history still holds
+         *     that content. Anything changed outside Iki, even in SQL, fails a check.
+         */
+        get: operations["iki_server_api_signatures_verify_signature"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/signatures/{signature_id}/withdrawal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw your signature
+         * @description Takes back your signature while setting the state waits for others. Once the
+         *     state is set with it, it stays.
+         */
+        post: operations["iki_server_api_signatures_withdraw_signature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/signing-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This deployment's signing keys */
+        get: operations["iki_server_api_signatures_signing_keys_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/signings/{signing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a signing went
+         * @description Your own signings only: another's answers 404.
+         */
+        get: operations["iki_server_api_signatures_get_signing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams": {
         parameters: {
             query?: never;
@@ -3066,6 +3237,27 @@ export interface paths {
         post?: never;
         /** Sign someone out everywhere */
         delete: operations["iki_server_api_users_end_sessions"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/signing/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unlock signing
+         * @description Unlocks someone's signing after failed attempts to sign as them locked it. Org
+         *     Admins only.
+         */
+        post: operations["iki_server_api_signatures_unlock_signing"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4309,6 +4501,59 @@ export interface components {
              */
             reason: string;
         };
+        /** CarriedSignatureOut */
+        CarriedSignatureOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Manifestation
+             * @description Who signed, when (UTC), and what it means (21 CFR 11.50); empty if the signature is gone.
+             */
+            manifestation: string;
+            /**
+             * Present
+             * @description The signature is there: false only if it was deleted.
+             */
+            present: boolean;
+        };
+        /** CertificationIn */
+        CertificationIn: {
+            /**
+             * Reference
+             * @description Where it's kept, or how it was sent: “QA-DOC-0042, sent to FDA ORA”.
+             */
+            reference: string;
+            /**
+             * Submitted On
+             * Format: date
+             * @description When the organization sent its letter to the FDA.
+             */
+            submitted_on: string;
+        };
+        /** CertificationOut */
+        CertificationOut: {
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            recorded_by: components["schemas"]["PersonRef"];
+            /** Reference */
+            reference: string;
+            /**
+             * Submitted On
+             * Format: date
+             */
+            submitted_on: string;
+        };
+        /** CertificationState */
+        CertificationState: {
+            /** @description The organization's certification to the FDA (21 CFR 11.100(c)) in force. Until an Org Admin records one, nobody signs. */
+            certification: components["schemas"]["CertificationOut"] | null;
+        };
         /** ChangeOut */
         ChangeOut: {
             /** After */
@@ -5056,6 +5301,11 @@ export interface components {
              * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
              */
             edit: boolean;
+            /**
+             * Sign
+             * @description The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
+             */
+            sign: components["schemas"]["SignCan"][];
             /**
              * States
              * @description For each of its state fields (ADR 0125), the states it could be set to: every one but the one it's in, each with whether you may set it and why not. Empty for a type without state fields.
@@ -5908,6 +6158,28 @@ export interface components {
              */
             reason: string;
         };
+        /**
+         * GivenSignatureOut
+         * @description A signature given for setting a state, on the record's current revision.
+         */
+        GivenSignatureOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Manifestation
+             * @description As people read it: who, when (UTC), and what it means (21 CFR 11.50).
+             */
+            manifestation: string;
+            /**
+             * Signed At
+             * Format: date-time
+             */
+            signed_at: string;
+            signer: components["schemas"]["PersonRef"];
+        };
         /** GraphEdgeOut */
         GraphEdgeOut: {
             /** Field */
@@ -6669,10 +6941,10 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets.
+             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.
              * @enum {string}
              */
-            kind: "approval" | "field" | "state";
+            kind: "approval" | "field" | "state" | "signature";
             /**
              * Name
              * @description The step or field.
@@ -7044,6 +7316,33 @@ export interface components {
             values: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * MySigningOut
+         * @description Whether you can sign now, and what you agree to before your first signature.
+         */
+        MySigningOut: {
+            /**
+             * Acknowledged
+             * @description You agreed to `acknowledgment` already.
+             */
+            acknowledged: boolean;
+            /** Acknowledgment */
+            acknowledgment: string;
+            /** Can Sign */
+            can_sign: boolean;
+            /**
+             * Locked
+             * @description Failed attempts locked your signing.
+             */
+            locked: boolean;
+            /**
+             * Provider
+             * @description The identity provider you sign in again at.
+             */
+            provider: string | null;
+            /** Why Not */
+            why_not: string | null;
         };
         /** NameableFilters */
         NameableFilters: {
@@ -8866,6 +9165,11 @@ export interface components {
             field: components["schemas"]["NamedOut"];
             /** @description The state it was in. */
             from: components["schemas"]["NamedOut"] | null;
+            /**
+             * Signatures
+             * @description The electronic signatures that set it (ADR 0126), in order: each as people read it. Empty for a state set directly. GET /entities/{ref}/signatures has them in full.
+             */
+            signatures: components["schemas"]["CarriedSignatureOut"][];
             /** @description The state it was set to. */
             to: components["schemas"]["NamedOut"];
         };
@@ -10004,6 +10308,434 @@ export interface components {
              */
             state: "creating" | "ready" | "failed" | "deleted";
         };
+        /**
+         * SignCan
+         * @description Setting one of the record's state fields to a state that needs signatures (ADR
+         *     0123): each of them, given or not. Give one with POST /entities/{ref}/signatures, in
+         *     the web app.
+         */
+        SignCan: {
+            /**
+             * Allowed
+             * @description You may give one of its signatures now.
+             */
+            allowed: boolean;
+            /**
+             * Field
+             * @description The state field.
+             */
+            field: string;
+            /** Field Label */
+            field_label: string;
+            /**
+             * Reason
+             * @description Whether each signer says why: required, optional, or not at all (null).
+             */
+            reason: ("required" | "optional") | null;
+            /** Signatures */
+            signatures: components["schemas"]["SignatureCan"][];
+            /**
+             * To
+             * @description The state it sets.
+             */
+            to: string;
+            /** To Label */
+            to_label: string;
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not: string | null;
+        };
+        /** SignatureAuthenticationOut */
+        SignatureAuthenticationOut: {
+            /**
+             * Authenticated At
+             * Format: date-time
+             * @description When they signed in again.
+             */
+            authenticated_at: string;
+            /**
+             * Context
+             * @description OIDC's `acr`, or SAML's AuthnContextClassRef.
+             */
+            context: string;
+            /** Issuer */
+            issuer: string;
+            /**
+             * Methods
+             * @description How, as the provider says (OIDC's `amr`).
+             */
+            methods: string[];
+            /**
+             * Protocol
+             * @enum {string}
+             */
+            protocol: "oidc" | "saml";
+            /**
+             * Subject
+             * @description Who the identity provider says signed in again.
+             */
+            subject: string;
+        };
+        /**
+         * SignatureCan
+         * @description One of the signatures setting a record's state needs (ADR 0126): given, or whether
+         *     you may give it.
+         */
+        SignatureCan: {
+            /**
+             * Allowed
+             * @description You may give it now.
+             */
+            allowed: boolean;
+            /** @description The signature that counts for it. */
+            given: components["schemas"]["GivenSignatureOut"] | null;
+            /**
+             * Index
+             * @description Which, from 0: send it to sign.
+             */
+            index: number;
+            /** Label */
+            label: string;
+            /**
+             * Lapsed
+             * @description A signature given for it that no longer counts, and why: its signer no longer holds the role.
+             */
+            lapsed: string | null;
+            /**
+             * Meaning
+             * @enum {string}
+             */
+            meaning: "authorship" | "review" | "approval" | "verification" | "responsibility" | "witness";
+            /** Meaning Label */
+            meaning_label: string;
+            /** Role Labels */
+            role_labels: string[];
+            /** Roles */
+            roles: string[];
+            /**
+             * Statement
+             * @description What you attest to by giving it.
+             */
+            statement: string;
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not: string | null;
+        };
+        /** SignatureCheckOut */
+        SignatureCheckOut: {
+            /** Detail */
+            detail: string;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "document" | "key" | "signature" | "row" | "content" | "record" | "change";
+            /** Ok */
+            ok: boolean;
+        };
+        /** SignatureListParams */
+        SignatureListParams: {
+            /**
+             * Verify
+             * @description Check each signature again, now.
+             * @default false
+             */
+            verify: boolean;
+        };
+        /**
+         * SignatureOut
+         * @description A person's electronic signature on a revision of a record (21 CFR 11.50, 11.70).
+         */
+        SignatureOut: {
+            authentication: components["schemas"]["SignatureAuthenticationOut"];
+            /**
+             * Carried By
+             * @description The revision that set the state with it.
+             */
+            carried_by: number | null;
+            change: components["schemas"]["SignedChangeOut"];
+            /**
+             * Deployment
+             * @description The deployment it was signed on.
+             */
+            deployment: string;
+            /**
+             * Document
+             * @description What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.
+             */
+            document: string;
+            /**
+             * Entry Revision
+             * @description For a record of a registry entry: the entry's revision it signs.
+             */
+            entry_revision: number | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Index
+             * @description Which of the change's signatures, from 0.
+             */
+            index: number;
+            /**
+             * Key
+             * @description The Ed25519 key that signed it: `ed25519:...`.
+             */
+            key: string;
+            /**
+             * Label
+             * @description How the plugin names it: “QA approval”.
+             */
+            label: string;
+            /**
+             * Manifestation
+             * @description As people read it: the signer's printed name, the date and time (UTC), and what it means. “Approved by Ada Lovelace on 2026-11-18 at 14:03:22 UTC. Meaning: QA approval.”
+             */
+            manifestation: string;
+            /**
+             * Meaning
+             * @enum {string}
+             */
+            meaning: "authorship" | "review" | "approval" | "verification" | "responsibility" | "witness";
+            /** Meaning Label */
+            meaning_label: string;
+            /**
+             * Of
+             * @description How many the change needed when it was signed.
+             */
+            of: number;
+            /** Reason */
+            reason: string;
+            /**
+             * Record
+             * Format: uuid
+             */
+            record: string;
+            /**
+             * Revision
+             * @description The revision of the record it signs.
+             */
+            revision: number;
+            /**
+             * Roles
+             * @description The lab roles its signer had to hold: any one.
+             */
+            roles: string[];
+            /**
+             * Signature
+             * @description The Ed25519 signature of `document`, base64url.
+             */
+            signature: string;
+            /**
+             * Signed At
+             * Format: date-time
+             */
+            signed_at: string;
+            signer: components["schemas"]["PersonRef"];
+            /** Signer Email */
+            signer_email: string;
+            /**
+             * Signer Name
+             * @description The signer's name as it was signed.
+             */
+            signer_name: string;
+            /**
+             * Statement
+             * @description What the signer attested to.
+             */
+            statement: string;
+            /**
+             * Status
+             * @description `carried`: the state was set with it. `pending`: setting it waits for others. `withdrawn`: its signer took it back. `lapsed`: the record changed after it, so it counts for nothing.
+             * @enum {string}
+             */
+            status: "pending" | "carried" | "withdrawn" | "lapsed";
+            /** Status Detail */
+            status_detail: string;
+            /** @description With `verify=true`: each check made again, now. */
+            verification?: components["schemas"]["SignatureVerificationOut"] | null;
+        };
+        /** SignatureVerificationOut */
+        SignatureVerificationOut: {
+            /** Checks */
+            checks: components["schemas"]["SignatureCheckOut"][];
+            /**
+             * Valid
+             * @description Every check passed.
+             */
+            valid: boolean;
+            /**
+             * Verified At
+             * Format: date-time
+             */
+            verified_at: string;
+        };
+        /** SignaturesOut */
+        SignaturesOut: {
+            /** Items */
+            items: components["schemas"]["SignatureOut"][];
+            /**
+             * Missing
+             * @description Signatures the record's states were set with that are gone from the database. Empty, unless something outside Iki deleted them.
+             */
+            missing: string[];
+        };
+        /**
+         * SignedChangeOut
+         * @description What a signature signs for: setting the record's state field to a state.
+         */
+        SignedChangeOut: {
+            /** Field */
+            field: string;
+            /** Field Label */
+            field_label: string;
+            /**
+             * From
+             * @description The state it was in.
+             */
+            from: string;
+            /** From Label */
+            from_label: string;
+            /**
+             * To
+             * @description The state it signs for setting.
+             */
+            to: string;
+            /** To Label */
+            to_label: string;
+        };
+        /** SigningIn */
+        SigningIn: {
+            /**
+             * Acknowledge
+             * @description Before your first signature: that you agree to `acknowledgment` in GET /me/signing.
+             * @default false
+             */
+            acknowledge: boolean;
+            /**
+             * Field
+             * @description The state field (ADR 0125), such as status: a key of `can.states`.
+             */
+            field: string;
+            /**
+             * Index
+             * @description Which of its signatures you give, from 0. Without it, the first you may.
+             */
+            index?: number | null;
+            /**
+             * Reason
+             * @description Why: the state may require it. It's signed.
+             * @default
+             */
+            reason: string;
+            /**
+             * Return To
+             * @description The path on this site to come back to once the identity provider answers, with `?signing=` and the signing's ID.
+             */
+            return_to: string;
+            /**
+             * State
+             * @description The state you sign for setting it to.
+             */
+            state: string;
+        };
+        /** SigningKeyOut */
+        SigningKeyOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Key */
+            key: string;
+            /** Retired At */
+            retired_at: string | null;
+        };
+        /** SigningKeysOut */
+        SigningKeysOut: {
+            /** Deployment */
+            deployment: string;
+            /**
+             * Keys
+             * @description This deployment's Ed25519 keys for signatures, oldest first: check a signature offline against one (`iki bundle verify --key`).
+             */
+            keys: components["schemas"]["SigningKeyOut"][];
+        };
+        /**
+         * SigningOut
+         * @description An attempt to sign: started, then signed or failed once the identity provider
+         *     answers (ADR 0124).
+         */
+        SigningOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Field
+             * @description The state field it signs for setting.
+             */
+            field: string;
+            /** Field Label */
+            field_label: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Index */
+            index: number;
+            /**
+             * Message
+             * @description Why it failed or was cancelled, for the person.
+             */
+            message: string;
+            /**
+             * Record
+             * Format: uuid
+             */
+            record: string;
+            /**
+             * Set
+             * @description Its signature was the last, and set the state.
+             */
+            set: boolean;
+            /**
+             * Sign In Url
+             * @description Where to send the browser to sign in again at the identity provider, while it's started.
+             */
+            sign_in_url: string;
+            /** Signature */
+            signature: string | null;
+            /**
+             * State
+             * @description The record's state field's state now.
+             */
+            state: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "started" | "signed" | "failed" | "cancelled";
+            /**
+             * To
+             * @description The state it signs for.
+             */
+            to: string;
+            /** To Label */
+            to_label: string;
+        };
         /** SkippedOut */
         SkippedOut: {
             /**
@@ -10149,6 +10881,11 @@ export interface components {
              */
             reason: ("required" | "optional") | null;
             /**
+             * Signed
+             * @description It's set by signing for it (ADR 0126), never directly: see `can.sign`.
+             */
+            signed: boolean;
+            /**
              * Why Not
              * @description Why you may not, when you may not.
              */
@@ -10194,6 +10931,11 @@ export interface components {
              * @description The lab roles (ADR 0116) whose holders may set the field to it, from any other state: any one, in the record's project. Empty for an initial state no one sets.
              */
             set_by: string[];
+            /**
+             * Signatures
+             * @description The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.
+             */
+            signatures: components["schemas"]["WantedSignatureOut"][];
         };
         /** StepBatchOut */
         StepBatchOut: {
@@ -10896,6 +11638,43 @@ export interface components {
             /** @description The run, if you can read its project. */
             run: components["schemas"]["RunRefOut"] | null;
         };
+        /**
+         * WantedSignatureOut
+         * @description A signature setting a state needs (ADR 0126).
+         */
+        WantedSignatureOut: {
+            /**
+             * Label
+             * @description How the plugin names it: “QA approval”.
+             */
+            label: string;
+            /**
+             * Meaning
+             * @description What signing means (21 CFR 11.50).
+             * @enum {string}
+             */
+            meaning: "authorship" | "review" | "approval" | "verification" | "responsibility" | "witness";
+            /**
+             * Meaning Label
+             * @description The meaning as people read it: Approval.
+             */
+            meaning_label: string;
+            /**
+             * Roles
+             * @description The lab roles whoever gives it holds, any one: its own, or the state's `set_by`.
+             */
+            roles: string[];
+            /**
+             * Statement
+             * @description What its signer attests to.
+             */
+            statement: string;
+            /**
+             * Verb
+             * @description How its manifestation reads: “Approved by …”.
+             */
+            verb: string;
+        };
         /** WebhookCreated */
         WebhookCreated: {
             /** Active */
@@ -11020,6 +11799,14 @@ export interface components {
             events?: string[] | null;
             /** Url */
             url?: string | null;
+        };
+        /** WithdrawalIn */
+        WithdrawalIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** WorkFilters */
         WorkFilters: {
@@ -13281,6 +14068,62 @@ export interface operations {
             };
         };
     };
+    iki_server_api_signatures_list_signatures: {
+        parameters: {
+            query?: {
+                /** @description Check each signature again, now. */
+                verify?: boolean;
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignaturesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_start_signing: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SigningIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_set_entity_state: {
         parameters: {
             query?: {
@@ -13965,6 +14808,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmailSettingsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_my_signing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MySigningOut"];
                 };
             };
         };
@@ -15679,6 +16542,162 @@ export interface operations {
             };
         };
     };
+    iki_server_api_signatures_get_certification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationState"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_certify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CertificationIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificationState"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_get_signature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_verify_signature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureVerificationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_withdraw_signature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawalIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_signing_keys_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningKeysOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_signatures_get_signing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                signing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningOut"];
+                };
+            };
+        };
+    };
     iki_server_api_teams_list_teams: {
         parameters: {
             query?: {
@@ -16144,6 +17163,26 @@ export interface operations {
         };
     };
     iki_server_api_users_end_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_signatures_unlock_signing: {
         parameters: {
             query?: never;
             header?: never;

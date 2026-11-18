@@ -825,3 +825,15 @@ def test_upstream_as_a_frame_and_as_csv(fake: FakeIki, client: Client) -> None:
     assert client.entities.downstream_csv("DNR-000001", depth=2) == [
         {"hrid": "SAM-000001", "depth": "1"}
     ]
+
+
+def test_signatures_are_read_and_checked_never_given(fake: FakeIki, client: Client) -> None:
+    """ADR 0126: the SDK lists a record's signatures and verifies one; it has no way to
+    sign, which takes a person signing in again in the web app."""
+    signature = "01a1ee10-0000-7000-8000-000000000001"
+    fake.on("GET", "/api/v1/entities/LOT-000001/signatures", {"items": [], "missing": []})
+    assert client.signatures.list("LOT-000001", verify=True) == {"items": [], "missing": []}
+    assert dict(fake.requests[-1].url.params) == {"verify": "true"}
+    fake.on("GET", f"/api/v1/signatures/{signature}/verification", {"valid": True, "checks": []})
+    assert client.signatures.verify(signature)["valid"] is True
+    assert not [name for name in dir(client.signatures) if name.startswith("sign")]

@@ -34,6 +34,7 @@ function state(
     set_by: ["iki/lims.analyst"],
     locks: false,
     reason: null,
+    signatures: [],
     ...more,
   };
 }
@@ -85,7 +86,16 @@ function can(
   label: string,
   more: Partial<Schemas["StateCan"]> = {},
 ): Schemas["StateCan"] {
-  return { name, label, locks: false, reason: null, allowed: true, why_not: null, ...more };
+  return {
+    name,
+    label,
+    locks: false,
+    reason: null,
+    allowed: true,
+    why_not: null,
+    signed: false,
+    ...more,
+  };
 }
 
 function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"] {
@@ -100,6 +110,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     locked_by: [],
     can: {
       edit: true,
+      sign: [],
       states: {
         status: [
           can("received", "Received", { reason: "required" }),
@@ -207,6 +218,7 @@ describe("a record's state fields", () => {
         locked_by: ["status", "custody"],
         can: {
           edit: false,
+          sign: [],
           states: {
             status: [can("received", "Received"), can("in_testing", "In testing")],
             custody: [can("in_lab", "In the lab", { allowed: false, why_not: ROLE })],
@@ -255,6 +267,7 @@ describe("a record's state fields", () => {
             field: { name: "status", label: "Status" },
             from: { name: "received", label: "Received" },
             to: { name: "in_testing", label: "In testing" },
+            signatures: [],
           },
         }),
         revision({ number: 1, changed_fields: ["name"] }),

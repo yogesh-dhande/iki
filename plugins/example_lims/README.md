@@ -44,6 +44,15 @@ It shows the parts of Iki such a plugin needs:
   its history with who made it and why. Keeping the reviewer apart from the
   analyst who submitted it (four eyes) comes with guards, rules a plugin
   declares on top of who may set a state.
+- **Electronic signatures** under 21 CFR Part 11
+  ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
+  setting a sample In review is its analyst's signature of authorship,
+  Approved the reviewer's, and Released or Rejected QA's. Each signer signs
+  in again at the identity provider
+  ([ADR 0124](../../docs/adr/0124-signing-signs-in-again-at-the-identity-provider.md)),
+  and the sample's page shows each signature: who, when, and what it means,
+  checked again on request. A sample's bundle carries them, and
+  `iki bundle verify` checks them anywhere.
 - **Who has each sample**
   ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
   its `analyst`, `reviewer` and `qa`, each someone in the project with that

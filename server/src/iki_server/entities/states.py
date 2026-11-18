@@ -8,6 +8,9 @@ one is :func:`set_state`, a numbered revision of its own with who, how and why.
 That's all core decides: which states may follow which, and who may not set
 one after setting another, are a plugin's policy, for guards to come.
 
+A state can need electronic signatures (ADR 0126): then it's set by its last
+signature, never by :func:`set_state`, which refuses with :class:`NeedsSignatures`.
+
 While any of a record's state fields is in a state that locks, the record is
 locked: its other fields can't change by any path, and it can't be archived,
 restored or moved to another registry entry. Its state fields stay settable by
@@ -38,15 +41,18 @@ from iki_server.org.services import Refused
 from iki_spec.model import Field, State
 
 __all__ = [
+    "NeedsSignatures",
     "Option",
     "install_guards",
     "locked_why",
     "locking",
     "options",
+    "refusal",
     "set_state",
     "state_fields",
     "values_of",
     "why_not",
+    "write",
 ]
 
 #: The triggers' names start with this; ``sync_plugins`` drops those no table needs.
@@ -147,6 +153,11 @@ class Option:
     state: State
     why_not: str | None
 
+    @property
+    def signed(self) -> bool:
+        """It's set by signing for it (ADR 0126), not directly."""
+        return bool(self.state.signatures)
+
 
 def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, list[Option]]:
     """For each of a record's state fields, the states it could be set to (every one but
@@ -167,13 +178,19 @@ def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, 
 def why_not(user: User, entity: Entity, f: Field, state: State) -> str | None:
     """Why ``user`` may not set ``f`` to ``state`` on the record now, or None if they may.
     Its current state isn't checked here: :func:`set_state` does that, under its lock."""
-    refusal = _refusal(user, entity, state)
-    return refusal[0] if refusal is not None else None
+    if state.signatures:
+        return "It’s set by signing for it: see its signatures."
+    found = refusal(user, entity, state.set_by, state.label)
+    return found[0] if found is not None else None
 
 
-def _refusal(user: User, entity: Entity, state: State) -> tuple[str, bool] | None:
-    """Why not, and whether it's for who they are (True) rather than the record's own
-    condition (False)."""
+def refusal(
+    user: User, entity: Entity, roles: tuple[str, ...], label: str
+) -> tuple[str, bool] | None:
+    """Why ``user`` may not set one of the record's state fields to the state ``label``,
+    as one of ``roles`` may, and whether it's for who they are (True) rather than the
+    record's own condition (False); None if they may. A signature's signer is checked
+    with it too, holding the signature's ``roles`` (ADR 0126)."""
     owner = entity.owner_project
     if owner is None:
         return "It's a registry entry: its projects' records have states, not it.", False
@@ -191,11 +208,11 @@ def _refusal(user: User, entity: Entity, state: State) -> tuple[str, bool] | Non
         if owner.is_archived:
             return f"{owner.name} is archived.", False
         return f"It needs a role in {owner.name}.", True
-    if not state.set_by:
-        return f"No one sets it to {state.label}: new records start in it.", False
-    if not permissions.lab_roles(user, owner) & set(state.set_by):
-        roles = _either([lab_roles.label(r) for r in state.set_by])
-        return f"It needs someone with the {roles} role in {owner.name}.", True
+    if not roles:
+        return f"No one sets it to {label}: new records start in it.", False
+    if not permissions.lab_roles(user, owner) & set(roles):
+        named = _either([lab_roles.label(r) for r in roles])
+        return f"It needs someone with the {named} role in {owner.name}.", True
     return None
 
 
@@ -218,7 +235,8 @@ def set_state(
     """Sets the record's state field ``field`` to ``state``: checked, then a revision of
     its own, told to webhooks and triggers, and in the audit log. Raises
     :class:`PermissionDenied` when ``user`` may not, :class:`Refused` when the record
-    can't take it now, and :class:`Invalid` for an unknown state or a missing reason."""
+    can't take it now (:class:`NeedsSignatures` for a state its signatures set), and
+    :class:`Invalid` for an unknown state or a missing reason."""
     from iki_server.entities import services
 
     with transaction.atomic():
@@ -244,9 +262,16 @@ def set_state(
         current = values.get(field)
         if current == state:
             raise Refused(f"{locked.hrid}'s {f.label} is {target.label} already.")
-        refusal = _refusal(user, locked, target)
-        if refusal is not None:
-            why, forbidden = refusal
+        if target.signatures:
+            count = len(target.signatures)
+            raise NeedsSignatures(
+                f"Setting its {f.label} to {target.label} is signed: it’s set once "
+                + ("its signature is given" if count == 1 else f"its {count} signatures are given")
+                + ", each by a person who signs in again in Iki’s web app (21 CFR Part 11)."
+            )
+        found = refusal(user, locked, target.set_by, target.label)
+        if found is not None:
+            why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
         reason = reason.strip()
         if target.reason == "required" and not reason:
@@ -255,28 +280,56 @@ def set_state(
             )
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
-        # The field changes while the record is unlocked, under its row's lock: the
-        # database's guard refuses every change to a locked record, this one too.
-        if locked.locked_by:
-            Entity.objects.filter(pk=locked.pk).update(locked_by=[])
-        revision = services.state_changed(user, locked, f, current or "", state, reason)
-        after = locking(fields, {**values, field: state})
-        if after:
-            Entity.objects.filter(pk=locked.pk).update(locked_by=after)
-        log.record(
-            "entity.state_changed",
-            actor=user,
-            target=locked,
-            project=locked.owner_project,
-            data={
-                "field": field,
-                "from": current or "",
-                "to": state,
-                "revision": revision.number,
-                "reason": reason,
-            },
-        )
-        return revision
+        return write(locked, f, state, user, reason)
+
+
+class NeedsSignatures(Refused):
+    """The state is set only by signing for it (ADR 0126)."""
+
+
+def write(
+    locked: Entity,
+    f: Field,
+    state: str,
+    user: User,
+    reason: str,
+    *,
+    signatures: tuple[Any, ...] = (),
+) -> Revision:
+    """Sets ``f`` to ``state`` on a record whose row this transaction has locked, once it's
+    been checked: by :func:`set_state`, or for a signed state by its last signature, whose
+    revision carries them all (``signatures``, in order)."""
+    from iki_server.entities import services
+
+    fields = state_fields(locked.type)
+    values = values_of(locked)
+    current = values.get(f.name) or ""
+    # The field changes while the record is unlocked, under its row's lock: the
+    # database's guard refuses every change to a locked record, this one too.
+    if locked.locked_by:
+        Entity.objects.filter(pk=locked.pk).update(locked_by=[])
+    revision = services.state_changed(
+        user, locked, f, current, state, reason, signatures=signatures
+    )
+    after = locking(fields, {**values, f.name: state})
+    if after:
+        Entity.objects.filter(pk=locked.pk).update(locked_by=after)
+    # Beside its history: the audit log is where QA reviews who released what.
+    log.record(
+        "entity.state_changed",
+        actor=user,
+        target=locked,
+        project=locked.owner_project,
+        data={
+            "field": f.name,
+            "from": current,
+            "to": state,
+            "revision": revision.number,
+            "reason": reason,
+            **({"signatures": [str(i) for i in signatures]} if signatures else {}),
+        },
+    )
+    return revision
 
 
 # --- The database's guard -----------------------------------------------------------------------

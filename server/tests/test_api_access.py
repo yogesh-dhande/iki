@@ -153,6 +153,62 @@ def samples_assign(w: World) -> tuple[Any, ...]:
     return "/entities/assign", body
 
 
+def _signature(w: World) -> Any:
+    """The editor's signature setting a lot In review (ADR 0126)."""
+    from test_signatures import lot, ready, signed
+    from test_states import ANALYST, roles
+
+    ready(w)
+    roles(w, editor=(ANALYST,))
+    made = lot(w)
+    return signed(w, "editor", made["id"], "in_review").signature
+
+
+def signature(suffix: str = "", body: Any = None) -> Build:
+    return lambda w: (f"/signatures/{_signature(w).pk}{suffix}", body)
+
+
+def signed_lot(suffix: str = "") -> Build:
+    return lambda w: (f"/entities/{_signature(w).entity_id}{suffix}", None)
+
+
+def lot_signing(w: World) -> tuple[Any, ...]:
+    """Signing for a lot's first state, which needs the Analyst role nobody has."""
+    from test_signatures import lot, ready
+
+    ready(w)
+    made = lot(w)
+    return (
+        f"/entities/{made['id']}/signatures",
+        {"field": "status", "state": "in_review", "acknowledge": True, "return_to": "/"},
+        {"If-Match": '"1"'},
+    )
+
+
+def editors_signing(w: World) -> tuple[Any, ...]:
+    from datetime import timedelta
+
+    from django.utils import timezone
+    from test_signatures import lot, provider
+
+    from iki_server.signatures.models import Signing
+
+    made = lot(w)
+    found = Signing.objects.create(
+        user=w.users["editor"],
+        session="0" * 64,
+        entity_id=made["id"],
+        revision=1,
+        field="status",
+        state="in_review",
+        index=0,
+        return_to="/",
+        provider=provider(),
+        expires_at=timezone.now() + timedelta(minutes=10),
+    )
+    return f"/signings/{found.pk}", None
+
+
 def dashboard(w: World) -> tuple[Any, ...]:
     from iki_server.entities import services as entities
 
@@ -748,6 +804,29 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Each person's work is their own: there's always some, if only none.
     ("GET", "/me/work", fixed("/me/work"), row(200)),
     ("GET", "/me/work/open", fixed("/me/work/open"), row(200)),
+    # Electronic signatures (ADR 0126): read by the record's readers; given only by those
+    # with the lab role, and withdrawn only by their signer, before they're carried.
+    ("POST", "/entities/{ref}/signatures", lot_signing, readers(403)),
+    ("GET", "/entities/{ref}/signatures", signed_lot("/signatures"), readers(200)),
+    ("GET", "/signatures/{signature_id}", signature(), readers(200)),
+    ("GET", "/signatures/{signature_id}/verification", signature("/verification"), readers(200)),
+    (
+        "POST",
+        "/signatures/{signature_id}/withdrawal",
+        signature("/withdrawal", {"reason": ""}),
+        readers(403, editor=409),
+    ),
+    ("GET", "/signings/{signing_id}", editors_signing, row(404, editor=200)),
+    ("GET", "/me/signing", fixed("/me/signing"), row(200)),
+    ("GET", "/signing-keys", fixed("/signing-keys"), row(200)),
+    ("GET", "/signatures/certification", fixed("/signatures/certification"), row(200)),
+    (
+        "POST",
+        "/signatures/certification",
+        fixed("/signatures/certification", {"submitted_on": "2026-11-01", "reference": "QA-1"}),
+        ORG_ADMIN_ONLY,
+    ),
+    ("POST", "/users/{user_id}/signing/unlock", viewer("/signing/unlock"), row(403, org_admin=409)),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),

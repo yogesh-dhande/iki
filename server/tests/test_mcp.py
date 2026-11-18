@@ -154,6 +154,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_entity",
         "get_registry_entry",
         "get_entity_history",
+        "get_signatures",
+        "verify_signature",
         "get_lineage",
         "get_impact",
         "create_entity",
@@ -976,3 +978,43 @@ async def test_agents_run_workflows_and_are_told_what_waits_for_people(world: Wo
     again = data(await tool(token, "rerun_workflow_run", ref=run["hrid"], reason="Right one"))
     assert again["rerun_of"]["hrid"] == run["hrid"]
     assert again["steps"][0]["carried_from"]["hrid"] == run["hrid"]
+
+
+def _signed_lot(world: World) -> tuple[str, str]:
+    """A lot set In review by its analyst's signature, and one not yet."""
+    from test_signatures import lot, ready, signed
+    from test_states import ANALYST, roles
+
+    ready(world)
+    roles(world, editor=(ANALYST,))
+    made = lot(world)
+    signed(world, "editor", made["id"], "in_review")
+    return str(made["hrid"]), str(lot(world, "LOT B")["hrid"])
+
+
+async def test_agents_read_and_verify_signatures_but_cant_give_them(world: World) -> None:
+    """ADR 0126: an agent reads a record's electronic signatures and checks them; no tool
+    gives one, and setting a signed state is refused, even to someone who holds its role."""
+    hrid, unsigned = await sync_to_async(_signed_lot)(world)
+    token = await token_for(world, "viewer")
+    listed = data(await tool(token, "get_signatures", ref=hrid, verify=True))
+    [signature] = listed["items"]
+    assert signature["manifestation"].startswith("Authored by Editor on ")
+    assert signature["verification"]["valid"] is True
+    checked = data(await tool(token, "verify_signature", signature=signature["id"]))
+    assert checked["valid"] is True
+    tools = (await rpc(token, "tools/list")).json()["result"]["tools"]
+    assert not [t["name"] for t in tools if "sign" in t["name"] and "signature" not in t["name"]]
+    analyst = await token_for(world, "editor")
+    refused = error(
+        await tool(
+            analyst,
+            "set_entity_state",
+            ref=unsigned,
+            revision=1,
+            field="status",
+            state="in_review",
+            reason="Ready",
+        )
+    )
+    assert "(409" in refused and "signs in again in Iki’s web app" in refused

@@ -41,6 +41,9 @@ if TYPE_CHECKING:
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        SignatureOut,
+        SignaturesOut,
+        SignatureVerificationOut,
         WalkItemOut,  # noqa: F401 - Walk's items, named in its base as a string
         WorkItemOut,
     )
@@ -127,7 +130,8 @@ class Client:
     ``IKI_URL`` and ``IKI_TOKEN``.
 
     Its parts follow the API: ``entities``, ``entries``, ``types``, ``projects``, ``actions``,
-    ``runs``, ``files`` and ``work``. For anything else, ``request`` calls the API directly.
+    ``runs``, ``files``, ``work`` and ``signatures``. For anything else, ``request`` calls the
+    API directly.
 
     An AI agent using it may say what model it is, ``agent_model="claude-opus-5-5"``
     (or ``IKI_AGENT_MODEL``): what it changes then records that, as the agent's own word.
@@ -179,6 +183,7 @@ class Client:
         self.files = Files(self)
         self.costs = Costs(self)
         self.work = Work(self)
+        self.signatures = Signatures(self)
 
     # --- The connection -------------------------------------------------------------
 
@@ -831,6 +836,39 @@ class Entries(_Part):
                 _path("/entries/{ref}/supersede", ref=ref),
                 json={"replacement": replacement, "reason": reason},
             ),
+        )
+
+
+class Signatures(_Part):
+    """Electronic signatures under 21 CFR Part 11 (ADR 0126): read and checked here, given
+    only by a person signing in again in Iki's web app. No token signs."""
+
+    def list(self, ref: str, *, verify: bool = False) -> SignaturesOut:
+        """A record's signatures, newest first: each with its manifestation (who, when,
+        what it means), the revision and state it signs for, and where it stands. With
+        ``verify``, each is checked again: ``["verification"]["valid"]``."""
+        return cast(
+            "SignaturesOut",
+            self._client.request(
+                "GET",
+                _path("/entities/{ref}/signatures", ref=ref),
+                params={"verify": "true" if verify else "false"},
+            ),
+        )
+
+    def get(self, signature: str) -> SignatureOut:
+        """One signature, by its ID, with the document that was signed."""
+        return cast(
+            "SignatureOut",
+            self._client.request("GET", _path("/signatures/{id}", id=signature)),
+        )
+
+    def verify(self, signature: str) -> SignatureVerificationOut:
+        """Checks a signature again, now: ``["valid"]``, and each check with what it found.
+        Anything changed outside Iki since it was signed fails a check."""
+        return cast(
+            "SignatureVerificationOut",
+            self._client.request("GET", _path("/signatures/{id}/verification", id=signature)),
         )
 
 

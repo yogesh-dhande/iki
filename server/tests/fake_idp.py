@@ -42,6 +42,11 @@ class FakeIdP:
     codes: dict[str, PendingCode] = field(default_factory=dict)
     tokens: dict[str, dict[str, Any]] = field(default_factory=dict)
     token_requests: list[dict[str, Any]] = field(default_factory=list)
+    #: Who signs in when a real browser comes to the authorization endpoint; None, and
+    #: tests play the browser (:meth:`authorize`).
+    browser_claims: dict[str, Any] | None = None
+    #: Each authorization request's query, as the browser brought it.
+    authorizations: list[dict[str, str]] = field(default_factory=list)
     key: rsa.RSAPrivateKey = field(
         default_factory=lambda: rsa.generate_private_key(public_exponent=65537, key_size=2048)
     )
@@ -70,15 +75,22 @@ class FakeIdP:
         return doc
 
     def authorize(self, authorization_url: str, claims: dict[str, Any]) -> str:
-        """Plays the provider's sign-in page; returns the callback URL with a code."""
+        """Plays the provider's sign-in page; returns the callback URL with a code. A claim
+        given as None is left out of the ID token."""
         query = {k: v[0] for k, v in parse_qs(urlsplit(authorization_url).query).items()}
         assert query["response_type"] == "code"
         assert query["client_id"] == self.client_id
         assert query["code_challenge_method"] == "S256", "Iki must use PKCE with S256"
         assert {"openid", "email", "profile"} <= set(query["scope"].split())
+        self.authorizations.append(query)
         code = secrets.token_urlsafe(16)
+        # As a real provider: it echoes the request's nonce, and says when the person signed
+        # in, which is now when the request asks them to sign in again.
+        defaults: dict[str, Any] = {"sub": "subject-1", "auth_time": int(time.time())}
+        if "nonce" in query:
+            defaults["nonce"] = query["nonce"]
         self.codes[code] = PendingCode(
-            claims={"sub": "subject-1", **claims},
+            claims={k: v for k, v in {**defaults, **claims}.items() if v is not None},
             challenge=query["code_challenge"],
             redirect_uri=query["redirect_uri"],
             client_id=query["client_id"],
@@ -152,6 +164,13 @@ def serve(idp: FakeIdP) -> tuple[http.server.ThreadingHTTPServer, threading.Thre
                 token = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 claims = idp.tokens.get(token)
                 self._send(200, claims) if claims else self._send(401, {"error": "invalid_token"})
+            elif path == f"{idp.issuer_path}/authorize" and idp.browser_claims is not None:
+                # A browser at its sign-in page: the person signs in as `browser_claims` says.
+                callback = idp.authorize(idp.base + self.path, idp.browser_claims)
+                self.send_response(302)
+                self.send_header("Location", callback)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
             else:
                 self._send(404, {"error": "not_found"})
 

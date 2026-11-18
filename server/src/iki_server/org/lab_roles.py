@@ -35,12 +35,12 @@ class Use:
     """Something a lab role lets its holders do."""
 
     #: ``approval``, a workflow step's; ``field``, a type's field naming people, who
-    #: must hold it (ADR 0122); or ``state``, a state field some of whose states its
-    #: holders set (ADR 0125).
+    #: must hold it (ADR 0122); ``state``, a state field some of whose states its
+    #: holders set (ADR 0125); or ``signature``, one setting a state needs (ADR 0126).
     kind: str
     #: The workflow or type it's in, qualified.
     owner: str
-    #: The step or field it's for.
+    #: The step or field it's for: for a signature, its state field.
     name: str
     #: What it lets them do, in a sentence's words: "approve “Weigh” in Review, then weigh".
     description: str
@@ -92,5 +92,23 @@ def uses(role: str) -> list[Use]:
                         name=f.name,
                         description=f"set {f.label} to {either} on {plural}",
                     )
+                )
+            # The electronic signatures its states need (ADR 0126): a signature's own role,
+            # or one of its state's.
+            for f in entity_type.fields.values():
+                if f.type != "state" or f.removed:
+                    continue
+                out.extend(
+                    Use(
+                        kind="signature",
+                        owner=entity_type.qualified_name,
+                        name=f.name,
+                        description=f"sign “{wanted.label}” to set {f.label} to {state.label} "
+                        f"on {plural}",
+                    )
+                    for state in f.states.values()
+                    if not state.removed
+                    for wanted in state.signatures
+                    if role in ((wanted.role,) if wanted.role else state.set_by)
                 )
     return out

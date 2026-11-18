@@ -114,7 +114,7 @@ def test_creating_answers_201_with_its_etag_and_location(world: World) -> None:
     assert body["values"]["name"] == "pUC19"
     assert body["owner_project"]["id"] == str(world.project.pk)
     assert body["created_by"]["email"] == "editor@example.com"
-    assert body["can"] == {"edit": True, "states": {}, "take": []}
+    assert body["can"] == {"edit": True, "states": {}, "sign": [], "take": []}
     assert not body["reused"] and not body["archived"]
 
 
@@ -188,7 +188,7 @@ def test_entities_are_found_by_id_or_hrid_and_cached_by_etag(world: World) -> No
     api = api_as(world, "viewer")
     by_hrid = api.get(f"/entities/{made['hrid'].lower()}")
     assert by_hrid.status_code == 200 and by_hrid.json()["id"] == made["id"]
-    assert by_hrid.json()["can"] == {"edit": False, "states": {}, "take": []}
+    assert by_hrid.json()["can"] == {"edit": False, "states": {}, "sign": [], "take": []}
     same = api.call("GET", f"/entities/{made['id']}", headers={"If-None-Match": '"1"'})
     assert same.status_code == 304 and same["ETag"] == '"1"'
     assert same.content == b""
@@ -234,6 +234,7 @@ def test_an_owner_project_you_cant_see_is_null(world: World, other: Project) -> 
     assert seen["owner_project"] is None and seen["can"] == {
         "edit": False,
         "states": {},
+        "sign": [],
         "take": [],
     }
     projects = api_as(world, "outsider").get(f"/entities/{made['id']}/projects").json()

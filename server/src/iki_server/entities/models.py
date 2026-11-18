@@ -395,6 +395,8 @@ class Revision(models.Model):
     state_field = models.CharField(max_length=50, blank=True, default="", db_default="")
     state_from = models.CharField(max_length=50, blank=True, default="", db_default="")
     state_to = models.CharField(max_length=50, blank=True, default="", db_default="")
+    #: For a state set by signing for it (ADR 0126): the signatures that set it, in order.
+    signatures = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
     #: For a record that moved (ADR 0115): the superseded entry it held before.
     moved_from = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"

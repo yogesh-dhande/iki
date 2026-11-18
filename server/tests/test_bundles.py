@@ -129,6 +129,7 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
         "files": 1,
         "outside": 2,
         "runs": 0,
+        "signatures": 0,
     }
     assert made.counts == m["counts"]
     plugins = {p["name"]: p for p in m["plugins"]}

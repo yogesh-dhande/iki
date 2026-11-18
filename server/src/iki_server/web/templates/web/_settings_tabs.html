@@ -7,5 +7,6 @@
   <a href="{% url 'org:plugins' %}"{% if name == "plugins" or name == "plugin" %} aria-current="page"{% endif %}>Plugins</a>
   <a href="{% url 'org:registries' %}"{% if name == "registries" or name == "registry" %} aria-current="page"{% endif %}>Registries</a>
   <a href="{% url 'org:legal_holds' %}"{% if name == "legal_holds" %} aria-current="page"{% endif %}>Legal holds</a>
+  <a href="{% url 'org:signatures' %}"{% if name == "signatures" %} aria-current="page"{% endif %}>Signatures</a>
 </nav>
 {% endwith %}

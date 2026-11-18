@@ -453,6 +453,40 @@ def build() -> MCPServer:
             )
         )
 
+    @server.tool(annotations=READ, title="Get a record's signatures")
+    async def get_signatures(
+        ref: Ref,
+        verify: Annotated[
+            bool, Field(description="Check each signature again, now: its key, what it signed.")
+        ] = False,
+    ) -> CallToolResult:
+        """A record's electronic signatures under 21 CFR Part 11 (ADR 0126), newest first:
+        each with its manifestation (the signer's name, the date and time, and what it
+        means), the revision and state it signed for, and where it stands (carried,
+        pending, withdrawn or lapsed). With verify, each is checked again. Signatures are
+        read here, never given: only a person signing in again in Iki's web app signs."""
+        return answer(
+            await call(
+                "GET",
+                path("/entities/{ref}/signatures", ref=ref),
+                query={"verify": "true" if verify else "false"},
+            )
+        )
+
+    @server.tool(annotations=READ, title="Verify a signature")
+    async def verify_signature(
+        signature: Annotated[UUID, Field(description="The signature's ID, from get_signatures.")],
+    ) -> CallToolResult:
+        """Checks one electronic signature again, from the database: its key is one the
+        deployment trusts and signed it; its record, revision, signer and time are what was
+        signed; and the record's history still holds what was signed. Anything changed
+        outside Iki fails a check, which says what."""
+        return answer(
+            await call(
+                "GET", path("/signatures/{signature}/verification", signature=str(signature))
+            )
+        )
+
     @server.tool(annotations=READ, title="What it was derived from")
     async def get_lineage(
         ref: Ref,
@@ -568,7 +602,9 @@ def build() -> MCPServer:
         other: those get_entity lists in can.states, with whether the person may set each
         and why not. It takes one of the state's lab roles in the record's project. Some
         states need a reason. A state may lock the record: then its other fields can't
-        change until the field is set to a state that doesn't lock."""
+        change until the field is set to a state that doesn't lock. A state that needs
+        electronic signatures (ADR 0126, can.states marks it signed) can't be set here:
+        only people signing in again in Iki's web app set it, so this is refused."""
         return answer(
             await call(
                 "POST",

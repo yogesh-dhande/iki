@@ -45,6 +45,7 @@ from iki_spec.model import (
     Field,
     LabRole,
     Plugin,
+    State,
     Track,
     Trigger,
     Viewer,
@@ -1176,6 +1177,33 @@ class _Semantics:
         if entity_type.due is not None:
             self.due(entity_type, source, every)
 
+    def state_signatures(self, f: Field, state: State, source: Document, at: Path) -> None:
+        """The electronic signatures setting a state needs (ADR 0126): who gives each, and
+        whether the state can be signed for at all."""
+        for index, wanted in enumerate(state.signatures):
+            if wanted.role is not None:
+                self.lab_role(wanted.role, source, (*at, "signatures", index, "role"))
+        if not state.signatures:
+            return
+        if state.removed:
+            self.add(
+                "state-signatures",
+                f"`{state.name}` is removed: no record is set to it, so it's signed for by no one.",
+                source,
+                (*at, "signatures"),
+                key=True,
+            )
+        elif state.name == f.initial:
+            self.add(
+                "state-signatures",
+                f"`{state.name}` is where new records start, without signatures, so setting "
+                "it can't need them.",
+                source,
+                (*at, "signatures"),
+                key=True,
+                hint="Sign for the states records go to from it.",
+            )
+
     def state_field(
         self,
         entity_type: EntityType,
@@ -1204,16 +1232,7 @@ class _Semantics:
             at: Path = (*path, "states", state.name)
             for index, role in enumerate(state.set_by):
                 self.lab_role(role, source, (*at, "set_by", index))
-            if state.signatures is not None:
-                self.add(
-                    "state-signatures-reserved",
-                    "`signatures` is reserved for the electronic signatures a state will "
-                    "require (21 CFR Part 11), which Iki doesn't support yet.",
-                    source,
-                    (*at, "signatures"),
-                    key=True,
-                    hint="Remove it for now.",
-                )
+            self.state_signatures(f, state, source, at)
             if f.removed and f.moved_to is not None:
                 continue  # Where its records go is the field's `moved_to`.
             if state.removed:

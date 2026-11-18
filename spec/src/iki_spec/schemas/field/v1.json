@@ -821,7 +821,40 @@
           "$ref": "#/$defs/fieldName"
         },
         "signatures": {
-          "description": "Reserved for the electronic signatures setting this state will require (21 CFR Part 11). Not yet in use."
+          "description": "The electronic signatures setting this state needs under 21 CFR Part 11 (ADR 0126), each given by a person who signs in again at the identity provider to give it. It's set by the last of them, once they're all given on the same revision of the record, never directly.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/signature"
+          }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": ["meaning"],
+      "additionalProperties": false,
+      "properties": {
+        "meaning": {
+          "description": "What signing means (21 CFR 11.50): `authorship`, `review`, `approval`, `verification`, `responsibility` or `witness`. Every page and export that shows the signature says it.",
+          "enum": ["authorship", "review", "approval", "verification", "responsibility", "witness"]
+        },
+        "role": {
+          "description": "The lab role whoever gives it holds (ADR 0116). Without it, one of the state's `set_by` roles.",
+          "$ref": "#/$defs/roleRef"
+        },
+        "label": {
+          "description": "How it's named: “QA approval”. The meaning's own name if left out, such as Approval.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "statement": {
+          "description": "What the signer attests to, shown before they sign and kept in what they sign: “I approve this sample's results for release.” Each meaning has its own if left out.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         }
       }
     }

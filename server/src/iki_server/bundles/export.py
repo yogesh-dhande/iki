@@ -48,6 +48,8 @@ from iki_server.runs.models import (
     RunInput,
     RunOutput,
 )
+from iki_server.signatures import proof, signing_keys
+from iki_server.signatures.models import Signature, Withdrawal
 from iki_spec import releases
 from iki_spec.model import Field, names_people
 
@@ -139,6 +141,12 @@ def write(
             Revision.objects.filter(entity_id__in=found.entities).order_by("entity_id", "number")
         )
         files = list(File.objects.filter(id__in=found.files).select_related("blob"))
+        signed = list(
+            Signature.objects.filter(entity_id__in=found.entities)
+            .select_related("withdrawal")
+            .order_by("entity_id", "signed_at", "pk")
+        )
+        withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
         runs = _run_lines(found)
         people = (
             {by.pk}
@@ -149,6 +157,8 @@ def write(
                     *(e.created_by_id for e in found.entities.values()),
                     *(r.user_id for r in revisions),
                     *(f.created_by_id for f in files),
+                    *(s.signer_id for s in signed),
+                    *(w.by_id for w in withdrawals),
                 ]
                 if u is not None
             }
@@ -179,6 +189,7 @@ def write(
                 _outside(i, why, by) for i, why in sorted(found.outside.items(), key=str)
             ),
             "runs.ndjson": iter(runs),
+            "signatures.ndjson": (_signature(s) for s in signed),
         }
         paths = {}
         for name, rows in lines.items():
@@ -208,6 +219,7 @@ def write(
             },
             "selection": selection[:2000],
             "plugins": _plugins(found),
+            "signing_keys": _signing_keys(signed),
             "counts": {
                 "entities": len(found.entities),
                 "entries": len(found.entries),
@@ -215,6 +227,7 @@ def write(
                 "files": len(files),
                 "outside": len(found.outside),
                 "runs": len(runs),
+                "signatures": len(signed),
             },
             "members": [
                 *members,
@@ -554,6 +567,7 @@ def _entity(
                     if r.state_field
                     else {}
                 ),
+                **({"signatures": [str(i) for i in r.signatures]} if r.signatures else {}),
             }
             for r in revisions
         ],
@@ -566,6 +580,53 @@ def _entity(
             for part, row in rows
         ],
     }
+
+
+def _withdrawal_of(signature: Signature) -> Withdrawal | None:
+    try:
+        return signature.withdrawal
+    except Withdrawal.DoesNotExist:
+        return None
+
+
+def _signature(s: Signature) -> dict[str, Any]:
+    """An electronic signature (ADR 0126), as it was signed: ``iki bundle verify`` checks
+    it against the bundle's own history, offline."""
+    withdrawn = _withdrawal_of(s)
+    return {
+        "id": str(s.pk),
+        "record": str(s.entity_id),
+        "revision": s.revision,
+        "entry_revision": s.entry_revision,
+        "field": s.field,
+        "state": s.state,
+        "index": s.index,
+        "meaning": s.meaning,
+        "signer": str(s.signer_id),
+        "signed_at": s.signed_at.isoformat(),
+        "deployment": s.deployment,
+        "key": s.key,
+        "document": s.document,
+        "signature": proof.b64(bytes(s.signature)),
+        "content": s.content,
+        "withdrawn": (
+            {
+                "by": str(withdrawn.by_id),
+                "reason": withdrawn.reason,
+                "at": withdrawn.withdrawn_at.isoformat(),
+            }
+            if withdrawn is not None
+            else None
+        ),
+    }
+
+
+def _signing_keys(signed: list[Signature]) -> list[dict[str, str]]:
+    """The keys that signed the bundle's signatures, each with the deployment this one
+    trusts it as: signed into ``bundle.json``, so as trusted as the bundle."""
+    trusted = signing_keys.trusted()
+    used = sorted({s.key for s in signed})
+    return [{"key": k, "deployment": trusted[k]} for k in used if k in trusted]
 
 
 def _entry(entry: Entity) -> dict[str, Any]:

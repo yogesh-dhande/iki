@@ -7,6 +7,7 @@ import pytest
 from iki_spec import naming, schemas
 from iki_spec.model import (
     FORMATS,
+    SIGNATURE_MEANINGS,
     Field,
     matches_format,
     parse_size,
@@ -1442,10 +1443,29 @@ def test_a_type_has_state_fields_each_with_its_states(tmp_path: Path) -> None:
         ),
         (
             STATUS.replace(
-                "reason: required }", "reason: required, signatures: [{ meaning: Approved }] }"
+                "{ label: Received, set_by: [analyst] }",
+                "{ label: Received, set_by: [analyst], signatures: [{ meaning: authorship }] }",
             ),
-            "state-signatures-reserved",
-            "21 CFR Part 11",
+            "state-signatures",
+            "where new records start, without signatures",
+        ),
+        (
+            STATUS.replace(
+                RELEASED,
+                RELEASED
+                + "      old: { removed: true, moved_to: received,"
+                + " signatures: [{ meaning: review }] }\n",
+            ),
+            "state-signatures",
+            "signed for by no one",
+        ),
+        (
+            STATUS.replace(
+                "reason: required }",
+                "reason: required, signatures: [{ meaning: approval, role: chemist }] }",
+            ),
+            "unknown-role",
+            "no lab role `chemist`",
         ),
     ],
 )
@@ -1467,10 +1487,50 @@ def test_state_fields_are_checked(tmp_path: Path, body: str, code: str, message:
             "    states:\n      in_lab: { set_by: [qa] }\n", "    states:\n"
         ),  # one state
         STATUS.replace("type: state\n    label: Status", "type: state\n    required: true"),
+        # Signatures: a meaning Part 11 names, at most five, nothing else.
+        STATUS.replace("reason: required }", "reason: required, signatures: [{ meaning: ok }] }"),
+        STATUS.replace("reason: required }", "reason: required, signatures: [] }"),
+        STATUS.replace("reason: required }", "reason: required, signatures: [{ role: qa }] }"),
+        STATUS.replace(
+            "reason: required }",
+            "reason: required, signatures: [" + ", ".join(["{ meaning: review }"] * 6) + "] }",
+        ),
+        STATUS.replace(
+            "reason: required }",
+            "reason: required, signatures: [{ meaning: review, not_by: [testing] }] }",
+        ),
+        STATUS.replace(
+            "reason: required }",
+            'reason: required, signatures: [{ meaning: review, statement: "" }] }',
+        ),
     ],
 )
 def test_state_fields_must_be_well_formed(tmp_path: Path, body: str) -> None:
     assert "schema" in codes(make(tmp_path, states(body), ROLES))
+
+
+def test_a_state_can_need_signatures_each_with_its_meaning(tmp_path: Path) -> None:
+    body = STATUS.replace(
+        "reason: required }",
+        "reason: required, signatures: [{ meaning: review }, { meaning: approval, role: "
+        "analyst, label: Analyst approval, statement: I approve it. }] }",
+    )
+    result = make(tmp_path, states(body), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    released = result.plugin.types["acme/lab.Assay"].fields["status"].states["released"]
+    review, approval = released.signatures
+    # A meaning's label and statement are its own where the plugin gives none (21 CFR
+    # 11.50), and a signature without a role is given by one of the state's.
+    assert (review.meaning, review.role, review.label) == ("review", None, "Review")
+    assert review.statement == SIGNATURE_MEANINGS["review"].statement
+    assert (approval.role, approval.label, approval.statement) == (
+        "acme/lab.analyst",
+        "Analyst approval",
+        "I approve it.",
+    )
+    assert result.plugin.types["acme/lab.Assay"].fields["status"].states["testing"].signatures == ()
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
 def test_a_removed_state_says_where_its_records_go(tmp_path: Path) -> None:

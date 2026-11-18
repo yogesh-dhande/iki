@@ -7,9 +7,11 @@ schema_version: 1
 description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
   reviewed, then released by QA. Once it's approved its results can't change,
-  unless someone with the role sets it back, with a reason. Its analyst,
-  reviewer and QA are assigned it in turn, and each has it on My work while
-  it's theirs.
+  unless someone with the role sets it back, with a reason. Submitting,
+  approving, releasing and rejecting it are electronic signatures (21 CFR Part
+  11): each signer signs in again, and the signature shows with the sample.
+  Its analyst, reviewer and QA are assigned it in turn, and each has it on My
+  work while it's theirs.
 hrid: { prefix: SAM }
 fields:
   protein:
@@ -103,21 +105,35 @@ fields:
         label: In review
         description: Its results wait for a reviewer.
         set_by: [analyst]
+        # Electronic signatures (21 CFR Part 11): each signer signs in again to give one.
+        signatures:
+          - meaning: authorship
+            statement: I performed these tests and recorded the results as observed.
       approved:
         label: Approved
         description: A reviewer checked its results; they can't change now.
         set_by: [reviewer]
         locks: true
+        signatures:
+          - meaning: review
       released:
         label: Released
         description: QA released it, so its results can be used.
         set_by: [qa]
         locks: true
         reason: optional
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: I release this sample for use.
       rejected:
         label: Rejected
         description: QA rejected it; it's kept, with its results, but not used.
         set_by: [qa]
         locks: true
         reason: required
+        signatures:
+          - meaning: responsibility
+            label: QA rejection
+            statement: I reject this sample; it isn't to be used.
 due: due_on

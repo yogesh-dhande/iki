@@ -51,6 +51,8 @@ ENCRYPTED: tuple[tuple[str, str], ...] = (
     ("iki_accounts.IdentityProvider", "client_secret_encrypted"),
     ("iki_webhooks.Webhook", "secret"),
     ("iki_webhooks.Webhook", "previous_secret"),
+    ("iki_signatures.SigningKey", "private_encrypted"),
+    ("iki_signatures.ForeignSigningKey", "sealed"),
 )
 
 

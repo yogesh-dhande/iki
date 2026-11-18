@@ -74,6 +74,7 @@ class AuthnRequest:
     issuer: str
     acs_url: str
     relay_state: str
+    force_authn: bool = False
 
 
 @dataclass
@@ -131,6 +132,7 @@ class FakeSamlIdP:
             issuer=issuer.text,
             acs_url=root.get("AssertionConsumerServiceURL", ""),
             relay_state=query.get("RelayState", ""),
+            force_authn=root.get("ForceAuthn") == "true",
         )
 
     def respond(
@@ -148,8 +150,11 @@ class FakeSamlIdP:
         expires_in: timedelta = timedelta(minutes=5),
         digest: str = OneLogin_Saml2_Constants.SHA256,
         tamper: bool = False,
+        authn_instant: datetime | None = None,
+        authn_context: str = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport",
     ) -> str:
-        """A base64 SAMLResponse. ``request=None`` makes an IdP-initiated response."""
+        """A base64 SAMLResponse. ``request=None`` makes an IdP-initiated response.
+        ``authn_instant``: when the person signed in, if not now."""
         now = datetime.now(UTC)
         in_response_to = f' InResponseTo="{request.id}"' if request else ""
         acs = request.acs_url if request else acs_url
@@ -171,8 +176,8 @@ class FakeSamlIdP:
 <saml:Conditions NotBefore="{_instant(now - timedelta(minutes=1))}" NotOnOrAfter="{_instant(now + expires_in)}">
 <saml:AudienceRestriction><saml:Audience>{escape(sp_entity)}</saml:Audience></saml:AudienceRestriction>
 </saml:Conditions>
-<saml:AuthnStatement AuthnInstant="{_instant(now)}" SessionIndex="{assertion_id}">
-<saml:AuthnContext><saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml:AuthnContextClassRef></saml:AuthnContext>
+<saml:AuthnStatement AuthnInstant="{_instant(authn_instant or now)}" SessionIndex="{assertion_id}">
+<saml:AuthnContext><saml:AuthnContextClassRef>{escape(authn_context)}</saml:AuthnContextClassRef></saml:AuthnContext>
 </saml:AuthnStatement>
 {f"<saml:AttributeStatement>{statements}</saml:AttributeStatement>" if statements else ""}
 </saml:Assertion>"""

@@ -45,6 +45,19 @@ def test_the_plugin_is_valid() -> None:
         ("person.home", "iki/example_lims.Booking"),
     ]
     assert calendar.selects == ""  # It opens bookings; it picks none.
+    # A sample's analyst, reviewer and QA each sign for their decision (ADR 0126).
+    sample = result.plugin.types["iki/example_lims.Sample"]
+    status = sample.fields["status"].states
+    signed = {n: [(s.meaning, s.label) for s in st.signatures] for n, st in status.items()}
+    assert signed == {
+        "registered": [],
+        "received": [],
+        "in_testing": [],
+        "in_review": [("authorship", "Authorship")],
+        "approved": [("review", "Review")],
+        "released": [("approval", "QA release")],
+        "rejected": [("responsibility", "QA rejection")],
+    }
 
 
 class FakeLims:

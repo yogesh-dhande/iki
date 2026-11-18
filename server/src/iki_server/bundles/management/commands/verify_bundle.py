@@ -52,6 +52,17 @@ class Command(BaseCommand):
                 f"with `iki-server bundle_key --public` on {bundle.source})."
             )
         self.stdout.write(f"  This deployment trusts it as {bundle.trusted_as}.")
+        from iki_server.signatures import offline
+
+        verified = offline.verify(bundle)
+        for v in verified:
+            mark = "ok" if v.valid else "FAILED"
+            self.stdout.write(f"  Signature {mark}: {v.hrid}: {v.manifestation} ({v.status})")
+            for check in v.checks:
+                if not check.ok:
+                    self.stdout.write(f"    {check.name}: {check.detail}")
+        if failed := sum(1 for v in verified if not v.valid):
+            raise CommandError(f"{failed} of its {len(verified)} signatures don't verify.")
 
 
 def _lower(message: str) -> str:

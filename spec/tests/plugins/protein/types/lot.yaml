@@ -1,0 +1,37 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Lot
+label: Lot
+schema_version: 1
+description: A lot of protein, signed for at each step under 21 CFR Part 11.
+hrid: { prefix: LOT }
+fields:
+  label: { type: string, required: true, max_length: 200 }
+  protein: { type: ref, to: Protein }
+  yield_mg: { type: float, min: 0 }
+  report: { type: file }
+  # Its state field (ADR 0125), whose states past Open are each set by signing for it
+  # (ADR 0126).
+  status:
+    type: state
+    initial: open
+    states:
+      open: { label: Open, set_by: [reviewer, qa], reason: required }
+      in_review:
+        label: In review
+        set_by: [analyst]
+        signatures: [{ meaning: authorship }]
+      approved:
+        label: Approved
+        set_by: [reviewer]
+        locks: true
+        reason: optional
+        signatures:
+          - { meaning: review }
+          - { meaning: approval, role: qa, label: QA approval, statement: I approve this lot. }
+      released:
+        label: Released
+        set_by: [qa]
+        locks: true
+        reason: required
+        signatures: [{ meaning: responsibility }]

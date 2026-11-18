@@ -254,6 +254,7 @@ class _Writer:
                 self._create(line, row)
             else:
                 self._append(line, row)
+        self._signatures(planned)
         for run in self.bundle.lines("runs.ndjson"):
             self._run(run)
         self._rename_in_apps()
@@ -268,6 +269,7 @@ class _Writer:
             "placeholders": self.counts["placeholders"],
             "runs": self.counts["runs"],
             "apps_renamed": self.counts["apps_renamed"],
+            "signatures": self.counts["signatures"],
         }
 
     # Who --------------------------------------------------------------------------------
@@ -553,6 +555,7 @@ class _Writer:
                 agent=self._agent(r["agent"]),
                 reason=r["reason"],
                 created_at=r["created_at"],
+                signatures=r.get("signatures") or [],
                 **(
                     {
                         "state_field": r["state"]["field"],
@@ -582,6 +585,67 @@ class _Writer:
                 {k: v for k, v in kept.items() if k in fields},
                 number,
             )
+
+    # Signatures -------------------------------------------------------------------------
+
+    def _signatures(self, planned: dict[str, Any]) -> None:
+        """The bundle's electronic signatures on the records it brings (ADR 0126), as they
+        were signed, by the keys its source trusts: each checked before it's kept, so an
+        import never brings one that doesn't verify."""
+        from iki_server.signatures import proof, signing_keys
+        from iki_server.signatures.models import Signature, Withdrawal
+
+        listed = {k["key"]: k["deployment"] for k in self.bundle.manifest.get("signing_keys", [])}
+        trusted = {**signing_keys.trusted(), **listed}
+        renamed = {str(k): str(v) for k, v in self.renamed.items()}
+        for line in self.bundle.lines("signatures.ndjson"):
+            if line["record"] not in planned or Signature.objects.filter(pk=line["id"]).exists():
+                continue
+            raw = proof.unb64(line["signature"])
+            checks = [
+                *proof.check_document(line["document"], raw, trusted),
+                proof.check_content(proof_document(line["document"]), line["content"]),
+            ]
+            if failed := [c for c in checks if not c.ok]:
+                raise reading.BundleError(
+                    f"Signature {line['id']} in it doesn't verify: {failed[0].detail}"
+                )
+            document = proof_document(line["document"])
+            signer = self._user(line["signer"])
+            if signer is None:
+                raise reading.BundleError(f"Signature {line['id']} names nobody in it.")
+            for key in {line["key"]} - set(signing_keys.trusted()):
+                signing_keys.trust(key, listed.get(key, self.made.trusted_as or ""), self.made)
+            names = _strings(proof_document(line["content"]).get("values")) & renamed.keys()
+            made = Signature.objects.create(
+                id=line["id"],
+                entity_id=line["record"],
+                revision=line["revision"],
+                entry_revision=line["entry_revision"],
+                field=line["field"],
+                state=line["state"],
+                index=line["index"],
+                meaning=line["meaning"],
+                signer=signer,
+                signer_ref=str((document.get("signer") or {}).get("id", line["signer"])),
+                signed_at=line["signed_at"],
+                document=line["document"],
+                signature=raw,
+                key=line["key"],
+                content=line["content"],
+                deployment=line["deployment"],
+                bundle_import=self.made,
+                renamed={k: renamed[k] for k in sorted(names)},
+            )
+            if line["withdrawn"] is not None:
+                w = line["withdrawn"]
+                Withdrawal.objects.create(
+                    signature=made,
+                    by=self._user(w["by"]) or signer,
+                    reason=w["reason"],
+                    withdrawn_at=w["at"],
+                )
+            self.counts["signatures"] += 1
 
     # HRIDs named in values --------------------------------------------------------------
 
@@ -827,6 +891,28 @@ class _Writer:
     def _name(self, source_id: str | None) -> str | None:
         user = self._user(source_id)
         return user.get_full_name() if user is not None else None
+
+
+def _strings(value: Any) -> set[str]:  # noqa: ANN401 - JSON
+    """Every string in a JSON value."""
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, dict):
+        return {s for v in value.values() for s in _strings(v)}
+    if isinstance(value, list):
+        return {s for v in value for s in _strings(v)}
+    return set()
+
+
+def proof_document(text: str) -> dict[str, Any]:
+    """A signature's document, as JSON; empty if it isn't."""
+    import json
+
+    try:
+        found = json.loads(text)
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 def _placeholder(person: ImportPerson, source: str) -> User:

@@ -82,6 +82,24 @@ describe("createIkiClient", () => {
       `${BASE}/api/v1/me/work?project=${project}&type=a%2Fb.S&state=x&state=y&sort=due`,
     );
   });
+
+  it("reads a record's signatures and verifies one (ADR 0126)", async () => {
+    const { requests, fetch } = recorder({ valid: true, checks: [] });
+    const iki = createIkiClient({ baseUrl: BASE, fetch });
+    await iki.GET("/api/v1/entities/{ref}/signatures", {
+      params: { path: { ref: "LOT-000001" }, query: { verify: true } },
+    });
+    const checked = unwrap(
+      await iki.GET("/api/v1/signatures/{signature_id}/verification", {
+        params: { path: { signature_id: "01a1ee10-0000-7000-8000-000000000001" } },
+      }),
+    );
+    expect(checked.valid).toBe(true);
+    expect(requests.map((r) => r.url)).toEqual([
+      `${BASE}/api/v1/entities/LOT-000001/signatures?verify=true`,
+      `${BASE}/api/v1/signatures/01a1ee10-0000-7000-8000-000000000001/verification`,
+    ]);
+  });
 });
 
 describe("encodeName", () => {

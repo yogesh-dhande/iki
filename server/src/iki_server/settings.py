@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "iki_server.graph",
     "iki_server.plugins",
     "iki_server.bundles",
+    "iki_server.signatures",
     # The core plugin's types (iki/core.Collection), which every deployment has
     # (ADR 0038). Its app is generated like any plugin's: `make core`.
     "iki_plugin_iki__core.apps.PluginConfig",
@@ -369,6 +370,14 @@ IKI_BUNDLE_TRUSTED_KEYS: dict[str, tuple[str, ...]] = {}
 # The most a bundle's members may come to uncompressed, against archives that
 # unpack to far more than they are.
 IKI_BUNDLE_MAX_BYTES: int = env.int("IKI_BUNDLE_MAX_BYTES", default=100 * 1024**3)
+
+#: Electronic signatures (ADR 0124): the authentication contexts the identity provider
+#: must report when someone signs in again to sign, such as a second factor's. OIDC asks
+#: for them as ``acr_values`` and checks ``acr``; SAML asks for them in its AuthnRequest
+#: and checks the assertion's AuthnContextClassRef. Empty: whatever the provider asks.
+IKI_SIGNING_AUTHN_CONTEXTS: tuple[str, ...] = tuple(
+    c.strip() for c in env.str("IKI_SIGNING_AUTHN_CONTEXTS", default="").split(",") if c.strip()
+)
 try:
     if IKI_BUNDLE_SIGNING_KEY:
         bundle_keys.private_key(IKI_BUNDLE_SIGNING_KEY)

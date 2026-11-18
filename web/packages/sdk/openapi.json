@@ -1647,6 +1647,104 @@
         "title": "CancelIn",
         "type": "object"
       },
+      "CarriedSignatureOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manifestation": {
+            "description": "Who signed, when (UTC), and what it means (21 CFR 11.50); empty if the signature is gone.",
+            "title": "Manifestation",
+            "type": "string"
+          },
+          "present": {
+            "description": "The signature is there: false only if it was deleted.",
+            "title": "Present",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "manifestation",
+          "present"
+        ],
+        "title": "CarriedSignatureOut",
+        "type": "object"
+      },
+      "CertificationIn": {
+        "properties": {
+          "reference": {
+            "description": "Where it's kept, or how it was sent: “QA-DOC-0042, sent to FDA ORA”.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reference",
+            "type": "string"
+          },
+          "submitted_on": {
+            "description": "When the organization sent its letter to the FDA.",
+            "format": "date",
+            "title": "Submitted On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submitted_on",
+          "reference"
+        ],
+        "title": "CertificationIn",
+        "type": "object"
+      },
+      "CertificationOut": {
+        "properties": {
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "submitted_on": {
+            "format": "date",
+            "title": "Submitted On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submitted_on",
+          "reference",
+          "recorded_by",
+          "recorded_at"
+        ],
+        "title": "CertificationOut",
+        "type": "object"
+      },
+      "CertificationState": {
+        "properties": {
+          "certification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CertificationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The organization's certification to the FDA (21 CFR 11.100(c)) in force. Until an Org Admin records one, nobody signs."
+          }
+        },
+        "required": [
+          "certification"
+        ],
+        "title": "CertificationState",
+        "type": "object"
+      },
       "ChangeOut": {
         "properties": {
           "after": {
@@ -3255,6 +3353,14 @@
             "title": "Edit",
             "type": "boolean"
           },
+          "sign": {
+            "description": "The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.",
+            "items": {
+              "$ref": "#/components/schemas/SignCan"
+            },
+            "title": "Sign",
+            "type": "array"
+          },
           "states": {
             "additionalProperties": {
               "items": {
@@ -3277,7 +3383,8 @@
         },
         "required": [
           "edit",
-          "states"
+          "states",
+          "sign"
         ],
         "title": "EntityCan",
         "type": "object"
@@ -5060,6 +5167,37 @@
         "title": "FreezeIn",
         "type": "object"
       },
+      "GivenSignatureOut": {
+        "description": "A signature given for setting a state, on the record's current revision.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manifestation": {
+            "description": "As people read it: who, when (UTC), and what it means (21 CFR 11.50).",
+            "title": "Manifestation",
+            "type": "string"
+          },
+          "signed_at": {
+            "format": "date-time",
+            "title": "Signed At",
+            "type": "string"
+          },
+          "signer": {
+            "$ref": "#/components/schemas/PersonRef"
+          }
+        },
+        "required": [
+          "id",
+          "signer",
+          "signed_at",
+          "manifestation"
+        ],
+        "title": "GivenSignatureOut",
+        "type": "object"
+      },
       "GraphEdgeOut": {
         "properties": {
           "field": {
@@ -6586,11 +6724,12 @@
             "type": "string"
           },
           "kind": {
-            "description": "approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets.",
+            "description": "approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.",
             "enum": [
               "approval",
               "field",
-              "state"
+              "state",
+              "signature"
             ],
             "title": "Kind",
             "type": "string"
@@ -7336,6 +7475,62 @@
           "repointed"
         ],
         "title": "MovedOut",
+        "type": "object"
+      },
+      "MySigningOut": {
+        "description": "Whether you can sign now, and what you agree to before your first signature.",
+        "properties": {
+          "acknowledged": {
+            "description": "You agreed to `acknowledgment` already.",
+            "title": "Acknowledged",
+            "type": "boolean"
+          },
+          "acknowledgment": {
+            "title": "Acknowledgment",
+            "type": "string"
+          },
+          "can_sign": {
+            "title": "Can Sign",
+            "type": "boolean"
+          },
+          "locked": {
+            "description": "Failed attempts locked your signing.",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The identity provider you sign in again at.",
+            "title": "Provider"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "can_sign",
+          "why_not",
+          "acknowledged",
+          "acknowledgment",
+          "provider",
+          "locked"
+        ],
+        "title": "MySigningOut",
         "type": "object"
       },
       "NameableFilters": {
@@ -11650,6 +11845,14 @@
             ],
             "description": "The state it was in."
           },
+          "signatures": {
+            "description": "The electronic signatures that set it (ADR 0126), in order: each as people read it. Empty for a state set directly. GET /entities/{ref}/signatures has them in full.",
+            "items": {
+              "$ref": "#/components/schemas/CarriedSignatureOut"
+            },
+            "title": "Signatures",
+            "type": "array"
+          },
           "to": {
             "$ref": "#/components/schemas/NamedOut",
             "description": "The state it was set to."
@@ -11658,7 +11861,8 @@
         "required": [
           "field",
           "from",
-          "to"
+          "to",
+          "signatures"
         ],
         "title": "RevisionStateOut",
         "type": "object"
@@ -14171,6 +14375,798 @@
         "title": "SetupVolumeOut",
         "type": "object"
       },
+      "SignCan": {
+        "description": "Setting one of the record's state fields to a state that needs signatures (ADR\n0123): each of them, given or not. Give one with POST /entities/{ref}/signatures, in\nthe web app.",
+        "properties": {
+          "allowed": {
+            "description": "You may give one of its signatures now.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "field": {
+            "description": "The state field.",
+            "title": "Field",
+            "type": "string"
+          },
+          "field_label": {
+            "title": "Field Label",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "required",
+                  "optional"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether each signer says why: required, optional, or not at all (null).",
+            "title": "Reason"
+          },
+          "signatures": {
+            "items": {
+              "$ref": "#/components/schemas/SignatureCan"
+            },
+            "title": "Signatures",
+            "type": "array"
+          },
+          "to": {
+            "description": "The state it sets.",
+            "title": "To",
+            "type": "string"
+          },
+          "to_label": {
+            "title": "To Label",
+            "type": "string"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "field",
+          "field_label",
+          "to",
+          "to_label",
+          "reason",
+          "allowed",
+          "why_not",
+          "signatures"
+        ],
+        "title": "SignCan",
+        "type": "object"
+      },
+      "SignatureAuthenticationOut": {
+        "properties": {
+          "authenticated_at": {
+            "description": "When they signed in again.",
+            "format": "date-time",
+            "title": "Authenticated At",
+            "type": "string"
+          },
+          "context": {
+            "description": "OIDC's `acr`, or SAML's AuthnContextClassRef.",
+            "title": "Context",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "methods": {
+            "description": "How, as the provider says (OIDC's `amr`).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
+          "protocol": {
+            "enum": [
+              "oidc",
+              "saml"
+            ],
+            "title": "Protocol",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Who the identity provider says signed in again.",
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol",
+          "issuer",
+          "subject",
+          "authenticated_at",
+          "methods",
+          "context"
+        ],
+        "title": "SignatureAuthenticationOut",
+        "type": "object"
+      },
+      "SignatureCan": {
+        "description": "One of the signatures setting a record's state needs (ADR 0126): given, or whether\nyou may give it.",
+        "properties": {
+          "allowed": {
+            "description": "You may give it now.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "given": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GivenSignatureOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The signature that counts for it."
+          },
+          "index": {
+            "description": "Which, from 0: send it to sign.",
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "lapsed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A signature given for it that no longer counts, and why: its signer no longer holds the role.",
+            "title": "Lapsed"
+          },
+          "meaning": {
+            "enum": [
+              "authorship",
+              "review",
+              "approval",
+              "verification",
+              "responsibility",
+              "witness"
+            ],
+            "title": "Meaning",
+            "type": "string"
+          },
+          "meaning_label": {
+            "title": "Meaning Label",
+            "type": "string"
+          },
+          "role_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Role Labels",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "statement": {
+            "description": "What you attest to by giving it.",
+            "title": "Statement",
+            "type": "string"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "index",
+          "meaning",
+          "meaning_label",
+          "label",
+          "statement",
+          "roles",
+          "role_labels",
+          "given",
+          "allowed",
+          "why_not",
+          "lapsed"
+        ],
+        "title": "SignatureCan",
+        "type": "object"
+      },
+      "SignatureCheckOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "enum": [
+              "document",
+              "key",
+              "signature",
+              "row",
+              "content",
+              "record",
+              "change"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "ok",
+          "detail"
+        ],
+        "title": "SignatureCheckOut",
+        "type": "object"
+      },
+      "SignatureListParams": {
+        "properties": {
+          "verify": {
+            "default": false,
+            "description": "Check each signature again, now.",
+            "title": "Verify",
+            "type": "boolean"
+          }
+        },
+        "title": "SignatureListParams",
+        "type": "object"
+      },
+      "SignatureOut": {
+        "description": "A person's electronic signature on a revision of a record (21 CFR 11.50, 11.70).",
+        "properties": {
+          "authentication": {
+            "$ref": "#/components/schemas/SignatureAuthenticationOut"
+          },
+          "carried_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision that set the state with it.",
+            "title": "Carried By"
+          },
+          "change": {
+            "$ref": "#/components/schemas/SignedChangeOut"
+          },
+          "deployment": {
+            "description": "The deployment it was signed on.",
+            "title": "Deployment",
+            "type": "string"
+          },
+          "document": {
+            "description": "What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.",
+            "title": "Document",
+            "type": "string"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a record of a registry entry: the entry's revision it signs.",
+            "title": "Entry Revision"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index": {
+            "description": "Which of the change's signatures, from 0.",
+            "title": "Index",
+            "type": "integer"
+          },
+          "key": {
+            "description": "The Ed25519 key that signed it: `ed25519:...`.",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "How the plugin names it: “QA approval”.",
+            "title": "Label",
+            "type": "string"
+          },
+          "manifestation": {
+            "description": "As people read it: the signer's printed name, the date and time (UTC), and what it means. “Approved by Ada Lovelace on 2026-11-18 at 14:03:22 UTC. Meaning: QA approval.”",
+            "title": "Manifestation",
+            "type": "string"
+          },
+          "meaning": {
+            "enum": [
+              "authorship",
+              "review",
+              "approval",
+              "verification",
+              "responsibility",
+              "witness"
+            ],
+            "title": "Meaning",
+            "type": "string"
+          },
+          "meaning_label": {
+            "title": "Meaning Label",
+            "type": "string"
+          },
+          "of": {
+            "description": "How many the change needed when it was signed.",
+            "title": "Of",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "record": {
+            "format": "uuid",
+            "title": "Record",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision of the record it signs.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "roles": {
+            "description": "The lab roles its signer had to hold: any one.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "signature": {
+            "description": "The Ed25519 signature of `document`, base64url.",
+            "title": "Signature",
+            "type": "string"
+          },
+          "signed_at": {
+            "format": "date-time",
+            "title": "Signed At",
+            "type": "string"
+          },
+          "signer": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "signer_email": {
+            "title": "Signer Email",
+            "type": "string"
+          },
+          "signer_name": {
+            "description": "The signer's name as it was signed.",
+            "title": "Signer Name",
+            "type": "string"
+          },
+          "statement": {
+            "description": "What the signer attested to.",
+            "title": "Statement",
+            "type": "string"
+          },
+          "status": {
+            "description": "`carried`: the state was set with it. `pending`: setting it waits for others. `withdrawn`: its signer took it back. `lapsed`: the record changed after it, so it counts for nothing.",
+            "enum": [
+              "pending",
+              "carried",
+              "withdrawn",
+              "lapsed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_detail": {
+            "title": "Status Detail",
+            "type": "string"
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignatureVerificationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `verify=true`: each check made again, now."
+          }
+        },
+        "required": [
+          "id",
+          "manifestation",
+          "record",
+          "hrid",
+          "revision",
+          "entry_revision",
+          "change",
+          "index",
+          "of",
+          "meaning",
+          "meaning_label",
+          "label",
+          "statement",
+          "roles",
+          "signer",
+          "signer_name",
+          "signer_email",
+          "signed_at",
+          "reason",
+          "authentication",
+          "deployment",
+          "key",
+          "status",
+          "status_detail",
+          "carried_by",
+          "document",
+          "signature"
+        ],
+        "title": "SignatureOut",
+        "type": "object"
+      },
+      "SignatureVerificationOut": {
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/SignatureCheckOut"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "valid": {
+            "description": "Every check passed.",
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "checks",
+          "verified_at"
+        ],
+        "title": "SignatureVerificationOut",
+        "type": "object"
+      },
+      "SignaturesOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SignatureOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "missing": {
+            "description": "Signatures the record's states were set with that are gone from the database. Empty, unless something outside Iki deleted them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "missing"
+        ],
+        "title": "SignaturesOut",
+        "type": "object"
+      },
+      "SignedChangeOut": {
+        "description": "What a signature signs for: setting the record's state field to a state.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "field_label": {
+            "title": "Field Label",
+            "type": "string"
+          },
+          "from": {
+            "description": "The state it was in.",
+            "title": "From",
+            "type": "string"
+          },
+          "from_label": {
+            "title": "From Label",
+            "type": "string"
+          },
+          "to": {
+            "description": "The state it signs for setting.",
+            "title": "To",
+            "type": "string"
+          },
+          "to_label": {
+            "title": "To Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "field_label",
+          "from",
+          "from_label",
+          "to",
+          "to_label"
+        ],
+        "title": "SignedChangeOut",
+        "type": "object"
+      },
+      "SigningIn": {
+        "properties": {
+          "acknowledge": {
+            "default": false,
+            "description": "Before your first signature: that you agree to `acknowledgment` in GET /me/signing.",
+            "title": "Acknowledge",
+            "type": "boolean"
+          },
+          "field": {
+            "description": "The state field (ADR 0125), such as status: a key of `can.states`.",
+            "maxLength": 63,
+            "title": "Field",
+            "type": "string"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "maximum": 4,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which of its signatures you give, from 0. Without it, the first you may.",
+            "title": "Index"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why: the state may require it. It's signed.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "return_to": {
+            "description": "The path on this site to come back to once the identity provider answers, with `?signing=` and the signing's ID.",
+            "maxLength": 2000,
+            "title": "Return To",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state you sign for setting it to.",
+            "maxLength": 50,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "state",
+          "return_to"
+        ],
+        "title": "SigningIn",
+        "type": "object"
+      },
+      "SigningKeyOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          }
+        },
+        "required": [
+          "key",
+          "created_at",
+          "retired_at"
+        ],
+        "title": "SigningKeyOut",
+        "type": "object"
+      },
+      "SigningKeysOut": {
+        "properties": {
+          "deployment": {
+            "title": "Deployment",
+            "type": "string"
+          },
+          "keys": {
+            "description": "This deployment's Ed25519 keys for signatures, oldest first: check a signature offline against one (`iki bundle verify --key`).",
+            "items": {
+              "$ref": "#/components/schemas/SigningKeyOut"
+            },
+            "title": "Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deployment",
+          "keys"
+        ],
+        "title": "SigningKeysOut",
+        "type": "object"
+      },
+      "SigningOut": {
+        "description": "An attempt to sign: started, then signed or failed once the identity provider\nanswers (ADR 0124).",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "field": {
+            "description": "The state field it signs for setting.",
+            "title": "Field",
+            "type": "string"
+          },
+          "field_label": {
+            "title": "Field Label",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Why it failed or was cancelled, for the person.",
+            "title": "Message",
+            "type": "string"
+          },
+          "record": {
+            "format": "uuid",
+            "title": "Record",
+            "type": "string"
+          },
+          "set": {
+            "description": "Its signature was the last, and set the state.",
+            "title": "Set",
+            "type": "boolean"
+          },
+          "sign_in_url": {
+            "description": "Where to send the browser to sign in again at the identity provider, while it's started.",
+            "title": "Sign In Url",
+            "type": "string"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's state field's state now.",
+            "title": "State"
+          },
+          "status": {
+            "enum": [
+              "started",
+              "signed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "to": {
+            "description": "The state it signs for.",
+            "title": "To",
+            "type": "string"
+          },
+          "to_label": {
+            "title": "To Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "message",
+          "record",
+          "hrid",
+          "field",
+          "field_label",
+          "to",
+          "to_label",
+          "index",
+          "sign_in_url",
+          "expires_at",
+          "signature",
+          "set",
+          "state"
+        ],
+        "title": "SigningOut",
+        "type": "object"
+      },
       "SkippedOut": {
         "properties": {
           "entity": {
@@ -14455,6 +15451,11 @@
             "description": "Whether it asks why: required, optional, or not at all (null).",
             "title": "Reason"
           },
+          "signed": {
+            "description": "It's set by signing for it (ADR 0126), never directly: see `can.sign`.",
+            "title": "Signed",
+            "type": "boolean"
+          },
           "why_not": {
             "anyOf": [
               {
@@ -14474,7 +15475,8 @@
           "locks",
           "reason",
           "allowed",
-          "why_not"
+          "why_not",
+          "signed"
         ],
         "title": "StateCan",
         "type": "object"
@@ -14551,6 +15553,14 @@
             },
             "title": "Set By",
             "type": "array"
+          },
+          "signatures": {
+            "description": "The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.",
+            "items": {
+              "$ref": "#/components/schemas/WantedSignatureOut"
+            },
+            "title": "Signatures",
+            "type": "array"
           }
         },
         "required": [
@@ -14558,7 +15568,8 @@
           "label",
           "set_by",
           "locks",
-          "reason"
+          "reason",
+          "signatures"
         ],
         "title": "StateOut",
         "type": "object"
@@ -16013,6 +17024,62 @@
         "title": "WalkStepOut",
         "type": "object"
       },
+      "WantedSignatureOut": {
+        "description": "A signature setting a state needs (ADR 0126).",
+        "properties": {
+          "label": {
+            "description": "How the plugin names it: “QA approval”.",
+            "title": "Label",
+            "type": "string"
+          },
+          "meaning": {
+            "description": "What signing means (21 CFR 11.50).",
+            "enum": [
+              "authorship",
+              "review",
+              "approval",
+              "verification",
+              "responsibility",
+              "witness"
+            ],
+            "title": "Meaning",
+            "type": "string"
+          },
+          "meaning_label": {
+            "description": "The meaning as people read it: Approval.",
+            "title": "Meaning Label",
+            "type": "string"
+          },
+          "roles": {
+            "description": "The lab roles whoever gives it holds, any one: its own, or the state's `set_by`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "statement": {
+            "description": "What its signer attests to.",
+            "title": "Statement",
+            "type": "string"
+          },
+          "verb": {
+            "description": "How its manifestation reads: “Approved by …”.",
+            "title": "Verb",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meaning",
+          "meaning_label",
+          "verb",
+          "label",
+          "statement",
+          "roles"
+        ],
+        "title": "WantedSignatureOut",
+        "type": "object"
+      },
       "WebhookCreated": {
         "properties": {
           "active": {
@@ -16342,6 +17409,18 @@
           }
         },
         "title": "WebhookPatch",
+        "type": "object"
+      },
+      "WithdrawalIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "WithdrawalIn",
         "type": "object"
       },
       "WorkFilters": {
@@ -21500,9 +22579,161 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/signatures": {
+      "get": {
+        "description": "Every signature given on the record, newest first, each with its manifestation and\nwhere it stands; with `verify=true`, each checked again. `missing` lists any the\nrecord's states were set with that are gone.",
+        "operationId": "iki_server_api_signatures_list_signatures",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Check each signature again, now.",
+            "in": "query",
+            "name": "verify",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Check each signature again, now.",
+              "title": "Verify",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignaturesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A record's electronic signatures",
+        "tags": [
+          "signatures"
+        ]
+      },
+      "post": {
+        "description": "Starts giving one of the signatures setting the record's state needs (ADR 0126),\nas the person in\nthe web app's browser session: send the browser to `sign_in_url`, where the identity\nprovider signs them in again, however recently they did (ADR 0124). Its answer signs\nthe revision you read (send its ETag as If-Match), and comes back to `return_to`. No\ntoken, app or AI agent can sign: they're refused with 403.",
+        "operationId": "iki_server_api_signatures_start_signing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Start signing for a state",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/states/{field}": {
       "post": {
-        "description": "Sets one of the record's state fields (ADR 0125) to one of its states, from any other,\nas a revision of its own, with your reason. It needs one of the state's lab roles in the\nrecord's project (ADR 0116): `can.states` lists each state with whether you may and why\nnot. A state that locks the record freezes its other fields until the field is set to\none that doesn't; state fields stay settable. Send If-Match with the ETag you read.",
+        "description": "Sets one of the record's state fields (ADR 0125) to one of its states, from any other,\nas a revision of its own, with your reason. It needs one of the state's lab roles in the\nrecord's project (ADR 0116): `can.states` lists each state with whether you may and why\nnot. A state that locks the record freezes its other fields until the field is set to\none that doesn't; state fields stay settable. A state that needs electronic signatures\n(ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`\nfor it. Send If-Match with the ETag you read.",
         "operationId": "iki_server_api_entities_set_entity_state",
         "parameters": [
           {
@@ -23101,6 +24332,36 @@
         "summary": "Choose which notifications you get by email",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/api/v1/me/signing": {
+      "get": {
+        "operationId": "iki_server_api_signatures_my_signing",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MySigningOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Whether you can sign",
+        "tags": [
+          "signatures"
         ]
       }
     },
@@ -27145,6 +28406,282 @@
         ]
       }
     },
+    "/api/v1/signatures/certification": {
+      "get": {
+        "operationId": "iki_server_api_signatures_get_certification",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationState"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The organization's certification",
+        "tags": [
+          "signatures"
+        ]
+      },
+      "post": {
+        "description": "Records that the organization certified to the FDA that its electronic signatures\nare the legally binding equivalent of handwritten ones (21 CFR 11.100(c)). Org Admins\nonly; each is kept, and the latest is in force.",
+        "operationId": "iki_server_api_signatures_certify",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificationState"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Record the organization's certification",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
+    "/api/v1/signatures/{signature_id}": {
+      "get": {
+        "operationId": "iki_server_api_signatures_get_signature",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Signature Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A signature",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
+    "/api/v1/signatures/{signature_id}/verification": {
+      "get": {
+        "description": "Checks, now, from the database: the key is one this deployment trusts, it signed\nthe document, the signature's record, revision, signer and time are the document's,\nthe content kept with it is what was signed, and the record's history still holds\nthat content. Anything changed outside Iki, even in SQL, fails a check.",
+        "operationId": "iki_server_api_signatures_verify_signature",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Signature Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureVerificationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a signature again",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
+    "/api/v1/signatures/{signature_id}/withdrawal": {
+      "post": {
+        "description": "Takes back your signature while setting the state waits for others. Once the\nstate is set with it, it stays.",
+        "operationId": "iki_server_api_signatures_withdraw_signature",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Signature Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Withdraw your signature",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
+    "/api/v1/signing-keys": {
+      "get": {
+        "operationId": "iki_server_api_signatures_signing_keys_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningKeysOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "This deployment's signing keys",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
+    "/api/v1/signings/{signing_id}": {
+      "get": {
+        "description": "Your own signings only: another's answers 404.",
+        "operationId": "iki_server_api_signatures_get_signing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Signing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How a signing went",
+        "tags": [
+          "signatures"
+        ]
+      }
+    },
     "/api/v1/teams": {
       "get": {
         "description": "Org Admins see every team; others see the teams they belong to.",
@@ -28188,6 +29725,41 @@
         "summary": "Sign someone out everywhere",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/users/{user_id}/signing/unlock": {
+      "post": {
+        "description": "Unlocks someone's signing after failed attempts to sign as them locked it. Org\nAdmins only.",
+        "operationId": "iki_server_api_signatures_unlock_signing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Unlock signing",
+        "tags": [
+          "signatures"
         ]
       }
     },

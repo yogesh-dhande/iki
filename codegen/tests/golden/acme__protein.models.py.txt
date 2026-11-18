@@ -24,6 +24,75 @@ from iki_server.files.models import File
 import iki_plugin_acme__dna.models
 
 
+class Lot(Entity):
+    """Lot (acme/protein.Lot), schema version 1. A lot of protein, signed for at each step under 21 CFR Part 11."""
+
+    IKI_TYPE = 'acme/protein.Lot'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    label = models.CharField(max_length=200)
+    protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    yield_mg = models.FloatField(null=True)
+    report = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
+    status = StateField(
+        states=['open', 'in_review', 'approved', 'released'],
+        locking=['approved', 'released'],
+        db_default='open',
+        db_comment='A state field (ADR 0125): one of open, in_review, approved, released.',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_lot'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('label'), 1),
+                name='acme__protein_lot__label__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(label__regex='[\\r\\n]'),
+                name='acme__protein_lot__label__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(yield_mg__gt=float('-inf'), yield_mg__lt=float('inf')),
+                name='acme__protein_lot__yield_mg__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(yield_mg__gte=0),
+                name='acme__protein_lot__yield_mg__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=['open', 'in_review', 'approved', 'released']),
+                name='acme__protein_lot__status__known',
+            ),
+        ]
+
+
+class Lot_History(models.Model):
+    """The history of acme__protein_lot: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Lot'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    label = models.TextField(null=True)
+    protein = models.UUIDField(db_column='protein_id', null=True)
+    yield_mg = models.FloatField(null=True)
+    report = models.UUIDField(db_column='report_id', null=True)
+    status = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_lot__history'
+
+
 class Protein(iki_plugin_acme__dna.models.Sequence):
     """Protein (acme/protein.Protein), schema version 3."""
 

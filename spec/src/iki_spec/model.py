@@ -20,6 +20,7 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "NUMERIC_OPERATORS",
+    "SIGNATURE_MEANINGS",
     "TIERS",
     "Action",
     "Approval",
@@ -31,9 +32,11 @@ __all__ = [
     "Field",
     "Input",
     "LabRole",
+    "Meaning",
     "Metric",
     "Plugin",
     "Resources",
+    "Signature",
     "State",
     "StateMove",
     "Updates",
@@ -263,12 +266,13 @@ class State:
     #: No record is in it any more: its records moved to ``moved_to``.
     removed: bool = False
     moved_to: str | None = None
-    #: Reserved for the electronic signatures setting it will require (21 CFR Part 11):
-    #: as the manifest gives them, which no plugin may yet.
-    signatures: Any = None
+    #: The electronic signatures setting it needs (21 CFR Part 11, ADR 0126): it's set by
+    #: the last of them, once each is given on the same revision. Empty: it's set directly.
+    signatures: tuple[Signature, ...] = ()
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
+        wanted = data.get("signatures")
         return cls(
             name=name,
             label=data.get("label") or name.replace("_", " ").capitalize(),
@@ -278,7 +282,64 @@ class State:
             reason=data.get("reason"),
             removed=bool(data.get("removed", False)),
             moved_to=data.get("moved_to"),
-            signatures=data.get("signatures"),
+            signatures=tuple(
+                Signature.from_manifest(x, plugin=plugin) for x in wanted if isinstance(x, dict)
+            )
+            if isinstance(wanted, list)
+            else (),
+        )
+
+
+@dataclass(frozen=True)
+class Meaning:
+    """What a signature means (21 CFR 11.50(a)(3)): how it's named, the verb its
+    manifestation reads with ("Approved by"), and what the signer attests to by default."""
+
+    label: str
+    verb: str
+    statement: str
+
+
+#: The meanings a signature can have, by name (ADR 0126).
+SIGNATURE_MEANINGS: dict[str, Meaning] = {
+    "authorship": Meaning(
+        "Authorship", "Authored", "I made this record, and what it says is accurate and complete."
+    ),
+    "review": Meaning("Review", "Reviewed", "I reviewed this record and found it in order."),
+    "approval": Meaning("Approval", "Approved", "I approve this record."),
+    "verification": Meaning(
+        "Verification", "Verified", "I checked what this record says against its source."
+    ),
+    "responsibility": Meaning(
+        "Responsibility", "Signed off", "I take responsibility for this decision."
+    ),
+    "witness": Meaning("Witness", "Witnessed", "I witnessed what this record describes."),
+}
+
+
+@dataclass(frozen=True)
+class Signature:
+    """A signature setting a state needs (ADR 0126): what it means, and who may give it:
+    someone with ``role``, or with one of the state's ``set_by`` roles if it has none."""
+
+    meaning: str
+    #: A qualified lab role (ADR 0116), or None for the state's own.
+    role: str | None = None
+    #: How it's named: "QA approval". The meaning's label if the plugin gives none.
+    label: str = ""
+    #: What the signer attests to, shown before they sign and kept in what they sign.
+    statement: str = ""
+
+    @classmethod
+    def from_manifest(cls, data: dict[str, Any], *, plugin: str) -> Signature:
+        meaning = str(data.get("meaning") or "")
+        known = SIGNATURE_MEANINGS.get(meaning)
+        role = data.get("role")
+        return cls(
+            meaning=meaning,
+            role=lab_role_name(role, plugin) if isinstance(role, str) else None,
+            label=data.get("label") or (known.label if known else meaning),
+            statement=data.get("statement") or (known.statement if known else ""),
         )
 
 
@@ -876,6 +937,7 @@ def parse_duration(text: str) -> int:
 _DATACLASSES = (
     Field,
     State,
+    Signature,
     StateMove,
     EntityType,
     Extension,
@@ -1073,7 +1135,14 @@ def _field(data: dict[str, Any]) -> Field:
             "assignment_states": tuple(data.get("assignment_states") or ()),
             # Plugins built before state fields have none.
             "states": {
-                n: State(**{**st, "set_by": tuple(st["set_by"])})
+                n: State(
+                    **{
+                        **st,
+                        "set_by": tuple(st["set_by"]),
+                        # Plugins built before signatures have none.
+                        "signatures": tuple(Signature(**x) for x in st.get("signatures") or ()),
+                    }
+                )
                 for n, st in (data.get("states") or {}).items()
             },
             "moved_to": StateMove(

@@ -243,8 +243,30 @@ fields:
   registry entry, while the field is in it. A record is locked while any of
   its state fields is in a state that locks. State fields stay settable by
   their roles, which is how a record is unlocked.
-- `signatures` is reserved for the electronic signatures a state will
-  require (`state-signatures-reserved`).
+- `signatures` makes setting a state an electronic signature under 21 CFR
+  Part 11 ([ADR 0126](../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
+  it's set by the last of them, once each is given on the same revision,
+  by people signing in again at the identity provider
+  ([ADR 0124](../docs/adr/0124-signing-signs-in-again-at-the-identity-provider.md)),
+  never directly. Each has a `meaning` (`authorship`, `review`, `approval`,
+  `verification`, `responsibility` or `witness`), and optionally a `label`,
+  the `statement` its signer attests to, and a lab `role` of its own, else
+  one of the state's `set_by` (`unknown-role`). Up to 5 per state. Neither
+  the initial state nor a removed one is signed for (`state-signatures`).
+  Core keeps each signature its signer's own act, bound to the exact
+  revision; whether one person may give two, or in which order, is for
+  guards.
+
+  ```yaml
+  released:
+    label: Released
+    set_by: [qa]
+    locks: true
+    signatures:
+      - { meaning: review, role: reviewer }
+      - { meaning: approval, label: QA release, statement: I release this lot for use. }
+  ```
+
 - A state field is set on its own, never with a record's other values, nor
   by an action's results (`updates-state`). It's a type's own: an extension
   (`state-field-in-extension`) or a list (`state-field-in-list`) can't have
@@ -1617,7 +1639,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
-| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures-reserved`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                | States                          |
+| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                         | States                          |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |

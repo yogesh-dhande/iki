@@ -237,6 +237,21 @@ CASES: list[Case] = [
         ),
         row(FORBIDDEN, org_admin=DONE),
     ),
+    (
+        "signatures",
+        "GET",
+        lambda w: ("/settings/signatures/", {}),
+        row(FORBIDDEN, org_admin=OK, auditor=OK),
+    ),
+    (
+        "signatures",
+        "POST",
+        lambda w: (
+            "/settings/signatures/",
+            {"action": "certify", "submitted_on": "2026-11-01", "reference": "QA-DOC-0042"},
+        ),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
     ("registries", "GET", lambda w: ("/settings/registries/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "registries",

@@ -126,6 +126,7 @@ def test_a_type_says_its_state_fields_and_their_states(world: World) -> None:
         "set_by": [QA],
         "locks": True,
         "reason": "optional",
+        "signatures": [],
     }
     assert [s["name"] for s in fields["custody"]["states"]] == ["in_lab", "quarantined", "disposed"]
     # Its schema says a state field is set on its own.
@@ -157,6 +158,7 @@ def test_a_record_starts_in_its_initial_states(world: World) -> None:
         "reason": "required",
         "allowed": False,
         "why_not": needs.format("QA"),
+        "signed": False,
     }
     # Its history says where it started.
     (first,) = api_as(world).get(f"/entities/{made['id']}/revisions").json()["items"]
@@ -221,6 +223,7 @@ def test_a_state_needs_one_of_its_lab_roles(world: World) -> None:
         "field": {"name": "status", "label": "Status"},
         "from": {"name": "received", "label": "Received"},
         "to": {"name": "in_review", "label": "In review"},
+        "signatures": [],
     }
     assert latest["state"]["to"]["name"] == "received"
     # The value at each revision is in its history too.

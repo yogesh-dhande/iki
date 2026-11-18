@@ -61,21 +61,27 @@ def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
         "name": "weigh",
         "description": "approve “Weigh” in Release, then weigh",
     }
-    # And the states of state fields it sets (ADR 0125).
-    # And the states of state fields it sets (ADR 0125).
+    # And the states of state fields it sets (ADR 0125), and the electronic signatures
+    # setting some of them needs, which it gives (ADR 0126).
     assert [(u["kind"], u["name"], u["description"]) for u in qa["uses"][1:]] == [
+        ("state", "status", "set Status to Open or Released on lots"),
+        ("signature", "status", "sign “QA approval” to set Status to Approved on lots"),
+        ("signature", "status", "sign “Responsibility” to set Status to Released on lots"),
         ("state", "status", "set Status to In testing or Released on samples"),
         ("state", "custody", "set Custody to In the lab, Quarantined or Disposed on samples"),
     ]
-    assert {u["owner"] for u in qa["uses"][1:]} == {"acme/protein.Sample"}
+    assert {u["owner"] for u in qa["uses"][1:]} == {"acme/protein.Lot", "acme/protein.Sample"}
     # Fields naming people need them too (ADR 0122).
-    assert listed[0]["uses"][0] == {
+    assert listed[0]["uses"][2] == {
         "kind": "field",
         "owner": "acme/protein.Sample",
         "name": "analyst",
         "description": "be named Analyst on samples",
     }
-    assert [u["description"] for u in listed[0]["uses"][1:]] == [
+    assert [u["description"] for u in listed[0]["uses"]] == [
+        "set Status to In review on lots",
+        "sign “Authorship” to set Status to In review on lots",
+        "be named Analyst on samples",
         "set Status to Received, In testing or In review on samples",
         "set Custody to In the lab on samples",
     ]

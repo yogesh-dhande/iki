@@ -17,6 +17,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from iki_server.accounts.models import IdentityProvider
 from iki_server.setup.models import Installation
+from iki_server.signatures import reauth
 from iki_server.web.ratelimit import RateLimiter, client_key
 
 #: Sign-ins one client address can start per minute (per web pod).
@@ -111,18 +112,21 @@ def not_available(request: HttpRequest, **_: Any) -> HttpResponse:  # noqa: ANN4
 #: offer; the names it reverses internally are mapped to Iki's pages.
 allauth_urlpatterns = [
     path("oidc/<str:provider_id>/login/", start_sign_in, name="openid_connect_login"),
+    # Signing in again to sign comes back here too (ADR 0124), so nothing more is
+    # registered at the identity provider.
     path(
         "oidc/<str:provider_id>/login/callback/",
-        oidc_views.callback,
+        reauth.oidc_callback,
         name="openid_connect_callback",
     ),
     path("saml/<slug:organization_slug>/login/", start_saml_sign_in, name="saml_login"),
     path("saml/<slug:organization_slug>/acs/", saml_acs, name="saml_acs"),
     path(
         "saml/<slug:organization_slug>/acs/finish/",
-        require_GET(saml_views.finish_acs),
+        require_GET(reauth.saml_finish),
         name="saml_finish_acs",
     ),
+    path("signing/<str:signing_id>/", reauth.start, name="signing_start"),
     path(
         "saml/<slug:organization_slug>/metadata/",
         require_GET(saml_views.metadata),

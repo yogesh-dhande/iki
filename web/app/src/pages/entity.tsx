@@ -54,6 +54,7 @@ import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
+import { EntitySignatures } from "./entity-signatures";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import {
@@ -881,6 +882,7 @@ export function EntityOverview() {
   const making = useQuery(makingQuery(ref)).data ?? [];
   const bundles = useQuery(bundleOriginsQuery(ref)).data ?? [];
   const moved = useRouterState({ select: (s) => s.location.state.moved });
+  const { signing } = useSearch({ from: "/entities/$ref" });
   const collection = isCollection(type, types);
   const app = type?.name === APP_TYPE;
   // A collection's members and search have a section of their own, as an app's spec does.
@@ -913,6 +915,7 @@ export function EntityOverview() {
       ) : null}
       {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
       {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
+      <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />
       {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
       {app ? <AppPanel app={entity} types={types} /> : null}
       {entry ? (
@@ -1129,6 +1132,21 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
           {changed.length ? ` · ${changed.join(", ")}` : ""}
         </span>
         {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
+        {/* The electronic signatures that set its state (ADR 0126), as people read them. */}
+        {revision.state?.signatures.length ? (
+          <ul
+            className="row-signatures"
+            aria-label={`Signatures of revision ${String(revision.number)}`}
+          >
+            {revision.state.signatures.map((s) => (
+              <li key={s.id}>
+                {s.present
+                  ? s.manifestation
+                  : `Signature ${s.id} is gone from the database: something outside Iki deleted it.`}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {open ? <Changes number={revision.number} type={type} /> : null}
       </div>
       {revision.changed_fields.length ? (

@@ -1,8 +1,8 @@
 # iki-cli
 
 The `iki` command-line tool for plugin authors and deployments: the
-`iki plugin` commands `validate`, `build`, `makemigrations` and `test`, and
-`iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
+`iki plugin` commands `validate`, `build`, `makemigrations` and `test`,
+`iki bundle verify`, and `iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
 
 ## `iki plugin validate`
 
@@ -151,6 +151,36 @@ iki_upgrade_5c1e9a07, with 2 sample(s):
   ok      upgraded: the samples and their history are intact  (1.1s)
   ok      rolled back: the samples have their values  (0.8s)
 ```
+
+## `iki bundle verify`
+
+Checks a bundle exported from Iki
+([ADR 0096](../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md))
+and the electronic signatures it carries
+([ADR 0126](../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)),
+without Iki: for an auditor, a partner, or an archive years later. It checks
+the bundle's own signature and every member against its manifest, then each
+signature: its key signed it, it names its record, revision and change, the
+content it signed hashes to what it names, and the bundle's history of the
+record is still that content.
+
+```console
+$ iki bundle verify lot-a.tar.gz --trust prod=ed25519:riAtz4…
+The bundle checks out, signed by prod's key.
+ok   LOT-000001: Authored by Ada Lovelace on 2026-11-18 at 14:03:22 UTC. Meaning: Authorship. (carried)
+ok   LOT-000001: Approved by Grace Hopper on 2026-11-18 at 15:10:04 UTC. Meaning: QA approval. (carried)
+2 signatures, all valid.
+```
+
+| Option                   | What it does                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `BUNDLE`                 | The bundle: a `.tar.gz` exported from Iki.                                                    |
+| `--trust DEPLOYMENT=KEY` | Trust KEY as DEPLOYMENT's bundle key; the signing keys the bundle lists are then trusted too. |
+| `--key KEY`              | Trust KEY for signatures, whatever the bundle lists: from `GET /api/v1/signing-keys` there.   |
+| `--json`                 | Print the result as JSON, with every check.                                                   |
+
+It exits with 0 when the bundle and every signature check out, 1 when
+anything doesn't (an untrusted key included), and 2 for a usage mistake.
 
 ## `iki deploy build`
 

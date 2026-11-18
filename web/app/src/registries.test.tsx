@@ -341,7 +341,7 @@ describe("a superseded entry", () => {
   });
 
   it("tells people who can't move it who can", async () => {
-    onRecord({ ...superseded(), can: { edit: false, states: {} } });
+    onRecord({ ...superseded(), can: { edit: false, states: {}, sign: [] } });
     await renderApp("/entities/PRT-000001/?project=kinase-atlas");
     const banner = screen.getByRole("note", { name: /was superseded/ });
     expect(banner).toHaveTextContent(

@@ -529,6 +529,19 @@ input:focus-visible {
   background: var(--success-bg);
 }
 
+/* A revision's electronic signatures (ADR 0126), under it in the history. */
+.row-signatures {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
+/* What a signer attests to (ADR 0126), set apart from the dialog's own words. */
+.statement {
+  border-left: 4px solid var(--border);
+  margin: 0 0 1rem;
+  padding: 0.25rem 1rem;
+}
+
 .code {
   background: var(--surface-2);
   border-radius: 8px;

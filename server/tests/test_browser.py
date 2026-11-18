@@ -292,6 +292,7 @@ PAGES = [
     ("compute_admin", "/compute/workers/"),
     ("compute_admin", "/compute/quotas/"),
     ("org_admin", "/settings/registries/"),
+    ("org_admin", "/settings/signatures/"),
 ]
 
 
@@ -1791,8 +1792,10 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
     qa = dialog.get_by_role("checkbox", name="QA", exact=True)
     qa.wait_for()
     dialog.get_by_text(
-        "Needed to approve “Weigh” in Release, then weigh; to set Status to In testing or "
-        "Released on samples; to set Custody to In the lab, Quarantined or Disposed on samples."
+        "Needed to approve “Weigh” in Release, then weigh; to set Status to Open or Released on "
+        "lots; to sign “QA approval” to set Status to Approved on lots; to sign “Responsibility” "
+        "to set Status to Released on lots; to set Status to In testing or Released on samples; "
+        "to set Custody to In the lab, Quarantined or Disposed on samples."
     ).wait_for()
     assert_clean(page)
     qa.check()
@@ -1940,6 +1943,76 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     page.get_by_role("alertdialog", name="Reassigned 1 of 1").wait_for()
     saved = type(made.entity)._default_manager.get(pk=made.entity.pk)
     assert str(entities.current_values(saved)["analyst"]) == str(world.users["viewer"].pk)
+    page.context.close()
+
+
+def test_signing_a_record_signs_in_again_and_shows_the_signature(
+    open_as: Any, world: World, fake_idp: Any
+) -> None:
+    """An electronic signature (ADR 0126): the person agrees before their first, signs in
+    again at the identity provider (ADR 0124), and comes back to the record, which shows
+    the signature as people read it and checks it again."""
+    from allauth.socialaccount.models import SocialAccount
+    from test_signatures import LOT, provider, ready
+
+    from iki_server.accounts.models import IdentityProvider
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    IdentityProvider.objects.all().delete()
+    SocialAccount.objects.all().delete()
+    found = provider(
+        fake_idp.issuer,
+        client_id=fake_idp.client_id,
+        authorization_endpoint=fake_idp.discovery()["authorization_endpoint"],
+    )
+    found.client_secret = fake_idp.client_secret
+    found.save()
+    ready(world, found)
+    editor = world.users["editor"]
+    grant = world.project.memberships.get(user=editor)
+    LabRoleGrant.objects.create(
+        membership=grant, role="acme/protein.analyst", granted_by=world.users["admin"]
+    )
+    permissions.forget(editor)
+    made = entities.create(editor, LOT, world.project, {"label": "LOT A"})
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+
+    page: Page = open_as("editor", f"/entities/{hrid}/")
+    # At the provider's sign-in page, the editor signs in again.
+    fake_idp.browser_claims = {"sub": "uid-editor", "amr": ["pwd", "otp"]}
+    heading = page.get_by_role("heading", name="Signatures", exact=True)
+    heading.wait_for()
+    section = page.locator("section", has=heading)
+    section.get_by_role("button", name="Sign: Authorship").click()
+    dialog = page.get_by_role("alertdialog", name=f"Sign {hrid}: Authorship")
+    dialog.get_by_text("Next, Test SSO asks you to sign in again").wait_for()
+    assert_clean(page)
+    # Without agreeing first, it says so, before asking Iki.
+    dialog.get_by_role("button", name="Sign in again to sign").click()
+    dialog.get_by_text("Agree to this before your first signature.").wait_for()
+    dialog.get_by_role("checkbox", name="I agree").check()
+    dialog.get_by_role("button", name="Sign in again to sign").click()
+    page.wait_for_url(re.compile(r"\?signing="))
+    page.get_by_text(f"You signed {hrid}. Its Status is In review now.").wait_for()
+    states = page.locator("section", has=page.get_by_role("heading", name="States"))
+    states.get_by_text("Status: In review").wait_for()
+    page.get_by_text(re.compile(r"^Authored by Editor on \d{4}-\d\d-\d\d at ")).wait_for()
+    assert_clean(page)
+    section.get_by_role("button", name="Check signatures").click()
+    section.get_by_text(
+        "Its key, what it signed and the record’s history all check out."
+    ).wait_for()
+    section.get_by_role("button", name="Dismiss").click()
+    page.wait_for_url(re.compile(rf"/entities/{hrid}/$"))
+    assert fake_idp.authorizations[-1]["prompt"] == "login"
+    # Its history shows the revision it set the state in, with the signature.
+    page.get_by_role("link", name="History").click()
+    signed = page.get_by_role("list", name="Signatures of revision 2")
+    signed.get_by_text(re.compile(r"^Authored by Editor on ")).wait_for()
+    assert_clean(page)
     page.context.close()
 
 

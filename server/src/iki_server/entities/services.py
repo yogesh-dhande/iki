@@ -1127,6 +1127,7 @@ def _revise(
     registered: Revision | None = None,
     moved_from: Any = None,  # noqa: ANN401 - a UUID
     state: tuple[str, str, str] | None = None,
+    signatures: tuple[Any, ...] = (),
 ) -> Revision:
     """The entity's next revision. ``project``: for an entry's, the project it was made
     through; ``registered``: for a record's first, the entry's first, which it made."""
@@ -1143,6 +1144,7 @@ def _revise(
         reason=reason.strip(),
         project=project,
         moved_from_id=moved_from,
+        signatures=list(signatures),
         **(
             dict(zip(("state_field", "state_from", "state_to"), state, strict=True))
             if state
@@ -1158,17 +1160,31 @@ def _revise(
 
 
 def state_changed(
-    user: User, entity: Entity, f: Field, old: str, new: str, reason: str
+    user: User,
+    entity: Entity,
+    f: Field,
+    old: str,
+    new: str,
+    reason: str,
+    *,
+    signatures: tuple[Any, ...] = (),
 ) -> Revision:
     """Writes a record's state field's new state, as a revision of its own with its history
     row (see :func:`states.set_state`, which checks it and keeps the lock). Whoever the new
-    state makes it the work of is told (ADR 0122)."""
+    state makes it the work of is told (ADR 0122). A signed state's revision carries the
+    signatures that set it, in order (ADR 0126)."""
     form = shape(entity.type)
     instance = _specific(entity)
     rows = Rows.of(instance)
     touched = _write(form, rows, {f.name: new}, instance.pk)
     revision = _revise(
-        entity, RevisionKind.STATE_CHANGED, [f.name], user, reason, state=(f.name, old, new)
+        entity,
+        RevisionKind.STATE_CHANGED,
+        [f.name],
+        user,
+        reason,
+        state=(f.name, old, new),
+        signatures=signatures,
     )
     _write_history(touched, rows, revision.number)
     assignments.became(entity, revision, f.name, old, new, user)

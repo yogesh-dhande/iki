@@ -199,12 +199,21 @@ export function apiRef(entity: Pick<Entity, "id" | "hrid" | "entry">): string {
 /** An entity page's `?project=`: a slug, for a record of a registry entry (ADR 0115). */
 export interface EntityPageSearch {
   project?: string | undefined;
+  /** The signing the identity provider sent the person back from (ADR 0126). */
+  signing?: string | undefined;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function validateEntityPageSearch(search: Record<string, unknown>): EntityPageSearch {
-  return typeof search["project"] === "string" && search["project"]
-    ? { project: search["project"].slice(0, 100) }
-    : {};
+  const out: EntityPageSearch = {};
+  if (typeof search["project"] === "string" && search["project"]) {
+    out.project = search["project"].slice(0, 100);
+  }
+  if (typeof search["signing"] === "string" && UUID.test(search["signing"])) {
+    out.signing = search["signing"];
+  }
+  return out;
 }
 
 /** The `?project=` a link to an entity carries: a record's project, so the link opens that

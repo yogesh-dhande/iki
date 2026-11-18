@@ -425,6 +425,33 @@ class CancelIn(TypedDict):
     reason: NotRequired[str]
 
 
+class CarriedSignatureOut(TypedDict):
+    id: str
+    #: Who signed, when (UTC), and what it means (21 CFR 11.50); empty if the signature is gone.
+    manifestation: str
+    #: The signature is there: false only if it was deleted.
+    present: bool
+
+
+class CertificationIn(TypedDict):
+    #: Where it's kept, or how it was sent: “QA-DOC-0042, sent to FDA ORA”.
+    reference: str
+    #: When the organization sent its letter to the FDA.
+    submitted_on: str
+
+
+class CertificationOut(TypedDict):
+    recorded_at: str
+    recorded_by: PersonRef
+    reference: str
+    submitted_on: str
+
+
+class CertificationState(TypedDict):
+    #: The organization's certification to the FDA (21 CFR 11.100(c)) in force. Until an Org Admin records one, nobody signs.
+    certification: CertificationOut | None
+
+
 class ChangeOut(TypedDict):
     after: NotRequired[Any]
     before: NotRequired[Any]
@@ -781,6 +808,8 @@ class EntityAppOut(TypedDict):
 class EntityCan(TypedDict):
     #: Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
     edit: bool
+    #: The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
+    sign: list[SignCan]
     #: For each of its state fields (ADR 0125), the states it could be set to: every one but the one it's in, each with whether you may set it and why not. Empty for a type without state fields.
     states: dict[str, list[StateCan]]
     #: The assignment fields you may take it in (ADR 0122), with `POST /entities/{ref}/take`: each names nobody who can be named now, and you can be.
@@ -1167,6 +1196,15 @@ class FreezeIn(TypedDict):
     reason: NotRequired[str]
 
 
+class GivenSignatureOut(TypedDict):
+    """A signature given for setting a state, on the record's current revision."""
+    id: str
+    #: As people read it: who, when (UTC), and what it means (21 CFR 11.50).
+    manifestation: str
+    signed_at: str
+    signer: PersonRef
+
+
 class GraphEdgeOut(TypedDict):
     field: str
     file: WalkFileOut | None
@@ -1520,8 +1558,8 @@ class LabRoleOut(TypedDict):
 class LabRoleUseOut(TypedDict):
     #: What it lets them do: approve “Weigh” in Review, set Status to Approved or Released on samples, …
     description: str
-    #: approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets.
-    kind: Literal['approval', 'field', 'state']
+    #: approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.
+    kind: Literal['approval', 'field', 'state', 'signature']
     #: The step or field.
     name: str
     #: The workflow or type it's in, by name.
@@ -1702,6 +1740,19 @@ class MovedOut(TypedDict):
     updated_at: str
     #: Its fields' values, as its type's schema says.
     values: dict[str, Any]
+
+
+class MySigningOut(TypedDict):
+    """Whether you can sign now, and what you agree to before your first signature."""
+    #: You agreed to `acknowledgment` already.
+    acknowledged: bool
+    acknowledgment: str
+    can_sign: bool
+    #: Failed attempts locked your signing.
+    locked: bool
+    #: The identity provider you sign in again at.
+    provider: str | None
+    why_not: str | None
 
 
 class NameableFilters(TypedDict):
@@ -2609,6 +2660,7 @@ RevisionStateOut = TypedDict(
     {
         'field': 'NamedOut',
         'from': 'NamedOut | None',
+        'signatures': 'list[CarriedSignatureOut]',
         'to': 'NamedOut',
     },
 )
@@ -3141,6 +3193,202 @@ class SetupVolumeOut(TypedDict):
     state: Literal['creating', 'ready', 'failed', 'deleted']
 
 
+class SignCan(TypedDict):
+    """Setting one of the record's state fields to a state that needs signatures (ADR
+0123): each of them, given or not. Give one with POST /entities/{ref}/signatures, in
+the web app.
+    """
+    #: You may give one of its signatures now.
+    allowed: bool
+    #: The state field.
+    field: str
+    field_label: str
+    #: Whether each signer says why: required, optional, or not at all (null).
+    reason: Literal['required', 'optional'] | None
+    signatures: list[SignatureCan]
+    #: The state it sets.
+    to: str
+    to_label: str
+    #: Why you may not, when you may not.
+    why_not: str | None
+
+
+class SignatureAuthenticationOut(TypedDict):
+    #: When they signed in again.
+    authenticated_at: str
+    #: OIDC's `acr`, or SAML's AuthnContextClassRef.
+    context: str
+    issuer: str
+    #: How, as the provider says (OIDC's `amr`).
+    methods: list[str]
+    protocol: Literal['oidc', 'saml']
+    #: Who the identity provider says signed in again.
+    subject: str
+
+
+class SignatureCan(TypedDict):
+    """One of the signatures setting a record's state needs (ADR 0126): given, or whether
+you may give it.
+    """
+    #: You may give it now.
+    allowed: bool
+    #: The signature that counts for it.
+    given: GivenSignatureOut | None
+    #: Which, from 0: send it to sign.
+    index: int
+    label: str
+    #: A signature given for it that no longer counts, and why: its signer no longer holds the role.
+    lapsed: str | None
+    meaning: Literal['authorship', 'review', 'approval', 'verification', 'responsibility', 'witness']
+    meaning_label: str
+    role_labels: list[str]
+    roles: list[str]
+    #: What you attest to by giving it.
+    statement: str
+    #: Why you may not, when you may not.
+    why_not: str | None
+
+
+class SignatureCheckOut(TypedDict):
+    detail: str
+    name: Literal['document', 'key', 'signature', 'row', 'content', 'record', 'change']
+    ok: bool
+
+
+class SignatureListParams(TypedDict):
+    #: Check each signature again, now.
+    verify: NotRequired[bool]
+
+
+class SignatureOut(TypedDict):
+    """A person's electronic signature on a revision of a record (21 CFR 11.50, 11.70)."""
+    authentication: SignatureAuthenticationOut
+    #: The revision that set the state with it.
+    carried_by: int | None
+    change: SignedChangeOut
+    #: The deployment it was signed on.
+    deployment: str
+    #: What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.
+    document: str
+    #: For a record of a registry entry: the entry's revision it signs.
+    entry_revision: int | None
+    hrid: str
+    id: str
+    #: Which of the change's signatures, from 0.
+    index: int
+    #: The Ed25519 key that signed it: `ed25519:...`.
+    key: str
+    #: How the plugin names it: “QA approval”.
+    label: str
+    #: As people read it: the signer's printed name, the date and time (UTC), and what it means. “Approved by Ada Lovelace on 2026-11-18 at 14:03:22 UTC. Meaning: QA approval.”
+    manifestation: str
+    meaning: Literal['authorship', 'review', 'approval', 'verification', 'responsibility', 'witness']
+    meaning_label: str
+    #: How many the change needed when it was signed.
+    of: int
+    reason: str
+    record: str
+    #: The revision of the record it signs.
+    revision: int
+    #: The lab roles its signer had to hold: any one.
+    roles: list[str]
+    #: The Ed25519 signature of `document`, base64url.
+    signature: str
+    signed_at: str
+    signer: PersonRef
+    signer_email: str
+    #: The signer's name as it was signed.
+    signer_name: str
+    #: What the signer attested to.
+    statement: str
+    #: `carried`: the state was set with it. `pending`: setting it waits for others. `withdrawn`: its signer took it back. `lapsed`: the record changed after it, so it counts for nothing.
+    status: Literal['pending', 'carried', 'withdrawn', 'lapsed']
+    status_detail: str
+    #: With `verify=true`: each check made again, now.
+    verification: NotRequired[SignatureVerificationOut | None]
+
+
+class SignatureVerificationOut(TypedDict):
+    checks: list[SignatureCheckOut]
+    #: Every check passed.
+    valid: bool
+    verified_at: str
+
+
+class SignaturesOut(TypedDict):
+    items: list[SignatureOut]
+    #: Signatures the record's states were set with that are gone from the database. Empty, unless something outside Iki deleted them.
+    missing: list[str]
+
+
+#: What a signature signs for: setting the record's state field to a state.
+SignedChangeOut = TypedDict(
+    'SignedChangeOut',
+    {
+        'field': 'str',
+        'field_label': 'str',
+        'from': 'str',
+        'from_label': 'str',
+        'to': 'str',
+        'to_label': 'str',
+    },
+)
+
+
+class SigningIn(TypedDict):
+    #: Before your first signature: that you agree to `acknowledgment` in GET /me/signing.
+    acknowledge: NotRequired[bool]
+    #: The state field (ADR 0125), such as status: a key of `can.states`.
+    field: str
+    #: Which of its signatures you give, from 0. Without it, the first you may.
+    index: NotRequired[int | None]
+    #: Why: the state may require it. It's signed.
+    reason: NotRequired[str]
+    #: The path on this site to come back to once the identity provider answers, with `?signing=` and the signing's ID.
+    return_to: str
+    #: The state you sign for setting it to.
+    state: str
+
+
+class SigningKeyOut(TypedDict):
+    created_at: str
+    key: str
+    retired_at: str | None
+
+
+class SigningKeysOut(TypedDict):
+    deployment: str
+    #: This deployment's Ed25519 keys for signatures, oldest first: check a signature offline against one (`iki bundle verify --key`).
+    keys: list[SigningKeyOut]
+
+
+class SigningOut(TypedDict):
+    """An attempt to sign: started, then signed or failed once the identity provider
+answers (ADR 0124).
+    """
+    expires_at: str
+    #: The state field it signs for setting.
+    field: str
+    field_label: str
+    hrid: str
+    id: str
+    index: int
+    #: Why it failed or was cancelled, for the person.
+    message: str
+    record: str
+    #: Its signature was the last, and set the state.
+    set: bool
+    #: Where to send the browser to sign in again at the identity provider, while it's started.
+    sign_in_url: str
+    signature: str | None
+    #: The record's state field's state now.
+    state: str | None
+    status: Literal['started', 'signed', 'failed', 'cancelled']
+    #: The state it signs for.
+    to: str
+    to_label: str
+
+
 class SkippedOut(TypedDict):
     entity: str
     hrid: str
@@ -3207,6 +3455,8 @@ class StateCan(TypedDict):
     name: str
     #: Whether it asks why: required, optional, or not at all (null).
     reason: Literal['required', 'optional'] | None
+    #: It's set by signing for it (ADR 0126), never directly: see `can.sign`.
+    signed: bool
     #: Why you may not, when you may not.
     why_not: str | None
 
@@ -3229,6 +3479,8 @@ class StateOut(TypedDict):
     reason: Literal['required', 'optional'] | None
     #: The lab roles (ADR 0116) whose holders may set the field to it, from any other state: any one, in the record's project. Empty for an initial state no one sets.
     set_by: list[str]
+    #: The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.
+    signatures: list[WantedSignatureOut]
 
 
 class StepBatchOut(TypedDict):
@@ -3566,6 +3818,22 @@ class WalkStepOut(TypedDict):
     run: RunRefOut | None
 
 
+class WantedSignatureOut(TypedDict):
+    """A signature setting a state needs (ADR 0126)."""
+    #: How the plugin names it: “QA approval”.
+    label: str
+    #: What signing means (21 CFR 11.50).
+    meaning: Literal['authorship', 'review', 'approval', 'verification', 'responsibility', 'witness']
+    #: The meaning as people read it: Approval.
+    meaning_label: str
+    #: The lab roles whoever gives it holds, any one: its own, or the state's `set_by`.
+    roles: list[str]
+    #: What its signer attests to.
+    statement: str
+    #: How its manifestation reads: “Approved by …”.
+    verb: str
+
+
 class WebhookCreated(TypedDict):
     active: bool
     created_at: str
@@ -3620,6 +3888,10 @@ class WebhookPatch(TypedDict):
     description: NotRequired[str | None]
     events: NotRequired[list[str] | None]
     url: NotRequired[str | None]
+
+
+class WithdrawalIn(TypedDict):
+    reason: NotRequired[str]
 
 
 class WorkFilters(TypedDict):
@@ -3921,4 +4193,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

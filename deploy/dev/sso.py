@@ -1272,6 +1272,108 @@ def lims() -> None:
         fail(f"{sent['hrid']} kept {kept}, not what it sent")
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
     bookings(alice, project)
+    signatures(alice, project, first)
+
+
+def signing(session: requests.Session, sample: dict[str, Any], state: str, as_user: str) -> Any:  # noqa: ANN401
+    """Starts signing for a state, signs in again at Keycloak as `as_user`, and returns
+    what came of it."""
+    etag = api_call(session, "GET", f"/entities/{sample['id']}").headers["ETag"]
+    started = api_call(
+        session,
+        "POST",
+        f"/entities/{sample['id']}/signatures",
+        {
+            "field": "status",
+            "state": state,
+            "acknowledge": True,
+            "return_to": f"/entities/{sample['hrid']}/",
+        },
+        {"If-Match": etag},
+    )
+    if started.status_code != 201:
+        fail(f"signing {sample['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
+    # Keycloak asks for the password again, though the person signed in minutes ago.
+    response = keycloak_sign_in(session, session.get(IKI + started.json()["sign_in_url"]), as_user)
+    signing_id = started.json()["id"]
+    if f"signing={signing_id}" not in response.url:
+        fail(f"signing in again came back to {response.url}, not the sample's page")
+    return api_call(session, "GET", f"/signings/{signing_id}").json()
+
+
+def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
+    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
+    verifies; signing in at Keycloak as someone else gives no signature."""
+    bob = sign_in_as("bob")
+    if api_call(bob, "GET", "/signatures/certification").json()["certification"] is None:
+        certified = api_call(
+            bob,
+            "POST",
+            "/signatures/certification",
+            {"submitted_on": datetime.now(UTC).date().isoformat(), "reference": "DEV-CERT-1"},
+        )
+        if certified.status_code != 200:
+            fail(f"recording the certification answered HTTP {certified.status_code}")
+    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
+    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
+    roles = {"roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer"]}
+    given = api_call(
+        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", roles
+    )
+    if given.status_code != 200:
+        fail(f"giving alice lab roles answered HTTP {given.status_code}: {given.text[:300]}")
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/example_lims.Sample",
+            "project": project["id"],
+            "values": {"protein": entry_of(protein), "lot": "DEV-1"},
+        },
+    )
+    if made.status_code != 201:
+        fail(f"making a sample answered HTTP {made.status_code}: {made.text[:300]}")
+    sample = made.json()
+    for state in ("received", "in_testing"):
+        etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
+        moved = api_call(
+            alice,
+            "POST",
+            f"/entities/{sample['id']}/states/status",
+            {"state": state, "reason": ""},
+            {"If-Match": etag},
+        )
+        if moved.status_code != 200:
+            fail(f"setting {sample['hrid']} {state} answered HTTP {moved.status_code}")
+    # A signed state is set only by signing for it, whoever asks.
+    etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
+    direct = api_call(
+        alice,
+        "POST",
+        f"/entities/{sample['id']}/states/status",
+        {"state": "in_review", "reason": ""},
+        {"If-Match": etag},
+    )
+    if direct.status_code != 409 or direct.json().get("code") != "signatures_required":
+        fail(f"setting {sample['hrid']} in_review directly answered HTTP {direct.status_code}")
+    started = time.time()
+    done = signing(alice, sample, "in_review", "alice")
+    if done["status"] != "signed" or not done["set"] or done["state"] != "in_review":
+        fail(f"signing {sample['hrid']} at Keycloak gave {done}")
+    listed = api_call(alice, "GET", f"/entities/{sample['id']}/signatures?verify=true").json()
+    [signature] = listed["items"]
+    signed_in = datetime.fromisoformat(signature["authentication"]["authenticated_at"])
+    if signed_in.timestamp() < started - 60:
+        fail(f"Keycloak's auth_time {signed_in} is from before signing began: no fresh sign-in")
+    if not signature["verification"]["valid"]:
+        fail(f"{sample['hrid']}'s signature doesn't verify: {signature['verification']}")
+    ok(f"{sample['hrid']}: {signature['manifestation']} (signed in again at Keycloak, verified)")
+    refused = signing(alice, sample, "approved", "bob")
+    if refused["status"] != "failed" or "Someone else" not in refused["message"]:
+        fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
+    ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).

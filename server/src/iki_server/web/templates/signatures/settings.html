@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Electronic signatures{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Electronic signatures</h1></div>
+{% if manage %}{% include "web/_settings_tabs.html" %}{% endif %}
+<p class="muted">People sign records in Iki by signing in again at the identity provider, with their password and second factor. Each signature shows its signer’s name, the date and time, and what it means, and is bound to the revision it signs: anything changed afterwards, even in the database, fails its check (21 CFR Part 11).</p>
+<div class="columns">
+  <section aria-labelledby="certification-title">
+    <h2 class="section-title" id="certification-title">Certification to the FDA</h2>
+    {% if certification %}
+    <p>The organization certified to the FDA, on {{ certification.submitted_on|date:"Y-m-d" }}, that its electronic signatures are the legally binding equivalent of handwritten ones (21 CFR 11.100(c)). Reference: {{ certification.reference }}.</p>
+    <p class="muted">Recorded by {{ certification.recorded_by.get_full_name }} on {{ certification.recorded_at|date:"Y-m-d" }}.</p>
+    {% else %}
+    <div class="alert alert-warning" role="note">
+      <p>Nobody can sign until an Org Admin records the organization’s certification to the FDA: a letter, signed by hand, saying its electronic signatures bind as handwritten ones do (21 CFR 11.100(c)).</p>
+    </div>
+    {% endif %}
+    {% if earlier %}
+    <h3 class="section-title">Recorded before</h3>
+    <ul class="rows">
+      {% for c in earlier %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ c.reference }}</span>
+          <span class="row-meta">Sent {{ c.submitted_on|date:"Y-m-d" }} · recorded by {{ c.recorded_by.get_full_name }} on {{ c.recorded_at|date:"Y-m-d" }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <h2 class="section-title" id="locked-title">Locked signing</h2>
+    {% if locked %}
+    <p class="muted">Failed attempts to sign as these people locked their signing and ended their sessions. Find out who made them before unlocking: the audit log has each attempt.</p>
+    <ul class="rows" aria-labelledby="locked-title">
+      {% for person in locked %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ person.name|default:person.email }}</span>
+          <span class="row-meta">{{ person.email }}</span>
+        </div>
+        {% if manage %}
+        <form method="post" data-busy-form>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="unlock">
+          <input type="hidden" name="user" value="{{ person.pk }}">
+          <button class="button" type="submit" data-busy-text="Unlocking…" aria-label="Unlock {{ person.name|default:person.email }}’s signing">Unlock</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">Nobody’s signing is locked.</p>
+    {% endif %}
+
+    <h2 class="section-title" id="keys-title">Signing keys</h2>
+    <p class="muted">Each signature is signed with this deployment’s Ed25519 key, {{ deployment }}’s. Give a key to whoever checks a bundle’s signatures offline: <code>iki bundle verify --key</code>.</p>
+    {% if keys %}
+    <ul class="rows" aria-labelledby="keys-title">
+      {% for k in keys %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title"><code>{{ k.key }}</code></span>
+          <span class="row-meta">Made {{ k.created_at|slice:":10" }}{% if k.retired_at %} · retired {{ k.retired_at|slice:":10" }}: it signs nothing more, and its signatures still verify{% else %} · signing now{% endif %}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No key yet: the first signature makes one.</p>
+    {% endif %}
+  </section>
+  {% if manage %}
+  <section class="card" aria-labelledby="certify-title">
+    <h2 class="section-title" id="certify-title">{% if certification %}Record a new certification{% else %}Record the certification{% endif %}</h2>
+    <p class="muted">Send the FDA the letter first, signed by hand; then record when and where it’s kept. It’s in the audit log.</p>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="certify">
+      {% include "web/_field.html" with field=form.submitted_on %}
+      {% include "web/_field.html" with field=form.reference %}
+      <button class="button button-primary" type="submit" data-busy-text="Recording…">Record it</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

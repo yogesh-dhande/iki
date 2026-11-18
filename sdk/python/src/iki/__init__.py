@@ -17,9 +17,9 @@ Sign in once, then work with Iki from notebooks and scripts::
     )
     run = iki.wait(run)
 
-``iki.entities``, ``iki.types``, ``iki.projects``, ``iki.actions``, ``iki.runs`` and
-``iki.files`` use your sign-in, or ``IKI_URL`` and ``IKI_TOKEN`` if they're set. For
-more than one deployment, make an ``iki.Client`` for each.
+``iki.entities``, ``iki.types``, ``iki.projects``, ``iki.actions``, ``iki.runs``,
+``iki.files`` and ``iki.signatures`` use your sign-in, or ``IKI_URL`` and ``IKI_TOKEN`` if
+they're set. For more than one deployment, make an ``iki.Client`` for each.
 
 Everything you do is recorded in Iki as done by you, through the API, with this SDK.
 """
@@ -51,7 +51,7 @@ from iki.errors import (
 )
 
 if TYPE_CHECKING:
-    from iki.client import Actions, Entities, Files, Projects, Runs, Types
+    from iki.client import Actions, Entities, Files, Projects, Runs, Signatures, Types
     from iki.schema import MeOut, RunOut
 
     entities: Entities
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     actions: Actions
     runs: Runs
     files: Files
+    signatures: Signatures
 
 __all__ = [
     "ApiError",
@@ -88,11 +89,12 @@ __all__ = [
     "run",
     "run_each",
     "runs",
+    "signatures",
     "types",
     "wait",
 ]
 
-_PARTS = frozenset({"entities", "types", "projects", "actions", "runs", "files"})
+_PARTS = frozenset({"entities", "types", "projects", "actions", "runs", "files", "signatures"})
 _default: Client | None = None
 _lock = threading.Lock()
 
