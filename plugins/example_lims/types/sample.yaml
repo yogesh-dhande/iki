@@ -8,7 +8,7 @@ description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
   reviewed by another, then released by QA. Once it's approved its results
   can't change, unless it's sent back or reopened, with a reason.
-hrid: { prefix: SMP }
+hrid: { prefix: SAM }
 fields:
   protein:
     type: ref

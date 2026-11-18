@@ -29,7 +29,7 @@ roles and can require a reason for: a reviewer's "send back", QA's
 that changes who reads it, not what it says.
 
 **The services refuse each path**, saying which state locks it and what
-takes it out: "SMP-000012 is Released, which locks it: it can’t be
+takes it out: "SAM-000012 is Released, which locks it: it can’t be
 changed until “Reopen” takes it out". An edit and an archive are refused
 with 409 `refused`, and `can.edit` is false while a record is locked. A
 run that would update a locked record is refused when it's launched; one

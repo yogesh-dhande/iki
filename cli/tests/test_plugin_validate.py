@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from iki_cli.main import main
 
@@ -31,6 +32,19 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
         "✓ acme/protein 3.0.0 is valid: 3 entity types, 0 extensions, 0 settings, 7 actions, "
         "1 environment, 6 workflows, 4 triggers, 2 components.\n"
     )
+
+
+def test_the_dev_clusters_plugins_are_valid_together(capsys: pytest.CaptureFixture[str]) -> None:
+    """Each plugin the dev cluster installs passes beside all the others, so two can't
+    claim one HRID prefix: only the cluster's build would find it otherwise."""
+    dev = Path(__file__).parents[2] / "deploy" / "dev"
+    lock = yaml.safe_load((dev / "plugins.lock.yaml").read_text())
+    local = [(dev / p["local"]).resolve() for p in lock["plugins"] if "local" in p]
+    assert len(local) >= 6
+    for plugin in local:
+        others = [arg for o in local if o != plugin for arg in ("--with", str(o))]
+        code = main(["plugin", "validate", str(plugin), *others])
+        assert code == 0, f"{plugin.name}:\n{capsys.readouterr().out}"
 
 
 def test_validates_the_current_directory_by_default(
