@@ -171,6 +171,16 @@ canonical isomeric SMILES of that, and its identity the standard InChIKey of
 its standard InChI. A salt registered as it is is its own compound: sodium
 aspirinate is JZLOKWGVGHYBKD-UHFFFAOYSA-M, not aspirin.
 
+Enhanced stereochemistry (a V3000 molfile's or CXSMILES's AND and OR groups)
+is something a standard InChI can't hold: it would give the one stereoisomer
+drawn, so a racemate would be its enantiomer. A group of one stereocentre (both
+configurations, or one not known which) says no more than that centre
+undefined, so it's registered undefined, as a racemate drawn without wedges
+is, and the run says so. A group of several centres also says how they relate
+(cis, not trans), which no standard InChIKey holds, so the structure fails its
+line or record, saying why: draw those centres without wedges and record what's
+known as the compound's stereochemistry.
+
 The parent is what registration systems register: fragments that are salts or
 solvents Iki knows are taken off (matched by their structure, neutralised, so
 `[Cl-]` and `Cl` are both hydrochloride), of what's left the largest is kept

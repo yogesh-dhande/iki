@@ -16,8 +16,9 @@ params:
     required: true
     max_length: 2000000
     description: >-
-      One compound a line: its SMILES, then, after a space or tab, its name if it
-      has one, such as `CC(=O)Oc1ccccc1C(=O)O aspirin`. Lines starting with # are
+      One compound a line: its SMILES (or CXSMILES, with its extensions between
+      bars), then, after a space or tab, its name if it has one, such as
+      `CC(=O)Oc1ccccc1C(=O)O aspirin`. Lines starting with # are
       left out. Up to 5,000.
   parent:
     type: bool

@@ -533,6 +533,66 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
     assert base["values"]["name"] == "pheniramine"
 
 
+def v3000(smiles: str, title: str) -> str:
+    """An SDF record of a CXSMILES, as a V3000 molfile, which keeps its enhanced stereo."""
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles(smiles)
+    return f"{title}\n" + Chem.MolToV3KMolBlock(mol).split("\n", 1)[1] + "$$$$\n"
+
+
+def test_enhanced_stereo_isnt_registered_as_the_stereoisomer_drawn(tmp_path: Path) -> None:
+    # Alanine drawn as L with an AND group is DL-alanine, and with an OR group one of the
+    # two, not known which: neither is L-alanine (QNAYBMKLOCPYGJ-REOHCLBHSA-N). A standard
+    # InChI has no such layer, so the centre is undefined: alanine, QNAYBMKLOCPYGJ-UHFFFAOYSA-N
+    # (PubChem CID 602, DL-alanine).
+    text = (
+        v3000("C[C@H](N)C(=O)O", "L")
+        + v3000("C[C@H](N)C(=O)O |&1:1|", "DL")
+        + v3000("C[C@H](N)C(=O)O |o1:1|", "D or L")
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    keys = [c["values"]["inchikey"] for c in output["creates"]]
+    assert keys == [
+        "QNAYBMKLOCPYGJ-REOHCLBHSA-N",
+        "QNAYBMKLOCPYGJ-UHFFFAOYSA-N",
+        "QNAYBMKLOCPYGJ-UHFFFAOYSA-N",
+    ]
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "Record 2 (DL): Its stereocentre C2 is in an AND group, both configurations "
+            "together (a racemate there), which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        },
+        {
+            "level": "warning",
+            "text": "Record 3 (D or L): Its stereocentre C2 is in an OR group, one "
+            "configuration, not known which, which a standard InChIKey can't record, so it "
+            "was registered undefined.",
+        },
+    ]
+    # The same from CXSMILES, its extensions before its name.
+    smiles = registered(tmp_path, "C[C@H](N)C(=O)O |&1:1| DL-alanine")
+    values = smiles["creates"][0]["values"]
+    assert (values["inchikey"], values["name"]) == ("QNAYBMKLOCPYGJ-UHFFFAOYSA-N", "DL-alanine")
+
+
+@pytest.mark.parametrize("group", ["&1", "o1"])
+def test_relative_stereo_in_a_group_cant_be_registered(tmp_path: Path, group: str) -> None:
+    # Two centres in one group: how they relate is known, which a standard InChIKey can't
+    # hold (it would give YQMUFYJDRKBLFF-HRFVKAFMSA-N, the one stereoisomer drawn).
+    result, output = imported(
+        tmp_path, v3000(f"C[C@H](F)[C@H](Cl)Br |{group}:1,3|", "rel"), on_error="fail"
+    )
+    assert result.returncode == 1
+    assert output is None
+    kind = "AND" if group == "&1" else "OR"
+    assert f"Record 1 (rel): its stereocentres C2, C4 are an {kind} group" in last_error(result)
+
+
 def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Path) -> None:
     # Sodium aspirinate, C9H7NaO4, is 202.14 g/mol: its Salt field doesn't add sodium again.
     sodium = "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"

@@ -298,12 +298,68 @@ def _equivalents(count: int, parents: int) -> float:
     return count / parents
 
 
+#: What each kind of enhanced stereo group means: of one centre, and of several.
+_GROUP_KINDS = {
+    Chem.StereoGroupType.STEREO_AND: (
+        "AND",
+        "both configurations together (a racemate there)",
+        "both enantiomers are present",
+    ),
+    Chem.StereoGroupType.STEREO_OR: (
+        "OR",
+        "one configuration, not known which",
+        "not which enantiomer it is",
+    ),
+}
+
+
+def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
+    """The structure with its enhanced stereochemistry as a standard InChIKey can hold it,
+    and what was changed.
+
+    A V3000 molfile or CXSMILES can mark stereocentres as an AND group (both
+    configurations) or an OR group (one, not known which). A standard InChI can't, so it
+    would give the single stereoisomer drawn, and a racemate would be its enantiomer. A
+    group of one centre says no more than that centre undefined, as a racemate drawn
+    without wedges says, so the centre is registered undefined. A group of several also
+    says how its centres relate (cis, not trans), which nothing in a standard InChIKey
+    holds, so it can't be registered.
+    """
+    groups = list(mol.GetStereoGroups())
+    relative = [g for g in groups if g.GetGroupType() in _GROUP_KINDS]
+    if not relative:
+        return mol, []
+    warnings = []
+    changed = Chem.RWMol(mol)
+    for group in relative:
+        kind, meaning, together = _GROUP_KINDS[group.GetGroupType()]
+        atoms = [a.GetIdx() for a in group.GetAtoms()]
+        named = ", ".join(f"{mol.GetAtomWithIdx(i).GetSymbol()}{i + 1}" for i in atoms)
+        if len(atoms) + len(group.GetBonds()) > 1:
+            raise UnreadableError(
+                f"its stereocentres {named} are an {kind} group: how they relate to each "
+                f"other is known, but {together}. A standard InChIKey can't record that: it "
+                "would be the single stereoisomer drawn. Draw them without wedges "
+                "(undefined), and record what's known as the compound's stereochemistry"
+            )
+        changed.GetAtomWithIdx(atoms[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        warnings.append(
+            f"Its stereocentre {named} is in an {kind} group, {meaning}, which a standard "
+            "InChIKey can't record, so it was registered undefined."
+        )
+    changed.SetStereoGroups([g for g in groups if g.GetGroupType() not in _GROUP_KINDS])
+    Chem.AssignStereochemistry(changed, cleanIt=True, force=True)
+    return changed.GetMol(), warnings
+
+
 def standardise(mol: Chem.Mol, parent: bool) -> Registered:
     """The compound a structure is, standardised; with `parent`, its parent, saying what
     salts and solvents were taken off it."""
     with rdkit_messages():
         cleaned = rdMolStandardize.Cleanup(mol)
+    cleaned, stereo = enhanced_stereo(cleaned)
     found = _parent(cleaned) if parent else Registered(cleaned, "", "", "")
+    found.warnings[:0] = stereo
     with rdkit_messages():
         found.as_drawn = Chem.MolToSmiles(cleaned)
     with rdkit_messages():

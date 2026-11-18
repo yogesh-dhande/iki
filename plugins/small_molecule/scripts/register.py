@@ -1,6 +1,7 @@
 """The small_molecule plugin's registration from SMILES: `smiles` holds one compound a line.
 
-Each line is its SMILES, then, after a space or tab, its name. Blank lines and lines
+Each line is its SMILES (or CXSMILES, its extensions between bars), then, after a
+space or tab, its name. Blank lines and lines
 starting with # are left out, and so is a first line that's a header (`SMILES Name`).
 Each structure is standardised and identified as `chemistry` says, and registered as a
 compound; one already in Iki is reused, as is a line that's the same compound as an
@@ -47,6 +48,11 @@ def lines(text: str) -> list[tuple[int, str, str]]:
         parts = re.split(r"[ \t]+", line, maxsplit=1)
         smiles = parts[0]
         name = parts[1].strip() if len(parts) > 1 else ""
+        # CXSMILES: extensions between bars follow the SMILES, such as |&1:1| for
+        # enhanced stereo, before its name.
+        end = name.find("|", 1) if name.startswith("|") else -1
+        if end > 0:
+            smiles, name = f"{smiles} {name[: end + 1]}", name[end + 1 :].strip()
         if not found and smiles.lower() == "smiles":
             continue
         found.append((number, smiles, name))
