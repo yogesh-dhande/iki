@@ -338,7 +338,7 @@ class Batch_History(models.Model):
 
 
 class Bispecific(Entity):
-    """Bispecific antibody (acme/protein.Bispecific), schema version 1. Two heavy chains, one or two light chains and at most one linker, a row each."""
+    """Bispecific antibody (acme/protein.Bispecific), schema version 1. Two heavy chains, one or two light chains and at most one linker, a row each. It's its parts, how many of each and in which role, whatever their order (ADR 0138)."""
 
     IKI_TYPE = 'acme/protein.Bispecific'
 
@@ -376,20 +376,53 @@ class Bispecific_History(models.Model):
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
     name = models.TextField(null=True)
-    components = models.JSONField(null=True)
 
     class Meta:
         db_table = 'acme__protein_bispecific__history'
 
 
-class Bispecific_components(models.Model):
+class Bispecific_Entry(Entity):
+    """Registry entries of Bispecific antibody (acme/protein.Bispecific), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.Bispecific'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_bispecific__entry'
+
+
+class Bispecific_Entry_History(models.Model):
+    """The history of acme__protein_bispecific__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Bispecific_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    components = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_bispecific__entry__history'
+
+
+class Bispecific_Entry_components(models.Model):
     """The items of acme/protein.Bispecific.components, in order."""
 
-    IKI_LIST_OF = ('Bispecific', 'components')
+    IKI_LIST_OF = ('Bispecific_Entry', 'components')
 
     pk = models.CompositePrimaryKey('entity', 'position')
     entity = models.ForeignKey(
-        'Bispecific',
+        'Bispecific_Entry',
         models.CASCADE,
         db_column='entity_id',
         related_name='+',
@@ -401,27 +434,27 @@ class Bispecific_components(models.Model):
     role = models.TextField()
 
     class Meta:
-        db_table = 'acme__protein_bispecific__components'
+        db_table = 'acme__protein_bispecific__entry__components'
         constraints = [
             models.CheckConstraint(
                 condition=Q(copies__gte=1),
-                name='acme__protein_bispecific__components__copies__min',
+                name='acme__protein_bispecific__entry__components__copies__min',
             ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('chain'), 1),
-                name='acme__protein_bispecific__components__chain__not_empty',
+                name='acme__protein_bispecific__entry__components__chain__not_empty',
             ),
             models.CheckConstraint(
                 condition=~Q(chain__regex='[\\r\\n]'),
-                name='acme__protein_bispecific__components__chain__one_line',
+                name='acme__protein_bispecific__entry__components__chain__one_line',
             ),
             models.CheckConstraint(
                 condition=Q(role__in=['heavy', 'light', 'linker']),
-                name='acme__protein_bispecific__components__role__values',
+                name='acme__protein_bispecific__entry__components__role__values',
             ),
             models.CheckConstraint(
                 condition=Q(position__lt=8),
-                name='acme__protein_bispecific__components__position__max_items',
+                name='acme__protein_bispecific__entry__components__positi__88f941c27b',
             ),
         ]
 

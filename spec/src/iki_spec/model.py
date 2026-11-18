@@ -118,6 +118,10 @@ class Field:
     has_default: bool = False
     default: Any = None
     format: str | None = None
+    #: A sequence's: the enum fields saying whether it's circular and double-stranded,
+    #: which its identity reads it by (ADR 0138).
+    topology: str | None = None
+    strands: str | None = None
     pattern: str | None = None
     min_length: int | None = None
     max_length: int | None = None
@@ -197,6 +201,8 @@ class Field:
             has_default="default" in data,
             default=data.get("default"),
             format=data.get("format"),
+            topology=data.get("topology"),
+            strands=data.get("strands"),
             pattern=data.get("pattern"),
             min_length=data.get("min_length"),
             max_length=data.get("max_length"),

@@ -122,24 +122,53 @@ def test_each_role_takes_its_count_and_its_types(world: World) -> None:
 
 
 def test_rows_change_as_a_whole_and_each_revision_keeps_them(world: World) -> None:
-    heavy, light, linker = chains(world)
+    heavy, _, linker = chains(world)
     api = api_as(world)
+    added = [{"material": heavy["id"], "amount": {"value": 5, "unit": "ug"}, "note": "first"}]
     body = create(
-        api, world.project, {"name": "BS-1", "components": components(heavy, light)}, BISPECIFIC
+        api, world.project, {"label": "S-1", "additions": added}, "acme/protein.Sample"
     ).json()
+    more = [*added, {"material": linker["id"], "added_on": "2026-11-18"}]
     changed = patch(
         api,
         body["hrid"],
-        {"values": {"components": components(heavy, light, linker)}, "reason": "Linked"},
+        {"values": {"additions": more}, "reason": "Added the linker"},
         api.get(f"/entities/{body['hrid']}").headers["ETag"],
     )
     assert changed.status_code == 200, changed.content
-    assert len(changed.json()["values"]["components"]) == 4
+    assert len(changed.json()["values"]["additions"]) == 2
     revisions = api.get(f"/entities/{body['hrid']}/revisions").json()["items"]
     edited = next(r for r in revisions if r["number"] == 2)
-    assert edited["changed_fields"] == ["components"]
+    assert edited["changed_fields"] == ["additions"]
     first = api.get(f"/entities/{body['hrid']}/revisions/1").json()
-    assert first["values"]["components"] == body["values"]["components"]
+    assert first["values"]["additions"] == body["values"]["additions"]
+
+
+def test_a_set_of_parts_is_one_identity_whatever_their_order(world: World) -> None:
+    """ADR 0138: a bispecific is its components, by part, copies and role, as a multiset:
+    registered again in another order, or with other chain labels, it's found."""
+    heavy, light, linker = chains(world)
+    api = api_as(world)
+    rows = components(heavy, light, linker)
+    made = create(api, world.project, {"name": "BS-1", "components": rows}, BISPECIFIC)
+    assert made.status_code == 201, made.content
+    again = [{**rows[3]}, {**rows[2]}, {**rows[1], "chain": "X"}, {**rows[0]}]
+    found = create(api, world.project, {"name": "BS-1 again", "components": again}, BISPECIFIC)
+    assert found.status_code == 200, found.content
+    assert found.json()["hrid"] == made.json()["hrid"]
+    # Another count of a part is another antibody.
+    other = [*rows[:2], {**rows[2], "copies": 2}, rows[3]]
+    another = create(api, world.project, {"name": "BS-2", "components": other}, BISPECIFIC)
+    assert another.status_code == 201, another.content
+    assert another.json()["hrid"] != made.json()["hrid"]
+    # Its components are its identity's, so they don't change.
+    edited = patch(
+        api,
+        made.json()["hrid"],
+        {"values": {"components": other}, "reason": "Two light"},
+        api.get(f"/entities/{made.json()['hrid']}").headers["ETag"],
+    )
+    assert edited.status_code == 422, edited.content
 
 
 def test_search_finds_a_row_with_every_value_given(world: World) -> None:
@@ -204,8 +233,9 @@ def test_the_database_holds_rows_to_their_types_and_locks(world: World) -> None:
         connection.cursor() as cursor,
     ):
         cursor.execute(
-            "UPDATE acme__protein_bispecific__components SET part_id = %s WHERE entity_id = %s",
-            [other["id"], made["id"]],
+            "UPDATE acme__protein_bispecific__entry__components SET part_id = %s "
+            "WHERE entity_id = %s",
+            [other["id"], made["entry"]["id"]],
         )
     # A list of rows is part of its record, so a lock (ADR 0125) freezes it too.
     assert ("acme__protein_sample__additions", "entity_id") in states.guarded_tables()

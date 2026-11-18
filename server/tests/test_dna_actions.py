@@ -374,6 +374,17 @@ PREDICTED = {
 }
 
 
+def test_a_genbank_record_says_if_its_single_stranded(tmp_path: Path) -> None:
+    # Its strands are part of its identity (ADR 0138): M13's genome is a single strand.
+    single = GENBANK.replace("60 bp    DNA     circular", "60 bp ss-DNA     circular")
+    result, output = imported(tmp_path, single + "\n" + GENBANK.replace("pDemo", "pDemo2"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    first, second = output["creates"]
+    assert first["values"]["strandedness"] == "single"
+    assert "strandedness" not in second["values"]
+
+
 def test_a_refseq_models_record_says_ncbi_predicted_it(tmp_path: Path) -> None:
     result, output = imported(tmp_path, MODEL + "\n" + GENBANK)
     assert result.returncode == 0, result.stdout + result.stderr

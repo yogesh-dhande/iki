@@ -10406,6 +10406,13 @@ export interface components {
             run?: components["schemas"]["RunRefOut"] | null;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
+            /**
+             * Submitted
+             * @description A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.
+             */
+            submitted?: {
+                [key: string]: unknown;
+            } | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
@@ -10453,6 +10460,13 @@ export interface components {
             run?: components["schemas"]["RunRefOut"] | null;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
+            /**
+             * Submitted
+             * @description A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.
+             */
+            submitted?: {
+                [key: string]: unknown;
+            } | null;
             /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**

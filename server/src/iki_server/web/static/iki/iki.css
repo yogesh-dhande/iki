@@ -2286,6 +2286,12 @@ a.lineage-node:focus-visible {
   margin: 0.25rem 0 0;
 }
 
+/* A record's identity as it was given (ADR 0138): a sequence may be long. */
+.row-submitted {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
 .toolbar-end {
   margin: 0 0 1.25rem auto;
 }

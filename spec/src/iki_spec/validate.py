@@ -38,7 +38,7 @@ from iki_spec import (
     units,
     workflows,
 )
-from iki_spec.identity import IDENTITY_TYPES
+from iki_spec.identity import IDENTITY_TYPES, NUCLEIC_FORMATS, SEQUENCE_FORMATS
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
@@ -1721,15 +1721,28 @@ class _Semantics:
                     hint="Entities are told apart by their identity for as long as they exist.",
                 )
                 continue
-            if f.type not in IDENTITY_TYPES:
+            if not _identifies(f):
                 self.add(
                     "identity-type",
-                    f"`{name}` is a {f.type} field, which can't be part of an identity.",
+                    f"`{name}` is a {f.type} field"
+                    + (f" of {f.items.type} items" if f.items is not None else "")
+                    + ", which can't be part of an identity.",
                     source,
                     path,
                     hint="Identities compare values exactly, so they use text, numbers, enums, "
-                    "dates, files or references, not floats, quantities, lists or JSON.",
+                    "dates, files, references, or lists of references, values or rows whose "
+                    "identity fields are those, not floats, quantities or JSON.",
                 )
+            for option in (f.topology, f.strands):
+                if option is not None and option in every and option not in entity_type.identity:
+                    self.add(
+                        "identity-incomplete",
+                        f"`{name}`'s identity reads it by `{option}`, so `{option}` is part "
+                        "of the identity too.",
+                        source,
+                        path,
+                        hint=f"Add `{option}` to `identity`, required and immutable.",
+                    )
             if not f.immutable:
                 self.add(
                     "identity-not-fixed",
@@ -1816,7 +1829,8 @@ class _Semantics:
         self, f: Field, source: Document, path: Path, *, identity: bool = False
     ) -> None:
         """What a field of a registry entry (an identity, derived or fact field) must be."""
-        if names_people(f) and not identity:
+        cells = list(f.items.fields.values()) if f.is_rows and f.items is not None else []
+        if (names_people(f) or any(c.type == "person" for c in cells)) and not identity:
             self.add(
                 "person-in-registry",
                 f"`{f.name}` names people, who are each project's own: it can't be its "
@@ -1831,6 +1845,8 @@ class _Semantics:
         targets = list(f.to) if f.type == "ref" else []
         if f.type == "list" and f.items is not None and f.items.type == "ref":
             targets = list(f.items.to)
+        # A row's references are its entry's too (ADR 0137).
+        targets += [t for c in cells if c.type == "ref" for t in c.to]
         for target in targets:
             found = self.types.get(target)
             if found is None:
@@ -2179,6 +2195,8 @@ class _Semantics:
         siblings: dict[str, Field],
         item: bool = False,
     ) -> None:
+        if f.topology is not None or f.strands is not None:
+            self.sequence_options(f, source, path, siblings)
         if not item:
             if (
                 f.name in RESERVED_FIELD_NAMES
@@ -2284,6 +2302,49 @@ class _Semantics:
         if f.has_default:
             for message in value_problems(f, f.default):
                 self.add("invalid-default", f"The default {message}", source, (*path, "default"))
+
+    def sequence_options(
+        self, f: Field, source: Document, path: Path, siblings: dict[str, Field]
+    ) -> None:
+        """A sequence's ``topology`` and ``strands`` (ADR 0138): each an enum field beside
+        it with the values its identity reads it by."""
+        for option, wanted, formats in (
+            ("topology", ("circular",), SEQUENCE_FORMATS),
+            ("strands", ("double", "single"), NUCLEIC_FORMATS),
+        ):
+            name = getattr(f, option)
+            if name is None:
+                continue
+            if f.format not in formats:
+                self.add(
+                    "sequence-option",
+                    f"`{option}` is for a "
+                    + ("sequence" if option == "topology" else "DNA or RNA sequence")
+                    + f", and `{f.name}` "
+                    + (f"is a {f.format.replace('_', ' ')}." if f.format else "has no format."),
+                    source,
+                    (*path, option),
+                    key=True,
+                    hint="Leave it off, or give the field a sequence `format`.",
+                )
+                continue
+            named = siblings.get(name)
+            if named is None or named.type != "enum" or not set(wanted) <= set(named.values):
+                self.add(
+                    "sequence-option",
+                    f"`{option}` names an enum field beside `{f.name}` with the values "
+                    f"{' and '.join(wanted)}, and `{name}` "
+                    + (
+                        "isn't one."
+                        if named is None
+                        else f"is a {named.type} field."
+                        if named.type != "enum"
+                        else f"has {', '.join(named.values)}."
+                    ),
+                    source,
+                    (*path, option),
+                    hint="Such as `topology: { type: enum, values: [linear, circular] }`.",
+                )
 
     def rows(self, row: Field, source: Document, path: Path) -> None:
         """A list's rows (ADR 0137): each of their fields as a field, the one naming each
@@ -2880,3 +2941,20 @@ def _settings_problems(plugin: Plugin, documents: list[Document], name: str) -> 
                 hint=setting.description,
             )
     return sorted(checker.problems, key=Problem.sort_key)
+
+
+def _identifies(f: Field) -> bool:
+    """Whether ``f`` can be part of an identity (ADR 0138): a value compared exactly, or a
+    list of them, references or rows whose identity fields are, read as a multiset. Not
+    files in a list: a row's file is its ID, not its content's hash."""
+    if f.type != "list":
+        return f.type in IDENTITY_TYPES
+    item = f.items
+    if item is None:
+        return False
+    if item.type == "row":
+        names = item.identity or tuple(item.fields)
+        return all(
+            n in item.fields and item.fields[n].type in IDENTITY_TYPES - {"file"} for n in names
+        )
+    return item.type in IDENTITY_TYPES - {"file"}

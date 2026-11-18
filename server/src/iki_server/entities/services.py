@@ -276,15 +276,30 @@ def _create(
     if entry is not None:
         # What's given for the entry fills what it hasn't got, and a fact that differs is
         # refused, whether or not the project has a record of it already: a second
-        # registration never drops what it says about the identity unnoticed.
-        named = {n: given[n] for n in values if n in form.entry_fields()}
+        # registration never drops what it says about the identity unnoticed. Its identity
+        # is the entry's, however it's spelled (ADR 0138): what it gives along a sequence
+        # spelled otherwise is placed along the entry's.
+        own = identity.identity_of(form.entity_type)
+        named = {n: given[n] for n in values if n in form.entry_fields() and n not in own}
         entry_revision = fill_entry(
             user, form, entry, named, project=project, reason=reason, by_run=by_run
         )
         existing = Entity.objects.filter(owner_project=project, entry=entry).first()
         if existing is not None:
             return Saved(_specific(existing), reused=True, entry_revision=entry_revision)
-        saved = _new_record(user, form, project, given, reason, by_run, entry=entry)
+        stored = Rows(form, None, _specific(entry))
+        spelled = identity.spelled(form.entity_type, given, {n: stored.get(n) for n in own})
+        given = identity.placed(form.entity_type, given, spelled, stored.get)
+        saved = _new_record(
+            user,
+            form,
+            project,
+            given,
+            reason,
+            by_run,
+            entry=entry,
+            submitted=spelled or None,
+        )
         saved.entry_revision = entry_revision
         return saved
     entry, entry_revision = _new_entry(user, form, project, given, reason, by_run)
@@ -318,8 +333,11 @@ def _new_record(
     *,
     entry: Entity | None = None,
     registered: Revision | None = None,
+    submitted: dict[str, Any] | None = None,
 ) -> Saved:
-    """The project's record: its own fields' values, and for an identity, its entry."""
+    """The project's record: its own fields' values, and for an identity, its entry.
+    ``submitted``: its identity's values as given, where they're spelled other than the
+    entry's (ADR 0138)."""
     instance = form.model(owner_project=project, created_by=user)
     if entry is not None:
         instance.entry_id = entry.pk
@@ -357,6 +375,7 @@ def _new_record(
         reason,
         via="run" if by_run else None,
         registered=registered,
+        submitted=submitted,
     )
     _write_history(touched, rows, revision.number)
     _use_files(form.fields(), instance.pk, own, revision.number)
@@ -410,9 +429,20 @@ def superseded(entry: Entity) -> str:
 def identity_digest(form: Shape, given: Mapping[str, Any]) -> str:
     """The identity hash of an entity with these values, as the database stores them."""
     instance = _entry_instance(form, given)
-    digest = identity.hash_for(instance, form.entity_type)
+    digest = identity.hash_for(instance, form.entity_type, _lists(form, given))
     assert digest is not None  # noqa: S101 - only types with an identity have entries
     return digest
+
+
+def _lists(form: Shape, given: Mapping[str, Any]) -> dict[str, Any]:
+    """The entry's lists' values, which its identity may read (ADR 0138)."""
+    return {
+        name: given.get(name) or []
+        for part in form.parts
+        if part.entry and not part.extension
+        for name, f in part.fields.items()
+        if _is_list(f)
+    }
 
 
 def _entry_instance(form: Shape, given: Mapping[str, Any]) -> Model:
@@ -448,7 +478,9 @@ def _new_entry(
         instance.hrid = hrid  # type: ignore[attr-defined]
     instance.registry_id = registry_of(project)  # type: ignore[attr-defined]
     instance.created_by = user  # type: ignore[attr-defined]
-    instance.identity_hash = identity.hash_for(instance, form.entity_type)  # type: ignore[attr-defined]
+    instance.identity_hash = identity.hash_for(  # type: ignore[attr-defined]
+        instance, form.entity_type, _lists(form, given)
+    )
     fields = form.entry_fields()
     mine = {n: v for n, v in given.items() if n in fields}
     clashes = unique.taken(project, form, mine)
@@ -1323,6 +1355,7 @@ def _revise(
     moved_from: Any = None,  # noqa: ANN401 - a UUID
     state: tuple[str, str, str] | None = None,
     signatures: tuple[Any, ...] = (),
+    submitted: dict[str, Any] | None = None,
 ) -> Revision:
     """The entity's next revision. ``project``: for an entry's, the project it was made
     through; ``registered``: for a record's first, the entry's first, which it made."""
@@ -1340,6 +1373,7 @@ def _revise(
         project=project,
         moved_from_id=moved_from,
         signatures=list(signatures),
+        submitted=submitted,
         **(
             dict(zip(("state_field", "state_from", "state_to"), state, strict=True))
             if state

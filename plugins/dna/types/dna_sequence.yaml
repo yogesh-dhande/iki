@@ -5,20 +5,27 @@ name: DNASequence
 label: DNA sequence
 label_plural: DNA sequences
 extends: iki/core.Sequence
-schema_version: 1
+schema_version: 2
 description: >-
   A DNA sequence: a plasmid, a gene, a construct, a genome. Two with the same
-  bases and topology are the same sequence, so registering one again finds its
-  registry entry.
+  bases, topology and strandedness are the same sequence, so registering one
+  again finds its registry entry: a circular one from any origin, and a
+  double-stranded one from either strand.
 hrid: { prefix: DNA }
-identity: [bases, topology]
+identity: [bases, topology, strandedness]
 fields:
   bases:
     type: string
     format: dna_sequence
+    # Its identity reads it as the molecule it is (ADR 0138): a circular one's
+    # rotations are one sequence, and a duplex's two strands are.
+    topology: topology
+    strands: strandedness
     required: true
     immutable: true
-    description: The bases, 5′ to 3′, in IUPAC codes.
+    description: >-
+      The bases, 5′ to 3′, in IUPAC codes, as they were first registered: from
+      that origin, on that strand.
   topology:
     type: enum
     values: [linear, circular]
@@ -29,6 +36,8 @@ fields:
     type: enum
     values: [double, single]
     default: double
+    required: true
+    immutable: true
   length: { registry: derived, type: quantity, unit: "{bp}", computed: true, indexed: true }
   gc_content:
     type: quantity

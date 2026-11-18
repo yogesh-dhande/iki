@@ -495,6 +495,10 @@ class Revision(models.Model):
     )
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
+    #: A record's first, of a registry entry its identity found (ADR 0138): the identity
+    #: values as given, where they're spelled other than the entry's (a plasmid from
+    #: another origin, a protein with its stop), so what was submitted is kept.
+    submitted = models.JSONField(null=True, blank=True)
     #: For a state change (ADR 0125): the state field set, and the states it went from
     #: and to. A plugin's migration moving records out of a state it removed makes one by no
     #: one, ``via`` the system.

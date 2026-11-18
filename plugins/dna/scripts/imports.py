@@ -5,14 +5,14 @@ where it came from, to $IKI_OUTPUT, as every action's command does. A record tha
 can't be read fails the whole import with a `::error` line that says which and why,
 so nothing is half imported.
 
-GenBank records give their name, definition, accession and version, organism,
-topology and features. A feature's location is kept as its first and last base and
-its strand; locations with several parts (`join(...)`), fuzzy ends (`<1`, `>99`) or
-between two bases (`5^6`) keep GenBank's own text in the `location` qualifier too.
-Features on other records (`J00194.1:100..202`) are left out, with a warning. A RefSeq
-model's (XM_, XR_) COMMENT says NCBI's annotation pipeline predicted it, with which gene
-prediction method: its origin says so, as NCBI's word (ADR 0106). Other records don't
-say how their sequence was made, so theirs don't.
+GenBank records give their name, definition, accession and version, organism, topology,
+strandedness (if LOCUS says ss-DNA or ds-DNA) and features. A feature's location is kept
+as its first and last base and its strand; locations with several parts (`join(...)`),
+fuzzy ends (`<1`, `>99`) or between two bases (`5^6`) keep GenBank's own text in the
+`location` qualifier too. Features on other records (`J00194.1:100..202`) are left out,
+with a warning. A RefSeq model's (XM_, XR_) COMMENT says NCBI's annotation pipeline
+predicted it, with which gene prediction method: its origin says so, as NCBI's word (ADR
+0106). Other records don't say how their sequence was made, so theirs don't.
 
 FASTA headers give a name (the first word) and a description (the rest). A word of
 the header that looks like an INSDC accession with its version (`L09137.2`,

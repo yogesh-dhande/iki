@@ -1199,6 +1199,12 @@ function ChangesTable({
   );
 }
 
+/** A value as given, cut short: a genome's bases needn't fill the page. */
+function submittedText(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
 function RevisionRow({ revision, type }: { revision: Revision; type: EntityType | undefined }) {
   const [open, setOpen] = useState(false);
   const who = personName(revision.user);
@@ -1216,6 +1222,19 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
           {changed.length ? ` · ${changed.join(", ")}` : ""}
         </span>
         {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
+        {/* Its identity as it was given, spelled other than its registry entry (ADR 0138). */}
+        {revision.submitted ? (
+          <p className="row-submitted">
+            Given as{" "}
+            {Object.entries(revision.submitted).map(([name, value], index) => (
+              <span key={name}>
+                {index ? "; " : ""}
+                {labels.get(name) ?? name}: <code>{submittedText(value)}</code>
+              </span>
+            ))}
+            , which its registry entry spells another way.
+          </p>
+        ) : null}
         {/* The electronic signatures that set its state (ADR 0126), as people read them. */}
         {revision.state?.signatures.length ? (
           <ul

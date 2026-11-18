@@ -838,6 +838,13 @@ class RevisionOut(Schema):
         "went from and to. One a plugin's migration made, moving records out of a state it "
         "removed, is by no one, via `system`."
     )
+    submitted: dict[str, Any] | None = Field(
+        None,
+        description="A record's first revision, of a registry entry its identity found "
+        "(ADR 0138): its identity's values as they were given, where they're spelled other "
+        "than the entry's, such as a plasmid from another origin or on its other strand. "
+        "Features given along it were placed along the entry's.",
+    )
     created_at: datetime | None
 
 
@@ -2233,6 +2240,7 @@ def _revision(
         "run": None if of_entry else runs.get(revision.number),
         "reason": revision.reason,
         "state": _revision_state(revision),
+        "submitted": revision.submitted,
         "created_at": revision.created_at,
     }
 
@@ -2274,6 +2282,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
         "run": None,
         "reason": "",
         "state": None,
+        "submitted": None,
         "created_at": None,
     }
 

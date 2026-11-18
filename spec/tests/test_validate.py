@@ -706,6 +706,91 @@ def test_an_identity_can_have_optional_fields_beside_a_required_one(tmp_path: Pa
     )
 
 
+SEQUENCE = """\
+identity: [bases, topology, strands]
+fields:
+  bases:
+    type: string
+    format: dna_sequence
+    topology: topology
+    strands: strands
+    required: true
+    immutable: true
+  topology: { type: enum, values: [linear, circular], required: true, immutable: true }
+  strands: { type: enum, values: [double, single], required: true, immutable: true }
+"""
+
+
+def test_a_sequences_identity_reads_it_by_its_topology_and_strands(tmp_path: Path) -> None:
+    """ADR 0138: each names an enum field beside it, itself part of the identity."""
+    assert codes(make(tmp_path, TYPE + SEQUENCE)) == []
+    built = make(tmp_path, TYPE + SEQUENCE).plugin
+    assert built is not None
+    bases = built.types["acme/lab.Assay"].fields["bases"]
+    assert (bases.topology, bases.strands) == ("topology", "strands")
+
+    def problems(*changes: tuple[str, str]) -> list[str]:
+        text = SEQUENCE
+        for change in changes:
+            text = text.replace(*change)
+        return codes(make(tmp_path, TYPE + text))
+
+    assert problems(("[linear, circular]", "[linear, ring]")) == ["sequence-option"]
+    assert problems(("topology: topology", "topology: shape")) == ["sequence-option"]
+    assert problems(("format: dna_sequence", "format: protein_sequence")) == ["sequence-option"]
+    assert problems(("format: dna_sequence", "pattern: '^[A-Z]*$'")) == [
+        "sequence-option",
+        "sequence-option",
+    ]
+    assert problems(("[bases, topology, strands]", "[bases, topology]")) == ["identity-incomplete"]
+
+
+def test_an_identity_can_be_a_set_of_parts(tmp_path: Path) -> None:
+    """ADR 0138: a list of references, values or rows is a multiset, a row by its
+    identity fields, each a value compared exactly."""
+    # Its parts are entries too: an entry refers only to entries.
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT") + (
+        "identity: [code]\nfields:\n  code: { type: string, required: true, immutable: true }\n"
+    )
+    rows = ROWS.replace("    by: role", "    identity: [part, role]\n    by: role").replace(
+        "  type: list\n", "  type: list\n  required: true\n  immutable: true\n"
+    )
+    assert (
+        codes(
+            make(
+                tmp_path, TYPE + "identity: [parts]\n" + fields(rows)[len(TYPE) :] + "---\n" + batch
+            )
+        )
+        == []
+    )
+    refs = (
+        "parts: { type: list, items: { type: ref, to: Batch }, required: true, immutable: true }\n"
+    )
+    assert (
+        codes(
+            make(
+                tmp_path, TYPE + "identity: [parts]\n" + fields(refs)[len(TYPE) :] + "---\n" + batch
+            )
+        )
+        == []
+    )
+    weights = rows.replace("copies: { type: int, min: 1, default: 1 }", "copies: { type: float }")
+    with_float = weights.replace("identity: [part, role]", "identity: [part, copies]")
+    assert codes(
+        make(
+            tmp_path,
+            TYPE + "identity: [parts]\n" + fields(with_float)[len(TYPE) :] + "---\n" + batch,
+        )
+    ) == ["identity-type"]
+    record = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    a_record = TYPE + "identity: [parts]\n" + fields(rows)[len(TYPE) :] + "---\n" + record
+    assert codes(make(tmp_path, a_record)) == ["registry-refers-to-record"]
+    files = "parts: { type: list, items: { type: file }, required: true, immutable: true }\n"
+    assert codes(make(tmp_path, TYPE + "identity: [parts]\n" + fields(files)[len(TYPE) :])) == [
+        "identity-type"
+    ]
+
+
 def test_on_duplicate_is_gone(tmp_path: Path) -> None:
     # One record per identity per project (ADR 0115): there's nothing left to choose.
     result = make(tmp_path, TYPE + "on_duplicate: warn\n")

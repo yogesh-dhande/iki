@@ -773,6 +773,22 @@ describe("an entity's page", () => {
     expect(screen.queryByRole("button", { name: /notifications about/ })).toBeNull();
   });
 
+  it("says how a record's identity was given, where its entry spells it otherwise", async () => {
+    // ADR 0138: a protein given with its stop is the entry's protein, and keeps what was given.
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer(
+      "GET /api/v1/entities/PRT-000001/revisions",
+      page([revision({ number: 1, submitted: { sequence: "mkwv*" } })]),
+    );
+    await renderApp("/entities/PRT-000001/history/");
+    await screen.findByText("Revision 1: Created by Rosalind Franklin");
+    const given = document.querySelector(".row-submitted");
+    expect(given).toHaveTextContent(
+      "Given as Sequence: mkwv*, which its registry entry spells another way.",
+    );
+  });
+
   it("says when there's no such entity", async () => {
     withTypes();
     answer(

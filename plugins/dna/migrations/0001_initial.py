@@ -22,6 +22,17 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
+            name='DNASequence',
+            fields=[
+                ('sequence_ptr', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__core.sequence')),
+                ('features', models.JSONField(null=True)),
+            ],
+            options={
+                'db_table': 'iki__dna_dnasequence',
+            },
+            bases=('iki__core.sequence',),
+        ),
+        migrations.CreateModel(
             name='DNASequence_Entry_History',
             fields=[
                 ('pk', models.CompositePrimaryKey('entity_id', 'revision', blank=True, editable=False, primary_key=True, serialize=False)),
@@ -29,6 +40,7 @@ class Migration(migrations.Migration):
                 ('revision', models.PositiveIntegerField()),
                 ('bases', models.TextField(null=True)),
                 ('topology', models.TextField(null=True)),
+                ('strandedness', models.TextField(null=True)),
                 ('length', iki_server.entities.fields.QuantityField(null=True, unit='{bp}')),
                 ('gc_content', iki_server.entities.fields.QuantityField(null=True, unit='%')),
                 ('accession', models.TextField(null=True)),
@@ -46,7 +58,6 @@ class Migration(migrations.Migration):
                 ('pk', models.CompositePrimaryKey('entity_id', 'revision', blank=True, editable=False, primary_key=True, serialize=False)),
                 ('entity_id', models.UUIDField()),
                 ('revision', models.PositiveIntegerField()),
-                ('strandedness', models.TextField(null=True)),
                 ('features', models.JSONField(null=True)),
             ],
             options={
@@ -93,24 +104,12 @@ class Migration(migrations.Migration):
             model_name='Primer_History',
         ),
         migrations.CreateModel(
-            name='DNASequence',
-            fields=[
-                ('sequence_ptr', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__core.sequence')),
-                ('strandedness', models.TextField(db_default='double', null=True)),
-                ('features', models.JSONField(null=True)),
-            ],
-            options={
-                'db_table': 'iki__dna_dnasequence',
-                'constraints': [models.CheckConstraint(condition=models.Q(('strandedness__in', ['double', 'single'])), name='iki__dna_dnasequence__strandedness__values')],
-            },
-            bases=('iki__core.sequence',),
-        ),
-        migrations.CreateModel(
             name='DNASequence_Entry',
             fields=[
                 ('entity', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki_entities.entity')),
                 ('bases', models.TextField()),
                 ('topology', models.TextField(db_default='linear')),
+                ('strandedness', models.TextField(db_default='double')),
                 ('length', iki_server.entities.fields.QuantityField(db_index=True, null=True, unit='{bp}')),
                 ('gc_content', iki_server.entities.fields.QuantityField(db_index=True, null=True, unit='%')),
                 ('accession', models.CharField(db_index=True, max_length=64, null=True)),
@@ -118,7 +117,7 @@ class Migration(migrations.Migration):
             options={
                 'db_table': 'iki__dna_dnasequence__entry',
                 'indexes': [django.contrib.postgres.indexes.GinIndex(fields=['accession'], name='accession_trgm_cacba7d7e4c0cf6', opclasses=['gin_trgm_ops'])],
-                'constraints': [models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('bases'), 1), name='iki__dna_dnasequence__entry__bases__not_empty'), models.CheckConstraint(condition=models.Q(('bases__regex', '[\\r\\n]'), _negated=True), name='iki__dna_dnasequence__entry__bases__one_line'), models.CheckConstraint(condition=models.Q(('bases__regex', '^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$')), name='iki__dna_dnasequence__entry__bases__format'), models.CheckConstraint(condition=models.Q(('topology__in', ['linear', 'circular'])), name='iki__dna_dnasequence__entry__topology__values'), models.CheckConstraint(condition=models.Q(('length__gt', float("-inf")), ('length__lt', float("inf"))), name='iki__dna_dnasequence__entry__length__finite'), models.CheckConstraint(condition=models.Q(('gc_content__gt', float("-inf")), ('gc_content__lt', float("inf"))), name='iki__dna_dnasequence__entry__gc_content__finite'), models.CheckConstraint(condition=models.Q(('gc_content__gte', 0)), name='iki__dna_dnasequence__entry__gc_content__min'), models.CheckConstraint(condition=models.Q(('gc_content__lte', 100)), name='iki__dna_dnasequence__entry__gc_content__max'), models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('accession'), 1), name='iki__dna_dnasequence__entry__accession__not_empty'), models.CheckConstraint(condition=models.Q(('accession__regex', '[\\r\\n]'), _negated=True), name='iki__dna_dnasequence__entry__accession__one_line'), models.CheckConstraint(condition=models.Q(('accession__regex', '^(?:^[A-Za-z0-9_.]+$)$')), name='iki__dna_dnasequence__entry__accession__pattern')],
+                'constraints': [models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('bases'), 1), name='iki__dna_dnasequence__entry__bases__not_empty'), models.CheckConstraint(condition=models.Q(('bases__regex', '[\\r\\n]'), _negated=True), name='iki__dna_dnasequence__entry__bases__one_line'), models.CheckConstraint(condition=models.Q(('bases__regex', '^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$')), name='iki__dna_dnasequence__entry__bases__format'), models.CheckConstraint(condition=models.Q(('topology__in', ['linear', 'circular'])), name='iki__dna_dnasequence__entry__topology__values'), models.CheckConstraint(condition=models.Q(('strandedness__in', ['double', 'single'])), name='iki__dna_dnasequence__entry__strandedness__values'), models.CheckConstraint(condition=models.Q(('length__gt', float("-inf")), ('length__lt', float("inf"))), name='iki__dna_dnasequence__entry__length__finite'), models.CheckConstraint(condition=models.Q(('gc_content__gt', float("-inf")), ('gc_content__lt', float("inf"))), name='iki__dna_dnasequence__entry__gc_content__finite'), models.CheckConstraint(condition=models.Q(('gc_content__gte', 0)), name='iki__dna_dnasequence__entry__gc_content__min'), models.CheckConstraint(condition=models.Q(('gc_content__lte', 100)), name='iki__dna_dnasequence__entry__gc_content__max'), models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('accession'), 1), name='iki__dna_dnasequence__entry__accession__not_empty'), models.CheckConstraint(condition=models.Q(('accession__regex', '[\\r\\n]'), _negated=True), name='iki__dna_dnasequence__entry__accession__one_line'), models.CheckConstraint(condition=models.Q(('accession__regex', '^(?:^[A-Za-z0-9_.]+$)$')), name='iki__dna_dnasequence__entry__accession__pattern')],
             },
             bases=('iki_entities.entity',),
         ),

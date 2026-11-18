@@ -177,11 +177,11 @@ Subtypes share the identity of the type that declares it, and its entries. The h
 SHA-256, in lower-case hex, of UTF-8 JSON with sorted keys and no spaces:
 
 ```json
-{ "type": "iki/dna.DNASequence", "v": 1, "values": { "bases": "ACGT" } }
+{ "type": "iki/dna.DNASequence", "v": 2, "values": { "bases": "ACGT" } }
 ```
 
 Here written with spaces for reading; the hashed form is
-`{"type":"iki/dna.DNASequence","v":1,"values":{"bases":"ACGT"}}`. `type` is the
+`{"type":"iki/dna.DNASequence","v":2,"values":{"bases":"ACGT"}}`. `type` is the
 type that declares the identity. Each value is encoded by its field's type:
 
 | Type                     | Encoded as                                |
@@ -193,11 +193,44 @@ type that declares the identity. Each value is encoded by its field's type:
 | `datetime`               | UTC: `"YYYY-MM-DDTHH:MM:SS.ffffffZ"`      |
 | `ref`                    | The entity's UUID, lower case             |
 | `file`                   | The SHA-256 of the file's content, in hex |
+| `list`                   | Its items, each encoded, sorted           |
 
 An optional field without a value is `null`. An antibody is its heavy chain
 and its light chain, which a single-domain antibody hasn't got:
-`{"type":"iki/antibody.Antibody","v":1,"values":{"heavy_chain":"…","light_chain":null}}`.
+`{"type":"iki/antibody.Antibody","v":2,"values":{"heavy_chain":"…","light_chain":null}}`.
 Every identity has at least one required field.
+
+Identities read a value as what it is, not as it's written (ADR 0138):
+
+- **Sequences.** A string with a sequence format is upper case: lower case
+  marks masked regions, not other residues. A protein's terminal stops go, so
+  `MKWV`, `mkwv` and `MKWV*` are one protein; a stop inside it stays, so
+  `MK*WV` is another. DNA keeps T and RNA keeps U.
+- **Topology and strands.** A sequence field's `topology` names an enum field
+  beside it with a `circular` value, and `strands` (for DNA and RNA) one with
+  `double` and `single` values; each must be part of the identity too. A
+  circular sequence is its least rotation, so a plasmid from another origin is
+  the same plasmid. A double-stranded one is the lesser of its two strands,
+  each read 5′ to 3′ (the least rotation of each, if circular), so a duplex
+  entered as its other strand is the same duplex. A single strand is only
+  itself: its complement is another molecule.
+
+  ```yaml
+  identity: [bases, topology, strandedness]
+  fields:
+    bases: { type: string, format: dna_sequence, topology: topology, strands: strandedness, … }
+  ```
+
+- **Sets of parts.** A list of references, values or rows is a multiset: its
+  items sorted, duplicates kept, so a complex is its parts whatever their
+  order. A row is an object of the fields its list's `identity` names (all of
+  them, by default), each one an identity can hold, but not a file.
+
+An entry keeps its values as first registered. A record of it made from
+values spelled otherwise (from another origin, on the other strand, in
+another order) keeps them as given on its first revision (`submitted`), and
+the features a sequence viewer shows along that sequence are placed along
+the entry's.
 
 [`iki_spec.identity`](src/iki_spec/identity.py) implements it.
 

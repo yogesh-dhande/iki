@@ -182,6 +182,14 @@
           "description": "A built-in format the value must match, checked by the database.",
           "enum": ["dna_sequence", "rna_sequence", "protein_sequence", "email", "uri", "hostname"]
         },
+        "topology": {
+          "description": "For a sequence format: the enum field (with a `circular` value) saying whether the sequence is circular, so its identity is the same from any origin (ADR 0138).",
+          "$ref": "#/$defs/fieldName"
+        },
+        "strands": {
+          "description": "For a DNA or RNA sequence format: the enum field (with `double` and `single` values) saying whether it's double-stranded, so its identity is the same read from either strand (ADR 0138).",
+          "$ref": "#/$defs/fieldName"
+        },
         "pattern": {
           "description": "A regular expression the whole value must match, checked by the database.",
           "type": "string",
@@ -340,6 +348,8 @@
                 "removed",
                 "default",
                 "format",
+                "topology",
+                "strands",
                 "pattern",
                 "min_length",
                 "max_length"
@@ -895,6 +905,8 @@
           "required",
           "default",
           "format",
+          "topology",
+          "strands",
           "pattern",
           "min_length",
           "max_length",

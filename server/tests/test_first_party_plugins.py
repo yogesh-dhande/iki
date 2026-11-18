@@ -260,3 +260,70 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%')",
     )
     assert left == [(0,)]
+
+
+def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
+    tmp_path: Path, database: str
+) -> None:
+    """ADR 0138, F-056: a circular duplex registered again rotated, or as its other strand,
+    finds its registry entry, which keeps the bases as first registered; the record keeps
+    them as given, and its features are placed along the entry's. A single-stranded circle
+    with the same bases is another molecule."""
+    out = tmp_path / "build"
+    built = iki("plugin", "build", PLUGINS / "dna", "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.entities.models import Revision
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+        alice = User.objects.create_user("alice@example.com")
+        others = [Project.objects.create(team=team, name=f"Plasmids {n}") for n in (1, 2, 3)]
+        for p in [project, *others]:
+            ProjectMembership.objects.create(project=p, user=alice, role=ProjectRole.EDITOR)
+
+        def make(where, bases, **values):
+            values = {"topology": "circular", "features": [ori], **values}
+            return services.create(alice, "iki/dna.DNASequence", where, {"bases": bases, **values})
+
+        # AAGTCCGATT, with an origin of replication on its bases 3 to 6 (GTCC).
+        ori = {"type": "rep_origin", "start": 3, "end": 6, "strand": "forward"}
+        first = make(project, "aagtccgatt")
+        # From its fifth base: CCGATTAAGT. Its ori is bases 9, 10, 1 and 2.
+        ori = {"type": "rep_origin", "start": 9, "end": 2, "strand": "forward"}
+        rotated = make(others[0], "CCGATTAAGT")
+        # Its other strand, 5' to 3': AATCGGACTT. Its ori is GGAC, on the reverse strand.
+        ori = {"type": "rep_origin", "start": 5, "end": 8, "strand": "reverse"}
+        flipped = make(others[1], "AATCGGACTT")
+        # The same bases as one strand is another molecule.
+        single = make(others[2], "AAGTCCGATT", strandedness="single")
+
+        def submitted(saved):
+            return Revision.objects.get(entity=saved.entity, number=1).submitted
+
+        def values(saved):
+            return services.current_values_of([saved.entity])[saved.entity.pk]
+
+        result = {
+            "entries": [str(s.entity.entry_id) for s in (first, rotated, flipped, single)],
+            "registered": [s.registered for s in (first, rotated, flipped, single)],
+            "bases": [values(s)["bases"] for s in (rotated, flipped)],
+            "features": [values(s)["features"] for s in (rotated, flipped)],
+            "submitted": [submitted(s) for s in (first, rotated, flipped)],
+        }
+        """,
+    )
+    first, rotated, flipped, single = result["entries"]
+    assert first == rotated == flipped != single
+    assert result["registered"] == [True, False, False, True]
+    # The entry keeps its bases as first given, lower case and all.
+    assert result["bases"] == ["aagtccgatt", "aagtccgatt"]
+    ori = {"type": "rep_origin", "start": 3, "end": 6, "strand": "forward"}
+    assert result["features"] == [[ori], [ori]]
+    assert result["submitted"] == [None, {"bases": "CCGATTAAGT"}, {"bases": "AATCGGACTT"}]
