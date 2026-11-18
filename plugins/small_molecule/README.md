@@ -45,7 +45,10 @@ salt form, with RDKit's standardisation and descriptors.
     in Iki's structure viewer.
   - It keeps how they were made, how many there are, each one's energy
     (kcal/mol, in the force field they were minimised in: only differences
-    mean anything) and how far above the lowest the highest is.
+    mean anything) and how far above the lowest the highest is. A compound
+    MMFF94 has no parameters for (selenium, say) gets conformers as embedded,
+    with no energies, in the order they were embedded, and its method says
+    they weren't minimised.
   - Everything in it is fixed once it's made: generate another set to change
     it.
 

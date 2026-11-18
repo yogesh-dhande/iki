@@ -1111,6 +1111,26 @@ def test_conformers_are_embedded_minimised_and_ranked_by_energy(tmp_path: Path) 
     assert (tmp_path / "out" / "conformers.sdf").read_text() == first
 
 
+def test_conformers_that_werent_minimised_say_so(tmp_path: Path) -> None:
+    # MMFF94 has no parameters for selenium (Halgren, 1996), so dimethyl selenide's are
+    # left as embedded, with no energies.
+    result = conformers(tmp_path, "C[Se]C", count=5)
+    assert result.returncode == 0, result.stdout + result.stderr
+    values = json.loads((tmp_path / "out.json").read_text())["creates"][0]["values"]
+    assert values["method"].endswith(
+        "; not minimised (MMFF94 has no parameters for it), in no order"
+    )
+    assert "energies" not in values
+    # With no minimising steps, they're as embedded, ranked by their energies as they are.
+    result = conformers(tmp_path, "CCCCCCO", count=5, iterations=0)
+    assert result.returncode == 0, result.stdout + result.stderr
+    output = json.loads((tmp_path / "out.json").read_text())
+    values = output["creates"][0]["values"]
+    assert values["method"].endswith("; not minimised, ranked by their MMFF94 energies as embedded")
+    assert values["energies"] == sorted(values["energies"])
+    assert output["messages"] == []
+
+
 def test_a_salt_has_no_conformers_of_its_own(tmp_path: Path) -> None:
     result = conformers(tmp_path, "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]")
     assert result.returncode == 1

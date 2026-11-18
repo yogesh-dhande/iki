@@ -6,10 +6,12 @@ distance geometry with ETKDG version 3 (Wang et al., 2020: torsion preferences f
 experimental structures, and knowledge of small rings and macrocycles), seeded from the
 run's seed (IKI_SEED), so a run reproduced exactly makes the same ones. Conformers closer
 than `prune_rms` Å (heavy atoms' RMSD, after aligning) to one already kept are dropped. Each
-is then minimised in the MMFF94 force field (Halgren, 1996) for up to `iterations` steps,
-or, for a compound MMFF94 has no parameters for, isn't, and the run says so. They're
-written lowest energy first, to an SDF file and as the models of a PDB file for the
-structure viewer.
+is then minimised in the MMFF94 force field (Halgren, 1996) for up to `iterations` steps;
+with 0, they're left as embedded, ranked by their MMFF94 energies. A compound MMFF94 has
+no parameters for isn't minimised, and its conformers have no energies and are in the
+order they were embedded; the run says so, and so does the set's method. They're written
+lowest energy first, to an SDF file and as the models of a PDB file for the structure
+viewer.
 
 It runs on one thread, so a run's results don't depend on how many CPUs its machine has.
 """
@@ -58,7 +60,15 @@ def generate(run: dict[str, Any]) -> dict[str, Any]:
     if not ids:
         raise UnreadableError(f"RDKit couldn't embed {entity['hrid']} in three dimensions")
     messages = Messages()
-    if rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
+    embedded = f"RDKit ETKDGv3, {count} embedded, pruned at {prune:g} Å heavy-atom RMSD"
+    if rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol) and iterations == 0:
+        # Left as embedded, as the parameter says: their energies only rank them.
+        results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(
+            mol, numThreads=1, maxIters=0, mmffVariant="MMFF94"
+        )
+        energies = [energy for _, energy in results]
+        method = f"{embedded}; not minimised, ranked by their MMFF94 energies as embedded"
+    elif rdForceFieldHelpers.MMFFHasAllMoleculeParams(mol):
         print(f"::progress 0.5 Minimising {len(ids)} in MMFF94", flush=True)
         results = rdForceFieldHelpers.MMFFOptimizeMoleculeConfs(
             mol, numThreads=1, maxIters=iterations, mmffVariant="MMFF94"
@@ -71,10 +81,7 @@ def generate(run: dict[str, Any]) -> dict[str, Any]:
                 f"{unfinished} of {len(ids)} conformers hadn't converged after {iterations:,} "
                 "steps of minimising.",
             )
-        method = (
-            f"RDKit ETKDGv3, {count} embedded, pruned at {prune:g} Å heavy-atom RMSD; "
-            f"minimised in MMFF94, up to {iterations:,} steps"
-        )
+        method = f"{embedded}; minimised in MMFF94, up to {iterations:,} steps"
     else:
         energies = []
         messages.add(
@@ -82,7 +89,7 @@ def generate(run: dict[str, Any]) -> dict[str, Any]:
             f"MMFF94 has no parameters for some of {entity['hrid']}'s atoms, so its "
             "conformers weren't minimised.",
         )
-        method = f"RDKit ETKDGv3, {count} embedded, pruned at {prune:g} Å heavy-atom RMSD"
+        method = f"{embedded}; not minimised (MMFF94 has no parameters for it), in no order"
     order = sorted(range(len(ids)), key=lambda i: energies[i] if energies else i)
     out = Path(os.environ["IKI_OUT_DIR"])
     lowest = energies[order[0]] if energies else 0.0

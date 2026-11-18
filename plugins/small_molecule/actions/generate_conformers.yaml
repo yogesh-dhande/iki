@@ -6,10 +6,11 @@ label: Generate conformers
 description: >-
   Generates a compound's three-dimensional conformers with RDKit: embedded by
   distance geometry with ETKDG version 3, seeded from the run's seed, then
-  minimised in the MMFF94 force field. Conformers too like one already kept are
-  dropped. They're saved as a conformer set, lowest energy first, in an SDF file
-  and as the models of a PDB file the structure viewer shows, with each one's
-  energy.
+  minimised in the MMFF94 force field where it has parameters for every atom.
+  Conformers too like one already kept are dropped. They're saved as a conformer
+  set, in an SDF file and as the models of a PDB file the structure viewer shows:
+  lowest energy first, with each one's energy, or, for a compound MMFF94 can't
+  minimise, as embedded, with none, which the set's method and the run say.
 inputs:
   compound: { type: Compound, schema: ">=1" }
 params:
