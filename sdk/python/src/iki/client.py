@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         EntityOut,
         EntityTypeOut,
         EntryOut,
-        LineageGraphOut,
+        GraphOut,
         MeOut,
         OriginOut,
         ProjectOut,
@@ -41,10 +41,11 @@ if TYPE_CHECKING:
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        WalkItemOut,  # noqa: F401 - Walk's items, named in its base as a string
         WorkItemOut,
     )
 
-__all__ = ["Client", "Results"]
+__all__ = ["Client", "Results", "Walk"]
 
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 #: Runs in these states have ended.
@@ -557,16 +558,148 @@ class Entities(_Part):
             self._client.request("GET", _path("/entities/{ref}/origins", ref=ref)),
         )
 
-    def lineage(self, ref: str, *, up: int = 1, down: int = 1) -> LineageGraphOut:
-        """What it was made from (`up` generations) and what was made from it (`down`)."""
+    def upstream(
+        self,
+        ref: str,
+        *,
+        depth: int = 10,
+        edges: Sequence[Literal["reference", "run", "file"]] = (),
+        type: str | Sequence[str] | None = None,
+        archived: bool | None = None,
+        project: str | Mapping[str, Any] | None = None,
+        page_size: int = 100,
+    ) -> Walk:
+        """Everything it was derived from that you can read (ADR 0123), nearest first: what
+        its references name, what the runs that made it read, and on, up to `depth` edges.
+        Each item's ``path`` says how it was reached; ``summary()["hidden"]`` counts trails
+        into entities you can't read::
+
+            for item in iki.entities.upstream("RES-000004"):
+                print(item["depth"], item["entity"]["hrid"])
+        """
+        return self._walk("upstream", ref, depth, edges, type, archived, project, page_size)
+
+    def downstream(
+        self,
+        ref: str,
+        *,
+        depth: int = 10,
+        edges: Sequence[Literal["reference", "run", "file"]] = (),
+        type: str | Sequence[str] | None = None,
+        archived: bool | None = None,
+        project: str | Mapping[str, Any] | None = None,
+        page_size: int = 100,
+    ) -> Walk:
+        """Everything derived from it that you can read (ADR 0123), nearest first: what
+        refers to it, what runs made from it, and on: what a recall or a donor's consent
+        withdrawal affects::
+
+            iki.entities.downstream("DNR-000001", type="iki/example_lims.Aliquot").to_pandas()
+        """
+        return self._walk("downstream", ref, depth, edges, type, archived, project, page_size)
+
+    def upstream_csv(self, ref: str, **filters: Any) -> builtins.list[dict[str, str]]:  # noqa: ANN401
+        """Everything :meth:`upstream` finds at once, as the CSV download has it."""
+        return self._walk_csv("upstream", ref, filters)
+
+    def downstream_csv(self, ref: str, **filters: Any) -> builtins.list[dict[str, str]]:  # noqa: ANN401
+        """Everything :meth:`downstream` finds at once, as the CSV download has it: the
+        impact list."""
+        return self._walk_csv("downstream", ref, filters)
+
+    def graph(
+        self,
+        ref: str,
+        *,
+        up: int = 3,
+        down: int = 3,
+        edges: Sequence[Literal["reference", "run", "file"]] = (),
+    ) -> GraphOut:
+        """A few steps each way, with the edges between: to draw."""
         return cast(
-            "LineageGraphOut",
+            "GraphOut",
             self._client.request(
                 "GET",
-                _path("/entities/{ref}/lineage/graph", ref=ref),
-                params={"up": up, "down": down},
+                _path("/entities/{ref}/graph", ref=ref),
+                params={"up": up, "down": down, "edges": builtins.list(edges)},
             ),
         )
+
+    def _params(
+        self,
+        depth: int,
+        edges: Sequence[str],
+        type: str | Sequence[str] | None,
+        archived: bool | None,
+        project: str | Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"depth": depth, "edges": builtins.list(edges)}
+        if type is not None:
+            params["type"] = [type] if isinstance(type, str) else builtins.list(type)
+        if archived is not None:
+            params["archived"] = archived
+        if project is not None:
+            params["project"] = self._client._project_id(project)
+        return params
+
+    def _walk(
+        self,
+        direction: str,
+        ref: str,
+        depth: int,
+        edges: Sequence[str],
+        type: str | Sequence[str] | None,
+        archived: bool | None,
+        project: str | Mapping[str, Any] | None,
+        page_size: int,
+    ) -> Walk:
+        client = self._client
+        path = _path(f"/entities/{{ref}}/{direction}", ref=ref)
+        params = {**self._params(depth, edges, type, archived, project), "limit": page_size}
+        return Walk(
+            lambda c: client.request("GET", path, params={**params, "cursor": c}),
+        )
+
+    def _walk_csv(
+        self, direction: str, ref: str, filters: Mapping[str, Any]
+    ) -> builtins.list[dict[str, str]]:
+        params = self._params(
+            filters.get("depth", 10),
+            filters.get("edges", ()),
+            filters.get("type"),
+            filters.get("archived"),
+            filters.get("project"),
+        )
+        response = self._client._send(
+            "GET", _path(f"/entities/{{ref}}/{direction}.csv", ref=ref), params=params
+        )
+        return builtins.list(csv.DictReader(io.StringIO(response.text)))
+
+
+class Walk(Results["WalkItemOut"]):
+    """What :meth:`Entities.upstream` or :meth:`Entities.downstream` finds, a page at a
+    time. ``summary()`` has the walk's ``root``, ``total``, ``hidden`` and ``beyond``."""
+
+    def __init__(self, fetch: Callable[[str | None], Mapping[str, Any]]) -> None:
+        self._summary: dict[str, Any] | None = None
+
+        def fetching(cursor: str | None) -> Mapping[str, Any]:
+            page = fetch(cursor)
+            if self._summary is None:
+                self._summary = {k: v for k, v in page.items() if k not in ("items", "next_cursor")}
+            return page
+
+        from iki import frames
+
+        super().__init__(fetching, frames.walk)
+
+    def summary(self) -> dict[str, Any]:
+        """The walk's ``root``, ``direction``, ``depth``, ``total`` (results in every page),
+        ``hidden`` (trails into entities you can't read) and ``beyond`` (more past
+        ``depth``)."""
+        if self._summary is None:
+            self._fetch(None)
+        return cast("dict[str, Any]", self._summary)
 
 
 class Work(_Part):

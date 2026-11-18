@@ -23,6 +23,7 @@ from iki_server.api import (
     costs,
     entities,
     files,
+    graph,
     me,
     notifications,
     projects,
@@ -67,6 +68,7 @@ for module in (
     # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.
     work,
     entities,
+    graph,
     registries,
     collections,
     apps,

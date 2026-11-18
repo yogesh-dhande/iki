@@ -21,6 +21,10 @@ build installed (:mod:`iki_server.entities.registry`):
   step with a unique column, so the database refuses a second entity in a
   project with the same value. Values already there are filled in, and if
   entities already share one, the sync stops, saying which.
+- **References' edges** (ADR 0123): triggers on every table holding
+  references, and every list of them, keep ``iki_graph_edge`` in step, so the
+  graph across references is whatever the tables hold. Tables whose triggers
+  are new are filled in, and edges of fields no longer there are dropped.
 - **Locked records' guards** (ADR 0125): a trigger on every table holding
   the values of records with state fields refuses a change to a record a
   state locks, whatever writes it. Tables that no longer need one lose it.
@@ -46,6 +50,7 @@ from psycopg import sql
 from iki_server.audit import log as audit
 from iki_server.entities import hrids, registry, states, unique
 from iki_server.entities.values import shape
+from iki_server.graph import edges
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
 from iki_spec.model import EntityType, Extension, Field, split_entry
@@ -73,6 +78,7 @@ class Report:
     #: What changed about each plugin, such as ``dna detached``.
     plugins: list[str] = field(default_factory=list)
     unique: list[str] = field(default_factory=list)
+    graph: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
     analyst: str | None = None
 
@@ -100,6 +106,9 @@ def sync(analyst_role: str | None = None) -> Report:
             report.comments += 1
         report.unique = unique.install(
             cursor, unique.columns((model, fields) for _, model, fields, _ in _tables())
+        )
+        report.graph = edges.install(
+            cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
         report.guards = states.install_guards(cursor, states.guarded_tables())
         report.views = _views(cursor)

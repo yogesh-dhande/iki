@@ -42,7 +42,9 @@ export type Op =
   | "has"
   | "me"
   | "set"
-  | "unset";
+  | "unset"
+  | "derived_from"
+  | "used_for";
 
 /** Whoever searches (ADR 0117, ADR 0122). */
 export const ME = "{{ me }}";
@@ -112,14 +114,25 @@ export const ASSIGNED: FieldDef = {
 /** Records whose assignee can't be assigned them any more. */
 export const NEEDS_REASSIGNING = builtIn("needs_reassigning", "Needs reassigning", "bool");
 
+/** What it was derived from, or what it was used to make, across the graph (ADR 0123):
+ * one row of a filter, which the API has as `downstream` or `upstream` `of` an entity. */
+export const LINEAGE: FieldDef = {
+  ...builtIn("lineage", "Lineage", "lineage"),
+  to: "iki/core.Entity",
+};
+const LINEAGE_FIELDS = new Map<string, "derived_from" | "used_for">([
+  ["downstream", "derived_from"],
+  ["upstream", "used_for"],
+]);
+
 /** What a grid can filter by: every entity's ID and times, its state fields (ADR 0125),
- * who it's assigned to, the type's other fields, and how each was made. */
+ * who it's assigned to, the type's other fields, how each was made, and its lineage. */
 export function filterable(type: EntityType | undefined): FieldDef[] {
   const fields = type?.fields ?? [];
   const states = fields.filter((f) => f.type === "state");
   const rest = fields.filter((f) => f.type !== "state");
   const assigned = fields.some((f) => f.assignment) ? [ASSIGNED, NEEDS_REASSIGNING] : [];
-  return [HRID, ...states.map(asEnum), ...assigned, ...rest, CREATED, UPDATED, MADE];
+  return [HRID, ...states.map(asEnum), ...assigned, ...rest, CREATED, UPDATED, MADE, LINEAGE];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
@@ -177,6 +190,11 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
               ["has", "has"],
             ]
           : [["has", "has"]];
+      case "lineage":
+        return [
+          ["derived_from", "is derived from"],
+          ["used_for", "was used to make"],
+        ];
       case "making":
         return [
           ["has", "was"],
@@ -200,7 +218,7 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
     }
   })();
   const presence: [Op, string][] =
-    field.required || field.type === "making"
+    field.required || field.type === "making" || field.type === "lineage"
       ? []
       : [
           ["set", "is set"],
@@ -216,6 +234,7 @@ export function takesValue(op: Op): boolean {
 
 /** The field a filter's value is typed into: a list's item, for `has`. */
 export function valueField(field: FieldDef): FieldDef {
+  if (field.type === "lineage") return { ...field, type: "ref", required: true };
   const typed = field.type === "list" ? itemField(field) : field;
   // The rules of what can be stored don't limit what can be searched for, and the
   // words looked for in long text fit on a line.
@@ -251,16 +270,18 @@ export function newDraft(field: FieldDef): FilterDraft {
 export function toDrafts(filters: Filter[], fields: FieldDef[]): FilterDraft[] {
   const out: FilterDraft[] = [];
   for (const f of filters) {
-    const field = fields.find((d) => d.name === f.field);
+    const lineage = f.op === "of" ? LINEAGE_FIELDS.get(f.field) : undefined;
+    const field = fields.find((d) => d.name === (lineage ? LINEAGE.name : f.field));
     if (!field) continue;
     const op: Op | undefined =
-      f.op === "is_set"
+      lineage ??
+      (f.op === "is_set"
         ? f.value === false
           ? "unset"
           : "set"
         : (f.op === "eq" || f.op === "has") && f.value === ME
           ? "me"
-          : (f.op as Op);
+          : (f.op as Op));
     if (!operators(field).some((o) => o.value === op)) continue;
     out.push({
       key: ++keys,
@@ -322,6 +343,12 @@ export function toFilter(
   if (row.op === "me") {
     return { filter: { field: field.name, op: field.type === "list" ? "has" : "eq", value: ME } };
   }
+  if (field.type === "lineage") {
+    const picked = row.draft as Picked | null;
+    if (!picked?.id) return null;
+    const name = row.op === "used_for" ? "upstream" : "downstream";
+    return { filter: { field: name, op: "of", value: picked.hrid || picked.id } };
+  }
   if (field.type === "making") {
     const [software, kind, by] = (row.draft ?? ["", "", ""]) as MakingDraft;
     const value = Object.fromEntries(
@@ -344,7 +371,9 @@ export function toFilter(
 
 /** What the search box's words say of people (ADR 0122), as conditions: `assigned:me`,
  * `assigned:none`, `assigned:@ana@example.com`, `needs:reassigning`, and a field naming
- * people, such as `reviewer:me` or `reviewer:@ana@example.com`. The rest is text. */
+ * people, such as `reviewer:me` or `reviewer:@ana@example.com`; and of lineage (ADR
+ * 0123): `downstream:DNR-000001` (what was derived from it) and `upstream:RES-000004`
+ * (what it was derived from). The rest is text. */
 export function searchWords(q: string): { text: string; conditions: Filter[] } {
   const conditions: Filter[] = [];
   const rest: string[] = [];
@@ -352,7 +381,9 @@ export function searchWords(q: string): { text: string; conditions: Filter[] } {
     const match = /^([a-z_][a-z0-9_]*):(.+)$/i.exec(word);
     const name = match?.[1]?.toLowerCase();
     const said = match?.[2] ?? "";
-    if (name === "needs" && said.toLowerCase() === "reassigning") {
+    if ((name === "downstream" || name === "upstream") && said) {
+      conditions.push({ field: name, op: "of", value: said });
+    } else if (name === "needs" && said.toLowerCase() === "reassigning") {
       conditions.push({ field: "needs_reassigning", op: "eq", value: true });
     } else if (name === "assigned" && said.toLowerCase() === "none") {
       conditions.push({ field: "assigned", op: "is_set", value: false });

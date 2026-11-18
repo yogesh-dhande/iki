@@ -59,7 +59,7 @@ from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKi
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
+from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
 from iki_spec.model import EntityType, State, Track, Viewer, names_people, person_role
@@ -538,6 +538,7 @@ OPERATOR = Literal[
     "starts_with",
     "matches",
     "has",
+    "of",
 ]
 
 
@@ -1138,6 +1139,11 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     record of its run; ``source``, an imported record's word), all matching one making,
     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
     A state field (ADR 0125) is searched as an enum of its states, by name.
+    ``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or
+    HRID) was derived from, or what was derived from it, through references and runs, as
+    ``{"field": "downstream", "op": "of", "value": "DNR-000001"}``, or with a ``depth``
+    and ``edges``: ``{"entity": "DNR-000001", "depth": 5, "edges": ["reference"]}``; and
+    ``is_set``, whether anything you can read is that way.
     A search may run for 15 seconds: conditions on indexed fields keep it fast.
     """
     me = caller(request)
@@ -1809,210 +1815,6 @@ def get_bundle_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
             }
         )
     return out
-
-
-# --- Lineage -------------------------------------------------------------------------------------
-
-
-class LineageEntityOut(Schema):
-    id: UUID
-    hrid: str
-    type: str
-    archived: bool
-    purged: bool = Field(description="Its plugin's data was purged (ADR 0092).")
-
-
-class LineageLinkOut(Schema):
-    entity: LineageEntityOut
-    revision: int = Field(description="The parent's revision the run read.")
-    input: str = Field(description="The run's input it was given as.")
-    run: RunRefOut | None = Field(description="The run, if you can read its project.")
-
-
-class LineageOut(Schema):
-    made_from: list[LineageLinkOut] = Field(description="What runs made it from.")
-    used_to_make: list[LineageLinkOut] = Field(
-        description="What runs made from it: the newest 100."
-    )
-    more: bool = Field(description="Runs made more from it than are listed.")
-
-
-@router.get("/entities/{ref}/lineage", response=LineageOut, summary="What it was made from")
-def get_lineage(request: HttpRequest, ref: str) -> dict[str, Any]:
-    """One step each way: the entities runs made it from (at the revisions they read), and
-    those they made from it. Only entities you can read are listed."""
-    me = caller(request)
-    entity = _find(me, ref)
-    readable = access.traced(me).values("pk")
-    runs = set(visible_runs(me).values_list("pk", flat=True))
-
-    def link(row: Lineage, other: Entity) -> dict[str, Any]:
-        return {
-            "entity": {
-                "id": other.pk,
-                "hrid": other.hrid,
-                "type": other.type,
-                "archived": other.archived_at is not None,
-                "purged": other.purged_at is not None,
-            },
-            "revision": row.parent_revision,
-            "input": row.input,
-            "run": (
-                {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action}
-                if row.run_id in runs
-                else None
-            ),
-        }
-
-    parents = (
-        Lineage.objects.filter(entity=entity, parent__in=readable)
-        .select_related("parent", "run")
-        .order_by("id")
-    )
-    children = (
-        Lineage.objects.filter(parent=entity, entity__in=readable)
-        .select_related("entity", "run")
-        .order_by("-id")[: MAX_LIMIT + 1]
-    )
-    made = list(children)
-    return {
-        "made_from": [link(row, row.parent) for row in parents],
-        "used_to_make": [link(row, row.entity) for row in made[:MAX_LIMIT]],
-        "more": len(made) > MAX_LIMIT,
-    }
-
-
-#: How many generations a lineage graph goes each way, at most.
-MAX_GENERATIONS = 10
-#: How big a lineage graph gets before it stops and says it's cut short.
-MAX_GRAPH_ENTITIES = 200
-MAX_GRAPH_LINKS = 500
-
-
-class LineageGraphParams(Schema):
-    up: int = Field(3, ge=0, le=MAX_GENERATIONS, description="How many generations back.")
-    down: int = Field(3, ge=0, le=MAX_GENERATIONS, description="How many generations on.")
-
-
-class LineageNodeOut(RefOut):
-    id: UUID
-
-
-class LineageRunOut(Schema):
-    key: str = Field(description="How links refer to it: its HRID, or a key for this response.")
-    run: RunRefOut | None = Field(description="The run, if you can read its project.")
-
-
-class LineageGraphLinkOut(Schema):
-    parent: UUID = Field(description="The entity it was made from.")
-    entity: UUID = Field(description="The entity the run made.")
-    run: str = Field(description="The run's key, in runs.")
-    input: str = Field(description="The run's input the parent was given as.")
-    revision: int = Field(description="The parent's revision the run read.")
-
-
-class LineageGraphOut(Schema):
-    root: UUID = Field(description="The entity it's the lineage of.")
-    entities: list[LineageNodeOut] = Field(description="The entities in it that you can read.")
-    runs: list[LineageRunOut]
-    links: list[LineageGraphLinkOut]
-    earlier: bool = Field(description="There are more generations back than were asked for.")
-    later: bool = Field(description="There are more generations on than were asked for.")
-    capped: bool = Field(
-        description=f"It stopped at {MAX_GRAPH_ENTITIES} entities or {MAX_GRAPH_LINKS} links, "
-        "so some within the generations asked for are left out."
-    )
-
-
-@router.get(
-    "/entities/{ref}/lineage/graph",
-    response=LineageGraphOut,
-    summary="Its ancestors and descendants",
-)
-def get_lineage_graph(
-    request: HttpRequest, ref: str, params: Query[LineageGraphParams]
-) -> dict[str, Any]:
-    """What it was made from, what that was made from and so on, ``up`` generations back;
-    and what was made from it, ``down`` generations on. Only entities you can read are in
-    it, and only runs whose project you can read are named."""
-    me = caller(request)
-    root = _find(me, ref)
-    readable = access.traced(me).values("pk")
-    seen: set[Any] = {root.pk}
-    rows: dict[int, Lineage] = {}
-    capped = False
-    more = {True: False, False: False}
-    for back, generations in ((True, params.up), (False, params.down)):
-        near, far = ("entity", "parent") if back else ("parent", "entity")
-        frontier: set[Any] = {root.pk}
-        for _ in range(generations):
-            room = MAX_GRAPH_LINKS - len(rows)
-            found = list(
-                Lineage.objects.filter(**{f"{near}__in": frontier, f"{far}__in": readable})
-                .exclude(pk__in=rows.keys())
-                .select_related("run")
-                .order_by("id")[: room + 1]
-            )
-            frontier = set()
-            for row in found[:room]:
-                other = getattr(row, f"{far}_id")
-                if other not in seen and len(seen) >= MAX_GRAPH_ENTITIES:
-                    capped = True
-                    continue
-                if other not in seen:
-                    seen.add(other)
-                    frontier.add(other)
-                rows[row.pk] = row
-            capped = capped or len(found) > room
-            if capped or not frontier:
-                break
-        else:
-            more[back] = bool(frontier) and (
-                Lineage.objects.filter(**{f"{near}__in": frontier, f"{far}__in": readable})
-                .exclude(pk__in=rows.keys())
-                .exists()
-            )
-    refs, _ = _lookup(me, {"ref": seen, "file": set()})
-    links = sorted(rows.values(), key=lambda r: r.pk)
-    named = set(
-        visible_runs(me).filter(pk__in={r.run_id for r in links}).values_list("pk", flat=True)
-    )
-    keys: dict[Any, str] = {}
-    runs: list[dict[str, Any]] = []
-    for row in links:
-        if row.run_id in keys:
-            continue
-        if row.run_id in named:
-            keys[row.run_id] = row.run.hrid
-            runs.append(
-                {
-                    "key": row.run.hrid,
-                    "run": {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action},
-                }
-            )
-        else:
-            keys[row.run_id] = f"hidden-{sum(r['run'] is None for r in runs) + 1}"
-            runs.append({"key": keys[row.run_id], "run": None})
-    return {
-        "root": root.pk,
-        "entities": sorted(
-            ({"id": pk, **refs[pk]} for pk in seen if pk in refs), key=lambda e: e["hrid"]
-        ),
-        "runs": runs,
-        "links": [
-            {
-                "parent": r.parent_id,
-                "entity": r.entity_id,
-                "run": keys[r.run_id],
-                "input": r.input,
-                "revision": r.parent_revision,
-            }
-            for r in links
-        ],
-        "earlier": more[True],
-        "later": more[False],
-        "capped": capped,
-    }
 
 
 # --- Projects ------------------------------------------------------------------------------------

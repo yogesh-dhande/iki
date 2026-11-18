@@ -155,6 +155,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_registry_entry",
         "get_entity_history",
         "get_lineage",
+        "get_impact",
         "create_entity",
         "update_entity",
         "set_entity_archived",
@@ -320,8 +321,14 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert entity["making"] == []  # by hand: no run made it, and no source says how
     history = data(await tool(token, "get_entity_history", ref=abl["hrid"]))
     assert [r["number"] for r in history["items"]] == [2, 1]  # created, then tagged
-    lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], up=1))
-    assert lineage["root"] == abl["id"]
+    lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], depth=2))
+    assert (lineage["root"]["id"], lineage["direction"], lineage["depth"]) == (
+        abl["id"],
+        "upstream",
+        2,
+    )
+    impact = data(await tool(token, "get_impact", ref=abl["hrid"], edges=["run"]))
+    assert (impact["direction"], impact["items"], impact["hidden"]) == ("downstream", [], 0)
 
     actions = data(await tool(token, "list_actions", takes=["acme/protein.Protein"]))
     assert "acme/protein.compute_properties" in {a["name"] for a in actions}

@@ -93,6 +93,31 @@ def runs(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     return _dates(frame).set_index("hrid")
 
 
+def walk(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    """What a walk across the graph found (ADR 0123): one row each, by HRID, with its
+    depth and the steps of its path, as ``field`` or ``kind`` and the HRID they reach."""
+    pd = _pandas()
+    rows = []
+    for item in items:
+        e = item["entity"]
+        rows.append(
+            {
+                "hrid": e["hrid"],
+                "title": e["title"],
+                "type": e["type"],
+                "project": (e.get("project") or {}).get("name"),
+                "depth": item["depth"],
+                "archived": e["archived"],
+                "path": " ← ".join(
+                    f"{s['field'] or s['kind']} {s['entity']['hrid']}" for s in item["path"]
+                ),
+                "id": e["id"],
+            }
+        )
+    columns = ["hrid", "title", "type", "project", "depth", "archived", "path", "id"]
+    return _dates(pd.DataFrame(rows, columns=columns)).set_index("hrid")
+
+
 def records(items: Sequence[Any]) -> pd.DataFrame:
     """Anything else: nested objects become dotted columns."""
     pd = _pandas()

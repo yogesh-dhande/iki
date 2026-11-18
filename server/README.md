@@ -347,14 +347,40 @@ the person who launched the run, or writes none of it.
   each problem in its output.
 - Revisions a run made have `via: "run"` and name the run, so
   `GET /entities/{ref}/provenance` shows which run set each value.
-- `GET /entities/{ref}/lineage` lists what runs made an entity from, at the
-  revisions they read, and what runs made from it.
+- `GET /entities/{ref}/upstream` lists what an entity was derived from, and
+  `GET /entities/{ref}/downstream` what was derived from it (ADR 0123): through
+  references, runs (at the revisions they read) and the files runs read,
+  nearest first, each with the path that reached it.
 
 Results that don't fit what the action declares end the run `failed`
 (`invalid_output`), or `rejected` (`schema_changed`) if the plugin was
 upgraded while it ran. If the launcher lost access, or an entity or the
 project was archived meanwhile, the run ends `rejected`. The output is kept
 either way.
+
+## The graph
+
+`iki_graph_edge` holds what depends on what (ADR 0123): `reference` (a ref
+field names it), `run` (a run made or updated it from an input), `file` (a
+run made it from a file an entity held, or a run wrote) and `record` (a
+project's record and its registry entry, both ways). Triggers keep it,
+whatever writes: `iki_graph`'s migration puts them on runs' lineage and
+effects and on records' entries, and `sync_plugins` on every plugin table
+holding references, filling in what's there. The app's role can only read
+it.
+
+- `GET /entities/{ref}/upstream` and `…/downstream` walk it, as far as the
+  caller can read, up to `depth` (10; at most 30), along `edges` of the kinds
+  given, with results narrowed by `type` and `archived`. Upstream, trails
+  into entities they can't read are counted in `hidden`, never named.
+- `…/upstream.csv` and `…/downstream.csv` download everything at once (at
+  most 100,000), each row with its path as text.
+- `GET /entities/{ref}/graph?up=3&down=3` is a few steps each way, with the
+  edges between, to draw.
+- Search takes `upstream` and `downstream` as fields, with any other
+  condition: `downstream` `of` `DNR-000001`, or of
+  `{"entity": …, "depth": …, "edges": […]}`; `is_set` for anything that
+  way. Each walk runs within search's time limit.
 
 ## Web app
 

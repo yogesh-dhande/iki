@@ -8,6 +8,10 @@ since each type's table holds its subtypes' rows. Without a type (or with
 ``archived_at``, and ``made``: how it was made (ADR 0106), matched with ``has``
 against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
 A state field (ADR 0125) is searched as an enum of its states, by name.
+``upstream`` and ``downstream`` (ADR 0123) find what an entity was derived from, or what
+was derived from it, through references and runs: ``{"field": "downstream", "op": "of",
+"value": "DNR-000001"}``, or with ``{"entity": …, "depth": …, "edges": […]}``; ``is_set``
+finds entities with anything that way, or nothing.
 
 Fields naming people (ADR 0122) take a person's ID, their email address, or
 ``{{ me }}``, whoever searches (so a saved search shared with a project means each
@@ -127,7 +131,13 @@ _BUILT_IN = {
     # Worked out by :mod:`iki_server.entities.assignments` (ADR 0122).
     "assigned": Column("assigned", "person", "pk"),
     "needs_reassigning": Column("needs_reassigning", "bool", "pk"),
+    # Across the graph (ADR 0123), worked out by :mod:`iki_server.graph.queries`.
+    "upstream": Column("upstream", "graph", "pk"),
+    "downstream": Column("downstream", "graph", "pk"),
 }
+
+#: The most conditions across the graph one search may have: each is a walk of its own.
+MAX_GRAPH_CONDITIONS = 3
 
 #: Columns whose conditions :mod:`iki_server.entities.assignments` compiles.
 _ASSIGNMENT_COLUMNS = frozenset({"assigned", "needs_reassigning"})
@@ -212,6 +222,7 @@ class _Compiler:
         self.templated = templated
         self.errors: list[tuple[str, str]] = []
         self.count = 0
+        self.graphs = 0
         self._named: Column | None = None
 
     def fail(self, pointer: str, detail: str) -> Q:
@@ -296,6 +307,8 @@ class _Compiler:
             # Worked out where it's used (an app's expression, checked on its own), so only
             # the field and operator are checked here.
             return Q()
+        if col.kind == "graph":
+            return self.graph(col, op, value, at)
         if col.name in _ASSIGNMENT_COLUMNS and col.field is None:
             return self.assignment(col, op, value, at)
         if op == "is_set":
@@ -348,6 +361,70 @@ class _Compiler:
             )
             return equal if op == "eq" else ~equal
         return Q(**{f"{col.path}__{op}": converted})
+
+    def graph(self, col: Column, op: str, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """``upstream`` and ``downstream`` (ADR 0123): what an entity was derived from, or
+        what was derived from it, as far as the searcher can read."""
+        from iki_server.graph import queries
+
+        self.graphs += 1
+        if self.graphs > MAX_GRAPH_CONDITIONS:
+            return self.fail(
+                at.removesuffix("/value"),
+                f"is one condition across the graph too many: at most {MAX_GRAPH_CONDITIONS}.",
+            )
+        if op == "is_set":
+            if not isinstance(value, bool):
+                return self.fail(at, "must be true or false.")
+            return queries.condition(self.user, col.name, None, is_set=value)
+        given = value if isinstance(value, Mapping) else {"entity": value}
+        extra = sorted(set(given) - {"entity", "depth", "edges"})
+        if extra:
+            return self.fail(f"{at}/{extra[0]}", "isn't one: give `entity`, `depth` and `edges`.")
+        depth = given.get("depth", queries.DEFAULT_DEPTH)
+        if isinstance(depth, bool) or not isinstance(depth, int):
+            return self.fail(f"{at}/depth", "must be a whole number.")
+        if not 1 <= depth <= queries.MAX_DEPTH:
+            return self.fail(f"{at}/depth", f"must be from 1 to {queries.MAX_DEPTH}.")
+        edges = given.get("edges")
+        if edges is not None and (
+            not isinstance(edges, list)
+            or not edges
+            or any(not isinstance(e, str) or e not in queries.KINDS for e in edges)
+        ):
+            return self.fail(f"{at}/edges", f"must be a list of {_either(queries.KINDS)}.")
+        root = self.root(given.get("entity"), f"{at}/entity" if given is value else at)
+        if root is None:
+            return Q()
+        wanted = queries.Query(root, col.name, depth, queries.kinds_of(edges))
+        return queries.condition(self.user, col.name, wanted)
+
+    def root(self, value: Any, at: str) -> uuid.UUID | None:  # noqa: ANN401 - JSON
+        """Where a walk starts: a record by its ID, or what an HRID names. An identity's
+        HRID is its registry entry, whose records the walk reaches first (ADR 0115)."""
+        if not isinstance(value, str) or not value.strip():
+            self.fail(at, "must be an entity's ID or HRID.")
+            return None
+        records = access.visible(self.user)
+        entries = access.visible_entries(self.user)
+        try:
+            key = uuid.UUID(value)
+        except ValueError:
+            hrid = value.strip().upper()
+            found = entries.filter(hrid=hrid).values_list("pk", flat=True).first()
+            if found is None:
+                found = (
+                    records.filter(hrid=hrid, entry__isnull=True)
+                    .values_list("pk", flat=True)
+                    .first()
+                )
+        else:
+            found = records.filter(pk=key).values_list("pk", flat=True).first()
+            if found is None:
+                found = entries.filter(pk=key).values_list("pk", flat=True).first()
+        if found is None:
+            self.fail(at, "refers to no entity you can read.")
+        return found
 
     def assignment(self, col: Column, op: str, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
         """``assigned`` and ``needs_reassigning`` (ADR 0122)."""

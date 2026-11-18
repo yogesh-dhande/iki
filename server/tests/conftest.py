@@ -252,18 +252,24 @@ def django_db_setup(
 
 def synced_objects() -> dict[str, list[str]]:
     """What ``sync_plugins`` made beyond migrations that a migration can take away: unique
-    fields' triggers (ADR 0082), locked records' guards (ADR 0125) and analysts' views."""
+    fields' triggers (ADR 0082), locked records' guards (ADR 0125), references' edges'
+    triggers (ADR 0123) and analysts' views."""
     from django.db import connection
 
     from iki_server.entities import states, unique
+    from iki_server.graph import edges
     from iki_server.plugins import sync
 
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT c.relname || ' ' || t.tgname FROM pg_trigger t "
             "JOIN pg_class c ON c.oid = t.tgrelid "
-            "WHERE NOT t.tgisinternal AND (t.tgname LIKE %s OR t.tgname LIKE %s) ORDER BY 1",
-            [p.replace("_", r"\_") + "%" for p in (unique.TRIGGER_PREFIX, states.TRIGGER_PREFIX)],
+            "WHERE NOT t.tgisinternal AND (t.tgname LIKE %s OR t.tgname LIKE %s "
+            "OR t.tgname LIKE %s) ORDER BY 1",
+            [
+                p.replace("_", r"\_") + "%"
+                for p in (unique.TRIGGER_PREFIX, states.TRIGGER_PREFIX, edges.TRIGGER_PREFIX)
+            ],
         )
         triggers = [row[0] for row in cursor.fetchall()]
         cursor.execute(

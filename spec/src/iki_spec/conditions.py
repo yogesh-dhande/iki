@@ -47,6 +47,8 @@ OPERATORS: Mapping[str, tuple[str, ...]] = {
     "type": EQUALITY,
     # How it was made (ADR 0106): one of its makings has every key the value gives.
     "making": ("has",),
+    # Across the graph (ADR 0123): upstream or downstream `of` an entity.
+    "graph": ("of",),
 }
 ALL_OPERATORS = ("is_set", *dict.fromkeys(op for ops in OPERATORS.values() for op in ops))
 
@@ -69,4 +71,8 @@ BUILT_IN: Mapping[str, str] = {
     # Whether one of its assignment fields that counts in its state names someone who can't
     # be named there any more: deactivated, gone from the project, or without its lab role.
     "needs_reassigning": "bool",
+    # What it was derived from, and what was derived from it (ADR 0123): `of` an entity,
+    # by its ID or HRID, or `{"entity": …, "depth": …, "edges": […]}`.
+    "upstream": "graph",
+    "downstream": "graph",
 }

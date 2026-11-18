@@ -1,30 +1,62 @@
 /**
- * An entity's lineage: what runs made it from, what that was made from, and
- * what was made from it, as a graph or, read in order, as a list of steps.
+ * An entity's lineage (ADR 0123): what it was derived from (upstream) and what was derived
+ * from it (downstream), through references, runs and files. As a tree that reads as the
+ * walk went, a list that says why each is there and downloads as CSV (the impact list), or
+ * a graph of a few steps each way.
  */
 
-import { useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "@tanstack/react-router";
-import { useId, useMemo, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import {
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { problemOf } from "../api";
 import { apiRef, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
   connected,
-  GENERATIONS,
+  DEFAULT_DEPTH,
+  EDGE_KINDS,
+  GRAPH_STEPS,
   layout,
-  lineageQuery,
-  MAX_GENERATIONS,
+  lineageCsvUrl,
+  lineageGraphQuery,
+  lineageWalkQuery,
+  MAX_DEPTH,
+  MAX_GRAPH_STEPS,
   NODE_HEIGHT,
   NODE_WIDTH,
+  stepWords,
+  walkTree,
+  type Direction,
+  type EdgeKind,
   type Layout,
   type LineageEntity,
   type LineageGraph,
   type LineageRun,
+  type LineageSearch,
+  type TreeNode,
+  type Walk,
+  type WalkEntity,
+  type WalkFilter,
+  type WalkItem,
 } from "../lineage";
 import { actionsQuery } from "../runs";
-import { buttonClass, Loading, ProblemAlert } from "../ui";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  CheckboxesField,
+  Loading,
+  ProblemAlert,
+  SelectField,
+} from "../ui";
 import { EntityTabs, useEntity } from "./entity";
 
 /** How the page names things: types and actions by their labels. */
@@ -34,75 +66,561 @@ interface Names {
   action: (name: string) => string;
 }
 
+const ROUTE = "/entities/$ref/lineage/";
+
 export function EntityLineage() {
   const { entity, type, types } = useEntity();
   usePageTitle(`Lineage of ${entity.title} (${entity.hrid})`);
   const search = useSearch({ from: "/entities/$ref/lineage" });
-  const up = search.up ?? GENERATIONS;
-  const down = search.down ?? GENERATIONS;
-  const graph = useQuery(lineageQuery(apiRef(entity), up, down));
   const actions = useQuery(actionsQuery).data;
   const names: Names = {
     root: entity.id,
     type: (name) => types.find((t: EntityType) => t.name === name)?.label ?? name,
     action: (name) => actions?.find((a) => a.name === name)?.label ?? name,
   };
-  const data = graph.data;
-  const further = (by: "up" | "down") => ({
-    ...search,
-    [by]: Math.min(MAX_GENERATIONS, (by === "up" ? up : down) + GENERATIONS),
-  });
+  const direction: Direction = search.direction ?? "upstream";
+  const view = search.view ?? "tree";
+  const at = (change: Partial<LineageSearch>): LineageSearch => ({ ...search, ...change });
   return (
     <>
       <EntityTabs entity={entity} type={type} />
       <p className="muted">
-        What runs made it from, and what they made from it, earliest first. Entities made or changed
-        by hand have no lineage.
+        What {entity.title} was derived from, and what was derived from it: through what its fields
+        name, the runs that made things from it, and the files they read. Only what you can read is
+        here.
       </p>
-      {graph.error ? <ProblemAlert problem={problemOf(graph.error)} /> : null}
-      {graph.isPending ? <Loading label="Loading the lineage…" /> : null}
-      {data && !data.links.length ? (
-        <p className="empty">
-          No lineage you can see: no run made {entity.title}, and nothing you can read has been made
-          from it.
-        </p>
+      <div className="toolbar">
+        {view === "graph" ? null : (
+          <nav className="segmented" aria-label="Which way">
+            <Link
+              to={ROUTE}
+              params={{ ref: entity.hrid }}
+              search={at({ direction: undefined })}
+              aria-current={direction === "upstream" ? "page" : undefined}
+            >
+              Derived from
+            </Link>
+            <Link
+              to={ROUTE}
+              params={{ ref: entity.hrid }}
+              search={at({ direction: "downstream" })}
+              aria-current={direction === "downstream" ? "page" : undefined}
+            >
+              Used by
+            </Link>
+          </nav>
+        )}
+        <nav className="segmented" aria-label="Show lineage as">
+          {(
+            [
+              ["tree", "Tree"],
+              ["list", "List"],
+              ["graph", "Graph"],
+            ] as const
+          ).map(([value, label]) => (
+            <Link
+              key={value}
+              to={ROUTE}
+              params={{ ref: entity.hrid }}
+              search={at({ view: value === "tree" ? undefined : value })}
+              aria-current={view === value ? "page" : undefined}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </div>
+      {view === "graph" ? (
+        <GraphView entityRef={apiRef(entity)} hrid={entity.hrid} names={names} search={search} />
+      ) : (
+        <WalkView
+          entityRef={apiRef(entity)}
+          title={entity.title}
+          hrid={entity.hrid}
+          direction={direction}
+          view={view}
+          names={names}
+          types={types}
+          search={search}
+        />
+      )}
+    </>
+  );
+}
+
+// --- Tree and list -----------------------------------------------------------------------------
+
+function WalkView({
+  entityRef,
+  title,
+  hrid,
+  direction,
+  view,
+  names,
+  types,
+  search,
+}: {
+  entityRef: string;
+  title: string;
+  hrid: string;
+  direction: Direction;
+  view: "tree" | "list";
+  names: Names;
+  types: EntityType[];
+  search: LineageSearch;
+}) {
+  const navigate = useNavigate();
+  const filter: WalkFilter = {
+    depth: search.depth ?? DEFAULT_DEPTH,
+    edges: search.edges ?? [],
+    type: search.type ?? "",
+  };
+  const walk = useInfiniteQuery(lineageWalkQuery(entityRef, direction, filter));
+  const pages = walk.data?.pages ?? [];
+  const items = pages.flatMap((p) => p.items);
+  const first = pages[0];
+  const set = (change: Partial<LineageSearch>) => {
+    void navigate({ to: ROUTE, params: { ref: hrid }, search: { ...search, ...change } });
+  };
+  const narrowed = filter.edges.length > 0 || filter.type !== "";
+  return (
+    <>
+      <form
+        className="toolbar"
+        aria-label="Narrow the lineage"
+        onSubmit={(event) => {
+          event.preventDefault();
+        }}
+      >
+        <SelectField
+          label="How far"
+          value={String(filter.depth)}
+          onChange={(v) => {
+            set({ depth: Number(v) === DEFAULT_DEPTH ? undefined : Number(v) });
+          }}
+          options={Array.from({ length: MAX_DEPTH }, (_, i) => i + 1).map((n) => ({
+            value: String(n),
+            label: n === 1 ? "1 step" : `${String(n)} steps`,
+          }))}
+        />
+        <SelectField
+          label="Show"
+          value={filter.type}
+          onChange={(v) => {
+            set({ type: v || undefined });
+          }}
+          options={[
+            { value: "", label: "Every type" },
+            ...types
+              .filter((t) => t.name !== "iki/core.Entity")
+              .map((t) => ({ value: t.name, label: t.label })),
+          ]}
+        />
+        <CheckboxesField<EdgeKind>
+          label="Through"
+          value={filter.edges.length ? filter.edges : EDGE_KINDS.map((k) => k.value)}
+          onChange={(v) => {
+            set({ edges: v.length && v.length < EDGE_KINDS.length ? v : undefined });
+          }}
+          options={EDGE_KINDS}
+        />
+      </form>
+      {walk.error ? <ProblemAlert problem={problemOf(walk.error)} /> : null}
+      {walk.isPending ? <Loading label="Loading the lineage…" /> : null}
+      {first ? (
+        <Summary walk={first} title={title} direction={direction} narrowed={narrowed} />
       ) : null}
-      {data?.links.length ? (
+      {first && items.length ? (
         <>
           <div className="toolbar">
-            <nav className="segmented" aria-label="Show lineage as">
-              <Link
-                to="/entities/$ref/lineage/"
-                params={{ ref: entity.hrid }}
-                search={{ ...search, view: undefined }}
-                aria-current={search.view ? undefined : "page"}
+            <a
+              className={buttonClass()}
+              href={lineageCsvUrl(entityRef, direction, filter)}
+              download={`${hrid}-${direction}.csv`}
+            >
+              Download all as CSV
+            </a>
+          </div>
+          {view === "list" ? (
+            <List items={items} root={first.root.hrid} direction={direction} names={names} />
+          ) : (
+            <Tree
+              items={items}
+              root={first.root.hrid}
+              direction={direction}
+              names={names}
+              label={summaryLabel(first)}
+            />
+          )}
+          {walk.hasNextPage ? (
+            <div className="actions">
+              <Button
+                busy={walk.isFetchingNextPage}
+                busyText="Loading…"
+                onClick={() => void walk.fetchNextPage()}
               >
-                Graph
-              </Link>
-              <Link
-                to="/entities/$ref/lineage/"
-                params={{ ref: entity.hrid }}
-                search={{ ...search, view: "list" }}
-                aria-current={search.view ? "page" : undefined}
+                Show more
+              </Button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function summaryLabel(walk: Walk): string {
+  return walk.direction === "upstream" ? "What it was derived from" : "What was derived from it";
+}
+
+/** How many, how far, and what isn't shown. */
+function Summary({
+  walk,
+  title,
+  direction,
+  narrowed,
+}: {
+  walk: Walk;
+  title: string;
+  direction: Direction;
+  narrowed: boolean;
+}) {
+  const n = walk.total;
+  const many = `${n.toLocaleString()} ${n === 1 ? "entity" : "entities"}`;
+  const steps = `${String(walk.depth)} ${walk.depth === 1 ? "step" : "steps"}`;
+  const notes: ReactNode[] = [];
+  if (walk.hidden) {
+    notes.push(
+      `${walk.hidden.toLocaleString()} ${walk.hidden === 1 ? "trail leads" : "trails lead"} to entities you can’t read, so it stops there. Someone who can read them can follow them on.`,
+    );
+  }
+  if (walk.beyond) {
+    notes.push(
+      walk.depth < MAX_DEPTH
+        ? `There’s more past ${steps}: choose how far to go further.`
+        : `It goes on past ${steps}. Open the furthest to follow it from there.`,
+    );
+  }
+  return (
+    <>
+      <p role="status">
+        {n === 0
+          ? direction === "upstream"
+            ? `Nothing you can read that ${title} was derived from${narrowed ? " matches" : ""}, within ${steps}.`
+            : `Nothing you can read was derived from ${title}${narrowed ? " that matches" : ""}, within ${steps}.`
+          : direction === "upstream"
+            ? `${title} was derived from ${many} you can read, within ${steps}. Nearest first.`
+            : `${many} you can read ${n === 1 ? "was" : "were"} derived from ${title}, within ${steps}. Nearest first.`}
+      </p>
+      {notes.length ? (
+        <div className="alert alert-warning" role="note">
+          {notes.map((note, i) => (
+            <p key={i}>{note}</p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function EntityName({ entity, names }: { entity: WalkEntity; names: Names }) {
+  const meta = [
+    entity.title === entity.hrid ? null : entity.hrid,
+    names.type(entity.type),
+    entity.project?.name ?? null,
+  ].filter(Boolean);
+  return (
+    <>
+      <span className="lineage-title">{entity.title}</span>{" "}
+      <span className="lineage-meta">{meta.join(" · ")}</span>
+      {entity.archived ? (
+        <>
+          {" "}
+          <Badge muted>Archived</Badge>
+        </>
+      ) : null}
+      {entity.purged ? (
+        <>
+          {" "}
+          <Badge muted>Purged</Badge>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** Why it's there: each step from the entity, in words. */
+function Why({ item, root, direction }: { item: WalkItem; root: string; direction: Direction }) {
+  return (
+    <ol className="lineage-path">
+      {item.path.map((step, i) => (
+        <li key={`${String(i)}-${step.entity.id}`}>
+          {stepWords(step, item.path[i - 1]?.entity.hrid ?? root, direction)}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The impact list: everything, nearest first, with why. */
+function List({
+  items,
+  root,
+  direction,
+  names,
+}: {
+  items: WalkItem[];
+  root: string;
+  direction: Direction;
+  names: Names;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="table">
+        <caption className="visually-hidden">
+          {direction === "upstream" ? "What it was derived from" : "What was derived from it"},
+          nearest first
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Entity</th>
+            <th scope="col">Steps away</th>
+            <th scope="col">Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.entity.id}>
+              <th scope="row">
+                <Link to="/entities/$ref/" params={{ ref: item.entity.hrid }}>
+                  <EntityName entity={item.entity} names={names} />
+                </Link>
+              </th>
+              <td>{item.depth}</td>
+              <td>
+                <Why item={item} root={root} direction={direction} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface Shown {
+  node: TreeNode;
+  level: number;
+  parent: string | null;
+  setSize: number;
+  position: number;
+}
+
+/**
+ * The walk as a tree (the WAI-ARIA tree pattern): each entity under the one it was reached
+ * from. Up and Down move, Right opens or goes in, Left closes or goes out, Home and End go
+ * to the first and last, and Enter opens the entity.
+ */
+function Tree({
+  items,
+  root,
+  direction,
+  names,
+  label,
+}: {
+  items: WalkItem[];
+  root: string;
+  direction: Direction;
+  names: Names;
+  label: string;
+}) {
+  const navigate = useNavigate();
+  const roots = useMemo(() => walkTree(items), [items]);
+  // The first two levels start open; the rest open as people go.
+  const [open, setOpen] = useState<Set<string>>(
+    () => new Set(roots.filter((n) => n.children.length).map((n) => n.item.entity.id)),
+  );
+  const [focused, setFocused] = useState<string | null>(null);
+  const refs = useRef(new Map<string, HTMLAnchorElement>());
+
+  const shown: Shown[] = [];
+  const visit = (nodes: TreeNode[], level: number, parent: string | null) => {
+    nodes.forEach((node, i) => {
+      shown.push({ node, level, parent, setSize: nodes.length, position: i + 1 });
+      if (open.has(node.item.entity.id)) visit(node.children, level + 1, node.item.entity.id);
+    });
+  };
+  visit(roots, 1, null);
+  const current = shown.find((s) => s.node.item.entity.id === focused) ?? shown[0];
+
+  const move = (id: string | undefined) => {
+    if (!id) return;
+    setFocused(id);
+    refs.current.get(id)?.focus();
+  };
+  const toggle = (id: string, to?: boolean) => {
+    setOpen((was) => {
+      const next = new Set(was);
+      if (to ?? !next.has(id)) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const onKey = (event: ReactKeyboardEvent, s: Shown) => {
+    const id = s.node.item.entity.id;
+    const at = shown.indexOf(s);
+    const has = s.node.children.length > 0;
+    switch (event.key) {
+      case "ArrowDown":
+        move(shown[at + 1]?.node.item.entity.id);
+        break;
+      case "ArrowUp":
+        move(shown[at - 1]?.node.item.entity.id);
+        break;
+      case "ArrowRight":
+        if (has && !open.has(id)) toggle(id, true);
+        else if (has) move(s.node.children[0]?.item.entity.id);
+        break;
+      case "ArrowLeft":
+        if (has && open.has(id)) toggle(id, false);
+        else move(s.parent ?? undefined);
+        break;
+      case "Home":
+        move(shown[0]?.node.item.entity.id);
+        break;
+      case "End":
+        move(shown.at(-1)?.node.item.entity.id);
+        break;
+      case "Enter":
+        void navigate({ to: "/entities/$ref/", params: { ref: s.node.item.entity.hrid } });
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
+
+  const render = (nodes: TreeNode[], level: number): ReactNode =>
+    nodes.map((node) => {
+      const id = node.item.entity.id;
+      const s = shown.find((x) => x.node === node);
+      if (!s) return null;
+      const has = node.children.length > 0;
+      const expanded = has ? open.has(id) : undefined;
+      return (
+        <li role="none" key={id}>
+          <div className="lineage-tree-row">
+            {has ? (
+              // The keyboard opens and closes it on the item itself (Right and Left); this
+              // is the pointer's way to.
+              <span
+                className="lineage-tree-toggle"
+                aria-hidden="true"
+                onClick={() => {
+                  toggle(id);
+                }}
               >
-                List
-              </Link>
-            </nav>
+                {expanded ? "▾" : "▸"}
+              </span>
+            ) : (
+              <span className="lineage-tree-toggle" aria-hidden="true" />
+            )}
+            <Link
+              to="/entities/$ref/"
+              params={{ ref: node.item.entity.hrid }}
+              role="treeitem"
+              aria-level={level}
+              aria-setsize={s.setSize}
+              aria-posinset={s.position}
+              aria-expanded={expanded}
+              tabIndex={current === s ? 0 : -1}
+              ref={(el: HTMLAnchorElement | null) => {
+                if (el) refs.current.set(id, el);
+                else refs.current.delete(id);
+              }}
+              onFocus={() => {
+                setFocused(id);
+              }}
+              onKeyDown={(event: ReactKeyboardEvent) => {
+                onKey(event, s);
+              }}
+              className="lineage-tree-item"
+            >
+              <EntityName entity={node.item.entity} names={names} />
+              {node.step ? (
+                <span className="lineage-why">
+                  {stepWords(node.step, node.item.path.at(-2)?.entity.hrid ?? root, direction)}
+                </span>
+              ) : null}
+            </Link>
+          </div>
+          {has && expanded ? (
+            <ul role="group" className="lineage-tree-group">
+              {render(node.children, level + 1)}
+            </ul>
+          ) : null}
+        </li>
+      );
+    });
+
+  return (
+    // The WAI-ARIA navigation tree: a list whose items are links, as treeitems.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- the APG pattern
+    <ul role="tree" aria-label={label} className="lineage-tree">
+      {render(roots, 1)}
+    </ul>
+  );
+}
+
+// --- Graph -------------------------------------------------------------------------------------
+
+function GraphView({
+  entityRef,
+  hrid,
+  names,
+  search,
+}: {
+  entityRef: string;
+  hrid: string;
+  names: Names;
+  search: LineageSearch;
+}) {
+  const up = search.up ?? GRAPH_STEPS;
+  const down = search.down ?? GRAPH_STEPS;
+  const graph = useQuery(lineageGraphQuery(entityRef, up, down, search.edges ?? []));
+  const data = graph.data;
+  const further = (by: "up" | "down") => ({
+    ...search,
+    [by]: Math.min(MAX_GRAPH_STEPS, (by === "up" ? up : down) + GRAPH_STEPS),
+  });
+  return (
+    <>
+      {graph.error ? <ProblemAlert problem={problemOf(graph.error)} /> : null}
+      {graph.isPending ? <Loading label="Loading the lineage…" /> : null}
+      {data && !data.edges.length ? (
+        <p className="empty">
+          No lineage you can see: it wasn’t derived from anything you can read, and nothing you can
+          read was derived from it.
+        </p>
+      ) : null}
+      {data?.edges.length ? (
+        <>
+          <div className="toolbar">
             <div className="toolbar-end lineage-more">
-              {data.earlier && up < MAX_GENERATIONS ? (
+              {data.earlier && up < MAX_GRAPH_STEPS ? (
                 <Link
-                  to="/entities/$ref/lineage/"
-                  params={{ ref: entity.hrid }}
+                  to={ROUTE}
+                  params={{ ref: hrid }}
                   search={further("up")}
                   className={buttonClass()}
                 >
                   Show earlier
                 </Link>
               ) : null}
-              {data.later && down < MAX_GENERATIONS ? (
+              {data.later && down < MAX_GRAPH_STEPS ? (
                 <Link
-                  to="/entities/$ref/lineage/"
-                  params={{ ref: entity.hrid }}
+                  to={ROUTE}
+                  params={{ ref: hrid }}
                   search={further("down")}
                   className={buttonClass()}
                 >
@@ -112,11 +630,7 @@ export function EntityLineage() {
             </div>
           </div>
           <Notes graph={data} up={up} down={down} />
-          {search.view === "list" ? (
-            <Steps graph={data} names={names} />
-          ) : (
-            <Graph graph={data} names={names} />
-          )}
+          <Graph graph={data} names={names} />
         </>
       ) : null}
     </>
@@ -128,12 +642,17 @@ function Notes({ graph, up, down }: { graph: LineageGraph; up: number; down: num
   const notes = [];
   if (graph.capped) {
     notes.push(
-      "There’s more than fits on one page, so some is left out. Open an entity in it to follow its lineage from there.",
+      "There’s more than fits in one picture, so some is left out. The tree and the list have all of it.",
     );
   }
-  if ((graph.earlier && up >= MAX_GENERATIONS) || (graph.later && down >= MAX_GENERATIONS)) {
+  if ((graph.earlier && up >= MAX_GRAPH_STEPS) || (graph.later && down >= MAX_GRAPH_STEPS)) {
     notes.push(
-      `It goes further than ${String(MAX_GENERATIONS)} generations. Open the furthest entity to follow it on.`,
+      `It goes further than ${String(MAX_GRAPH_STEPS)} steps. The tree and the list go further, or open the furthest entity to follow it on.`,
+    );
+  }
+  if (graph.hidden) {
+    notes.push(
+      `${String(graph.hidden)} ${graph.hidden === 1 ? "trail leads" : "trails lead"} to entities you can’t read, so they aren’t drawn.`,
     );
   }
   return notes.length ? (
@@ -148,7 +667,7 @@ function Notes({ graph, up, down }: { graph: LineageGraph; up: number; down: num
 function EntityLabel({ entity, names }: { entity: LineageEntity; names: Names }) {
   const meta = [
     entity.title === entity.hrid ? null : entity.hrid,
-    names.type(entity.type),
+    entity.entry ? "Registry entry" : names.type(entity.type),
     entity.archived ? "Archived" : null,
   ].filter(Boolean);
   return (
@@ -171,13 +690,23 @@ function EntityNode({
   names: Names;
   className?: string;
 } & Pointing) {
-  const classes = `lineage-node lineage-entity ${className ?? ""}`;
+  const classes = `lineage-node lineage-entity ${entity.entry ? "is-entry" : ""} ${className ?? ""}`;
   return entity.id === names.root ? (
     <div className={`${classes} is-root`} {...point}>
       <EntityLabel entity={entity} names={names} />
     </div>
+  ) : entity.entry ? (
+    <Link to="/entries/$ref/" params={{ ref: entity.hrid }} className={classes} {...point}>
+      <EntityLabel entity={entity} names={names} />
+    </Link>
   ) : (
-    <Link to="/entities/$ref/lineage/" params={{ ref: entity.hrid }} className={classes} {...point}>
+    <Link
+      to={ROUTE}
+      params={{ ref: entity.hrid }}
+      search={{ view: "graph" }}
+      className={classes}
+      {...point}
+    >
       <EntityLabel entity={entity} names={names} />
     </Link>
   );
@@ -214,7 +743,8 @@ interface Pointing {
   onBlur?: () => void;
 }
 
-/** The graph: columns of entities and runs, with lines from each to what came of it. */
+/** The graph: what something depends on left of it, with runs between what they read and
+ * what they made. */
 function Graph({ graph, names }: { graph: LineageGraph; names: Names }) {
   const shape: Layout = useMemo(() => layout(graph), [graph]);
   const [lit, setLit] = useState<string | null>(null);
@@ -240,8 +770,9 @@ function Graph({ graph, names }: { graph: LineageGraph; names: Names }) {
     <figure className="lineage">
       <figcaption className="muted" id={caption}>
         {graph.entities.length} {graph.entities.length === 1 ? "entity" : "entities"} and{" "}
-        {graph.runs.length} {graph.runs.length === 1 ? "run" : "runs"}, earliest on the left. Point
-        at one to see where it came from and what came of it.
+        {graph.runs.length} {graph.runs.length === 1 ? "run" : "runs"}, what each depends on to its
+        left. Point at one to see where it came from and what came of it. The tree and the list say
+        the same in order.
       </figcaption>
       {/* A scrolling region people reach with Tab, so the keyboard scrolls it. */}
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region */}
@@ -307,74 +838,5 @@ function Graph({ graph, names }: { graph: LineageGraph; names: Names }) {
         </div>
       </div>
     </figure>
-  );
-}
-
-/** The same, as steps in order: each run, what it was given and what it made. */
-function Steps({ graph, names }: { graph: LineageGraph; names: Names }) {
-  const shape = useMemo(() => layout(graph), [graph]);
-  const entities = new Map(graph.entities.map((e) => [e.id, e]));
-  const steps = shape.nodes.flatMap((n) => (n.kind === "run" ? [n.run] : []));
-  const entity = (id: string) => {
-    const found = entities.get(id);
-    return found ? (
-      found.id === names.root ? (
-        <strong>
-          <EntityLabel entity={found} names={names} />
-        </strong>
-      ) : (
-        <Link to="/entities/$ref/lineage/" params={{ ref: found.hrid }} search={{ view: "list" }}>
-          <EntityLabel entity={found} names={names} />
-        </Link>
-      )
-    ) : null;
-  };
-  return (
-    <ol className="lineage-steps">
-      {steps.map((run) => {
-        const links = graph.links.filter((l) => l.run === run.key);
-        const given = [...new Map(links.map((l) => [l.parent, l])).values()];
-        const made = [...new Set(links.map((l) => l.entity))];
-        return (
-          <li key={run.key} className="card">
-            <h2 className="section-title">
-              {run.run ? (
-                <>
-                  <Link to="/runs/$ref/" params={{ ref: run.run.hrid }}>
-                    {run.run.hrid}
-                  </Link>{" "}
-                  · {names.action(run.run.action)}
-                </>
-              ) : (
-                "A run you can’t see, in a project you can’t read"
-              )}
-            </h2>
-            <dl className="lineage-step">
-              <dt>Given</dt>
-              <dd>
-                <ul>
-                  {given.map((l) => (
-                    <li key={l.parent}>
-                      {entity(l.parent)}{" "}
-                      <span className="muted">
-                        as {l.input}, at revision {l.revision}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </dd>
-              <dt>Made</dt>
-              <dd>
-                <ul>
-                  {made.map((id) => (
-                    <li key={id}>{entity(id)}</li>
-                  ))}
-                </ul>
-              </dd>
-            </dl>
-          </li>
-        );
-      })}
-    </ol>
   );
 }

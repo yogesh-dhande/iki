@@ -39,6 +39,8 @@ class Command(BaseCommand):
             self.stdout.write(f"  HRID sequence {name}")
         for key in report.unique:
             self.stdout.write(f"  unique {key}")
+        for table in report.graph:
+            self.stdout.write(f"  references of {table}")
         for change in report.plugins:
             self.stdout.write(f"  plugin {change}")
         for name in report.views:

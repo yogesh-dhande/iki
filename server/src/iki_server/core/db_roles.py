@@ -20,8 +20,14 @@ from django.db import connection
 from django.db.backends.utils import CursorWrapper
 from psycopg import sql
 
-#: Tables the app may only read, whatever is installed.
-READ_ONLY_TABLES = ("django_migrations", "iki_plugin_migration", "iki_plugin_state")
+#: Tables the app may only read, whatever is installed. The graph's edges are written only
+#: by their triggers, which are the migrator's (ADR 0123).
+READ_ONLY_TABLES = (
+    "django_migrations",
+    "iki_graph_edge",
+    "iki_plugin_migration",
+    "iki_plugin_state",
+)
 
 
 def read_only_tables() -> list[str]:

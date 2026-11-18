@@ -745,3 +745,83 @@ def test_a_projects_costs_by_its_slug(fake: FakeIki, client: Client) -> None:
 def test_budgets_say_what_has_been_spent(fake: FakeIki, client: Client) -> None:
     fake.on("GET", "/api/v1/compute/budgets", [{"id": "b1", "amount": 50.0, "spent": 40.25}])
     assert client.costs.budgets()[0]["spent"] == 40.25
+
+
+# --- Across the graph --------------------------------------------------------------------------
+
+
+def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, Any]:
+    items = [
+        {
+            "entity": {
+                "id": entity(h)["id"],
+                "hrid": h,
+                "title": h,
+                "type": "iki/example_lims.Aliquot",
+                "archived": False,
+                "entry": None,
+                "project": {"id": "p", "name": "Kinase Atlas", "slug": "k"},
+            },
+            "depth": 1,
+            "path": [
+                {
+                    "kind": "reference",
+                    "field": "donor",
+                    "run": None,
+                    "hidden_run": False,
+                    "file": None,
+                    "revision": None,
+                    "entity": entity(h),
+                }
+            ],
+        }
+        for h in hrids
+    ]
+    return {
+        "root": entity("DNR-000001"),
+        "direction": "downstream",
+        "depth": 10,
+        "items": items,
+        "next_cursor": cursor,
+        "total": 3,
+        "hidden": 0,
+        "beyond": False,
+        **extra,
+    }
+
+
+def test_downstream_walks_a_page_at_a_time_and_sums_up(fake: FakeIki, client: Client) -> None:
+    path = "/api/v1/entities/DNR-000001/downstream"
+    fake.on(
+        "GET",
+        path,
+        _walk_page(["SAM-000001", "SAM-000002"], "next"),
+        _walk_page(["SAM-000003"], None),
+    )
+    found = client.entities.downstream("DNR-000001", type="iki/example_lims.Sample", depth=4)
+    assert [i["entity"]["hrid"] for i in found] == ["SAM-000001", "SAM-000002", "SAM-000003"]
+    first, second = fake.sent("GET", path)
+    assert first.url.params.get_list("type") == ["iki/example_lims.Sample"]
+    assert (first.url.params["depth"], first.url.params["limit"]) == ("4", "100")
+    assert second.url.params["cursor"] == "next"
+    assert found.summary()["total"] == 3
+
+
+def test_upstream_as_a_frame_and_as_csv(fake: FakeIki, client: Client) -> None:
+    fake.on("GET", "/api/v1/entities/RES-000004/upstream", _walk_page(["ALQ-000001"], None))
+    frame = client.entities.upstream("RES-000004", edges=["reference"]).to_pandas()
+    assert list(frame.index) == ["ALQ-000001"]
+    assert frame.loc["ALQ-000001", "path"] == "donor ALQ-000001"
+    assert frame.loc["ALQ-000001", "project"] == "Kinase Atlas"
+    (sent,) = fake.sent("GET", "/api/v1/entities/RES-000004/upstream")
+    assert sent.url.params.get_list("edges") == ["reference"]
+    fake.on(
+        "GET",
+        "/api/v1/entities/DNR-000001/downstream.csv",
+        httpx2.Response(
+            200, text="hrid,depth\r\nSAM-000001,1\r\n", headers={"Content-Type": "text/csv"}
+        ),
+    )
+    assert client.entities.downstream_csv("DNR-000001", depth=2) == [
+        {"hrid": "SAM-000001", "depth": "1"}
+    ]

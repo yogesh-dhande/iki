@@ -24,6 +24,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import registry, services
 from iki_server.entities.models import Entity, ProjectLink, Revision, Tombstone
 from iki_server.entities.values import shape, to_json
+from iki_server.graph.models import Edge
 from iki_server.org import holds, permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -88,7 +89,8 @@ def _references(plugin: str, found: QuerySet[Entity, Any]) -> list[dict[str, Any
         field = relation.field
         if (
             getattr(field.remote_field, "parent_link", False)
-            or model in (ProjectLink, Revision)
+            # The graph's edges (ADR 0123) are kept from the rows counted here.
+            or model in (ProjectLink, Revision, Edge)
             or model._meta.app_label == plugin
             # A record's entry, and the entry that superseded another, are the plugin's own.
             or (model is Entity and field.name in ("entry", "superseded_by"))

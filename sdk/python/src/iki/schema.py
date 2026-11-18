@@ -530,7 +530,7 @@ Condition = TypedDict(
         'any': 'NotRequired[list[Condition] | None]',
         'field': 'NotRequired[str | None]',
         'not': 'NotRequired[Condition | None]',
-        'op': "NotRequired[Literal['is_set', 'eq', 'ne', 'in', 'lt', 'lte', 'gt', 'gte', 'contains', 'starts_with', 'matches', 'has'] | None]",
+        'op': "NotRequired[Literal['is_set', 'eq', 'ne', 'in', 'lt', 'lte', 'gt', 'gte', 'contains', 'starts_with', 'matches', 'has', 'of'] | None]",
         'value': 'NotRequired[Any]',
     },
 )
@@ -1167,6 +1167,90 @@ class FreezeIn(TypedDict):
     reason: NotRequired[str]
 
 
+class GraphEdgeOut(TypedDict):
+    field: str
+    file: WalkFileOut | None
+    kind: Literal['reference', 'run', 'file', 'record']
+    #: What depends.
+    node: str
+    #: What it depends on.
+    on: str
+    #: For a run's input: its revision the run read.
+    revision: int | None
+    #: The run's key, in runs.
+    run: str | None
+
+
+class GraphEntityOut(TypedDict):
+    archived: bool
+    #: It's a registry entry (ADR 0115): the identity its records are of.
+    entry: NotRequired[bool]
+    #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+    formerly: NotRequired[list[str]]
+    hrid: str
+    id: str
+    #: The project it belongs to, if you see it.
+    project: NotRequired[ProjectRef | None]
+    #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+    purged: bool
+    #: What it's called: its type's display title, or its HRID.
+    title: str
+    type: str
+
+
+class GraphNodeOut(TypedDict):
+    archived: bool
+    #: Steps from the root: negative upstream, positive downstream.
+    at: int
+    #: It's a registry entry (ADR 0115): the identity its records are of.
+    entry: NotRequired[bool]
+    #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+    formerly: NotRequired[list[str]]
+    hrid: str
+    id: str
+    #: The project it belongs to, if you see it.
+    project: NotRequired[ProjectRef | None]
+    #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+    purged: bool
+    #: What it's called: its type's display title, or its HRID.
+    title: str
+    type: str
+
+
+class GraphOut(TypedDict):
+    #: It stopped at 200 entities or 500 edges, so some within the steps asked for are left out.
+    capped: bool
+    #: There's more upstream than was asked for.
+    earlier: bool
+    edges: list[GraphEdgeOut]
+    #: What's in it that you can read.
+    entities: list[GraphNodeOut]
+    #: Upstream edges into entities you can't read.
+    hidden: int
+    #: There's more downstream than was asked for.
+    later: bool
+    root: str
+    runs: list[GraphRunOut]
+
+
+class GraphParams(TypedDict):
+    #: How many steps downstream.
+    down: NotRequired[int]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file']]]
+    #: Whose record, when an entry's ID or HRID names several (ADR 0115).
+    project: NotRequired[str | None]
+    #: How many steps upstream.
+    up: NotRequired[int]
+
+
+class GraphRunOut(TypedDict):
+    #: How edges refer to it: its HRID, or a key for this response.
+    key: str
+    #: The run, if you can read its project.
+    run: RunRefOut | None
+
+
 class ImportCounts(TypedDict):
     conflict: int
     entities: int
@@ -1453,89 +1537,6 @@ class LastDelivery(TypedDict):
     created_at: str
     event: str
     status: str
-
-
-class LineageEntityOut(TypedDict):
-    archived: bool
-    hrid: str
-    id: str
-    #: Its plugin's data was purged (ADR 0092).
-    purged: bool
-    type: str
-
-
-class LineageGraphLinkOut(TypedDict):
-    #: The entity the run made.
-    entity: str
-    #: The run's input the parent was given as.
-    input: str
-    #: The entity it was made from.
-    parent: str
-    #: The parent's revision the run read.
-    revision: int
-    #: The run's key, in runs.
-    run: str
-
-
-class LineageGraphOut(TypedDict):
-    #: It stopped at 200 entities or 500 links, so some within the generations asked for are left out.
-    capped: bool
-    #: There are more generations back than were asked for.
-    earlier: bool
-    #: The entities in it that you can read.
-    entities: list[LineageNodeOut]
-    #: There are more generations on than were asked for.
-    later: bool
-    links: list[LineageGraphLinkOut]
-    #: The entity it's the lineage of.
-    root: str
-    runs: list[LineageRunOut]
-
-
-class LineageGraphParams(TypedDict):
-    #: How many generations on.
-    down: NotRequired[int]
-    #: How many generations back.
-    up: NotRequired[int]
-
-
-class LineageLinkOut(TypedDict):
-    entity: LineageEntityOut
-    #: The run's input it was given as.
-    input: str
-    #: The parent's revision the run read.
-    revision: int
-    #: The run, if you can read its project.
-    run: RunRefOut | None
-
-
-class LineageNodeOut(TypedDict):
-    archived: bool
-    #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
-    formerly: NotRequired[list[str]]
-    hrid: str
-    id: str
-    #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
-    purged: bool
-    #: What it's called: its type's display title, or its HRID.
-    title: str
-    type: str
-
-
-class LineageOut(TypedDict):
-    #: What runs made it from.
-    made_from: list[LineageLinkOut]
-    #: Runs made more from it than are listed.
-    more: bool
-    #: What runs made from it: the newest 100.
-    used_to_make: list[LineageLinkOut]
-
-
-class LineageRunOut(TypedDict):
-    #: How links refer to it: its HRID, or a key for this response.
-    key: str
-    #: The run, if you can read its project.
-    run: RunRefOut | None
 
 
 class LocationsOut(TypedDict):
@@ -3491,6 +3492,80 @@ class VolumeOut(TypedDict):
     size: int
 
 
+class WalkFileOut(TypedDict):
+    id: str
+    name: str
+
+
+class WalkItemOut(TypedDict):
+    #: How many edges from the root its path takes.
+    depth: int
+    entity: GraphEntityOut
+    #: From the root to it, the first way it was found.
+    path: list[WalkStepOut]
+
+
+class WalkOut(TypedDict):
+    #: There's more past `depth` (at most 30).
+    beyond: bool
+    depth: int
+    direction: Literal['upstream', 'downstream']
+    #: Upstream: references and inputs you can see that lead to entities you can't read, so the walk stops there. Ask someone who can read them. Always 0 downstream: what you can't read never says it depends on anything.
+    hidden: int
+    items: list[WalkItemOut]
+    next_cursor: str | None
+    root: GraphEntityOut
+    #: Results in every page.
+    total: int
+
+
+class WalkPageParams(TypedDict):
+    #: Only archived results, or only others.
+    archived: NotRequired[bool | None]
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: How many edges away, at most.
+    depth: NotRequired[int]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file']]]
+    #: Results per page.
+    limit: NotRequired[int]
+    #: Whose record, when an entry's ID or HRID names several (ADR 0115).
+    project: NotRequired[str | None]
+    #: Only results of these types, with their subtypes. The walk still goes through every type.
+    type: NotRequired[list[str]]
+
+
+class WalkParams(TypedDict):
+    #: Only archived results, or only others.
+    archived: NotRequired[bool | None]
+    #: How many edges away, at most.
+    depth: NotRequired[int]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file']]]
+    #: Whose record, when an entry's ID or HRID names several (ADR 0115).
+    project: NotRequired[str | None]
+    #: Only results of these types, with their subtypes. The walk still goes through every type.
+    type: NotRequired[list[str]]
+
+
+class WalkStepOut(TypedDict):
+    #: Where this step reaches. Downstream, it depends on the step before (or the root); upstream, the step before depends on it.
+    entity: GraphEntityOut
+    #: A reference's field; a run's input (`antibody.heavy_chain` for what it included); a file param; empty for a record.
+    field: str
+    #: For a file edge, the file, if you can read it.
+    file: WalkFileOut | None
+    #: A run made it, in a project you can't read: it isn't named.
+    hidden_run: bool
+    #: `reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).
+    kind: Literal['reference', 'run', 'file', 'record']
+    #: For a run's input: its revision the run read. Empty for a reference, which names what's there now.
+    revision: int | None
+    #: The run, if you can read its project.
+    run: RunRefOut | None
+
+
 class WebhookCreated(TypedDict):
     active: bool
     created_at: str
@@ -3846,4 +3921,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

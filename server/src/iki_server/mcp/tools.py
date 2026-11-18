@@ -8,6 +8,7 @@ marker the data itself can't guess (ADR 0013).
 
 import json
 import secrets
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -16,13 +17,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
-from iki_server.api.entities import (
-    MAX_GENERATIONS,
-    Condition,
-    SortIn,
-)
+from iki_server.api.entities import Condition, SortIn
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
+from iki_server.graph import queries
 from iki_server.mcp.api import call, path, web_url
 from iki_server.runs.models import RunStatus
 
@@ -53,6 +51,22 @@ CHANGE = ToolAnnotations(
 )
 
 Ref = Annotated[str, Field(description="Its ID, or its HRID such as PRT-000123.", max_length=64)]
+Depth = Annotated[
+    int,
+    Field(ge=1, le=queries.MAX_DEPTH, description="How many edges away, at most."),
+]
+Edges = Annotated[
+    list[Literal["reference", "run", "file"]] | None,
+    Field(
+        description="Only these kinds of edge: reference (a field names it), run (a run made "
+        "it from it) and file (a run made it from a file it held). All if left out. A "
+        "project's record of a registry entry and the entry are one, and always followed."
+    ),
+]
+Types = Annotated[
+    list[str] | None,
+    Field(max_length=20, description="Only results of these types (with their subtypes)."),
+]
 Cursor = Annotated[
     str | None, Field(description="To get the next page: the last page's next_cursor.")
 ]
@@ -73,6 +87,28 @@ Reason = Annotated[
         description="Why, in a sentence, for its history: people will read it.",
     ),
 ]
+
+
+async def _walk(
+    direction: str,
+    ref: str,
+    depth: int,
+    edges: Sequence[str] | None,
+    types: Sequence[str] | None,
+    limit: int,
+    cursor: str | None,
+) -> Any:  # noqa: ANN401 - JSON
+    return await call(
+        "GET",
+        path(f"/entities/{{ref}}/{direction}", ref=ref),
+        query={
+            "depth": depth,
+            "edges": list(edges or []),
+            "type": list(types or []),
+            "limit": limit,
+            "cursor": cursor,
+        },
+    )
 
 
 def answer(data: Any, *, note: str = "") -> CallToolResult:  # noqa: ANN401 - JSON
@@ -417,25 +453,36 @@ def build() -> MCPServer:
             )
         )
 
-    @server.tool(annotations=READ, title="Get lineage")
+    @server.tool(annotations=READ, title="What it was derived from")
     async def get_lineage(
         ref: Ref,
-        up: Annotated[
-            int, Field(ge=0, le=MAX_GENERATIONS, description="Generations back: what made it.")
-        ] = 3,
-        down: Annotated[
-            int, Field(ge=0, le=MAX_GENERATIONS, description="Generations on: what it made.")
-        ] = 3,
+        depth: Depth = queries.DEFAULT_DEPTH,
+        edges: Edges = None,
+        types: Types = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
-        """What runs made an entity from, what that was made from, and what was made from
-        it: entities, the runs between them, and links (parent → run → entity)."""
-        return answer(
-            await call(
-                "GET",
-                path("/entities/{ref}/lineage/graph", ref=ref),
-                query={"up": up, "down": down},
-            )
-        )
+        """Upstream: everything an entity depends on that the person can read, nearest first:
+        what its references name, what the runs that made it were given, the files they
+        read, and on. Each result's path says how it was reached. `hidden` counts the trails
+        that lead to entities they can't read: say so, and that someone who can should look."""
+        return answer(await _walk("upstream", ref, depth, edges, types, limit, cursor))
+
+    @server.tool(annotations=READ, title="What was derived from it")
+    async def get_impact(
+        ref: Ref,
+        depth: Depth = queries.DEFAULT_DEPTH,
+        edges: Edges = None,
+        types: Types = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
+    ) -> CallToolResult:
+        """Downstream: everything that depends on an entity that the person can read,
+        nearest first: what refers to it, what runs made from it, and on. What a recall, a
+        correction or a donor's consent withdrawal affects. Each result's path says why it's
+        there. Only what they can read is in it, so say it covers what they can read. To
+        combine it with other conditions, use search_entities with the `downstream` field."""
+        return answer(await _walk("downstream", ref, depth, edges, types, limit, cursor))
 
     @server.tool(annotations=ADD, title="Create an entity")
     async def create_entity(

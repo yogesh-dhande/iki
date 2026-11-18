@@ -94,6 +94,22 @@ describe("the filter panel", () => {
     });
   });
 
+  it("filters by lineage, what each was derived from or used to make", async () => {
+    const user = userEvent.setup();
+    const applied: Filter[] = [{ field: "upstream", op: "of", value: "RES-000004" }];
+    render(<Panel applied={applied} onApply={vi.fn()} />);
+    const panel = screen.getByRole("region", { name: "Filters" });
+    expect(within(panel).getByLabelText("Filter 1: field")).toHaveDisplayValue("Lineage");
+    expect(within(panel).getByLabelText("Filter 1: condition")).toHaveDisplayValue(
+      "was used to make",
+    );
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(within(panel).getByLabelText("Filter 2: field"), "Lineage");
+    expect(
+      within(within(panel).getByLabelText("Filter 2: condition")).getAllByRole("option"),
+    ).toHaveLength(2);
+  });
+
   it("shows a making's filter from the address", () => {
     const applied: Filter[] = [
       { field: "made", op: "has", value: { software: "Boltz", by: "source" } },

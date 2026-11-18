@@ -2165,7 +2165,8 @@
                   "contains",
                   "starts_with",
                   "matches",
-                  "has"
+                  "has",
+                  "of"
                 ],
                 "type": "string"
               },
@@ -5059,6 +5060,356 @@
         "title": "FreezeIn",
         "type": "object"
       },
+      "GraphEdgeOut": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WalkFileOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "reference",
+              "run",
+              "file",
+              "record"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "node": {
+            "description": "What depends.",
+            "format": "uuid",
+            "title": "Node",
+            "type": "string"
+          },
+          "on": {
+            "description": "What it depends on.",
+            "format": "uuid",
+            "title": "On",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a run's input: its revision the run read.",
+            "title": "Revision"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's key, in runs.",
+            "title": "Run"
+          }
+        },
+        "required": [
+          "node",
+          "on",
+          "kind",
+          "field",
+          "run",
+          "file",
+          "revision"
+        ],
+        "title": "GraphEdgeOut",
+        "type": "object"
+      },
+      "GraphEntityOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "entry": {
+            "default": false,
+            "description": "It's a registry entry (ADR 0115): the identity its records are of.",
+            "title": "Entry",
+            "type": "boolean"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it belongs to, if you see it."
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id"
+        ],
+        "title": "GraphEntityOut",
+        "type": "object"
+      },
+      "GraphNodeOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "at": {
+            "description": "Steps from the root: negative upstream, positive downstream.",
+            "title": "At",
+            "type": "integer"
+          },
+          "entry": {
+            "default": false,
+            "description": "It's a registry entry (ADR 0115): the identity its records are of.",
+            "title": "Entry",
+            "type": "boolean"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it belongs to, if you see it."
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "at"
+        ],
+        "title": "GraphNodeOut",
+        "type": "object"
+      },
+      "GraphOut": {
+        "properties": {
+          "capped": {
+            "description": "It stopped at 200 entities or 500 edges, so some within the steps asked for are left out.",
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "earlier": {
+            "description": "There's more upstream than was asked for.",
+            "title": "Earlier",
+            "type": "boolean"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdgeOut"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "entities": {
+            "description": "What's in it that you can read.",
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeOut"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "hidden": {
+            "description": "Upstream edges into entities you can't read.",
+            "title": "Hidden",
+            "type": "integer"
+          },
+          "later": {
+            "description": "There's more downstream than was asked for.",
+            "title": "Later",
+            "type": "boolean"
+          },
+          "root": {
+            "format": "uuid",
+            "title": "Root",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/GraphRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "root",
+          "entities",
+          "runs",
+          "edges",
+          "hidden",
+          "earlier",
+          "later",
+          "capped"
+        ],
+        "title": "GraphOut",
+        "type": "object"
+      },
+      "GraphParams": {
+        "properties": {
+          "down": {
+            "default": 3,
+            "description": "How many steps downstream.",
+            "maximum": 10,
+            "minimum": 0,
+            "title": "Down",
+            "type": "integer"
+          },
+          "edges": {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "items": {
+              "enum": [
+                "reference",
+                "run",
+                "file"
+              ],
+              "type": "string"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "title": "Project"
+          },
+          "up": {
+            "default": 3,
+            "description": "How many steps upstream.",
+            "maximum": 10,
+            "minimum": 0,
+            "title": "Up",
+            "type": "integer"
+          }
+        },
+        "title": "GraphParams",
+        "type": "object"
+      },
+      "GraphRunOut": {
+        "properties": {
+          "key": {
+            "description": "How edges refer to it: its HRID, or a key for this response.",
+            "title": "Key",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run, if you can read its project."
+          }
+        },
+        "required": [
+          "key",
+          "run"
+        ],
+        "title": "GraphRunOut",
+        "type": "object"
+      },
       "ImportCounts": {
         "properties": {
           "conflict": {
@@ -6304,304 +6655,6 @@
           "created_at"
         ],
         "title": "LastDelivery",
-        "type": "object"
-      },
-      "LineageEntityOut": {
-        "properties": {
-          "archived": {
-            "title": "Archived",
-            "type": "boolean"
-          },
-          "hrid": {
-            "title": "Hrid",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "purged": {
-            "description": "Its plugin's data was purged (ADR 0092).",
-            "title": "Purged",
-            "type": "boolean"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "hrid",
-          "type",
-          "archived",
-          "purged"
-        ],
-        "title": "LineageEntityOut",
-        "type": "object"
-      },
-      "LineageGraphLinkOut": {
-        "properties": {
-          "entity": {
-            "description": "The entity the run made.",
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
-          },
-          "input": {
-            "description": "The run's input the parent was given as.",
-            "title": "Input",
-            "type": "string"
-          },
-          "parent": {
-            "description": "The entity it was made from.",
-            "format": "uuid",
-            "title": "Parent",
-            "type": "string"
-          },
-          "revision": {
-            "description": "The parent's revision the run read.",
-            "title": "Revision",
-            "type": "integer"
-          },
-          "run": {
-            "description": "The run's key, in runs.",
-            "title": "Run",
-            "type": "string"
-          }
-        },
-        "required": [
-          "parent",
-          "entity",
-          "run",
-          "input",
-          "revision"
-        ],
-        "title": "LineageGraphLinkOut",
-        "type": "object"
-      },
-      "LineageGraphOut": {
-        "properties": {
-          "capped": {
-            "description": "It stopped at 200 entities or 500 links, so some within the generations asked for are left out.",
-            "title": "Capped",
-            "type": "boolean"
-          },
-          "earlier": {
-            "description": "There are more generations back than were asked for.",
-            "title": "Earlier",
-            "type": "boolean"
-          },
-          "entities": {
-            "description": "The entities in it that you can read.",
-            "items": {
-              "$ref": "#/components/schemas/LineageNodeOut"
-            },
-            "title": "Entities",
-            "type": "array"
-          },
-          "later": {
-            "description": "There are more generations on than were asked for.",
-            "title": "Later",
-            "type": "boolean"
-          },
-          "links": {
-            "items": {
-              "$ref": "#/components/schemas/LineageGraphLinkOut"
-            },
-            "title": "Links",
-            "type": "array"
-          },
-          "root": {
-            "description": "The entity it's the lineage of.",
-            "format": "uuid",
-            "title": "Root",
-            "type": "string"
-          },
-          "runs": {
-            "items": {
-              "$ref": "#/components/schemas/LineageRunOut"
-            },
-            "title": "Runs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "root",
-          "entities",
-          "runs",
-          "links",
-          "earlier",
-          "later",
-          "capped"
-        ],
-        "title": "LineageGraphOut",
-        "type": "object"
-      },
-      "LineageGraphParams": {
-        "properties": {
-          "down": {
-            "default": 3,
-            "description": "How many generations on.",
-            "maximum": 10,
-            "minimum": 0,
-            "title": "Down",
-            "type": "integer"
-          },
-          "up": {
-            "default": 3,
-            "description": "How many generations back.",
-            "maximum": 10,
-            "minimum": 0,
-            "title": "Up",
-            "type": "integer"
-          }
-        },
-        "title": "LineageGraphParams",
-        "type": "object"
-      },
-      "LineageLinkOut": {
-        "properties": {
-          "entity": {
-            "$ref": "#/components/schemas/LineageEntityOut"
-          },
-          "input": {
-            "description": "The run's input it was given as.",
-            "title": "Input",
-            "type": "string"
-          },
-          "revision": {
-            "description": "The parent's revision the run read.",
-            "title": "Revision",
-            "type": "integer"
-          },
-          "run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunRefOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The run, if you can read its project."
-          }
-        },
-        "required": [
-          "entity",
-          "revision",
-          "input",
-          "run"
-        ],
-        "title": "LineageLinkOut",
-        "type": "object"
-      },
-      "LineageNodeOut": {
-        "properties": {
-          "archived": {
-            "title": "Archived",
-            "type": "boolean"
-          },
-          "formerly": {
-            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Formerly",
-            "type": "array"
-          },
-          "hrid": {
-            "title": "Hrid",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "purged": {
-            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
-            "title": "Purged",
-            "type": "boolean"
-          },
-          "title": {
-            "description": "What it's called: its type's display title, or its HRID.",
-            "title": "Title",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "hrid",
-          "title",
-          "type",
-          "archived",
-          "purged",
-          "id"
-        ],
-        "title": "LineageNodeOut",
-        "type": "object"
-      },
-      "LineageOut": {
-        "properties": {
-          "made_from": {
-            "description": "What runs made it from.",
-            "items": {
-              "$ref": "#/components/schemas/LineageLinkOut"
-            },
-            "title": "Made From",
-            "type": "array"
-          },
-          "more": {
-            "description": "Runs made more from it than are listed.",
-            "title": "More",
-            "type": "boolean"
-          },
-          "used_to_make": {
-            "description": "What runs made from it: the newest 100.",
-            "items": {
-              "$ref": "#/components/schemas/LineageLinkOut"
-            },
-            "title": "Used To Make",
-            "type": "array"
-          }
-        },
-        "required": [
-          "made_from",
-          "used_to_make",
-          "more"
-        ],
-        "title": "LineageOut",
-        "type": "object"
-      },
-      "LineageRunOut": {
-        "properties": {
-          "key": {
-            "description": "How links refer to it: its HRID, or a key for this response.",
-            "title": "Key",
-            "type": "string"
-          },
-          "run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunRefOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The run, if you can read its project."
-          }
-        },
-        "required": [
-          "key",
-          "run"
-        ],
-        "title": "LineageRunOut",
         "type": "object"
       },
       "LocationsOut": {
@@ -15634,6 +15687,332 @@
         "title": "VolumeOut",
         "type": "object"
       },
+      "WalkFileOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "WalkFileOut",
+        "type": "object"
+      },
+      "WalkItemOut": {
+        "properties": {
+          "depth": {
+            "description": "How many edges from the root its path takes.",
+            "title": "Depth",
+            "type": "integer"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/GraphEntityOut"
+          },
+          "path": {
+            "description": "From the root to it, the first way it was found.",
+            "items": {
+              "$ref": "#/components/schemas/WalkStepOut"
+            },
+            "title": "Path",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity",
+          "depth",
+          "path"
+        ],
+        "title": "WalkItemOut",
+        "type": "object"
+      },
+      "WalkOut": {
+        "properties": {
+          "beyond": {
+            "description": "There's more past `depth` (at most 30).",
+            "title": "Beyond",
+            "type": "boolean"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "upstream",
+              "downstream"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "hidden": {
+            "description": "Upstream: references and inputs you can see that lead to entities you can't read, so the walk stops there. Ask someone who can read them. Always 0 downstream: what you can't read never says it depends on anything.",
+            "title": "Hidden",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WalkItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "root": {
+            "$ref": "#/components/schemas/GraphEntityOut"
+          },
+          "total": {
+            "description": "Results in every page.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root",
+          "direction",
+          "depth",
+          "items",
+          "next_cursor",
+          "total",
+          "hidden",
+          "beyond"
+        ],
+        "title": "WalkOut",
+        "type": "object"
+      },
+      "WalkPageParams": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only archived results, or only others.",
+            "title": "Archived"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "depth": {
+            "default": 10,
+            "description": "How many edges away, at most.",
+            "maximum": 30,
+            "minimum": 1,
+            "title": "Depth",
+            "type": "integer"
+          },
+          "edges": {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "items": {
+              "enum": [
+                "reference",
+                "run",
+                "file"
+              ],
+              "type": "string"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Results per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "title": "Project"
+          },
+          "type": {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
+          }
+        },
+        "title": "WalkPageParams",
+        "type": "object"
+      },
+      "WalkParams": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only archived results, or only others.",
+            "title": "Archived"
+          },
+          "depth": {
+            "default": 10,
+            "description": "How many edges away, at most.",
+            "maximum": 30,
+            "minimum": 1,
+            "title": "Depth",
+            "type": "integer"
+          },
+          "edges": {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "items": {
+              "enum": [
+                "reference",
+                "run",
+                "file"
+              ],
+              "type": "string"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "title": "Project"
+          },
+          "type": {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
+          }
+        },
+        "title": "WalkParams",
+        "type": "object"
+      },
+      "WalkStepOut": {
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/GraphEntityOut",
+            "description": "Where this step reaches. Downstream, it depends on the step before (or the root); upstream, the step before depends on it."
+          },
+          "field": {
+            "description": "A reference's field; a run's input (`antibody.heavy_chain` for what it included); a file param; empty for a record.",
+            "title": "Field",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WalkFileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a file edge, the file, if you can read it."
+          },
+          "hidden_run": {
+            "description": "A run made it, in a project you can't read: it isn't named.",
+            "title": "Hidden Run",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "`reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).",
+            "enum": [
+              "reference",
+              "run",
+              "file",
+              "record"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a run's input: its revision the run read. Empty for a reference, which names what's there now.",
+            "title": "Revision"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run, if you can read its project."
+          }
+        },
+        "required": [
+          "kind",
+          "field",
+          "run",
+          "hidden_run",
+          "file",
+          "revision",
+          "entity"
+        ],
+        "title": "WalkStepOut",
+        "type": "object"
+      },
       "WebhookCreated": {
         "properties": {
           "active": {
@@ -19972,7 +20351,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"DNR-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"DNR-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -20243,10 +20622,10 @@
         ]
       }
     },
-    "/api/v1/entities/{ref}/lineage": {
+    "/api/v1/entities/{ref}/downstream": {
       "get": {
-        "description": "One step each way: the entities runs made it from (at the revisions they read), and\nthose they made from it. Only entities you can read are listed.",
-        "operationId": "iki_server_api_entities_get_lineage",
+        "description": "Everything that depends on it that you can read: what refers to it, what runs made\nfrom it, what was made from its files, and what depends on those, nearest first: what a\nrecall, a consent withdrawal or a correction affects. Each result says how it was\nreached.",
+        "operationId": "iki_server_api_graph_downstream",
         "parameters": [
           {
             "in": "path",
@@ -20256,6 +20635,123 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "How many edges away, at most.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "How many edges away, at most.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "in": "query",
+            "name": "edges",
+            "required": false,
+            "schema": {
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "items": {
+                "enum": [
+                  "reference",
+                  "run",
+                  "file"
+                ],
+                "type": "string"
+              },
+              "title": "Edges",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only archived results, or only others.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only archived results, or only others.",
+              "title": "Archived"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Results per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Results per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -20263,7 +20759,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineageOut"
+                  "$ref": "#/components/schemas/WalkOut"
                 }
               }
             },
@@ -20278,16 +20774,16 @@
             "SessionAuth": []
           }
         ],
-        "summary": "What it was made from",
+        "summary": "What was derived from it",
         "tags": [
-          "entities"
+          "graph"
         ]
       }
     },
-    "/api/v1/entities/{ref}/lineage/graph": {
+    "/api/v1/entities/{ref}/downstream.csv": {
       "get": {
-        "description": "What it was made from, what that was made from and so on, ``up`` generations back;\nand what was made from it, ``down`` generations on. Only entities you can read are in\nit, and only runs whose project you can read are named.",
-        "operationId": "iki_server_api_entities_get_lineage_graph",
+        "description": "Every result of ``…/downstream``, with its path as text, nearest first: the impact\nlist, for a recall or a consent withdrawal's records.",
+        "operationId": "iki_server_api_graph_downstream_csv",
         "parameters": [
           {
             "in": "path",
@@ -20299,13 +20795,154 @@
             }
           },
           {
-            "description": "How many generations back.",
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "How many edges away, at most.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "How many edges away, at most.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "in": "query",
+            "name": "edges",
+            "required": false,
+            "schema": {
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "items": {
+                "enum": [
+                  "reference",
+                  "run",
+                  "file"
+                ],
+                "type": "string"
+              },
+              "title": "Edges",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only archived results, or only others.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only archived results, or only others.",
+              "title": "Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download what was derived from it",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/graph": {
+      "get": {
+        "description": "``up`` steps upstream and ``down`` downstream, with every edge between what's in it:\nfor a picture. A record and its registry entry are drawn as one, unless more than one\nproject's record of it is in the picture: then the entry joins them.",
+        "operationId": "iki_server_api_graph_get_graph",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "How many steps upstream.",
             "in": "query",
             "name": "up",
             "required": false,
             "schema": {
               "default": 3,
-              "description": "How many generations back.",
+              "description": "How many steps upstream.",
               "maximum": 10,
               "minimum": 0,
               "title": "Up",
@@ -20313,17 +20950,36 @@
             }
           },
           {
-            "description": "How many generations on.",
+            "description": "How many steps downstream.",
             "in": "query",
             "name": "down",
             "required": false,
             "schema": {
               "default": 3,
-              "description": "How many generations on.",
+              "description": "How many steps downstream.",
               "maximum": 10,
               "minimum": 0,
               "title": "Down",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "in": "query",
+            "name": "edges",
+            "required": false,
+            "schema": {
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "items": {
+                "enum": [
+                  "reference",
+                  "run",
+                  "file"
+                ],
+                "type": "string"
+              },
+              "title": "Edges",
+              "type": "array"
             }
           }
         ],
@@ -20332,7 +20988,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineageGraphOut"
+                  "$ref": "#/components/schemas/GraphOut"
                 }
               }
             },
@@ -20347,9 +21003,9 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Its ancestors and descendants",
+        "summary": "Its graph, to draw",
         "tags": [
-          "entities"
+          "graph"
         ]
       }
     },
@@ -21001,6 +21657,286 @@
         "summary": "Assign a record to yourself",
         "tags": [
           "work"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/upstream": {
+      "get": {
+        "description": "Everything it depends on that you can read: what its references name, what the runs\nthat made it were given (and the files they read), its registry entry, and what those\ndepend on in turn, nearest first. Each result says how it was reached.",
+        "operationId": "iki_server_api_graph_upstream",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "How many edges away, at most.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "How many edges away, at most.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "in": "query",
+            "name": "edges",
+            "required": false,
+            "schema": {
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "items": {
+                "enum": [
+                  "reference",
+                  "run",
+                  "file"
+                ],
+                "type": "string"
+              },
+              "title": "Edges",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only archived results, or only others.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only archived results, or only others.",
+              "title": "Archived"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Results per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Results per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalkOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What it was derived from",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/upstream.csv": {
+      "get": {
+        "description": "Every result of ``…/upstream``, with its path as text, nearest first.",
+        "operationId": "iki_server_api_graph_upstream_csv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record, when an entry's ID or HRID names several (ADR 0115).",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "How many edges away, at most.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "How many edges away, at most.",
+              "maximum": 30,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "in": "query",
+            "name": "edges",
+            "required": false,
+            "schema": {
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "items": {
+                "enum": [
+                  "reference",
+                  "run",
+                  "file"
+                ],
+                "type": "string"
+              },
+              "title": "Edges",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only results of these types, with their subtypes. The walk still goes through every type.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only archived results, or only others.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only archived results, or only others.",
+              "title": "Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download what it was derived from",
+        "tags": [
+          "graph"
         ]
       }
     },

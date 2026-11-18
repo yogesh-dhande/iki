@@ -1004,20 +1004,35 @@ def test_following_lineage_from_entity_to_entity(
     middle = made[1]
     page = open_as("admin", f"/entities/{middle.hrid}/", color_scheme)
     page.get_by_role("link", name="Lineage").click()
+    # What it was derived from, as a tree, walked with the keyboard.
+    tree = page.get_by_role("tree", name="What it was derived from")
+    tree.wait_for()
+    item = tree.get_by_role("treeitem", name=re.compile("^ABL1 precursor"))
+    item.wait_for()
+    assert_clean(page)
+    item.focus()
+    page.keyboard.press("End")
+    assert item.evaluate("e => e === document.activeElement")
+
+    # What was derived from it, as the impact list, with why.
+    page.get_by_role("link", name="Used by").click()
+    page.get_by_role("link", name="List").click()
+    table = page.get_by_role("table")
+    table.get_by_role("link", name=re.compile("^ABL1 fragment")).wait_for()
+    table.get_by_text(re.compile(r"made .* from .* \(its protein, at revision 1\)")).wait_for()
+    assert_clean(page)
+
+    page.get_by_role("link", name="Graph").click()
     graph = page.get_by_role("group", name=re.compile("^3 entities and 2 runs"))
     graph.wait_for()
     assert_clean(page)
     graph.get_by_role("link", name=re.compile("^ABL1 precursor")).hover()
     assert_clean(page)
 
-    page.get_by_role("link", name="List").click()
-    page.get_by_role("heading", level=2, name=re.compile("· Compute properties$")).first.wait_for()
-    assert_clean(page)
-
-    page.get_by_role("link", name=re.compile("^ABL1 fragment")).click()
+    graph.get_by_role("link", name=re.compile("^ABL1 fragment")).click()
     page.get_by_role("heading", level=1, name="ABL1 fragment").wait_for()
-    page.get_by_role("heading", level=2, name=re.compile("· Compute properties$")).first.wait_for()
-    assert page.get_by_role("heading", level=2).count() == 2
+    page.get_by_role("group", name=re.compile("^3 entities and 2 runs")).wait_for()
+    assert page.get_by_role("link", name="Show later").count() == 0
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

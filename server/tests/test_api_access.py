@@ -754,8 +754,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
-    ("GET", "/entities/{ref}/lineage", entity("/lineage"), readers(200)),
-    ("GET", "/entities/{ref}/lineage/graph", entity("/lineage/graph"), readers(200)),
+    # Across the graph (ADR 0123): as far as each reads.
+    ("GET", "/entities/{ref}/upstream", entity("/upstream"), readers(200)),
+    ("GET", "/entities/{ref}/downstream", entity("/downstream"), readers(200)),
+    ("GET", "/entities/{ref}/upstream.csv", entity("/upstream.csv"), readers(200)),
+    ("GET", "/entities/{ref}/downstream.csv", entity("/downstream.csv"), readers(200)),
+    ("GET", "/entities/{ref}/graph", entity("/graph"), readers(200)),
     ("GET", "/entities/{ref}/projects", entity("/projects"), readers(200)),
     ("GET", "/entities/{ref}/apps", entity("/apps"), readers(200)),
     (

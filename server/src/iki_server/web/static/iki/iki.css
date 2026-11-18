@@ -2103,6 +2103,85 @@ a.lineage-node:focus-visible {
   list-style: none;
 }
 
+.lineage-node.is-entry {
+  border-style: double;
+  border-width: 3px;
+}
+
+/* An entity's lineage as a tree (ADR 0123): each under what it was reached from. */
+.lineage-tree,
+.lineage-tree-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lineage-tree {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.lineage-tree-group {
+  margin-left: 0.6rem;
+  padding-left: 0.9rem;
+  border-left: 1px solid var(--border);
+}
+
+.lineage-tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.lineage-tree-toggle {
+  flex: none;
+  width: 1.25rem;
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lineage-tree-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border-radius: calc(var(--radius) / 2);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.lineage-tree-item:hover {
+  background: var(--surface-2);
+}
+
+.lineage-tree-item:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 0;
+}
+
+.lineage-tree-item .lineage-title {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.lineage-why {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.lineage-path {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
 /* A workflow's steps, drawn as a lineage is: each step's state shows down its left edge,
    besides its text, so it's never told by colour alone. */
 .workflow-graph {

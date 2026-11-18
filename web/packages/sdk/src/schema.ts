@@ -890,6 +890,11 @@ export interface paths {
          *     record of its run; ``source``, an imported record's word), all matching one making,
          *     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
          *     A state field (ADR 0125) is searched as an enum of its states, by name.
+         *     ``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or
+         *     HRID) was derived from, or what was derived from it, through references and runs, as
+         *     ``{"field": "downstream", "op": "of", "value": "DNR-000001"}``, or with a ``depth``
+         *     and ``edges``: ``{"entity": "DNR-000001", "depth": 5, "edges": ["reference"]}``; and
+         *     ``is_set``, whether anything you can read is that way.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];
@@ -969,7 +974,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/entities/{ref}/lineage": {
+    "/api/v1/entities/{ref}/downstream": {
         parameters: {
             query?: never;
             header?: never;
@@ -977,11 +982,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What it was made from
-         * @description One step each way: the entities runs made it from (at the revisions they read), and
-         *     those they made from it. Only entities you can read are listed.
+         * What was derived from it
+         * @description Everything that depends on it that you can read: what refers to it, what runs made
+         *     from it, what was made from its files, and what depends on those, nearest first: what a
+         *     recall, a consent withdrawal or a correction affects. Each result says how it was
+         *     reached.
          */
-        get: operations["iki_server_api_entities_get_lineage"];
+        get: operations["iki_server_api_graph_downstream"];
         put?: never;
         post?: never;
         delete?: never;
@@ -990,7 +997,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/entities/{ref}/lineage/graph": {
+    "/api/v1/entities/{ref}/downstream.csv": {
         parameters: {
             query?: never;
             header?: never;
@@ -998,12 +1005,33 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Its ancestors and descendants
-         * @description What it was made from, what that was made from and so on, ``up`` generations back;
-         *     and what was made from it, ``down`` generations on. Only entities you can read are in
-         *     it, and only runs whose project you can read are named.
+         * Download what was derived from it
+         * @description Every result of ``…/downstream``, with its path as text, nearest first: the impact
+         *     list, for a recall or a consent withdrawal's records.
          */
-        get: operations["iki_server_api_entities_get_lineage_graph"];
+        get: operations["iki_server_api_graph_downstream_csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Its graph, to draw
+         * @description ``up`` steps upstream and ``down`` downstream, with every edge between what's in it:
+         *     for a picture. A record and its registry entry are drawn as one, unless more than one
+         *     project's record of it is in the picture: then the entry joins them.
+         */
+        get: operations["iki_server_api_graph_get_graph"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1225,6 +1253,48 @@ export interface paths {
          *     like any edit. Send If-Match with the ETag you read.
          */
         post: operations["iki_server_api_work_take"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/upstream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What it was derived from
+         * @description Everything it depends on that you can read: what its references name, what the runs
+         *     that made it were given (and the files they read), its registry entry, and what those
+         *     depend on in turn, nearest first. Each result says how it was reached.
+         */
+        get: operations["iki_server_api_graph_upstream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/upstream.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download what it was derived from
+         * @description Every result of ``…/upstream``, with its path as text, nearest first.
+         */
+        get: operations["iki_server_api_graph_upstream_csv"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4465,7 +4535,7 @@ export interface components {
             /** @description Not this. */
             not?: components["schemas"]["Condition"] | null;
             /** Op */
-            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has") | null;
+            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has" | "of") | null;
             /**
              * Value
              * @description What to compare with, as the field takes it.
@@ -5838,6 +5908,190 @@ export interface components {
              */
             reason: string;
         };
+        /** GraphEdgeOut */
+        GraphEdgeOut: {
+            /** Field */
+            field: string;
+            file: components["schemas"]["WalkFileOut"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "reference" | "run" | "file" | "record";
+            /**
+             * Node
+             * Format: uuid
+             * @description What depends.
+             */
+            node: string;
+            /**
+             * On
+             * Format: uuid
+             * @description What it depends on.
+             */
+            on: string;
+            /**
+             * Revision
+             * @description For a run's input: its revision the run read.
+             */
+            revision: number | null;
+            /**
+             * Run
+             * @description The run's key, in runs.
+             */
+            run: string | null;
+        };
+        /** GraphEntityOut */
+        GraphEntityOut: {
+            /** Archived */
+            archived: boolean;
+            /**
+             * Entry
+             * @description It's a registry entry (ADR 0115): the identity its records are of.
+             * @default false
+             */
+            entry: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** @description The project it belongs to, if you see it. */
+            project?: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** GraphNodeOut */
+        GraphNodeOut: {
+            /** Archived */
+            archived: boolean;
+            /**
+             * At
+             * @description Steps from the root: negative upstream, positive downstream.
+             */
+            at: number;
+            /**
+             * Entry
+             * @description It's a registry entry (ADR 0115): the identity its records are of.
+             * @default false
+             */
+            entry: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** @description The project it belongs to, if you see it. */
+            project?: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** GraphOut */
+        GraphOut: {
+            /**
+             * Capped
+             * @description It stopped at 200 entities or 500 edges, so some within the steps asked for are left out.
+             */
+            capped: boolean;
+            /**
+             * Earlier
+             * @description There's more upstream than was asked for.
+             */
+            earlier: boolean;
+            /** Edges */
+            edges: components["schemas"]["GraphEdgeOut"][];
+            /**
+             * Entities
+             * @description What's in it that you can read.
+             */
+            entities: components["schemas"]["GraphNodeOut"][];
+            /**
+             * Hidden
+             * @description Upstream edges into entities you can't read.
+             */
+            hidden: number;
+            /**
+             * Later
+             * @description There's more downstream than was asked for.
+             */
+            later: boolean;
+            /**
+             * Root
+             * Format: uuid
+             */
+            root: string;
+            /** Runs */
+            runs: components["schemas"]["GraphRunOut"][];
+        };
+        /** GraphParams */
+        GraphParams: {
+            /**
+             * Down
+             * @description How many steps downstream.
+             * @default 3
+             */
+            down: number;
+            /**
+             * Edges
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             */
+            edges?: ("reference" | "run" | "file")[];
+            /**
+             * Project
+             * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
+             */
+            project?: string | null;
+            /**
+             * Up
+             * @description How many steps upstream.
+             * @default 3
+             */
+            up: number;
+        };
+        /** GraphRunOut */
+        GraphRunOut: {
+            /**
+             * Key
+             * @description How edges refer to it: its HRID, or a key for this response.
+             */
+            key: string;
+            /** @description The run, if you can read its project. */
+            run: components["schemas"]["RunRefOut"] | null;
+        };
         /** ImportCounts */
         ImportCounts: {
             /** Conflict */
@@ -6449,176 +6703,6 @@ export interface components {
             event: string;
             /** Status */
             status: string;
-        };
-        /** LineageEntityOut */
-        LineageEntityOut: {
-            /** Archived */
-            archived: boolean;
-            /** Hrid */
-            hrid: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Purged
-             * @description Its plugin's data was purged (ADR 0092).
-             */
-            purged: boolean;
-            /** Type */
-            type: string;
-        };
-        /** LineageGraphLinkOut */
-        LineageGraphLinkOut: {
-            /**
-             * Entity
-             * Format: uuid
-             * @description The entity the run made.
-             */
-            entity: string;
-            /**
-             * Input
-             * @description The run's input the parent was given as.
-             */
-            input: string;
-            /**
-             * Parent
-             * Format: uuid
-             * @description The entity it was made from.
-             */
-            parent: string;
-            /**
-             * Revision
-             * @description The parent's revision the run read.
-             */
-            revision: number;
-            /**
-             * Run
-             * @description The run's key, in runs.
-             */
-            run: string;
-        };
-        /** LineageGraphOut */
-        LineageGraphOut: {
-            /**
-             * Capped
-             * @description It stopped at 200 entities or 500 links, so some within the generations asked for are left out.
-             */
-            capped: boolean;
-            /**
-             * Earlier
-             * @description There are more generations back than were asked for.
-             */
-            earlier: boolean;
-            /**
-             * Entities
-             * @description The entities in it that you can read.
-             */
-            entities: components["schemas"]["LineageNodeOut"][];
-            /**
-             * Later
-             * @description There are more generations on than were asked for.
-             */
-            later: boolean;
-            /** Links */
-            links: components["schemas"]["LineageGraphLinkOut"][];
-            /**
-             * Root
-             * Format: uuid
-             * @description The entity it's the lineage of.
-             */
-            root: string;
-            /** Runs */
-            runs: components["schemas"]["LineageRunOut"][];
-        };
-        /** LineageGraphParams */
-        LineageGraphParams: {
-            /**
-             * Down
-             * @description How many generations on.
-             * @default 3
-             */
-            down: number;
-            /**
-             * Up
-             * @description How many generations back.
-             * @default 3
-             */
-            up: number;
-        };
-        /** LineageLinkOut */
-        LineageLinkOut: {
-            entity: components["schemas"]["LineageEntityOut"];
-            /**
-             * Input
-             * @description The run's input it was given as.
-             */
-            input: string;
-            /**
-             * Revision
-             * @description The parent's revision the run read.
-             */
-            revision: number;
-            /** @description The run, if you can read its project. */
-            run: components["schemas"]["RunRefOut"] | null;
-        };
-        /** LineageNodeOut */
-        LineageNodeOut: {
-            /** Archived */
-            archived: boolean;
-            /**
-             * Formerly
-             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
-             */
-            formerly?: string[];
-            /** Hrid */
-            hrid: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Purged
-             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
-             */
-            purged: boolean;
-            /**
-             * Title
-             * @description What it's called: its type's display title, or its HRID.
-             */
-            title: string;
-            /** Type */
-            type: string;
-        };
-        /** LineageOut */
-        LineageOut: {
-            /**
-             * Made From
-             * @description What runs made it from.
-             */
-            made_from: components["schemas"]["LineageLinkOut"][];
-            /**
-             * More
-             * @description Runs made more from it than are listed.
-             */
-            more: boolean;
-            /**
-             * Used To Make
-             * @description What runs made from it: the newest 100.
-             */
-            used_to_make: components["schemas"]["LineageLinkOut"][];
-        };
-        /** LineageRunOut */
-        LineageRunOut: {
-            /**
-             * Key
-             * @description How links refer to it: its HRID, or a key for this response.
-             */
-            key: string;
-            /** @description The run, if you can read its project. */
-            run: components["schemas"]["RunRefOut"] | null;
         };
         /** LocationsOut */
         LocationsOut: {
@@ -10659,6 +10743,159 @@ export interface components {
              */
             size: number;
         };
+        /** WalkFileOut */
+        WalkFileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** WalkItemOut */
+        WalkItemOut: {
+            /**
+             * Depth
+             * @description How many edges from the root its path takes.
+             */
+            depth: number;
+            entity: components["schemas"]["GraphEntityOut"];
+            /**
+             * Path
+             * @description From the root to it, the first way it was found.
+             */
+            path: components["schemas"]["WalkStepOut"][];
+        };
+        /** WalkOut */
+        WalkOut: {
+            /**
+             * Beyond
+             * @description There's more past `depth` (at most 30).
+             */
+            beyond: boolean;
+            /** Depth */
+            depth: number;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "upstream" | "downstream";
+            /**
+             * Hidden
+             * @description Upstream: references and inputs you can see that lead to entities you can't read, so the walk stops there. Ask someone who can read them. Always 0 downstream: what you can't read never says it depends on anything.
+             */
+            hidden: number;
+            /** Items */
+            items: components["schemas"]["WalkItemOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            root: components["schemas"]["GraphEntityOut"];
+            /**
+             * Total
+             * @description Results in every page.
+             */
+            total: number;
+        };
+        /** WalkPageParams */
+        WalkPageParams: {
+            /**
+             * Archived
+             * @description Only archived results, or only others.
+             */
+            archived?: boolean | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Depth
+             * @description How many edges away, at most.
+             * @default 10
+             */
+            depth: number;
+            /**
+             * Edges
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             */
+            edges?: ("reference" | "run" | "file")[];
+            /**
+             * Limit
+             * @description Results per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
+             */
+            project?: string | null;
+            /**
+             * Type
+             * @description Only results of these types, with their subtypes. The walk still goes through every type.
+             */
+            type?: string[];
+        };
+        /** WalkParams */
+        WalkParams: {
+            /**
+             * Archived
+             * @description Only archived results, or only others.
+             */
+            archived?: boolean | null;
+            /**
+             * Depth
+             * @description How many edges away, at most.
+             * @default 10
+             */
+            depth: number;
+            /**
+             * Edges
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             */
+            edges?: ("reference" | "run" | "file")[];
+            /**
+             * Project
+             * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
+             */
+            project?: string | null;
+            /**
+             * Type
+             * @description Only results of these types, with their subtypes. The walk still goes through every type.
+             */
+            type?: string[];
+        };
+        /** WalkStepOut */
+        WalkStepOut: {
+            /** @description Where this step reaches. Downstream, it depends on the step before (or the root); upstream, the step before depends on it. */
+            entity: components["schemas"]["GraphEntityOut"];
+            /**
+             * Field
+             * @description A reference's field; a run's input (`antibody.heavy_chain` for what it included); a file param; empty for a record.
+             */
+            field: string;
+            /** @description For a file edge, the file, if you can read it. */
+            file: components["schemas"]["WalkFileOut"] | null;
+            /**
+             * Hidden Run
+             * @description A run made it, in a project you can't read: it isn't named.
+             */
+            hidden_run: boolean;
+            /**
+             * Kind
+             * @description `reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).
+             * @enum {string}
+             */
+            kind: "reference" | "run" | "file" | "record";
+            /**
+             * Revision
+             * @description For a run's input: its revision the run read. Empty for a reference, which names what's there now.
+             */
+            revision: number | null;
+            /** @description The run, if you can read its project. */
+            run: components["schemas"]["RunRefOut"] | null;
+        };
         /** WebhookCreated */
         WebhookCreated: {
             /** Active */
@@ -12721,9 +12958,24 @@ export interface operations {
             };
         };
     };
-    iki_server_api_entities_get_lineage: {
+    iki_server_api_graph_downstream: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Whose record, when an entry's ID or HRID names several (ADR 0115). */
+                project?: string | null;
+                /** @description How many edges away, at most. */
+                depth?: number;
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file")[];
+                /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
+                type?: string[];
+                /** @description Only archived results, or only others. */
+                archived?: boolean | null;
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Results per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -12738,18 +12990,55 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineageOut"];
+                    "application/json": components["schemas"]["WalkOut"];
                 };
             };
         };
     };
-    iki_server_api_entities_get_lineage_graph: {
+    iki_server_api_graph_downstream_csv: {
         parameters: {
             query?: {
-                /** @description How many generations back. */
+                /** @description Whose record, when an entry's ID or HRID names several (ADR 0115). */
+                project?: string | null;
+                /** @description How many edges away, at most. */
+                depth?: number;
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file")[];
+                /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
+                type?: string[];
+                /** @description Only archived results, or only others. */
+                archived?: boolean | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+        };
+    };
+    iki_server_api_graph_get_graph: {
+        parameters: {
+            query?: {
+                /** @description Whose record, when an entry's ID or HRID names several (ADR 0115). */
+                project?: string | null;
+                /** @description How many steps upstream. */
                 up?: number;
-                /** @description How many generations on. */
+                /** @description How many steps downstream. */
                 down?: number;
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file")[];
             };
             header?: never;
             path: {
@@ -12765,7 +13054,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineageGraphOut"];
+                    "application/json": components["schemas"]["GraphOut"];
                 };
             };
         };
@@ -13047,6 +13336,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_graph_upstream: {
+        parameters: {
+            query?: {
+                /** @description Whose record, when an entry's ID or HRID names several (ADR 0115). */
+                project?: string | null;
+                /** @description How many edges away, at most. */
+                depth?: number;
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file")[];
+                /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
+                type?: string[];
+                /** @description Only archived results, or only others. */
+                archived?: boolean | null;
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Results per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalkOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_graph_upstream_csv: {
+        parameters: {
+            query?: {
+                /** @description Whose record, when an entry's ID or HRID names several (ADR 0115). */
+                project?: string | null;
+                /** @description How many edges away, at most. */
+                depth?: number;
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file")[];
+                /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
+                type?: string[];
+                /** @description Only archived results, or only others. */
+                archived?: boolean | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
         };

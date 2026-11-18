@@ -344,25 +344,24 @@ def test_new_entities_record_what_they_were_made_from(world: World, s3: Any) -> 
     made = Entity.objects.get(pk=effects[0]["entity"])
     assert made.owner_project_id == world.project.pk
     assert made.created_by == world.users["runner"]
-    lineage = runner.get(f"/entities/{made.pk}/lineage").json()
-    assert lineage["made_from"] == [
+    upstream = runner.get(f"/entities/{made.pk}/upstream", edges="run").json()
+    [item] = upstream["items"]
+    assert item["entity"]["id"] == parent
+    assert item["path"] == [
         {
-            "entity": {
-                "id": parent,
-                "hrid": run["inputs"][0]["hrid"],
-                "type": "acme/protein.Protein",
-                "archived": False,
-                "purged": False,
-            },
-            "revision": 1,
-            "input": "protein",
+            "kind": "run",
+            "field": "protein",
             "run": {"id": run["id"], "hrid": run["hrid"], "action": PREDICT},
+            "hidden_run": False,
+            "file": None,
+            "revision": 1,
+            "entity": item["entity"],
         }
     ]
-    assert lineage["used_to_make"] == []
-    used = runner.get(f"/entities/{parent}/lineage").json()
-    assert {link["entity"]["id"] for link in used["used_to_make"]} == {e["entity"] for e in effects}
-    assert used["more"] is False
+    assert runner.get(f"/entities/{made.pk}/downstream").json()["items"] == []
+    used = runner.get(f"/entities/{parent}/downstream", edges="run").json()
+    assert {i["entity"]["id"] for i in used["items"]} == {e["entity"] for e in effects}
+    assert used["beyond"] is False
     provenance = runner.get(f"/entities/{made.pk}/provenance").json()
     assert provenance["method"]["run"]["hrid"] == run["hrid"]
     assert Lineage.objects.count() == 2

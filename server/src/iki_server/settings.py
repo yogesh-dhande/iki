@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "iki_server.entities",
     "iki_server.searches",
     "iki_server.runs",
+    "iki_server.graph",
     "iki_server.plugins",
     "iki_server.bundles",
     # The core plugin's types (iki/core.Collection), which every deployment has

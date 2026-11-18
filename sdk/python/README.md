@@ -116,11 +116,24 @@ mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searche
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from
 iki.entities.origins("DNA-000042")  # the database record or file it was imported from
-iki.entities.lineage("PRT-000123", up=2, down=1)
+
+# Across the graph (ADR 0123): what it was derived from, and what was derived from it,
+# through references, runs and files, nearest first, each with the path that reached it.
+for item in iki.entities.upstream("RES-000004"):
+    print(item["depth"], item["entity"]["hrid"], [s["kind"] for s in item["path"]])
+impact = iki.entities.downstream("DNR-000001", type="iki/example_lims.Aliquot")
+impact.to_pandas()  # hrid, title, type, project, depth, archived, path
+impact.summary()["total"]  # in every page; "hidden" counts trails you can't read
+iki.entities.downstream_csv("DNR-000001")  # everything at once, as the CSV has it
+iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
+# In a search, with any other condition: every sample from the donor not yet released.
+from_donor = {"field": "downstream", "op": "of", "value": "DNR-000001"}
+unreleased = {"not": {"field": "state", "op": "eq", "value": "released"}}
+iki.entities.search("iki/example_lims.Sample", where={"all": [from_donor, unreleased]})
 ```
 
 Conditions take `op` as one of `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`,
-`contains`, `starts_with`, `matches`, `has` and `is_set`, and combine with
+`contains`, `starts_with`, `matches`, `has`, `of` and `is_set`, and combine with
 `{"all": [...]}`, `{"any": [...]}` and `{"not": ...}`.
 
 ## Running actions
