@@ -1,8 +1,12 @@
 """Checks a numbering-tools image: ANARCI, with the image's hmmscan and germlines, numbers
-trastuzumab's variable domains (PDB 1N8Z) as IMGT does, and finds their human germlines.
+trastuzumab's variable domains (PDB 1N8Z) as IMGT does, and finds their nearest human
+germlines.
 
-Trastuzumab is a humanized antibody, its heavy chain grafted onto IGHV3-66 and its light
-chain onto IGKV1-39: an image without hmmscan, or without IMGT's germlines, fails this.
+A regression test of the nearest human germline V genes ANARCI computes for them,
+IGHV3-66*01 (82.5% of the V region the same) and IGKV1-39*01 (87.0%): an image without
+hmmscan, or without IMGT's germlines, fails it. They're the nearest, not trastuzumab's
+history: Carter et al. (PNAS 89:4285-4289, 1992) humanized 4D5 onto human consensus
+frameworks (VH subgroup III, VL kappa subgroup I), not onto particular germline genes.
 
     docker run --rm --network none -v "$PWD/plugins/antibody/images/numbering-tools:/check:ro" \
         IMAGE python -I /check/check.py
