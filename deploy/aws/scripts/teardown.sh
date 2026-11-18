@@ -35,12 +35,22 @@ root=deploy/aws/production
 log() { printf '\n== %s\n' "$*"; }
 # An output of deploy/aws/production's state, or nothing once it's destroyed.
 out() { tofu -chdir="$root" output -json 2>/dev/null | jq -er --arg k "$1" '.[$k].value // empty'; }
-# A variable as terraform.tfvars sets it, or its default.
-var() { echo "var.$1" | tofu -chdir="$root" console 2>/dev/null | tr -d '"'; }
+# A variable as terraform.tfvars sets it, or its default. The console only reads, so it
+# takes no lock: one a failed apply is still letting go of would fail it. Read into a
+# variable, so a failure stops the script (with tofu's error) rather than reading as empty.
+var() {
+  local value
+  value=$(echo "var.$1" | tofu -chdir="$root" console -lock=false) || {
+    echo "Couldn't read var.$1 of $root (above)." >&2
+    return 1
+  }
+  printf '%s\n' "${value//\"/}"
+}
 
 [[ -d $root/.terraform ]] || { echo "Initialize $root first: tofu -chdir=$root init -backend-config=backend.hcl" >&2; exit 1; }
-if [[ $(var name) != "$deployment" ]]; then
-  echo "$root's variables are for deployment $(var name), not $deployment." >&2
+configured=$(var name)
+if [[ $configured != "$deployment" ]]; then
+  echo "$root's variables are for deployment $configured, not $deployment." >&2
   exit 1
 fi
 region=$(var region)
