@@ -607,8 +607,9 @@ export function PersonPicker({
   });
   const text = typing.over === value?.id ? typing.text : value ? personText(value) : "";
   const typed = value && text === personText(value) ? "" : text;
-  const search = useDeferredValue(typed);
-  const found = useQuery(nameableQuery(projectId, role, search));
+  // Asked for as typed, not deferred: the suggestions are only ever those for the text in
+  // the box (see nameableQuery), so they don't change as someone moves to choose one.
+  const found = useQuery(nameableQuery(projectId, role, typed));
   const items: Picked[] = (found.data ?? []).map((p) => ({
     id: p.id,
     hrid: p.email,
@@ -687,7 +688,7 @@ export function PersonPicker({
           <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
           {state.collection.size === 0 ? (
             <p className="listbox-empty">
-              {found.isFetching
+              {found.isFetching && !found.isPlaceholderData
                 ? "Searching…"
                 : typed
                   ? `Nobody here matches “${typed}”.`

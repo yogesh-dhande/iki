@@ -5,12 +5,13 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { ME as SEARCHER, searchWords, validateFilters } from "./filters";
-import { answer, calls, ME, page } from "./test-server";
+import { narrowNameable } from "./people";
+import { answer, calls, ME, page, type Sent } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000e601";
 const ANA = "00000000-0000-7000-8000-0000000000a1";
@@ -170,6 +171,92 @@ describe("naming someone", () => {
     await screen.findByText("Saved revision 3 of SMP-000001.");
     const sent = calls("PATCH", `/api/v1/entities/${SAMPLE_ID}`);
     expect(sent.at(-1)?.body).toEqual({ values: { reviewer: BO }, reason: "" });
+  });
+});
+
+describe("suggesting people as they're typed", () => {
+  const ana = { id: ANA, name: "Ana Lima", email: "ana@example.com" };
+  const bo = { id: BO, name: "Bo Chen", email: "bo@example.com" };
+  const cy = { id: `${BO.slice(0, -1)}c`, name: "Cy Bolt", email: "cy@example.com" };
+
+  it("works out the server's answer from a whole earlier one, in its order", () => {
+    // Those starting with the text first ("Bolt" starts a word), then by name.
+    expect(narrowNameable([ana, bo, cy], "", "bo")).toEqual([bo, cy]);
+    expect(narrowNameable([cy, bo], "b", "BO ")).toEqual([bo, cy]);
+    expect(narrowNameable([ana, bo, cy], "", "lima")).toEqual([ana]);
+    expect(narrowNameable([ana, bo, cy], "", "example")).toEqual([ana, bo, cy]);
+    expect(narrowNameable([ana, bo, cy], "", "zed")).toEqual([]);
+  });
+
+  it("doesn't guess when the earlier answer can't hold everyone who matches", () => {
+    // Other text, not more of it: people it left out may match.
+    expect(narrowNameable([bo], "bo", "b")).toBeUndefined();
+    expect(narrowNameable([bo], "bo", "ana")).toBeUndefined();
+    // Cut at the limit: others may match too.
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      ...bo,
+      id: `${BO.slice(0, -2)}${String(10 + i)}`,
+    }));
+    expect(narrowNameable(many, "", "bo")).toBeUndefined();
+  });
+
+  it("shows only those matching what's typed, which stay put when the server answers", async () => {
+    onSample();
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, async (call: Sent) => {
+      if (!call.query.get("q")) return [ana, bo, cy];
+      await held;
+      return narrowNameable([ana, bo, cy], "", call.query.get("q") ?? "");
+    });
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
+    await user.click(picker);
+    await screen.findByRole("option", { name: /Ana Lima/ });
+    await user.type(picker, "bo");
+    // The server hasn't answered "bo" yet, and Ana, who doesn't match, is gone already.
+    const shown = screen.getAllByRole("option");
+    expect(shown.map((o) => o.textContent)).toEqual([
+      "Bo Chen bo@example.com",
+      "Cy Bolt cy@example.com",
+    ]);
+    expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
+    await act(async () => {
+      release();
+      await held;
+    });
+    await waitFor(() => {
+      expect(calls("GET", `/api/v1/projects/${KINASE.id}/people`).at(-1)?.query.get("q")).toBe(
+        "bo",
+      );
+    });
+    // The same options, in the same place: none moved under the pointer.
+    expect(screen.getAllByRole("option")).toEqual(shown);
+    await user.click(screen.getByRole("option", { name: /Bo Chen/ }));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(picker).toHaveValue("Bo Chen (bo@example.com)");
+  });
+
+  it("says it's searching, rather than show people another text found", async () => {
+    onSample();
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      id: `${BO.slice(0, -2)}${String(10 + i)}`,
+      name: `Person ${String(10 + i)}`,
+      email: `p${String(10 + i)}@example.com`,
+    }));
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, async (call: Sent) => {
+      if (!call.query.get("q")) return many;
+      return new Promise(() => undefined);
+    });
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
+    await user.click(picker);
+    await screen.findByRole("option", { name: /Person 10/ });
+    await user.type(picker, "bo");
+    expect(await screen.findByText("Searching…")).toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
 });
 

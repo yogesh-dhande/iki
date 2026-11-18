@@ -78,6 +78,8 @@ def nameable(
     rows = list(candidates.only("pk", "name", "email").order_by("name", "email")[:200])
     key = text.casefold()
 
+    # The web app's picker works out this answer from an earlier, wider one while it waits
+    # (narrowNameable in web/app/src/people.ts): a change to the match or order goes there too.
     def rank(u: Any) -> tuple[int, str]:  # noqa: ANN401 - a User
         name, email = (u.name or "").casefold(), u.email.casefold()
         starts = name.startswith(key) or email.startswith(key) or f" {key}" in f" {name}"
