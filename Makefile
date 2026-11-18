@@ -113,7 +113,9 @@ protocol: ## Regenerate the worker's protocol types from the server's schemas an
 	  > worker/crates/iki-protocol/src/generated.rs
 
 .PHONY: check-web
-check-web: ## ESLint, Prettier, tsc, Vitest, the generated client, and the build
+# The parsers first, as CI builds them: the expression tests and the app's own load them.
+check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generated client, and the build
+	$(PNPM) --filter @ikisci/app build:wasm
 	$(PNPM) lint
 	$(PNPM) format:check
 	$(PNPM) typecheck
