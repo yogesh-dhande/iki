@@ -53,7 +53,10 @@ def protein(i: int, sequence: str, name: str | None = None) -> dict[str, Any]:
 
 
 def run(
-    tmp_path: Path, proteins: list[dict[str, Any]], scheme: str | None = "imgt"
+    tmp_path: Path,
+    proteins: list[dict[str, Any]],
+    scheme: str | None = "imgt",
+    cdr_definition: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     fake = tmp_path / "fake" / "anarci"
     fake.mkdir(parents=True, exist_ok=True)
@@ -64,7 +67,11 @@ def run(
         json.dumps(
             {
                 "run": {"hrid": "RUN-000009"},
-                "params": {} if scheme is None else {"scheme": scheme},
+                "params": {
+                    key: value
+                    for key, value in (("scheme", scheme), ("cdr_definition", cdr_definition))
+                    if value is not None
+                },
                 "inputs": {"protein": proteins},
             }
         )
@@ -109,6 +116,7 @@ def test_a_heavy_chain_gets_its_imgt_cdrs_and_closest_human_germline(tmp_path: P
         "chain_type": "heavy",
         "species": "human",
         "numbering_scheme": "imgt",
+        "cdr_definition": "imgt",
         "cdr_h1": "GFNIKDTY",
         "cdr_h2": "IYPTNGYT",
         "cdr_h3": "SRWGGDGFYAMDY",
@@ -128,6 +136,8 @@ def test_a_heavy_chain_gets_its_imgt_cdrs_and_closest_human_germline(tmp_path: P
     assert domain["numbering"][:2] == [[1, "", "E"], [2, "", "V"]]
     assert "".join(aa for _, _, aa in domain["numbering"]) == SEQUENCES["vh"]
     assert domain["species"] == "human"
+    # IMGT's CDRs, 27-38, 56-65 and 105-117, are residues 26-33, 51-58 and 97-109.
+    assert domain["cdrs"] == [[26, 33], [51, 58], [97, 109]]
     assert (
         domain["human"]
         == domain["closest"]
@@ -146,6 +156,7 @@ def test_a_heavy_chain_gets_its_imgt_cdrs_and_closest_human_germline(tmp_path: P
 def test_anarci_is_asked_with_every_species_then_with_human_alone(tmp_path: Path) -> None:
     run(tmp_path, [protein(1, SEQUENCES["vh"] + "*"), protein(2, SEQUENCES["vl"].lower())])
 
+    # IMGT's CDRs are in IMGT's numbering, so it's asked nothing more.
     every, human = called(tmp_path)
     # A final stop is left out, and lower case read as upper.
     assert every["sequences"] == human["sequences"] == [SEQUENCES["vh"], SEQUENCES["vl"]]
@@ -173,41 +184,97 @@ def test_a_mouse_chain_is_numbered_as_a_mouse_s_and_far_from_human(tmp_path: Pat
     assert values["cdr_h3"] == "ARERDYRLDY"
 
 
+#: Trastuzumab's CDRs (PDB 1N8Z; Carter et al. 1992), by each definition, read by hand off
+#: its sequence with the boundaries A. C. R. Martin tabulates (bioinf.org.uk/abs): Kabat's
+#: H31-H35B, H50-H65, H95-H102 and L24-L34, L50-L56, L89-L97 in Kabat's numbering; in
+#: Chothia's, Chothia's H26-H32, H52-H56, H95-H102, AbM's H26-H35, H50-H58, H95-H102 and
+#: Contact's H30-H35, H47-H58, H93-H101 and L30-L36, L46-L55, L89-L96 (Chothia's and AbM's
+#: light CDRs are Kabat's); IMGT's 27-38, 56-65 and 105-117 (IMGT/3Dstructure-DB, 1N8Z).
+TRASTUZUMAB_CDRS = {
+    "kabat": (
+        ("DTYIH", "RIYPTNGYTRYADSVKG", "WGGDGFYAMDY"),
+        ("RASQDVNTAVA", "SASFLYS", "QQHYTTPPT"),
+    ),
+    "chothia": (("GFNIKDT", "YPTNGY", "WGGDGFYAMDY"), ("RASQDVNTAVA", "SASFLYS", "QQHYTTPPT")),
+    "abm": (("GFNIKDTYIH", "RIYPTNGYTR", "WGGDGFYAMDY"), ("RASQDVNTAVA", "SASFLYS", "QQHYTTPPT")),
+    "contact": (("KDTYIH", "WVARIYPTNGYTR", "SRWGGDGFYAMD"), ("NTAVAWY", "LLIYSASFLY", "QQHYTTPP")),
+    "imgt": (("GFNIKDTY", "IYPTNGYT", "SRWGGDGFYAMDY"), ("QDVNTA", "SAS", "QQHYTTPPT")),
+}
+
+
 @pytest.mark.parametrize(
-    ("scheme", "heavy", "light"),
+    ("scheme", "definition", "numberings"),
     [
-        # Trastuzumab's, as Kabat and Chothia define them (Carter et al. 1992; 1N8Z).
-        (
-            "kabat",
-            ("DTYIH", "RIYPTNGYTRYADSVKG", "WGGDGFYAMDY"),
-            ("RASQDVNTAVA", "SASFLYS", "QQHYTTPPT"),
-        ),
-        (
-            "chothia",
-            ("GFNIKDT", "YPTNGY", "WGGDGFYAMDY"),
-            ("RASQDVNTAVA", "SASFLYS", "QQHYTTPPT"),
-        ),
-        ("imgt", ("GFNIKDTY", "IYPTNGYT", "SRWGGDGFYAMDY"), ("QDVNTA", "SAS", "QQHYTTPPT")),
+        ("imgt", "imgt", {"imgt"}),
+        ("kabat", "kabat", {"kabat"}),
+        ("chothia", "chothia", {"chothia"}),
+        # Martin's numbering is Chothia's in the CDRs, and AHo's defines none of its own.
+        ("martin", "chothia", {"martin", "chothia"}),
+        ("aho", "imgt", {"aho", "imgt"}),
     ],
 )
 def test_each_scheme_has_its_own_cdrs(
-    tmp_path: Path, scheme: str, heavy: tuple[str, ...], light: tuple[str, ...]
+    tmp_path: Path, scheme: str, definition: str, numberings: set[str]
 ) -> None:
     _, output = run(tmp_path, [protein(1, SEQUENCES["vh"]), protein(2, SEQUENCES["vl"])], scheme)
 
     vh, vl = (u["values"] for u in output["updates"]["protein"])
-    assert {c["scheme"] for c in called(tmp_path)} == {scheme}
+    heavy, light = TRASTUZUMAB_CDRS[definition]
+    assert {c["scheme"] for c in called(tmp_path)} == numberings
     assert (vh["cdr_h1"], vh["cdr_h2"], vh["cdr_h3"]) == heavy
     assert (vl["cdr_l1"], vl["cdr_l2"], vl["cdr_l3"]) == light
     assert vh["numbering_scheme"] == vl["numbering_scheme"] == scheme
+    assert vh["cdr_definition"] == vl["cdr_definition"] == definition
     assert (vl["chain_type"], vl["light_v_gene"]) == ("kappa", "IGKV1-39*01")
+
+
+@pytest.mark.parametrize("scheme", ["imgt", "kabat", "chothia", "martin", "aho"])
+@pytest.mark.parametrize("definition", ["imgt", "kabat", "chothia", "abm", "contact"])
+def test_a_cdr_definition_finds_the_same_residues_in_any_numbering(
+    tmp_path: Path, scheme: str, definition: str
+) -> None:
+    _, output = run(
+        tmp_path, [protein(1, SEQUENCES["vh"]), protein(2, SEQUENCES["vl"])], scheme, definition
+    )
+
+    vh, vl = (u["values"] for u in output["updates"]["protein"])
+    assert (
+        (vh["cdr_h1"], vh["cdr_h2"], vh["cdr_h3"]),
+        (vl["cdr_l1"], vl["cdr_l2"], vl["cdr_l3"]),
+    ) == (TRASTUZUMAB_CDRS[definition])
+    assert (vh["numbering_scheme"], vh["cdr_definition"]) == (scheme, definition)
+    # The residues are numbered in the scheme chosen, whichever numbering found the CDRs.
+    (domain,) = vh["variable_domains"]
+    canonical = {"imgt": 104, "kabat": 92, "chothia": 92, "martin": 92, "aho": 106}[scheme]
+    assert [n for n, _, aa in domain["numbering"] if aa == "C"][-1] == canonical
+
+
+def test_kabat_s_cdr_h1_keeps_every_insertion_at_h35(tmp_path: Path) -> None:
+    # Three residues more in CDR-H1 than trastuzumab's: Kabat's numbering puts them at H35A to
+    # H35C, all before the conserved W36, so all are CDR-H1's (as AbNumber's Kabat borders
+    # have it); Chothia's numbering puts them at H31A-H31C, inside AbM's CDR-H1.
+    _, output = run(tmp_path, [protein(1, SEQUENCES["long_h1"], "Long H1")], "kabat")
+
+    values = output["updates"]["protein"][0]["values"]
+    assert values["cdr_h1"] == "DTYSGSIH"
+    _, output = run(tmp_path, [protein(1, SEQUENCES["long_h1"])], "kabat", "abm")
+    assert output["updates"]["protein"][0]["values"]["cdr_h1"] == "GFNIKDTYSGSIH"
 
 
 def test_the_scheme_is_imgt_unless_chosen(tmp_path: Path) -> None:
     _, output = run(tmp_path, [protein(1, SEQUENCES["vh"])], scheme=None)
 
     assert {c["scheme"] for c in called(tmp_path)} == {"imgt"}
-    assert output["updates"]["protein"][0]["values"]["cdr_h3"] == "SRWGGDGFYAMDY"
+    values = output["updates"]["protein"][0]["values"]
+    assert (values["cdr_definition"], values["cdr_h3"]) == ("imgt", "SRWGGDGFYAMDY")
+
+
+def test_the_cdrs_numbering_is_asked_once_more_with_every_species(tmp_path: Path) -> None:
+    run(tmp_path, [protein(1, SEQUENCES["vh"])], "kabat", "contact")
+
+    every, human, cdrs = called(tmp_path)
+    assert (every["scheme"], human["scheme"], cdrs["scheme"]) == ("kabat", "kabat", "chothia")
+    assert (cdrs["allowed_species"], cdrs["assign_germline"]) == (None, False)
 
 
 def test_an_scfv_has_both_domains(tmp_path: Path) -> None:

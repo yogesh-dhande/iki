@@ -20,16 +20,25 @@ structures.
 - **Proteins' numbering** (an extension of `iki/protein.Protein`): what numbering a
   chain finds, in the plugin's own table.
   - Its variable domains (`variable_domains`), in order along the chain: each
-    residue's number and insertion code, and where each domain starts and
-    ends. An scFv's chain has a heavy and a light one (`heavy_and_light`).
-  - Its CDRs (`cdr_h1` to `cdr_l3`), in the scheme it was numbered in: IMGT's,
-    Kabat's or Chothia's.
+    residue's number and insertion code, where each domain starts and ends,
+    and where its CDRs are. An scFv's chain has a heavy and a light one
+    (`heavy_and_light`).
+  - The scheme it was numbered in (`numbering_scheme`: IMGT's, Kabat's,
+    Chothia's, Martin's or AHo's), and its CDRs (`cdr_h1` to `cdr_l3`) by the
+    definition chosen (`cdr_definition`: IMGT's, Kabat's, Chothia's, AbM's or
+    Contact's).
   - The species whose germline V gene it's closest to (`species`), such as
     `alpaca` for a nanobody.
   - Its humanness: the human germline V gene each domain is closest to, and how
     much of its V region is the same (`heavy_germline_identity`,
     `light_germline_identity`). A human antibody is usually above 90%, a
     humanized one above 80%.
+  - Its chain type, closest species and germlines follow from its sequence
+    alone, so they're its registry entry's (`registry: derived`), the same in
+    every project that holds it. Its numbering, CDRs and liabilities depend on
+    the scheme and definition a run chose, so they're each project's record's
+    (ADR 0115): numbering it again, in another scheme, replaces them in that
+    project, and another project's are its own.
 
 - **Proteins' sequence liabilities** (the same extension of `iki/protein.Protein`):
   the motifs a developability screen reports in a numbered chain
@@ -80,6 +89,44 @@ germlines alone, for humanness. Its germlines are
 they found. A protein without an antibody domain, or with a residue ANARCI
 can't read (such as U), is left as it was, and the run says which.
 
+### Numbering schemes and CDR definitions
+
+`scheme` says how residues are numbered: [IMGT's](https://www.imgt.org/IMGTScientificChart/Numbering/IMGTIGVLsuperfamily.html),
+Kabat's, Chothia's, Martin's (enhanced Chothia: Abhinandan and Martin, _Mol
+Immunol_ 45:3832-3839, 2008) or AHo's (Honegger and Plückthun, _J Mol Biol_
+309:657-670, 2001), all as ANARCI numbers them. `cdr_definition` says where
+the CDRs are. Each definition's boundaries are published in one numbering, so
+the CDRs are read in that numbering, which ANARCI numbers the chain in again if
+it isn't the chain's: a definition finds the same residues whichever scheme
+numbers the chain. Each domain keeps where its CDRs are in the chain.
+
+| Definition | Read in   | CDR-H1   | CDR-H2  | CDR-H3   | CDR-L1  | CDR-L2  | CDR-L3  |
+| ---------- | --------- | -------- | ------- | -------- | ------- | ------- | ------- |
+| `imgt`     | IMGT's    | 27-38    | 56-65   | 105-117  | 27-38   | 56-65   | 105-117 |
+| `kabat`    | Kabat's   | H31-H35B | H50-H65 | H95-H102 | L24-L34 | L50-L56 | L89-L97 |
+| `chothia`  | Chothia's | H26-H32  | H52-H56 | H95-H102 | L24-L34 | L50-L56 | L89-L97 |
+| `abm`      | Chothia's | H26-H35  | H50-H58 | H95-H102 | L24-L34 | L50-L56 | L89-L97 |
+| `contact`  | Chothia's | H30-H35  | H47-H58 | H93-H101 | L30-L36 | L46-L55 | L89-L96 |
+
+IMGT's are Lefranc et al.'s (_Dev Comp Immunol_ 27:55-77, 2003). Kabat's, AbM's
+and Contact's are as A. C. R. Martin tabulates them
+([bioinf.org.uk/abs](http://www.bioinf.org.uk/abs/info.html); Martin, in
+_Antibody Engineering_ vol. 2, 2010, Table 3.4), each in the numbering that
+table gives it in; AbM's and Kabat's CDR-H1 read in Chothia's numbering
+(H26-H35, H31-H35) are the same residues as in Kabat's (H26-H35B, H31-H35B).
+Chothia's are the wider set Martin's table gave until 2021, which SAbDab still
+uses; the table now gives a narrower consensus (H26-H32, H52-H56, H96-H101,
+L26-L32, L50-L52, L91-L96), which isn't implemented. A CDR keeps its endpoints'
+insertions. Kabat's numbering has room for two at H35 (H35A, H35B), where
+Martin's table ends Kabat's CDR-H1; ANARCI numbers a longer CDR-H1's further
+residues H35C onwards, still before the conserved W36, and these are kept in
+CDR-H1, as AbNumber's Kabat borders also have it.
+
+Without a `cdr_definition`, a scheme's CDRs are its own: IMGT's, Kabat's or
+Chothia's for those numberings; Chothia's for Martin's, whose numbering is
+Chothia's in the CDRs and differs only in framework; and IMGT's for AHo's,
+which numbers for structural alignment and defines no CDRs of its own.
+
 ### Sequence liabilities
 
 `find_liabilities` reads a chain's liabilities off the numbering `number_chains`
@@ -121,8 +168,9 @@ the whole variable fragment) this follows:
   leaves `NS` at medium. Both sources count them in the CDRs alone, so a motif
   in framework isn't reported.
 - **Unpaired cysteines**: every cysteine in a variable domain other than the two
-  that make its disulphide, at IMGT 23 and 104 (Kabat's and Chothia's numbering
-  of the same residues, heavy 22 and 92, light 23 and 88). If either of those
+  that make its disulphide, at IMGT 23 and 104 (Kabat's, Chothia's and Martin's
+  numbering of the same residues, heavy 22 and 92, light 23 and 88; AHo's 23 and
+  106). If either of those
   positions isn't a cysteine, the other has nothing to pair with, so it's
   reported too. LAP's `xCys` and `mCys`.
 - **Oxidation**: methionine and tryptophan in a CDR. LAP's `MetOx` and `TrpOx`.
@@ -139,10 +187,10 @@ action doesn't compute them. LAP's own `Hydro` (`NP`), `FragM` (`TS`), low
 `[STK]N` deamidation and integrin-binding motifs aren't implemented.
 
 A liability is a site to look at, not a defect: what a screen reports needs
-measuring before it's believed. Which scheme a chain was numbered in decides
-where its CDRs are and how a liability is numbered, so screening the same chain
-after renumbering it can report different regions and numbers for the same
-residues.
+measuring before it's believed. Which CDR definition a chain's numbering used
+decides where its CDRs are, and which scheme numbered it how a liability is
+numbered, so screening the same chain after renumbering it can report different
+regions and numbers for the same residues.
 
 `liabilities` and `liability_counts` are JSON, which a chain's page shows as it
 is, under its fields; `liability_count` is an indexed integer, so chains can be

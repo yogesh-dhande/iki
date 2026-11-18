@@ -3,6 +3,12 @@
 # What numbering an antibody's chain finds: its variable domains, their CDRs, and how
 # close they are to human germlines. The fields live in this plugin's table, so the
 # protein plugin's proteins are untouched without it.
+#
+# What follows from the sequence alone (its chain type, closest species and germlines)
+# is the registry entry's (`registry: derived`), the same for every project that holds
+# it. Its numbering, CDRs and liabilities depend on the scheme and CDR definition a run
+# chose, so they're each project's record's: numbering again, in another scheme,
+# replaces them there, and another project's are its own (ADR 0115).
 apiVersion: iki/v1
 kind: EntityTypeExtension
 extends_type: iki/protein.Protein
@@ -29,32 +35,25 @@ fields:
       nanobody's alpaca.
   numbering_scheme:
     type: enum
-    registry: derived
-    values: [imgt, kabat, chothia]
+    values: [imgt, kabat, chothia, martin, aho]
     computed: true
-    description: The scheme its domains were numbered in, which says where its CDRs are.
-  cdr_h1: { registry: derived, type: string, label: CDR-H1, max_length: 64, computed: true }
-  cdr_h2: { registry: derived, type: string, label: CDR-H2, max_length: 64, computed: true }
-  cdr_h3:
-    {
-      registry: derived,
-      type: string,
-      label: CDR-H3,
-      max_length: 64,
-      computed: true,
-      indexed: true,
-    }
-  cdr_l1: { registry: derived, type: string, label: CDR-L1, max_length: 64, computed: true }
-  cdr_l2: { registry: derived, type: string, label: CDR-L2, max_length: 64, computed: true }
-  cdr_l3:
-    {
-      registry: derived,
-      type: string,
-      label: CDR-L3,
-      max_length: 64,
-      computed: true,
-      indexed: true,
-    }
+    description: >-
+      The scheme its domains were numbered in: IMGT's, Kabat's, Chothia's,
+      Martin's (enhanced Chothia) or AHo's.
+  cdr_definition:
+    type: enum
+    label: CDR definition
+    values: [imgt, kabat, chothia, abm, contact]
+    computed: true
+    description: >-
+      Which definition says where its CDRs are: IMGT's, Kabat's, Chothia's,
+      AbM's or Contact's, each read in the numbering it's published in.
+  cdr_h1: { type: string, label: CDR-H1, max_length: 64, computed: true }
+  cdr_h2: { type: string, label: CDR-H2, max_length: 64, computed: true }
+  cdr_h3: { type: string, label: CDR-H3, max_length: 64, computed: true, indexed: true }
+  cdr_l1: { type: string, label: CDR-L1, max_length: 64, computed: true }
+  cdr_l2: { type: string, label: CDR-L2, max_length: 64, computed: true }
+  cdr_l3: { type: string, label: CDR-L3, max_length: 64, computed: true, indexed: true }
   heavy_v_gene:
     type: string
     registry: derived
@@ -99,12 +98,12 @@ fields:
     { registry: derived, type: string, label: Light J gene, max_length: 64, computed: true }
   variable_domains:
     type: json
-    registry: derived
     computed: true
     description: >-
       Each variable domain numbering found, in order along the chain: its chain
       type, where it starts and ends (from 1), each residue's number and
-      insertion code, the closest species, and the germline genes it's closest
+      insertion code, where its three CDRs start and end (from 1, by the CDR
+      definition), the closest species, and the germline genes it's closest
       to, among every species' and among human's.
     schema:
       type: array
@@ -138,11 +137,23 @@ fields:
                 - { type: string, minLength: 1, maxLength: 1 }
               minItems: 3
               maxItems: 3
+          cdrs:
+            type: array
+            minItems: 3
+            maxItems: 3
+            items:
+              oneOf:
+                - type: "null"
+                - type: array
+                  prefixItems:
+                    - { type: integer, minimum: 1 }
+                    - { type: integer, minimum: 1 }
+                  minItems: 2
+                  maxItems: 2
           closest: { $ref: "#/$defs/germlines" }
           human: { $ref: "#/$defs/germlines" }
   liabilities:
     type: json
-    registry: derived
     label: Sequence liabilities
     computed: true
     description: >-
@@ -177,7 +188,6 @@ fields:
           severity: { enum: [high, medium, low] }
   liability_counts:
     type: json
-    registry: derived
     label: Sequence liabilities by kind
     computed: true
     description: >-
@@ -197,7 +207,6 @@ fields:
           - pyroglutamate
   liability_count:
     type: int
-    registry: derived
     label: Sequence liabilities found
     min: 0
     computed: true

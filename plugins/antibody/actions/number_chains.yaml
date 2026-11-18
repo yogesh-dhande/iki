@@ -5,21 +5,31 @@ name: number_chains
 label: Number antibody chains (ANARCI)
 description: >-
   Finds the antibody variable domains in proteins, with ANARCI, numbers them in
-  the scheme chosen, and gives their CDRs, the species they're closest to, the
-  human germline V and J genes they're closest to, and how much of the V region
-  is the same: their humanness. An
-  scFv's chain has two domains, a heavy and a light one. A protein without one
-  is left as it was, and the run says so.
+  the scheme chosen, and gives their CDRs by the definition chosen, the species
+  they're closest to, the human germline V and J genes they're closest to, and
+  how much of the V region is the same: their humanness. An scFv's chain has two
+  domains, a heavy and a light one. A protein without one is left as it was, and
+  the run says so. What it finds is the project's record of each protein, so
+  numbering it again, in another scheme, replaces it there.
 inputs:
   protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
 params:
   scheme:
     type: enum
-    values: [imgt, kabat, chothia]
+    values: [imgt, kabat, chothia, martin, aho]
     default: imgt
     description: >-
-      Where the CDRs are: IMGT's, Kabat's or Chothia's definitions, each in
-      its own numbering.
+      How residues are numbered: IMGT's, Kabat's, Chothia's, Martin's (enhanced
+      Chothia) or AHo's numbering.
+  cdr_definition:
+    type: enum
+    values: [imgt, kabat, chothia, abm, contact]
+    description: >-
+      Where the CDRs are: IMGT's, Kabat's, Chothia's, AbM's or Contact's
+      definition, each read in the numbering it's published in, so it finds
+      the same residues whichever scheme numbers the chain. Without one, the
+      scheme's own: Chothia's for Martin's numbering, and IMGT's for AHo's,
+      which defines none.
 effects:
   updates:
     - input: protein
@@ -27,6 +37,7 @@ effects:
         - chain_type
         - species
         - numbering_scheme
+        - cdr_definition
         - cdr_h1
         - cdr_h2
         - cdr_h3

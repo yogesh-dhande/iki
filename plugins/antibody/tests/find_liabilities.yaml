@@ -23,6 +23,8 @@ inputs:
           - chain: H
             start: 1
             end: 37
+            # IMGT's CDR1 (27-38) and CDR3 (105-117), where they are in the chain.
+            cdrs: [[8, 19], null, [30, 34]]
             closest: {}
             human: {}
             numbering:
@@ -182,6 +184,7 @@ inputs:
           - chain: K
             start: 1
             end: 8
+            cdrs: [null, null, [7, 8]]
             closest: {}
             human: {}
             numbering:
@@ -235,6 +238,8 @@ inputs:
           - chain: H
             start: 1
             end: 5
+            # Kabat's CDR-H2, H50-H65.
+            cdrs: [null, [2, 4], null]
             closest: {}
             human: {}
             numbering:

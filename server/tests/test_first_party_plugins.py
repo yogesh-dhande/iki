@@ -91,6 +91,25 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             "iki/protein.Protein", sequence="MSIQHFRVAL", name="bla (+1)",
             encoded_by=str(puc.pk), uniprot_accession="P62593",
         )
+        # A chain's numbering is its project's record's, as the scheme a run chose gives it:
+        # numbering it again, in another scheme, replaces it. What its sequence alone gives
+        # (its chain type) is the entry's.
+        from iki_plugin_iki__antibody.models import (
+            Ext_iki_protein_Protein, Ext_iki_protein_Protein_Entry,
+        )
+        for scheme, h1 in (("imgt", "GFNIKDTY"), ("kabat", "DTYIH")):
+            bla.refresh_from_db()
+            services.update(
+                alice, bla,
+                {"chain_type": "heavy", "numbering_scheme": scheme, "cdr_definition": scheme,
+                 "cdr_h1": h1},
+                expected_revision=bla.revision, by_run=True,
+            )
+        numbered = Ext_iki_protein_Protein.objects.get(entity_id=bla.pk)
+        numbering = [
+            numbered.numbering_scheme, numbered.cdr_definition, numbered.cdr_h1,
+            Ext_iki_protein_Protein_Entry.objects.get(entity_id=bla.entry_id).chain_type,
+        ]
         vhh = make("iki/antibody.Antibody", heavy_chain=str(bla.pk), format="vhh", name="anti-bla")
         light = make("iki/protein.Protein", sequence="DIQMTQSP")
         aspirin = make(
@@ -129,7 +148,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
                   "identities": [
                       entries[vhh.entry_id].identity_hash, entries[fab.entry_id].identity_hash
                   ],
-                  "refused": refused}
+                  "refused": refused, "numbering": numbering}
         """,
     )
     assert result["types"] == [
@@ -162,6 +181,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         identity_hash("iki/antibody.Antibody", chains),
         identity_hash("iki/antibody.Antibody", paired),
     ]
+    assert result["numbering"] == ["kabat", "kabat", "DTYIH", "heavy"]
     assert result["refused"] == {
         "light_chain": [
             "is part of what makes it this one, so it can't be added later: "

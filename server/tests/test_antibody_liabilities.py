@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 from jsonschema import Draft202012Validator
 from test_antibody_numbering import SEQUENCES
@@ -69,10 +70,12 @@ def screen(
     return result, output
 
 
-def chains(tmp_path: Path, *names: str, scheme: str = "imgt") -> list[dict[str, Any]]:
+def chains(
+    tmp_path: Path, *names: str, scheme: str = "imgt", cdr_definition: str | None = None
+) -> list[dict[str, Any]]:
     """Chains as `number_chains` leaves them: their sequences, and what ANARCI found."""
     proteins = [numbered_protein(i, SEQUENCES[name], name) for i, name in enumerate(names, start=1)]
-    _, output = number(tmp_path, proteins, scheme)
+    _, output = number(tmp_path, proteins, scheme, cdr_definition)
     numbered = {u["entity"]: u["values"] for u in output["updates"]["protein"]}
     return [
         {**p, "values": {**p["values"], **numbered[p["id"]]}}
@@ -224,6 +227,75 @@ def test_the_scheme_the_chain_was_numbered_in_says_where_its_cdrs_are(tmp_path: 
         ("isomerisation", "DG", "98", "cdr_h3"),
         ("oxidation", "M", "100C", "cdr_h3"),
     ]
+
+
+@pytest.mark.parametrize("scheme", ["martin", "aho"])
+def test_martin_and_aho_numbering_have_their_own_disulphide_positions(
+    tmp_path: Path, scheme: str
+) -> None:
+    """Martin's numbering puts the disulphide at H22 and H92, as Chothia's does, and AHo's
+    at 23 and 106 (ANARCI's numbering of trastuzumab): neither cysteine is reported. The
+    CDRs are those of the scheme's CDR definition (Chothia's for Martin's numbering, IMGT's
+    for AHo's), so the same CDR motifs are found, numbered in the scheme."""
+    _, output = screen(tmp_path, chains(tmp_path, "vh", "vl", scheme=scheme))
+
+    vh, vl = (u["values"] for u in output["updates"]["protein"])
+    assert "unpaired_cysteine" not in vh["liability_counts"]
+    assert "unpaired_cysteine" not in vl["liability_counts"]
+    found = {(f["kind"], f["motif"], f["region"]) for f in vh["liabilities"]}
+    # Trastuzumab's NG in CDR-H2 and DG in CDR-H3 are in both definitions' CDRs.
+    assert {("deamidation", "NG", "cdr_h2"), ("isomerisation", "DG", "cdr_h3")} <= found
+
+
+def test_kabat_s_cdr_h1_keeps_h35c(tmp_path: Path) -> None:
+    """A methionine at H35C, where Kabat's numbering puts a long CDR-H1's third insertion,
+    before the conserved W36, is in CDR-H1, as one at H35B is."""
+    numbered = chains(tmp_path, "long_h1", scheme="kabat")
+    values = numbered[0]["values"]
+    domain = values["variable_domains"][0]
+    sequence = list(values["sequence"])
+    for index, (n, insertion, _) in enumerate(domain["numbering"]):
+        if (n, insertion) in ((35, "B"), (35, "C")):
+            domain["numbering"][index][2] = sequence[index] = "M"
+    values["sequence"] = "".join(sequence)
+
+    _, output = screen(tmp_path, numbered)
+
+    found = [
+        (f["kind"], f["number"], f["region"])
+        for f in output["updates"]["protein"][0]["values"]["liabilities"]
+    ]
+    assert ("oxidation", "35B", "cdr_h1") in found
+    assert ("oxidation", "35C", "cdr_h1") in found
+
+
+def test_the_cdr_definition_says_where_the_cdrs_are(tmp_path: Path) -> None:
+    """Kabat's numbering with Contact's CDRs: CDR-H2 is H47-H58, so the DS at H61 that
+    Kabat's CDR-H2 (H50-H65) reaches is framework's, and the numbers are still Kabat's."""
+    _, output = screen(tmp_path, chains(tmp_path, "vh", scheme="kabat", cdr_definition="contact"))
+
+    found = [
+        (f["kind"], f["motif"], f["number"], f["region"])
+        for f in output["updates"]["protein"][0]["values"]["liabilities"]
+    ]
+    assert ("deamidation", "NG", "54", "cdr_h2") in found
+    assert not [f for f in found if f[2] == "61"]
+
+
+def test_a_domain_whose_cdrs_werent_found_is_screened_for_what_counts_anywhere(
+    tmp_path: Path,
+) -> None:
+    numbered = chains(tmp_path, "vh")
+    del numbered[0]["values"]["variable_domains"][0]["cdrs"]
+
+    _, output = screen(tmp_path, numbered)
+
+    values = output["updates"]["protein"][0]["values"]
+    assert [f["kind"] for f in values["liabilities"]] == ["pyroglutamate"]
+    assert output["messages"][0]["text"] == (
+        "vh has a variable domain whose CDRs numbering didn't find, so the motifs that count "
+        "only in a CDR weren't looked for in it."
+    )
 
 
 def test_a_sequon_and_an_extra_cysteine_are_found_anywhere_in_a_domain(tmp_path: Path) -> None:

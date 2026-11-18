@@ -17,11 +17,29 @@ chain has one, a light chain the other, an scFv both. Every field is set, so num
 a protein again leaves nothing of the last time. A protein with none is left as it was,
 and the run warns which.
 
-CDRs are each scheme's own definitions, by residue number, insertions included:
+The numbering scheme (IMGT, Kabat, Chothia, Martin or AHo) says how residues are
+numbered. The CDR definition says where the CDRs are, by residue number in the numbering
+its boundaries are published in, so each definition finds the same residues whichever
+scheme numbers the chain: ANARCI numbers the chain again in that numbering when it isn't
+the chain's. Each domain keeps its CDRs as where they are in the chain, from 1. A CDR
+holds its endpoints' insertions too:
 
-- IMGT: 27-38, 56-65 and 105-117, in both chains;
-- Kabat: H1 31-35, H2 50-65, H3 95-102; L1 24-34, L2 50-56, L3 89-97;
-- Chothia: H1 26-32, H2 52-56, H3 95-102; light as Kabat's.
+- IMGT (IMGT numbering; Lefranc et al. 2003): 27-38, 56-65 and 105-117, in both chains;
+- Kabat (Kabat numbering): H1 H31-H35B (and H35C onwards, where ANARCI puts a longer
+  CDR-H1's residues, before the conserved W36), H2 H50-H65, H3 H95-H102; L1 L24-L34, L2
+  L50-L56, L3 L89-L97;
+- Chothia (Chothia numbering): H1 H26-H32, H2 H52-H56, H3 H95-H102; light as Kabat's;
+- AbM (Chothia numbering): H1 H26-H35, H2 H50-H58, H3 H95-H102; light as Kabat's;
+- Contact (Chothia numbering; MacCallum et al. 1996): H1 H30-H35, H2 H47-H58, H3
+  H93-H101; L1 L30-L36, L2 L46-L55, L3 L89-L96.
+
+Kabat's, AbM's and Contact's are as A. C. R. Martin tabulates them (bioinf.org.uk/abs,
+"Antibody numbering and CDR definitions"; Martin, in Antibody Engineering vol. 2, 2010,
+Table 3.4). Chothia's are the wider set that table gave until 2021, and that SAbDab
+still uses; it now gives a narrower consensus (H26-H32, H52-H56, H96-H101; L26-L32,
+L50-L52, L91-L96). Martin's numbering differs from Chothia's only in framework, so its
+CDRs are Chothia's unless another is chosen; AHo's numbering (Honegger and Plückthun
+2001) defines no CDRs of its own, so its are IMGT's unless another is chosen.
 """
 
 from __future__ import annotations
@@ -33,11 +51,62 @@ from typing import Any
 
 from anarci import anarci
 
-#: Each scheme's CDRs, by residue number, for heavy (H) and light (L) domains.
-CDRS: dict[str, dict[str, tuple[tuple[int, int], ...]]] = {
-    "imgt": {"H": ((27, 38), (56, 65), (105, 117)), "L": ((27, 38), (56, 65), (105, 117))},
-    "kabat": {"H": ((31, 35), (50, 65), (95, 102)), "L": ((24, 34), (50, 56), (89, 97))},
-    "chothia": {"H": ((26, 32), (52, 56), (95, 102)), "L": ((24, 34), (50, 56), (89, 97))},
+#: A CDR's first and last residue numbers, each with its insertions.
+Bounds = tuple[int, int]
+
+#: ANARCI's numbered domains for each chain, and what it found about them.
+Answer = tuple[list[Any], list[Any]]
+#: The numbering schemes ANARCI numbers in.
+SCHEMES = ("imgt", "kabat", "chothia", "martin", "aho")
+#: Each CDR definition: the numbering its boundaries are given in, and its three CDRs for
+#: heavy (H) and light (L) domains (see the module's docstring for the sources).
+DEFINITIONS: dict[str, tuple[str, dict[str, tuple[Bounds, Bounds, Bounds]]]] = {
+    "imgt": (
+        "imgt",
+        {
+            "H": ((27, 38), (56, 65), (105, 117)),
+            "L": ((27, 38), (56, 65), (105, 117)),
+        },
+    ),
+    "kabat": (
+        "kabat",
+        {
+            "H": ((31, 35), (50, 65), (95, 102)),
+            "L": ((24, 34), (50, 56), (89, 97)),
+        },
+    ),
+    "chothia": (
+        "chothia",
+        {
+            "H": ((26, 32), (52, 56), (95, 102)),
+            "L": ((24, 34), (50, 56), (89, 97)),
+        },
+    ),
+    "abm": (
+        "chothia",
+        {
+            "H": ((26, 35), (50, 58), (95, 102)),
+            "L": ((24, 34), (50, 56), (89, 97)),
+        },
+    ),
+    "contact": (
+        "chothia",
+        {
+            "H": ((30, 35), (47, 58), (93, 101)),
+            "L": ((30, 36), (46, 55), (89, 96)),
+        },
+    ),
+}
+#: Each CDR definition's name, as people write it.
+NAMES = {"imgt": "IMGT", "kabat": "Kabat", "chothia": "Chothia", "abm": "AbM", "contact": "Contact"}
+#: The CDR definition each scheme's numbering is read with, unless another is chosen.
+#: Martin's numbering is Chothia's in the CDRs; AHo's defines no CDRs of its own.
+OWN_DEFINITION = {
+    "imgt": "imgt",
+    "kabat": "kabat",
+    "chothia": "chothia",
+    "martin": "chothia",
+    "aho": "imgt",
 }
 #: What ANARCI can read: the 20 standard amino acids and X.
 READABLE = frozenset("ACDEFGHIKLMNPQRSTVWYX")
@@ -51,6 +120,7 @@ FIELDS = (
     "chain_type",
     "species",
     "numbering_scheme",
+    "cdr_definition",
     "cdr_h1",
     "cdr_h2",
     "cdr_h3",
@@ -95,17 +165,41 @@ def germlines(details: dict[str, Any] | None) -> dict[str, Any]:
     return {key: value for key, value in genes.items() if value is not None}
 
 
+def cdr_spans(
+    positions: list[Any], start: int, chain: str, definition: str
+) -> list[list[int] | None]:
+    """Where a domain's three CDRs are in its chain, from 1, first and last residue
+    included, from ANARCI's numbering of it in the definition's own numbering; None for a
+    CDR with no residues. ``start`` is the domain's first residue's index, from 0."""
+    bounds = DEFINITIONS[definition][1]["H" if chain == "H" else "L"]
+    spans: list[list[int] | None] = []
+    for low, high in bounds:
+        inside = []
+        index = start
+        for (n, _), aa in positions:
+            if aa == "-":
+                continue
+            index += 1
+            if low <= n <= high:
+                inside.append(index)
+        spans.append([inside[0], inside[-1]] if inside else None)
+    return spans
+
+
 def domain(
     positions: list[Any],
     start: int,
     end: int,
     details: dict[str, Any],
     human: dict[str, Any] | None,
+    cdrs: list[list[int] | None] | None,
 ) -> dict[str, Any]:
     """One variable domain, as `variable_domains` keeps it: gaps left out, from 1.
 
     `details` is what ANARCI found with every species' germlines: the closest species is
     its V gene's. `human` is what it found with human germlines alone, for humanness.
+    `cdrs` is where its CDRs are, or None if ANARCI couldn't number it in its CDR
+    definition's numbering.
     """
     v = ((details.get("germlines") or {}).get("v_gene") or [None])[0]
     out: dict[str, Any] = {
@@ -116,21 +210,16 @@ def domain(
         "closest": germlines(details),
         "human": germlines(human),
     }
+    if cdrs is not None:
+        out["cdrs"] = cdrs
     if v and v[0] in SPECIES:
         out["species"] = v[0]
     return out
 
 
-def cdrs(found: dict[str, Any], scheme: str) -> list[str]:
-    """A domain's three CDRs, in the scheme it was numbered in."""
-    side = "H" if found["chain"] == "H" else "L"
-    return [
-        "".join(aa for n, _, aa in found["numbering"] if low <= n <= high)
-        for low, high in CDRS[scheme][side]
-    ]
-
-
-def fields(domains: list[dict[str, Any]], scheme: str) -> tuple[dict[str, Any], list[str]]:
+def fields(
+    domains: list[dict[str, Any]], sequence: str, scheme: str, definition: str
+) -> tuple[dict[str, Any], list[str]]:
     """A protein's fields from its domains, and what to warn about."""
     heavy = [d for d in domains if d["chain"] == "H"]
     light = [d for d in domains if d["chain"] in ("K", "L")]
@@ -141,6 +230,7 @@ def fields(domains: list[dict[str, Any]], scheme: str) -> tuple[dict[str, Any], 
     ]
     values: dict[str, Any] = dict.fromkeys(FIELDS)
     values["numbering_scheme"] = scheme
+    values["cdr_definition"] = definition
     values["variable_domains"] = domains
     if heavy and light:
         values["chain_type"] = "heavy_and_light"
@@ -153,8 +243,8 @@ def fields(domains: list[dict[str, Any]], scheme: str) -> tuple[dict[str, Any], 
         if not found:
             continue
         first = found[0]
-        for n, cdr in enumerate(cdrs(first, scheme), start=1):
-            values[f"cdr_{letter}{n}"] = cdr or None
+        for n, span in enumerate(first.get("cdrs") or [], start=1):
+            values[f"cdr_{letter}{n}"] = sequence[span[0] - 1 : span[1]] if span else None
         values[f"{prefix}_v_gene"] = first["human"].get("v_gene")
         values[f"{prefix}_germline_identity"] = first["human"].get("v_identity")
         values[f"{prefix}_j_gene"] = first["human"].get("j_gene")
@@ -162,19 +252,28 @@ def fields(domains: list[dict[str, Any]], scheme: str) -> tuple[dict[str, Any], 
 
 
 def _matching(
-    positions: tuple[Any, int, int], details: dict[str, Any], human: tuple[Any, Any]
-) -> dict[str, Any] | None:
-    """What ANARCI found with human germlines alone for the same domain, if it did."""
+    positions: tuple[Any, int, int], details: dict[str, Any], other: tuple[Any, Any]
+) -> tuple[Any, dict[str, Any]] | None:
+    """The same domain in another of ANARCI's answers for the chain, if it found it: its
+    numbering, start and end, and what it found about it."""
     _, start, end = positions
-    for (_, other_start, other_end), about in zip(human[0] or [], human[1] or [], strict=True):
+    for found, about in zip(other[0] or [], other[1] or [], strict=True):
+        _, other_start, other_end = found
         same = about["chain_type"] == details["chain_type"]
         if same and other_start <= end and start <= other_end:
-            return dict(about)
+            return found, dict(about)
     return None
 
 
+def _definition(params: dict[str, Any], scheme: str) -> str:
+    return str(params.get("cdr_definition") or OWN_DEFINITION[scheme])
+
+
 def number(run: dict[str, Any]) -> dict[str, Any]:
-    scheme = (run.get("params") or {}).get("scheme") or "imgt"
+    params = run.get("params") or {}
+    scheme = params.get("scheme") or "imgt"
+    definition = _definition(params, scheme)
+    reference = DEFINITIONS[definition][0]
     entities = run["inputs"]["protein"]
     messages: list[dict[str, Any]] = []
     readable = []
@@ -192,10 +291,16 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
             )
         else:
             readable.append((entity, sequence.removesuffix("*").upper()))
-    print(f"Numbering {len(readable):,} chains in the {scheme} scheme", flush=True)
-    every, human = ([], []), ([], [])
+    print(
+        f"Numbering {len(readable):,} chains in the {scheme} scheme, with {definition} CDRs",
+        flush=True,
+    )
+    every: Answer = ([], [])
+    human: Answer = ([], [])
+    cdr_numbering: Answer = ([], [])
     if readable:
         sequences = [(e["id"], s) for e, s in readable]
+        ncpu = max(1, min(os.cpu_count() or 1, 8))
         # With every species' models and germlines, for the numbering and the closest
         # species; then with human germlines alone, for humanness.
         every, human = (
@@ -205,19 +310,52 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
                 allow=ANTIBODY,
                 assign_germline=True,
                 allowed_species=species,
-                ncpu=max(1, min(os.cpu_count() or 1, 8)),
+                ncpu=ncpu,
             )[:2]
             for species in (None, ["human"])
         )
+        # The CDRs are read in the numbering their definition gives them in.
+        cdr_numbering = (
+            every
+            if reference == scheme
+            else anarci(
+                sequences,
+                scheme=reference,
+                allow=ANTIBODY,
+                assign_germline=False,
+                allowed_species=None,
+                ncpu=ncpu,
+            )[:2]
+        )
     updates = []
-    for done, ((entity, _), found, about, found_human, about_human) in enumerate(
-        zip(readable, *every, *human, strict=True), start=1
+    for done, ((entity, sequence), found, about, *others) in enumerate(
+        zip(readable, *every, *human, *cdr_numbering, strict=True), start=1
     ):
-        domains = [
-            domain(*positions, d, _matching(positions, d, (found_human, about_human)))
-            for positions, d in zip(found or [], about or [], strict=True)
-            if d["chain_type"] in ANTIBODY
-        ]
+        found_human, about_human, found_cdrs, about_cdrs = others
+        domains = []
+        for positions, d in zip(found or [], about or [], strict=True):
+            if d["chain_type"] not in ANTIBODY:
+                continue
+            for_human = _matching(positions, d, (found_human, about_human))
+            for_cdrs = _matching(positions, d, (found_cdrs, about_cdrs))
+            cdrs = None
+            if for_cdrs is not None:
+                cdr_positions, cdr_start, _ = for_cdrs[0]
+                cdrs = cdr_spans(cdr_positions, cdr_start, d["chain_type"], definition)
+            else:
+                messages.append(
+                    {
+                        "level": "warning",
+                        "text": f"{_label(entity)}: ANARCI couldn't number a domain in "
+                        f"the {reference} numbering {NAMES[definition]}'s CDRs are defined "
+                        "in, so its CDRs are left empty.",
+                        "entity": entity["id"],
+                    }
+                )
+            numbered, start, end = positions
+            domains.append(
+                domain(numbered, start, end, d, for_human[1] if for_human else None, cdrs)
+            )
         if not domains:
             messages.append(
                 {
@@ -228,7 +366,7 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         else:
-            values, notes = fields(domains, scheme)
+            values, notes = fields(domains, sequence, scheme, definition)
             updates.append({"entity": entity["id"], "values": values})
             messages += [
                 {"level": "warning", "text": f"{_label(entity)}: {note}.", "entity": entity["id"]}

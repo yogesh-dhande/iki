@@ -52,20 +52,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-#: Each scheme's CDRs, by residue number, for heavy (H) and light (L) domains, as
-#: scripts/numbering.py defines them.
-CDRS: dict[str, dict[str, tuple[tuple[int, int], ...]]] = {
-    "imgt": {"H": ((27, 38), (56, 65), (105, 117)), "L": ((27, 38), (56, 65), (105, 117))},
-    "kabat": {"H": ((31, 35), (50, 65), (95, 102)), "L": ((24, 34), (50, 56), (89, 97))},
-    "chothia": {"H": ((26, 32), (52, 56), (95, 102)), "L": ((24, 34), (50, 56), (89, 97))},
-}
-#: The two cysteines that make a variable domain's disulphide, by scheme: IMGT 23 and 104,
-#: and Kabat's and Chothia's numbering of the same residues (heavy 22 and 92, light 23
-#: and 88).
+#: The two cysteines that make a variable domain's disulphide, by numbering scheme: IMGT 23
+#: and 104; Kabat's, Chothia's and Martin's numbering of the same residues (heavy 22 and
+#: 92, light 23 and 88); and AHo's 23 and 106.
 DISULPHIDE: dict[str, dict[str, tuple[int, int]]] = {
     "imgt": {"H": (23, 104), "L": (23, 104)},
     "kabat": {"H": (22, 92), "L": (23, 88)},
     "chothia": {"H": (22, 92), "L": (23, 88)},
+    "martin": {"H": (22, 92), "L": (23, 88)},
+    "aho": {"H": (23, 106), "L": (23, 106)},
 }
 #: Deamidation motifs, by the residue after the asparagine, and how severe each is.
 DEAMIDATION = {"G": "high", "S": "medium", "T": "medium", "N": "medium"}
@@ -86,16 +81,20 @@ def _label(entity: dict[str, Any]) -> str:
     return str(entity["values"].get("name") or entity["hrid"])
 
 
-def regions(domain: dict[str, Any], scheme: str) -> list[str]:
+def regions(domain: dict[str, Any]) -> list[str]:
     """Which region each of a domain's residues is in: a CDR, by its field's name, or
-    framework. The CDRs are the scheme's own, by residue number, insertions included."""
-    side = "H" if domain["chain"] == "H" else "L"
-    letter = "h" if side == "H" else "l"
+    framework. Its CDRs are where `number_chains` found them, by the definition it used."""
+    letter = "h" if domain["chain"] == "H" else "l"
+    start = domain["start"]
+    spans = [
+        (n, span) for n, span in enumerate(domain.get("cdrs") or [], start=1) if span is not None
+    ]
     found = []
-    for number, _, _ in domain["numbering"]:
+    for index in range(len(domain["numbering"])):
+        position = start + index
         where = "framework"
-        for n, (low, high) in enumerate(CDRS[scheme][side], start=1):
-            if low <= number <= high:
+        for n, (first, last) in spans:
+            if first <= position <= last:
                 where = f"cdr_{letter}{n}"
         found.append(where)
     return found
@@ -125,7 +124,7 @@ def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, 
     the chain's sequence, from 1, of the domain's first residue."""
     numbering = domain["numbering"]
     residues = "".join(aa for _, _, aa in numbering)
-    where = regions(domain, scheme)
+    where = regions(domain)
     unpaired = _unpaired(domain, scheme)
     found: list[dict[str, Any]] = []
 
@@ -184,6 +183,18 @@ def screen(run: dict[str, Any]) -> dict[str, Any]:
     updates = []
     for done, entity in enumerate(entities, start=1):
         found = liabilities(entity)
+        if found is not None and any(
+            d.get("cdrs") is None for d in entity["values"]["variable_domains"]
+        ):
+            messages.append(
+                {
+                    "level": "warning",
+                    "text": f"{_label(entity)} has a variable domain whose CDRs numbering "
+                    "didn't find, so the motifs that count only in a CDR weren't looked for "
+                    "in it.",
+                    "entity": entity["id"],
+                }
+            )
         if found is None:
             messages.append(
                 {
