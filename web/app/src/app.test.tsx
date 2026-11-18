@@ -977,6 +977,24 @@ describe("notifications", () => {
     expect(await screen.findByRole("link", { name: "Notifications" })).toBeVisible();
   });
 
+  it("shows one that came while its stream was opening", async () => {
+    signedIn();
+    let inbox = [READ];
+    answer("GET /api/v1/notifications", () => page(inbox));
+    await renderApp("/notifications/");
+    await screen.findAllByRole("listitem");
+    const stream = FakeEventSource.current();
+
+    // Sent after the inbox was read, before the stream listened: no event brings it,
+    // but the stream's first count includes it.
+    inbox = [UNREAD, READ];
+    act(() => {
+      stream?.send("ready", { unread: 1 });
+    });
+    expect(await screen.findByRole("link", { name: "Notifications, 1 unread" })).toBeVisible();
+    expect(await screen.findAllByRole("listitem")).toHaveLength(2);
+  });
+
   it("says when the stream finds the session ended, without leaving the page", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));

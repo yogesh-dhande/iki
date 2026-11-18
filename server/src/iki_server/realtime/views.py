@@ -371,7 +371,7 @@ async def _run(
     # session, say), so give its connection back to the pool before streaming for minutes.
     await db(_nothing)
     try:
-        # The page reads what it shows once it's ready: by then, nothing is missed.
+        # Pages read what they show again on ``ready``: from then on, nothing is missed.
         await streams.caught_up()
         yield f"retry: {RETRY_MS}\n\n".encode() + ready
         next_check = loop.time() + HEARTBEAT

@@ -552,22 +552,31 @@ describe("a run's page", () => {
     ).toEqual(["after-100", "after-200"]);
   });
 
-  it("reads everything again when its stream reconnects", async () => {
-    onRun(run, () => [attempt()]);
+  it("reads everything again once its stream is ready, and when it reconnects", async () => {
+    let found = run();
+    onRun(
+      () => found,
+      () => [attempt()],
+    );
     withLog(() => "hello\n");
     await renderApp("/runs/RUN-000001/");
     await screen.findByRole("log", { name: "Log of attempt 1" });
     const stream = runStream();
     const before = calls("GET", "/api/v1/runs/RUN-000001").length;
-    act(() => {
-      stream.send("ready", { id: RUN_ID });
-    });
-    expect(calls("GET", "/api/v1/runs/RUN-000001")).toHaveLength(before);
+
+    // It ended after the page read it, before its stream listened: no event says so.
+    found = run({ status: "succeeded", finished_at: "2026-03-14T09:01:00Z" });
     act(() => {
       stream.send("ready", { id: RUN_ID });
     });
     await waitFor(() => {
       expect(calls("GET", "/api/v1/runs/RUN-000001")).toHaveLength(before + 1);
+    });
+    act(() => {
+      stream.send("ready", { id: RUN_ID });
+    });
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/runs/RUN-000001")).toHaveLength(before + 2);
     });
   });
 

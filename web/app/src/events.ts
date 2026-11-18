@@ -3,9 +3,12 @@
  * the browser session. Events carry ids and counts, never content; they
  * update the bell's count and refresh the notification queries.
  *
- * - The browser reconnects by itself when a stream ends (server restarts end
- *   them, and each lasts at most 30 minutes). Every `ready` after the first
- *   means something may have been missed, so the inbox refreshes.
+ * - Each `ready`, the first included, refreshes the inbox. Only from then on
+ *   does every change come as an event: the page reads what it shows while
+ *   the stream opens, and something sent in between is in `ready`'s count but
+ *   comes as no event. The browser also reconnects by itself when a stream
+ *   ends (server restarts end them, and each lasts at most 30 minutes), and
+ *   something may have been missed meanwhile.
  * - A tab hidden for a while closes its stream and reopens it when shown, so
  *   background tabs don't hold a connection each.
  * - If the server refuses the stream (too many tabs, or signed out), the
@@ -60,7 +63,6 @@ export function useLiveUpdates(enabled: boolean): void {
     let source: EventSource | undefined;
     let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let readyBefore = false;
 
     const close = () => {
       source?.close();
@@ -73,8 +75,7 @@ export function useLiveUpdates(enabled: boolean): void {
       source = stream;
       stream.addEventListener("ready", (event: MessageEvent<string>) => {
         setUnread(parse(event));
-        if (readyBefore) void refresh();
-        readyBefore = true;
+        void refresh();
       });
       stream.addEventListener("notification", (event: MessageEvent<string>) => {
         setUnread(parse(event));

@@ -434,8 +434,10 @@ export const BATCH_REFRESH_MS = 500;
  * One EventSource on `url` while `enabled`, signed in with the browser session.
  *
  * - `run` and `resync` call `refresh`; other events go to `onEvent`.
- * - Every `ready` after the first means something may have been missed while
- *   it was reconnecting, so `refresh` is called.
+ * - Each `ready`, the first included, calls `refresh`. The page read what it
+ *   shows before the stream listened, and a change in between comes as no
+ *   event: a run that ended then would look as if it never did. Each later
+ *   `ready` means the stream reconnected, and something may have been missed.
  * - Like the app's own stream, a tab hidden for a while closes it, and one the
  *   server refused tries again later.
  */
@@ -458,7 +460,6 @@ export function useStream(
     let source: EventSource | undefined;
     let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let readyBefore = false;
     const reread = () => void handlers.current.refresh();
 
     const close = () => {
@@ -470,10 +471,7 @@ export function useStream(
       if (source || isSignedOut()) return;
       const stream = new EventSource(url, { withCredentials: true });
       source = stream;
-      stream.addEventListener("ready", () => {
-        if (readyBefore) reread();
-        readyBefore = true;
-      });
+      stream.addEventListener("ready", reread);
       for (const change of kinds.split(" ")) stream.addEventListener(change, reread);
       stream.addEventListener("resync", reread);
       stream.addEventListener("log", (event: MessageEvent<string>) => {
@@ -487,7 +485,6 @@ export function useStream(
         // CONNECTING: the browser is reconnecting by itself. CLOSED: it gave up.
         if (stream.readyState !== EventSource.CLOSED || source !== stream) return;
         close();
-        readyBefore = true;
         retryTimer = setTimeout(open, REFUSED_RETRY_MS * (1 + Math.random() / 2));
       });
     };
@@ -498,7 +495,6 @@ export function useStream(
         hiddenTimer = setTimeout(close, HIDDEN_GRACE_MS);
       } else if (!source) {
         clearTimeout(retryTimer);
-        readyBefore = true;
         open();
       }
     };
