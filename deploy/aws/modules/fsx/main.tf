@@ -52,13 +52,13 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "clients" {
-  for_each                     = { for p in setproduct(var.client_security_group_ids, keys(local.ports)) : "${p[0]}:${p[1]}" => p }
+  for_each                     = { for p in setproduct(keys(var.client_security_groups), keys(local.ports)) : "${p[0]}:${p[1]}" => p }
   security_group_id            = aws_security_group.this.id
   description                  = "Lustre from what mounts it"
   ip_protocol                  = "tcp"
   from_port                    = local.ports[each.value[1]][0]
   to_port                      = local.ports[each.value[1]][1]
-  referenced_security_group_id = each.value[0]
+  referenced_security_group_id = var.client_security_groups[each.value[0]]
   tags                         = local.tags
 }
 

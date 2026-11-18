@@ -39,7 +39,7 @@ module "database" {
   name                      = var.name
   vpc_id                    = module.network.vpc_id
   subnet_ids                = module.network.database_subnet_ids
-  client_security_group_ids = [module.cluster.security_group_id]
+  client_security_groups    = { cluster = module.cluster.security_group_id }
   instance_class            = var.database.instance_class
   allocated_storage_gib     = var.database.allocated_storage_gib
   max_allocated_storage_gib = var.database.max_allocated_storage_gib
@@ -83,17 +83,17 @@ module "vm_tier" {
 }
 
 module "fsx" {
-  source                    = "../modules/fsx"
-  count                     = var.fsx == null ? 0 : 1
-  name                      = var.name
-  vpc_id                    = module.network.vpc_id
-  subnet_id                 = module.network.private_subnet_ids[0]
-  client_security_group_ids = [module.cluster.security_group_id]
-  storage_capacity_gib      = var.fsx.storage_capacity_gib
-  throughput_per_tib        = var.fsx.throughput_per_tib
-  reference_bucket          = var.fsx.reference_bucket
-  root_squash               = { except_nids = var.fsx.root_squash_except_nids }
-  tags                      = var.tags
+  source                 = "../modules/fsx"
+  count                  = var.fsx == null ? 0 : 1
+  name                   = var.name
+  vpc_id                 = module.network.vpc_id
+  subnet_id              = module.network.private_subnet_ids[0]
+  client_security_groups = { cluster = module.cluster.security_group_id }
+  storage_capacity_gib   = var.fsx.storage_capacity_gib
+  throughput_per_tib     = var.fsx.throughput_per_tib
+  reference_bucket       = var.fsx.reference_bucket
+  root_squash            = { except_nids = var.fsx.root_squash_except_nids }
+  tags                   = var.tags
 }
 
 module "access" {

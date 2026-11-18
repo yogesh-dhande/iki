@@ -23,9 +23,9 @@ variable "subnet_ids" {
   }
 }
 
-variable "client_security_group_ids" {
-  description = "Security groups allowed to connect, such as the EKS cluster's. Nothing else reaches the database."
-  type        = list(string)
+variable "client_security_groups" {
+  description = "Security groups allowed to connect, by a name of yours, such as { cluster = the EKS cluster's }. Nothing else reaches the database. The names are what OpenTofu plans by, so they hold when a group is made in the same apply and its ID isn't known yet."
+  type        = map(string)
 }
 
 variable "engine_version" {

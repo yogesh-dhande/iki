@@ -18,12 +18,12 @@ variable "subnet_id" {
   type        = string
 }
 
-variable "client_security_group_ids" {
-  description = "What mounts it: the cluster's node security group, and the vm-tier module's."
-  type        = list(string)
+variable "client_security_groups" {
+  description = "What mounts it, by a name of yours: the cluster's node security group, and the vm-tier module's, such as { cluster = ..., vm_tier = ... }. The names are what OpenTofu plans by, so they hold when a group is made in the same apply and its ID isn't known yet."
+  type        = map(string)
 
   validation {
-    condition     = length(var.client_security_group_ids) > 0
+    condition     = length(var.client_security_groups) > 0
     error_message = "Name at least one security group that mounts it."
   }
 }

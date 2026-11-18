@@ -40,10 +40,10 @@ mock_provider "aws" {
 }
 
 variables {
-  name                      = "iki-test"
-  vpc_id                    = "vpc-0123"
-  subnet_ids                = ["subnet-a", "subnet-b", "subnet-c"]
-  client_security_group_ids = ["sg-cluster"]
+  name                   = "iki-test"
+  vpc_id                 = "vpc-0123"
+  subnet_ids             = ["subnet-a", "subnet-b", "subnet-c"]
+  client_security_groups = { cluster = "sg-cluster" }
 }
 
 run "it_survives_losing_a_zone" {
@@ -209,4 +209,12 @@ run "refuses_less_than_gp3s_least" {
     max_allocated_storage_gib = 40
   }
   expect_failures = [var.allocated_storage_gib]
+}
+
+# A real first apply plans the database before the cluster exists.
+run "it_plans_before_the_cluster_exists" {
+  command = plan
+  module {
+    source = "./tests/cluster_made_alongside"
+  }
 }

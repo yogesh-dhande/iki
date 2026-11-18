@@ -40,10 +40,10 @@ mock_provider "aws" {
 }
 
 variables {
-  name                      = "iki-test"
-  vpc_id                    = "vpc-0123"
-  subnet_ids                = ["subnet-a", "subnet-b", "subnet-c"]
-  client_security_group_ids = ["sg-cluster"]
+  name                   = "iki-test"
+  vpc_id                 = "vpc-0123"
+  subnet_ids             = ["subnet-a", "subnet-b", "subnet-c"]
+  client_security_groups = { cluster = "sg-cluster" }
 }
 
 run "recovering_to_a_moment" {

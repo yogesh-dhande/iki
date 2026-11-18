@@ -106,10 +106,10 @@ resource "aws_security_group" "database" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "clients" {
-  for_each                     = toset(var.client_security_group_ids)
+  for_each                     = var.client_security_groups
   security_group_id            = aws_security_group.database.id
   description                  = "Postgres from ${each.key}"
-  referenced_security_group_id = each.key
+  referenced_security_group_id = each.value
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432

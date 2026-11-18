@@ -24,10 +24,10 @@ mock_provider "aws" {
 }
 
 variables {
-  name                      = "iki-test"
-  vpc_id                    = "vpc-0123456789abcdef0"
-  subnet_id                 = "subnet-0123456789abcdef0"
-  client_security_group_ids = ["sg-00000000000000node", "sg-0000000000000000vm"]
+  name                   = "iki-test"
+  vpc_id                 = "vpc-0123456789abcdef0"
+  subnet_id              = "subnet-0123456789abcdef0"
+  client_security_groups = { cluster = "sg-00000000000000node", vm_tier = "sg-0000000000000000vm" }
 }
 
 run "encrypted_with_its_own_key_and_logged" {
