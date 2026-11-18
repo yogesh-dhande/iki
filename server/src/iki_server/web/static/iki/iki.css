@@ -1590,6 +1590,16 @@ input[type="date"] {
   overflow-wrap: anywhere;
 }
 
+/* The records one notification tells of together: their HRIDs, each a link. */
+.notification-records {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.15rem 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* A row's own error (a change the server refused) spans the row. */
 .row-problem {
   flex-basis: 100%;

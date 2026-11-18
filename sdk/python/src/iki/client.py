@@ -35,16 +35,19 @@ if TYPE_CHECKING:
         EntryOut,
         GraphOut,
         MeOut,
+        NotificationOut,
         OriginOut,
         ProjectOut,
         RevisionOut,
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        SettingsOut,
         SignatureOut,
         SignaturesOut,
         SignatureVerificationOut,
         WalkItemOut,  # noqa: F401 - Walk's items, named in its base as a string
+        WatchOut,
         WorkItemOut,
     )
 
@@ -184,6 +187,7 @@ class Client:
         self.costs = Costs(self)
         self.work = Work(self)
         self.signatures = Signatures(self)
+        self.notifications = Notifications(self)
 
     # --- The connection -------------------------------------------------------------
 
@@ -807,6 +811,81 @@ class Work(_Part):
             "limit": page_size,
         }
         return Results(lambda c: client.request("GET", path, params={**params, "cursor": c}))
+
+
+class Notifications(_Part):
+    """Your notifications, how you're told of each kind, and the records you watch
+    (ADR 0129). An agent that works for you can read what you were told, and the people
+    you asked it to keep an eye on records for."""
+
+    def list(self, *, unread: bool | None = None, page_size: int = 50) -> Results[NotificationOut]:
+        """Newest first. Each says what it's about (``kind``), who caused it (``actor``,
+        and ``agent`` if one acted for them), and the ``records`` it tells of that you can
+        read now."""
+        params: dict[str, Any] = {"limit": page_size}
+        if unread is not None:
+            params["unread"] = unread
+        client = self._client
+        return Results(
+            lambda c: client.request("GET", "/notifications", params={**params, "cursor": c})
+        )
+
+    def mark_read(
+        self, notification: str | Mapping[str, Any], read: bool = True
+    ) -> NotificationOut:
+        found = notification["id"] if isinstance(notification, Mapping) else notification
+        path = _path("/notifications/{id}", id=str(found))
+        return cast("NotificationOut", self._client.request("PATCH", path, json={"read": read}))
+
+    def settings(self) -> SettingsOut:
+        """How you're told of each kind: ``email`` (in Iki and by email), ``in_app``, or
+        ``off`` (a type's notification its plugin doesn't require), and where a project
+        differs."""
+        return cast("SettingsOut", self._client.request("GET", "/me/notification-settings"))
+
+    def choose(
+        self,
+        kinds: Mapping[str, Literal["email", "in_app", "off"] | None] | None = None,
+        *,
+        project: str | Mapping[str, Any] | None = None,
+    ) -> SettingsOut:
+        """Chooses how you're told of each kind: everywhere, or in one ``project``, where
+        ``None`` follows your choice everywhere again::
+
+            iki.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+            iki.notifications.choose(
+                {"iki/example_lims.Sample.in_review": "off"}, project="stability"
+            )
+        """
+        client = self._client
+        if project is None:
+            if any(delivery is None for delivery in (kinds or {}).values()):
+                raise ValueError("None follows your choice everywhere: it needs a project.")
+            body: dict[str, Any] = {"kinds": dict(kinds or {})}
+        else:
+            chosen = client._project_id(project)
+            body = {
+                "projects": [
+                    {"project": chosen, "kind": kind, "delivery": delivery}
+                    for kind, delivery in (kinds or {}).items()
+                ]
+            }
+        return cast("SettingsOut", client.request("PATCH", "/me/notification-settings", json=body))
+
+    def watching(self, entity: str | Mapping[str, Any]) -> WatchOut:
+        """Whether you watch the record (``watching``), muted it (``muted``), or neither
+        (``default``)."""
+        path = _path("/entities/{ref}/watch", ref=self._client._entity_id(entity))
+        return cast("WatchOut", self._client.request("GET", path))
+
+    def watch(
+        self,
+        entity: str | Mapping[str, Any],
+        mode: Literal["watching", "muted", "default"] = "watching",
+    ) -> WatchOut:
+        """Watches the record, mutes it, or goes back to ``default``."""
+        path = _path("/entities/{ref}/watch", ref=self._client._entity_id(entity))
+        return cast("WatchOut", self._client.request("PUT", path, json={"mode": mode}))
 
 
 class Entries(_Part):

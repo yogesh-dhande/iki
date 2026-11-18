@@ -1,6 +1,6 @@
 # 0030. Background tasks on Postgres, live updates over SSE, and notifications
 
-- Status: Accepted
+- Status: Accepted (email choices amended by [0129](0129-types-declare-their-notifications.md))
 - Date: 2026-11-10
 - Refines: [0004](0004-backend-stack-django.md),
   [0027](0027-rest-api-conventions-and-service-accounts.md),

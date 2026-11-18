@@ -24,6 +24,8 @@ _TEST_ENV = {
     # Test-only bundle signing key (ADR 0096); its public key is
     # ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4.
     "IKI_BUNDLE_SIGNING_KEY": "kssNfFLUnM24rwMqVPyTSTj1Qamq8qIF_IbTnsVWWOw",
+    # Emails about records go at once, unless a test waits for others to join them.
+    "IKI_NOTIFICATION_BATCH_SECONDS": "0",
 }
 # The tests' deployment binds the fixture plugins' backend environment, and nothing else.
 _TEST_ENV["IKI_COMPUTE_FILE"] = str(Path(__file__).with_name("iki_test_compute.json"))

@@ -13,7 +13,8 @@ was derived from it, through references and runs: ``{"field": "downstream", "op"
 "value": "DNR-000001"}``, or with ``{"entity": …, "depth": …, "edges": […]}``; ``is_set``
 finds entities with anything that way, or nothing.
 
-Fields naming people (ADR 0122) take a person's ID, their email address, or
+A date or a time can be compared with ``{{ now }}``: when the search runs (a date with
+today's, in UTC). Fields naming people (ADR 0122) take a person's ID, their email address, or
 ``{{ me }}``, whoever searches (so a saved search shared with a project means each
 of its people); ``created_by`` does too. ``assigned`` finds records someone is
 assigned now, in any of their type's assignment fields that counts in their state,
@@ -64,6 +65,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import FOREIGN_KEYS, Shape, is_list_table, shape, subtypes
 from iki_spec import conditions, naming, titles, units
 from iki_spec.model import Field
+from iki_spec.notifications import now_of
 
 #: Bounds on one search, so none is too costly to plan or run.
 MAX_CONDITIONS = 50
@@ -563,6 +565,8 @@ def _bool(_: _Compiler, __: Column, value: Any) -> bool:  # noqa: ANN401 - JSON
 
 
 def _date(_: _Compiler, __: Column, value: Any) -> dt.date:  # noqa: ANN401 - JSON
+    if now_of(value):
+        return dt.datetime.now(dt.UTC).date()
     try:
         return dt.date.fromisoformat(value)
     except (TypeError, ValueError):
@@ -570,6 +574,8 @@ def _date(_: _Compiler, __: Column, value: Any) -> dt.date:  # noqa: ANN401 - JS
 
 
 def _datetime(_: _Compiler, __: Column, value: Any) -> dt.datetime:  # noqa: ANN401 - JSON
+    if now_of(value):
+        return dt.datetime.now(dt.UTC)
     try:
         parsed = dt.datetime.fromisoformat(value)
     except (TypeError, ValueError):

@@ -67,6 +67,7 @@ from iki_server.entities.models import (
     RuleHold,
 )
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
+from iki_server.notifications import declared
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, RunEffect
@@ -326,6 +327,24 @@ ViewerOut = Annotated[
 ]
 
 
+class TypeNotificationOut(Schema):
+    """A notification a type declares (ADR 0129), as its page previews it."""
+
+    name: str
+    kind: str = Field(
+        description="Its kind, which people's notification settings choose by: "
+        "plugin.Type.name, of the type that declares it."
+    )
+    label: str
+    description: str | None
+    declared_by: str = Field(description="The type that declares it: this one or a parent.")
+    when: str = Field(description="When it's sent, in words.")
+    only_some: bool = Field(description="Whether only records its conditions find send it.")
+    tells: list[str] = Field(description="Whom it tells, in words.")
+    email: bool = Field(description="Whether it's emailed unless someone chooses otherwise.")
+    required: bool = Field(description="Whether nobody can turn it off in Iki.")
+
+
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -367,6 +386,10 @@ class EntityTypeOut(Schema):
         None,
         description="What its rules' `check` reads, as the schemas iki-wasm evaluates them "
         "against: so a form checks them as you type, as the server will.",
+    )
+    notifications: list[TypeNotificationOut] = Field(
+        description="Whom its records tell, and when (ADR 0129): its own notifications and "
+        "its parents'.",
     )
 
 
@@ -932,6 +955,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
         "rule_variables": checking.record_variables(name) if checking.checks_of(name) else None,
+        "notifications": declared.describe(entity_type),
     }
 
 

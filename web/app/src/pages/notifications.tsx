@@ -52,7 +52,7 @@ export function Notifications() {
               </Button>
             ) : null}
             <a className="button button-quiet" href="/account/notifications/">
-              Email settings
+              Notification settings
             </a>
           </div>
         }
@@ -88,8 +88,9 @@ export function Notifications() {
             <>
               <h2>No notifications yet</h2>
               <p>
-                You’ll hear here when someone adds you to a project or team, changes your role, or
-                needs your approval.
+                You’ll hear here when someone adds you to a project or team, changes your role,
+                needs your approval, or assigns you work, and when records you’re named in, or
+                watch, change as their type says to tell you.
               </p>
             </>
           )}
@@ -165,10 +166,9 @@ function NotificationRow({ notification }: { notification: Notification }) {
     go();
   };
 
-  const meta = [
-    notification.project?.name,
-    notification.actor ? `by ${notification.actor.name}` : undefined,
-  ].filter(Boolean);
+  const meta = [notification.project?.name, byline(notification)].filter(Boolean);
+  // Several records told of together: the ones you can read now, each to open.
+  const records = notification.count > 1 ? notification.records : [];
 
   return (
     <li className={unread ? "row notification notification-unread" : "row notification"}>
@@ -185,6 +185,20 @@ function NotificationRow({ notification }: { notification: Notification }) {
           )}
         </span>
         {notification.body ? <span className="notification-body">{notification.body}</span> : null}
+        {records.length ? (
+          <ul className="notification-records" aria-label={`Records in: ${notification.title}`}>
+            {records.map((record) => (
+              <li key={record.id}>
+                <Link to="/entities/$ref/" params={{ ref: record.id }}>
+                  {record.hrid}
+                </Link>
+              </li>
+            ))}
+            {notification.count > records.length ? (
+              <li className="muted">and {String(notification.count - records.length)} more</li>
+            ) : null}
+          </ul>
+        ) : null}
         <span className="row-meta">
           {meta.length ? `${meta.join(" · ")} · ` : ""}
           <RelativeTime value={notification.created_at} />
@@ -209,4 +223,11 @@ function NotificationRow({ notification }: { notification: Notification }) {
       </div>
     </li>
   );
+}
+
+/** Who caused it, as records name them (ADR 0072): "by Ada Lovelace, through Claude Code". */
+export function byline(notification: Notification): string | undefined {
+  if (!notification.actor) return undefined;
+  const agent = notification.agent ? `, through ${notification.agent.name}` : "";
+  return `by ${notification.actor.name}${agent}`;
 }

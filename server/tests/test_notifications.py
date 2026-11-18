@@ -16,7 +16,7 @@ from test_oauth import bearer, signed_in_token
 from iki_server.accounts import service_accounts
 from iki_server.audit.models import AuditEvent
 from iki_server.notifications import kinds, services
-from iki_server.notifications.models import EmailPreference, Notification
+from iki_server.notifications.models import Notification, NotificationSetting
 from iki_server.oauth import services as oauth_services
 from iki_server.oauth.models import Client
 from iki_server.org import services as org
@@ -275,7 +275,7 @@ def test_emails_can_leave_out_the_details(world: World) -> None:
 @pytest.mark.usefixtures("email_on")
 def test_people_choose_which_notifications_they_get_by_email(world: World) -> None:
     outsider = world.users["outsider"]
-    EmailPreference.objects.create(user=outsider, kind="project.added", email=False)
+    NotificationSetting.objects.create(user=outsider, kind="project.added", delivery="in_app")
     org.grant_project_role(
         world.project, ProjectRole.EDITOR, user=outsider, by=world.users["admin"]
     )
@@ -296,7 +296,7 @@ def test_turning_email_off_after_the_fact_stops_the_email(world: World) -> None:
     org.grant_project_role(
         world.project, ProjectRole.EDITOR, user=outsider, by=world.users["admin"]
     )
-    EmailPreference.objects.create(user=outsider, kind="project.added", email=False)
+    NotificationSetting.objects.create(user=outsider, kind="project.added", delivery="in_app")
     send_emails()
     assert mail.outbox == []
     assert TaskRecord.objects.get().return_value == "turned off"
@@ -328,27 +328,37 @@ def test_temporary_mail_errors_are_retried_and_permanent_ones_arent(
     assert Notification.objects.get().emailed_at is None
 
 
-# --- Email choices: API and page -------------------------------------------------
+# --- Choices: API and page -------------------------------------------------
 
 
-def test_email_choices_through_the_api(world: World) -> None:
+def test_choices_through_the_api(world: World) -> None:
     api = Api(world.browser("viewer"))
-    body = api.get("/me/notification-email").json()
+    body = api.get("/me/notification-settings").json()
     assert body["email_available"] is False
     assert body["address"] == "viewer@example.com"
     by_kind = {k["kind"]: k for k in body["kinds"]}
-    assert by_kind["project.added"]["email"] is True
+    added = by_kind["project.added"]
+    assert (added["delivery"], added["default"], added["can_turn_off"]) == ("email", "email", False)
+    assert added["type"] is None and not added["per_project"]
     # Org Admin matters are only offered to Org Admins.
     assert "oauth.app_awaiting_approval" not in by_kind
+    assert body["projects"] == []
 
-    changed = api.patch("/me/notification-email", {"email": {"project.added": False}}).json()
-    assert {k["kind"]: k["email"] for k in changed["kinds"]}["project.added"] is False
-    event = AuditEvent.objects.get(action="notifications.email_preferences_changed")
-    assert event.data == {"project.added": {"from": True, "to": False}}
+    changed = api.patch("/me/notification-settings", {"kinds": {"project.added": "in_app"}})
+    assert {k["kind"]: k["delivery"] for k in changed.json()["kinds"]}["project.added"] == "in_app"
+    event = AuditEvent.objects.get(action="notifications.preferences_changed")
+    assert event.data == {"changes": [{"kind": "project.added", "from": "email", "to": "in_app"}]}
 
-    refused = api.patch("/me/notification-email", {"email": {"oauth.app_awaiting_approval": True}})
+    refused = api.patch(
+        "/me/notification-settings", {"kinds": {"oauth.app_awaiting_approval": "email"}}
+    )
     body = problem(refused, 422, "validation_failed")
-    assert body["errors"][0]["pointer"] == "#/email"
+    assert body["errors"][0]["pointer"] == "#/kinds/oauth.app_awaiting_approval"
+    # Iki's own kinds are about the person: they're always shown in Iki.
+    refused = api.patch("/me/notification-settings", {"kinds": {"project.added": "off"}})
+    assert (
+        "can't be turned off" in problem(refused, 422, "validation_failed")["errors"][0]["detail"]
+    )
 
 
 def test_the_preferences_page_saves_choices(world: World) -> None:
@@ -358,11 +368,15 @@ def test_the_preferences_page_saves_choices(world: World) -> None:
     text = page.content.decode()
     assert "An app is waiting for approval" in text
     assert "hasn’t set up email" in text
-    response = post(browser, "/account/notifications/", {"email:project.added": "on"})
+    response = post(
+        browser,
+        "/account/notifications/",
+        {"action": "save", "delivery:project.added": "email", "delivery:team.added": "in_app"},
+    )
     assert response.status_code == 302
-    choices = services.email_choices(world.users["org_admin"])
-    assert choices["project.added"] is True
-    assert choices["team.added"] is False
+    choices = services.choices(world.users["org_admin"])
+    assert choices["project.added"] == "email"
+    assert choices["team.added"] == "in_app"
     assert browser.get("/account/")["Location"] == "/account/notifications/"
 
 

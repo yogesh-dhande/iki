@@ -546,6 +546,10 @@ else:
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.dummy.EmailBackend"}}
     SILENCED_SYSTEM_CHECKS.append("mail.E001")
 
+#: How long an email about records waits for others of its kind to join it, so a change to
+#: many records, or many changes at once, sends one email rather than one each (ADR 0129).
+IKI_NOTIFICATION_BATCH_SECONDS: int = env.int("IKI_NOTIFICATION_BATCH_SECONDS", default=120)
+
 # --- Webhooks -------------------------------------------------------------------
 # Webhooks go to public HTTPS addresses only (see webhooks/sender.py). For
 # receivers inside your network, list their networks (CIDRs, comma-separated)

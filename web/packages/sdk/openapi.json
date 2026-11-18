@@ -3243,84 +3243,6 @@
         "title": "EgressOut",
         "type": "object"
       },
-      "EmailKindOut": {
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "email": {
-            "title": "Email",
-            "type": "boolean"
-          },
-          "group": {
-            "title": "Group",
-            "type": "string"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "label",
-          "description",
-          "group",
-          "email"
-        ],
-        "title": "EmailKindOut",
-        "type": "object"
-      },
-      "EmailSettingsIn": {
-        "properties": {
-          "email": {
-            "additionalProperties": {
-              "type": "boolean"
-            },
-            "description": "Kind → whether to email it. Kinds left out keep their setting.",
-            "title": "Email",
-            "type": "object"
-          }
-        },
-        "required": [
-          "email"
-        ],
-        "title": "EmailSettingsIn",
-        "type": "object"
-      },
-      "EmailSettingsOut": {
-        "properties": {
-          "address": {
-            "description": "Where emails go: your address from the identity provider.",
-            "title": "Address",
-            "type": "string"
-          },
-          "email_available": {
-            "description": "Whether this organization sends email. If not, choices are kept for later.",
-            "title": "Email Available",
-            "type": "boolean"
-          },
-          "kinds": {
-            "items": {
-              "$ref": "#/components/schemas/EmailKindOut"
-            },
-            "title": "Kinds",
-            "type": "array"
-          }
-        },
-        "required": [
-          "email_available",
-          "address",
-          "kinds"
-        ],
-        "title": "EmailSettingsOut",
-        "type": "object"
-      },
       "EnableIn": {
         "properties": {
           "run_as": {
@@ -3921,6 +3843,14 @@
             "title": "Name",
             "type": "string"
           },
+          "notifications": {
+            "description": "Whom its records tell, and when (ADR 0129): its own notifications and its parents'.",
+            "items": {
+              "$ref": "#/components/schemas/TypeNotificationOut"
+            },
+            "title": "Notifications",
+            "type": "array"
+          },
           "plugin": {
             "title": "Plugin",
             "type": "string"
@@ -4001,7 +3931,8 @@
           "identity",
           "fields",
           "values_schema",
-          "viewers"
+          "viewers",
+          "notifications"
         ],
         "title": "EntityTypeOut",
         "type": "object"
@@ -6940,6 +6871,87 @@
         "title": "JobState",
         "type": "string"
       },
+      "KindOut": {
+        "properties": {
+          "can_turn_off": {
+            "description": "Whether it can be off: only a type's notification that isn't required.",
+            "title": "Can Turn Off",
+            "type": "boolean"
+          },
+          "default": {
+            "description": "How it's told to those who haven't chosen.",
+            "enum": [
+              "email",
+              "in_app",
+              "off"
+            ],
+            "title": "Default",
+            "type": "string"
+          },
+          "delivery": {
+            "description": "How you're told of it: in Iki and by email, in Iki only, or not at all.",
+            "enum": [
+              "email",
+              "in_app",
+              "off"
+            ],
+            "title": "Delivery",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "per_project": {
+            "description": "Whether it can be chosen for one project.",
+            "title": "Per Project",
+            "type": "boolean"
+          },
+          "required": {
+            "description": "Its plugin requires it: it can't be turned off in Iki.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type that declares it (ADR 0129), or null for one of Iki's own.",
+            "title": "Type"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "group",
+          "type",
+          "required",
+          "can_turn_off",
+          "per_project",
+          "default",
+          "delivery"
+        ],
+        "title": "KindOut",
+        "type": "object"
+      },
       "LabRoleGrantOut": {
         "properties": {
           "declared": {
@@ -7978,6 +7990,26 @@
         "title": "NotificationActor",
         "type": "object"
       },
+      "NotificationAgent": {
+        "description": "The agent that made the change, for the actor (ADR 0072).",
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The app's name, as it was when it acted.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "name"
+        ],
+        "title": "NotificationAgent",
+        "type": "object"
+      },
       "NotificationOut": {
         "properties": {
           "actor": {
@@ -7991,9 +8023,25 @@
             ],
             "description": "Who caused it, if anyone did."
           },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationAgent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that caused it for the actor, if one did."
+          },
           "body": {
             "title": "Body",
             "type": "string"
+          },
+          "count": {
+            "description": "How many records it's about, once several are told of together.",
+            "title": "Count",
+            "type": "integer"
           },
           "created_at": {
             "format": "date-time",
@@ -8006,8 +8054,13 @@
             "type": "string"
           },
           "kind": {
-            "description": "What it's about, such as project.added.",
+            "description": "What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.",
             "title": "Kind",
+            "type": "string"
+          },
+          "kind_label": {
+            "description": "What people's settings call its kind.",
+            "title": "Kind Label",
             "type": "string"
           },
           "path": {
@@ -8037,6 +8090,14 @@
             ],
             "title": "Read At"
           },
+          "records": {
+            "description": "The records it's about that you can read now, the first 20.",
+            "items": {
+              "$ref": "#/components/schemas/NotificationRecordOut"
+            },
+            "title": "Records",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -8045,11 +8106,15 @@
         "required": [
           "id",
           "kind",
+          "kind_label",
           "title",
           "body",
           "path",
           "project",
           "actor",
+          "agent",
+          "count",
+          "records",
           "created_at",
           "read_at"
         ],
@@ -8078,6 +8143,30 @@
           "slug"
         ],
         "title": "NotificationProject",
+        "type": "object"
+      },
+      "NotificationRecordOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type"
+        ],
+        "title": "NotificationRecordOut",
         "type": "object"
       },
       "OrgParams": {
@@ -10044,6 +10133,70 @@
           "run"
         ],
         "title": "ProjectCan",
+        "type": "object"
+      },
+      "ProjectChoiceIn": {
+        "properties": {
+          "delivery": {
+            "anyOf": [
+              {
+                "enum": [
+                  "email",
+                  "in_app",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: as you chose everywhere, in this project too.",
+            "title": "Delivery"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "kind",
+          "delivery"
+        ],
+        "title": "ProjectChoiceIn",
+        "type": "object"
+      },
+      "ProjectChoiceOut": {
+        "properties": {
+          "delivery": {
+            "enum": [
+              "email",
+              "in_app",
+              "off"
+            ],
+            "title": "Delivery",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/NotificationProject"
+          }
+        },
+        "required": [
+          "project",
+          "kind",
+          "delivery"
+        ],
+        "title": "ProjectChoiceOut",
         "type": "object"
       },
       "ProjectCostSummaryOut": {
@@ -14417,6 +14570,70 @@
         "title": "ServiceAccountPatch",
         "type": "object"
       },
+      "SettingsIn": {
+        "properties": {
+          "kinds": {
+            "additionalProperties": {
+              "enum": [
+                "email",
+                "in_app",
+                "off"
+              ],
+              "type": "string"
+            },
+            "description": "Kind → how you're told of it everywhere. Kinds left out keep theirs.",
+            "title": "Kinds",
+            "type": "object"
+          },
+          "projects": {
+            "description": "How you're told of a type's notification in one project. Others keep theirs.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectChoiceIn"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "title": "SettingsIn",
+        "type": "object"
+      },
+      "SettingsOut": {
+        "properties": {
+          "address": {
+            "description": "Where emails go: your address from the identity provider.",
+            "title": "Address",
+            "type": "string"
+          },
+          "email_available": {
+            "description": "Whether this organization sends email. If not, choices are kept for later.",
+            "title": "Email Available",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/KindOut"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "projects": {
+            "description": "How you're told of a type's notifications in single projects, which overrides your choice everywhere there.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectChoiceOut"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "email_available",
+          "address",
+          "kinds",
+          "projects"
+        ],
+        "title": "SettingsOut",
+        "type": "object"
+      },
       "SetupBuildOut": {
         "properties": {
           "approved_at": {
@@ -16850,6 +17067,82 @@
         "title": "TriggerRefOut",
         "type": "object"
       },
+      "TypeNotificationOut": {
+        "description": "A notification a type declares (ADR 0129), as its page previews it.",
+        "properties": {
+          "declared_by": {
+            "description": "The type that declares it: this one or a parent.",
+            "title": "Declared By",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "email": {
+            "description": "Whether it's emailed unless someone chooses otherwise.",
+            "title": "Email",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Its kind, which people's notification settings choose by: plugin.Type.name, of the type that declares it.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "only_some": {
+            "description": "Whether only records its conditions find send it.",
+            "title": "Only Some",
+            "type": "boolean"
+          },
+          "required": {
+            "description": "Whether nobody can turn it off in Iki.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "tells": {
+            "description": "Whom it tells, in words.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tells",
+            "type": "array"
+          },
+          "when": {
+            "description": "When it's sent, in words.",
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "label",
+          "description",
+          "declared_by",
+          "when",
+          "only_some",
+          "tells",
+          "email",
+          "required"
+        ],
+        "title": "TypeNotificationOut",
+        "type": "object"
+      },
       "UnitOption": {
         "properties": {
           "code": {
@@ -17646,6 +17939,55 @@
           "roles"
         ],
         "title": "WantedSignatureOut",
+        "type": "object"
+      },
+      "WatchIn": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "default",
+              "watching",
+              "muted"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "WatchIn",
+        "type": "object"
+      },
+      "WatchOut": {
+        "properties": {
+          "can_mute": {
+            "description": "Whether its type sends anything that can be muted.",
+            "title": "Can Mute",
+            "type": "boolean"
+          },
+          "can_watch": {
+            "description": "Whether its type tells its watchers anything.",
+            "title": "Can Watch",
+            "type": "boolean"
+          },
+          "mode": {
+            "description": "default: you're told what names you (a field, its creator, your lab role). watching: also what its type tells its watchers. muted: nothing but what its plugin requires.",
+            "enum": [
+              "default",
+              "watching",
+              "muted"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "can_watch",
+          "can_mute"
+        ],
+        "title": "WatchOut",
         "type": "object"
       },
       "WebhookCreated": {
@@ -23817,6 +24159,129 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/watch": {
+      "get": {
+        "operationId": "iki_server_api_notifications_watch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Whether you watch a record",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "put": {
+        "description": "Watching it, you're told what its type tells its watchers (ADR 0129), beside what\nnames you. Muting it, you're told nothing of it but what its plugin requires. Either\nis audited, and needs you to be able to read it.",
+        "operationId": "iki_server_api_notifications_choose_watch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Watch a record, mute it, or stop",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/api/v1/entity-types": {
       "get": {
         "description": "Every type the deployment's plugins define, abstract ones included, by name.",
@@ -24913,16 +25378,16 @@
         ]
       }
     },
-    "/api/v1/me/notification-email": {
+    "/api/v1/me/notification-settings": {
       "get": {
-        "operationId": "iki_server_api_notifications_email_settings",
+        "operationId": "iki_server_api_notifications_notification_settings",
         "parameters": [],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmailSettingsOut"
+                  "$ref": "#/components/schemas/SettingsOut"
                 }
               }
             },
@@ -24937,19 +25402,20 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Which notifications you get by email",
+        "summary": "How you're told of each kind of notification",
         "tags": [
           "notifications"
         ]
       },
       "patch": {
-        "operationId": "iki_server_api_notifications_change_email_settings",
+        "description": "Each kind in Iki and by email, in Iki only, or (for a type's notification its plugin\ndoesn't require, ADR 0129) not at all: everywhere, or in one project, which overrides\nyour choice everywhere there. Changes are audited.",
+        "operationId": "iki_server_api_notifications_change_notification_settings",
         "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EmailSettingsIn"
+                "$ref": "#/components/schemas/SettingsIn"
               }
             }
           },
@@ -24960,7 +25426,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmailSettingsOut"
+                  "$ref": "#/components/schemas/SettingsOut"
                 }
               }
             },
@@ -24975,7 +25441,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Choose which notifications you get by email",
+        "summary": "Choose how you're told of notifications",
         "tags": [
           "notifications"
         ]

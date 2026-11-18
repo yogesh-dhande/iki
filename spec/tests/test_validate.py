@@ -1767,3 +1767,209 @@ def test_people_are_each_projects_not_a_registrys(tmp_path: Path) -> None:
 def test_fields_named_iki_are_reserved(tmp_path: Path) -> None:
     body = TYPE + "fields:\n  iki_state: { type: string }\n"
     assert "`iki_state` is reserved" in only(make(tmp_path, body), "reserved-name")
+
+
+# --- Notifications a type declares (ADR 0129) --------------------------------------------------
+#: A type with people, states and a reference, then the notifications under test.
+BASE = PEOPLE.replace(
+    "  received_by: { type: person }\n",
+    "  received_by: { type: person }\n"
+    "  result: { type: enum, values: [pass, fail] }\n"
+    "  lot: { type: string }\n"
+    "  sent_at: { type: datetime }\n"
+    "  passed: { type: bool }\n"
+    "  notes: { type: json }\n"
+    "  parent: { type: ref, to: Assay }\n",
+)
+NOTIFICATIONS = """\
+notifications:
+  released:
+    label: An assay is released
+    description: QA and its analyst hear when QA releases an assay.
+    when: { field: status, to: released }
+    tell: { roles: [qa], fields: [analyst, helpers], creator: true }
+    message:
+      title: "{{ hrid }} is released"
+      body: "Lot {{ lot or 'unknown' }}: its result is {{ result }}, by {{ analyst }}."
+    required: true
+  out_of_testing:
+    label: Out of testing
+    when: { field: status, from: [testing] }
+    where:
+      all:
+        - { field: sent_at, op: gte, value: "{{ now }}" }
+        - { field: result, op: in, value: [fail] }
+        - { field: received_by, op: is_set, value: true }
+    tell: { watchers: true, actor: true }
+    email: false
+  failed:
+    label: A result failed
+    when: { field: result, to: [fail] }
+    tell: { fields: [received_by] }
+  parent_moved:
+    label: Its parent moved
+    when: { field: parent.custody, to: quarantined }
+    tell: { fields: [received_by] }
+  made:
+    label: An assay is made
+    when: { created: true }
+    tell: { roles: [analyst] }
+"""
+
+
+def declared(body: str = NOTIFICATIONS) -> str:
+    return people(BASE.replace("due: due_on", "due: due_on\n" + body.rstrip("\n")))
+
+
+def test_a_type_declares_its_notifications(tmp_path: Path) -> None:
+    result = make(tmp_path, declared(), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    released = assay.notifications["released"]
+    assert (released.label, released.field, released.to_values) == (
+        "An assay is released",
+        "status",
+        ("released",),
+    )
+    assert released.tell_roles == ("acme/lab.qa",)
+    assert released.tell_fields == ("analyst", "helpers")
+    assert (released.tell_creator, released.tell_watchers, released.tell_actor) == (
+        True,
+        False,
+        False,
+    )
+    assert (released.email, released.required) == (True, True)
+    assert released.title == "{{ hrid }} is released"
+    leaving = assay.notifications["out_of_testing"]
+    assert (leaving.from_values, leaving.to_values, leaving.email) == (("testing",), (), False)
+    assert leaving.where is not None
+    moved = assay.notifications["parent_moved"]
+    assert (moved.ref, moved.target) == ("parent", "custody")
+    assert assay.notifications["made"].created
+    # The label defaults to the name, in words.
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "code", "message"),
+    [
+        ("field: status, to: released", "field: stats", "unknown-field", "`stats`"),
+        ("to: released }", "to: relased }", "unknown-state", "`relased`"),
+        ("from: [testing]", "from: [tested]", "unknown-state", "`tested`"),
+        ("to: [fail]", "to: [failed]", "notification-values", "`failed`"),
+        ("result, to: [fail]", "lot, to: [fail]", "notification-values", "only a state field"),
+        ("roles: [qa], fields", "roles: [chemist], fields", "unknown-role", "`chemist`"),
+        ("fields: [analyst, helpers]", "fields: [analyst, lot]", "notification-recipients", "lot"),
+        ("fields: [received_by]", "fields: [reciever]", "unknown-field", "`reciever`"),
+        ("parent.custody", "parent.custard", "unknown-field", "`custard`"),
+        ("parent.custody", "lot.custody", "notification-field", "a reference to one record"),
+        ("{{ hrid }} is released", "{{ hird }} is released", "notification-message", "`hird`"),
+        ("by {{ analyst }}", "by {{ notes }}", "notification-message", "a json field"),
+        ("{{ result }}", "{{ result, }}", "notification-message", "where `or` belongs"),
+        (
+            'value: "{{ now }}" }',
+            'value: "{{ me }}" }',
+            "notification-where",
+            "`{{ now }}`",
+        ),
+        (
+            "{ field: result, op: in, value: [fail] }",
+            "{ field: result, op: contains, value: fail }",
+            "unknown-operator",
+            "`result` takes",
+        ),
+        (
+            "{ field: result, op: in, value: [fail] }",
+            "{ field: result, op: in, value: [failed] }",
+            "notification-where",
+            "no value `failed`",
+        ),
+        (
+            "{ field: received_by, op: is_set, value: true }",
+            "{ field: received_by, op: eq, value: x }",
+            "notification-where",
+            "only with `is_set`",
+        ),
+        (
+            "{ field: sent_at, op: gte",
+            "{ field: lot, op: gte",
+            "unknown-operator",
+            "`lot` takes",
+        ),
+        ("when: { created: true }", "when: { created: true, field: lot }", "notification-when", ""),
+        ("when: { created: true }", "when: {}", "notification-when", "Say when"),
+    ],
+)
+def test_notifications_are_checked(
+    tmp_path: Path, old: str, new: str, code: str, message: str
+) -> None:
+    assert old in NOTIFICATIONS
+    assert message in only(
+        make(tmp_path, declared(NOTIFICATIONS.replace(old, new, 1)), ROLES), code
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("tell: { roles: [analyst] }", "tell: {}"),
+        ("    label: An assay is made\n", ""),
+        ("email: false", "email: no"),
+        ("  made:", "  Made:"),
+        ("when: { created: true }", "when: { created: false }"),
+        ("{{ hrid }} is released", ""),
+        ("tell: { roles: [analyst] }", "tell: { everyone: true }"),
+    ],
+)
+def test_notifications_must_be_well_formed(tmp_path: Path, old: str, new: str) -> None:
+    assert old in NOTIFICATIONS
+    assert "schema" in codes(make(tmp_path, declared(NOTIFICATIONS.replace(old, new, 1)), ROLES))
+
+
+def test_a_notification_repeating_its_ready_for_you_is_warned_of(tmp_path: Path) -> None:
+    body = """\
+notifications:
+  testing:
+    label: Testing
+    when: { field: status, to: testing }
+    tell: { fields: [analyst] }
+"""
+    result = make(tmp_path, declared(body), ROLES)
+    (problem,) = result.problems
+    assert (problem.code, problem.severity) == ("notification-repeats-ready", Severity.WARNING)
+    assert "told it's ready for them already" in problem.message
+
+
+def test_a_subtype_cant_redeclare_its_parents_notification(tmp_path: Path) -> None:
+    child = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Repeat
+extends: Assay
+schema_version: 1
+hrid: { prefix: RPT }
+notifications:
+  made:
+    label: Made again
+    when: { created: true }
+    tell: { creator: true }
+"""
+    result = make(tmp_path, {"types/assay.yaml": declared(), "types/repeat.yaml": child}, ROLES)
+    assert "`acme/lab.Assay`" in only(result, "notification-shadows-parent")
+
+
+def test_registry_fields_cant_send_one(tmp_path: Path) -> None:
+    body = """\
+notifications:
+  renamed:
+    label: Renamed
+    when: { field: code }
+    tell: { creator: true }
+"""
+    text = declared(body).replace(
+        "fields:\n",
+        "identity: [code]\nfields:\n  code: { type: string, immutable: true, required: true }\n",
+        1,
+    )
+    assert "registry" in only(make(tmp_path, text, ROLES), "notification-in-registry")

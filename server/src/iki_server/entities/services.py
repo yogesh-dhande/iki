@@ -77,6 +77,7 @@ from iki_server.entities.values import (
 )
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
+from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_spec.model import EntityType, Field, names_people
@@ -352,6 +353,7 @@ def _new_record(
     _use_files(form.fields(), instance.pk, own, revision.number)
     ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
     assignments.changed(instance, revision, assignments.diff(instance.type, {}, own), user)
+    declared.created(instance, revision, user)
     return Saved(_specific(instance), revision)
 
 
@@ -811,7 +813,8 @@ def update(
                 # Its registry entry's values held it: by the record as it is.
                 _hold(saved, holding, user, hold_reason, locked.revision)
             return saved
-        before = {n: rows.get(n) for n in new if names_people(fields[n])}
+        was = {n: rows.get(n) for n in new}
+        before = {n: v for n, v in was.items() if names_people(fields[n])}
         touched = _write(form, rows, new, instance.pk)
         revision = _revise(
             locked, RevisionKind.EDITED, sorted(new), user, reason, via="run" if by_run else None
@@ -825,6 +828,7 @@ def update(
         checking.kept(locked, changed, found)
         if holding:
             _hold(saved, holding, user, hold_reason, revision.number)
+        declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
     return saved
 
 
@@ -1291,6 +1295,7 @@ def state_changed(
     )
     _write_history(touched, rows, revision.number)
     assignments.became(entity, revision, f.name, old, new, user)
+    declared.changed(entity, revision, {f.name: (old or None, new)}, user)
     return revision
 
 

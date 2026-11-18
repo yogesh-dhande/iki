@@ -35,7 +35,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from functools import cache
+from functools import cache, partial
 from typing import Any, cast
 
 from django.core import signing
@@ -414,10 +414,12 @@ def _person_data(person: User | None, pk: uuid.UUID) -> dict[str, Any]:
 
 
 def _tell(current: _Batch) -> None:
+    from iki_server.audit.log import current_agent
     from iki_server.notifications import services as notifications
     from iki_server.realtime import events
 
     actor = current.actor
+    agent = current_agent()
     # Whoever's told is in the record's project, as the actor is: their name's no secret.
     who = actor.get_full_name() if actor is not None else "Iki"
     recipients = {u.pk: u for u in User.objects.filter(pk__in={k[0] for k in current.told})}
@@ -427,7 +429,17 @@ def _tell(current: _Batch) -> None:
             continue
         title, body, path = _message(kind, who, told)
         notifications.notify(
-            [user], kind, title=title, body=body, path=path, project=told.project, actor=actor
+            [user],
+            kind,
+            title=title,
+            body=body,
+            path=path,
+            project=told.project,
+            actor=actor,
+            agent=agent,
+            about=[entity for entity, _ in told.records],
+            # Told with what they were told of moments ago, unread (ADR 0129).
+            fold=notifications.Fold(partial(_many, kind, told)),
         )
     for person in current.touched:
         events.publish(person, "work", {})
@@ -438,7 +450,8 @@ def _message(kind: str, who: str, told: _Told) -> tuple[str, str, str]:
     records = told.records
     labels = sorted({label for _, label in records})
     roles = " and ".join(labels)
-    if len(records) == 1:
+    distinct = len({e.pk for e, _ in records})
+    if distinct == 1:
         entity, label = records[0]
         path = f"/entities/{entity.pk}"
         title = {
@@ -448,18 +461,31 @@ def _message(kind: str, who: str, told: _Told) -> tuple[str, str, str]:
         }[kind]
     else:
         path = f"/work?project={project.pk}"
-        what = f"{len(records)} records"
+        what = f"{distinct} records"
         title = {
             "assignment.assigned": f"{who} assigned you {what} as {roles}",
             "assignment.unassigned": f"{who} took you off {what} as {roles}",
             "assignment.ready": f"{what} are ready for you, as {roles}",
         }[kind]
-    body = (
+    return title, _body(kind, project), path
+
+
+def _body(kind: str, project: Project) -> str:
+    return (
         f"In {project.name}. It's on My work."
         if kind != "assignment.unassigned"
         else f"In {project.name}. It's no longer on My work."
     )
-    return title, body, path
+
+
+def _many(kind: str, told: _Told, count: int) -> tuple[str, str, str]:
+    """One about ``count`` records, after more joined it, from whoever."""
+    title = {
+        "assignment.assigned": f"You were assigned {count} records",
+        "assignment.unassigned": f"You were taken off {count} records",
+        "assignment.ready": f"{count} records are ready for you",
+    }[kind]
+    return title, _body(kind, told.project), f"/work?project={told.project.pk}"
 
 
 # --- Work -----------------------------------------------------------------------------------------

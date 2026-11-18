@@ -1,6 +1,7 @@
 """Pages: each person's email choices, and the organization's email settings."""
 
 import smtplib
+import uuid
 from itertools import groupby
 from typing import Any
 
@@ -14,6 +15,7 @@ from django.shortcuts import redirect, render
 
 from iki_server.audit import log as audit
 from iki_server.notifications import services
+from iki_server.notifications.models import Delivery
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.views import _user, page
@@ -32,19 +34,56 @@ def preferences(request: HttpRequest) -> HttpResponse:
     me = _user(request)
     available = services.kinds_for(me)
     if request.method == "POST":
-        chosen = {kind.key: f"email:{kind.key}" in request.POST for kind in available}
-        services.set_email_choices(me, chosen)
-        messages.success(request, "Saved your email choices.")
+        try:
+            if request.POST.get("action") == "forget":
+                services.set_choices(
+                    me,
+                    projects=[
+                        (
+                            uuid.UUID(request.POST.get("project", "")),
+                            request.POST.get("kind", ""),
+                            None,
+                        )
+                    ],
+                )
+                messages.success(request, "That project follows your choices here now.")
+            else:
+                services.set_choices(
+                    me,
+                    {
+                        kind.key: request.POST[f"delivery:{kind.key}"]
+                        for kind in available
+                        if f"delivery:{kind.key}" in request.POST
+                    },
+                )
+                messages.success(request, "Saved your notification choices.")
+        except (services.Invalid, ValueError) as error:
+            messages.error(request, str(error) or "Those choices couldn’t be saved.")
         return redirect(request.path)
-    choices = services.email_choices(me)
+    chosen = services.choices(me)
     groups = [
-        (group, [(kind, choices[kind.key]) for kind in kinds])
+        (group, [(kind, chosen[kind.key].value) for kind in kinds])
         for group, kinds in groupby(available, key=lambda k: k.group)
+    ]
+    labels = {kind.key: kind.label for kind in available}
+    projects = [
+        {
+            "project": row.project,
+            "kind": row.kind,
+            "label": labels.get(row.kind, row.kind),
+            "delivery_label": Delivery(row.delivery).label,
+        }
+        for row in services.project_choices(me)
     ]
     return render(
         request,
         "notifications/preferences.html",
-        {"groups": groups, "email_available": services.email_enabled()},
+        {
+            "groups": groups,
+            "email_available": services.email_enabled(),
+            "declared": any(kind.declared for kind in available),
+            "projects": projects,
+        },
     )
 
 

@@ -317,7 +317,8 @@
         ],
         "file": "types/alignment.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       },
       "iki/core.App": {
         "plugin": "iki/core",
@@ -780,7 +781,8 @@
         "viewers": [],
         "file": "types/app.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       },
       "iki/core.Collection": {
         "plugin": "iki/core",
@@ -1028,7 +1030,8 @@
         "viewers": [],
         "file": "types/collection.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       },
       "iki/core.Entity": {
         "plugin": "iki/core",
@@ -1047,7 +1050,8 @@
         "viewers": [],
         "file": "types/entity.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       },
       "iki/core.Sequence": {
         "plugin": "iki/core",
@@ -1184,7 +1188,8 @@
         "viewers": [],
         "file": "types/sequence.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       },
       "iki/core.View": {
         "plugin": "iki/core",
@@ -1951,7 +1956,8 @@
         "viewers": [],
         "file": "types/view.yaml",
         "due": null,
-        "rules": {}
+        "rules": {},
+        "notifications": {}
       }
     },
     "extensions": [],

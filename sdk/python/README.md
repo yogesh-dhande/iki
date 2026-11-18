@@ -117,6 +117,12 @@ mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searche
 # They're read and checked here; only a person signing in again in the web app signs.
 for signature in iki.signatures.list("SMP-000012", verify=True)["items"]:
     print(signature["manifestation"], signature["verification"]["valid"])
+# What you were told (ADR 0129), how you're told of each kind, and what you watch.
+for n in iki.notifications.list(unread=True):
+    print(n["title"], [r["hrid"] for r in n["records"]])
+iki.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+iki.notifications.choose({"iki/example_lims.Sample.in_review": "off"}, project="stability")
+iki.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from

@@ -3,25 +3,63 @@
 {% block content %}
 <div class="page-header"><h1>Notifications</h1></div>
 {% include "web/_account_tabs.html" %}
-<p class="muted">Iki always shows your notifications under <a href="/notifications/">Notifications</a>. Choose which you also get by email, at {{ user.email }}.</p>
+<p class="muted">Iki shows your notifications under <a href="/notifications/">Notifications</a>. Choose how you’re told of each kind: in Iki and by email, at {{ user.email }}, or in Iki only. A plugin’s notifications can be off too, unless it requires them.</p>
 {% if not email_available %}
 <div class="alert alert-warning" role="note"><p>Your organization hasn’t set up email, so notifications stay in Iki. Your choices are kept for when it does.</p></div>
 {% endif %}
 <form class="stack" method="post" data-busy-form>
   {% csrf_token %}
-  {% for group, kinds in groups %}
+  <input type="hidden" name="action" value="save">
+  {% for group, rows in groups %}
   <fieldset>
     <legend>{{ group }}</legend>
-    <div class="choices">
-      {% for kind, emailed in kinds %}
-      <label class="choice">
-        <input type="checkbox" name="email:{{ kind.key }}"{% if emailed %} checked{% endif %}>
-        <span class="choice-text"><span>{{ kind.label }}</span><span class="choice-help">{{ kind.description }}</span></span>
-      </label>
+    <ul class="rows" role="list">
+      {% for kind, delivery in rows %}
+      <li class="row">
+        <div class="row-main">
+          <label class="row-title" for="delivery-{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{{ kind.label }}</label>
+          {% if kind.description %}<span class="row-meta">{{ kind.description }}</span>{% endif %}
+          {% if kind.required %}<span class="row-meta">Its plugin requires it, so it’s always shown in Iki.</span>{% endif %}
+        </div>
+        <div class="row-actions">
+          <select id="delivery-{{ forloop.parentloop.counter }}-{{ forloop.counter }}" name="delivery:{{ kind.key }}">
+            <option value="email"{% if delivery == "email" %} selected{% endif %}>In Iki and by email</option>
+            <option value="in_app"{% if delivery == "in_app" %} selected{% endif %}>In Iki only</option>
+            {% if kind.can_turn_off %}<option value="off"{% if delivery == "off" %} selected{% endif %}>Off</option>{% endif %}
+          </select>
+        </div>
+      </li>
       {% endfor %}
-    </div>
+    </ul>
   </fieldset>
   {% endfor %}
   <div><button class="button button-primary" type="submit" data-busy-text="Saving…">Save</button></div>
 </form>
+{% if declared %}
+<section class="stack" aria-labelledby="per-project">
+  <h2 id="per-project">In single projects</h2>
+  <p class="muted">A project can differ from your choices here: choose under Notifications on its page. To hear of one record more, or less, watch it or mute it on its page.</p>
+  <ul class="rows" aria-label="Choices for single projects">
+    {% for row in projects %}
+    <li class="row">
+      <div class="row-main">
+        <span class="row-title"><a href="/projects/{{ row.project.slug }}/">{{ row.project.name }}</a>: {{ row.label }}</span>
+        <span class="row-meta">{{ row.delivery_label }}</span>
+      </div>
+      <div class="row-actions">
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="forget">
+          <input type="hidden" name="project" value="{{ row.project.pk }}">
+          <input type="hidden" name="kind" value="{{ row.kind }}">
+          <button class="button button-quiet" type="submit" aria-label="Use your choice everywhere for {{ row.label }} in {{ row.project.name }}">Use my choice everywhere</button>
+        </form>
+      </div>
+    </li>
+    {% empty %}
+    <li class="row"><span class="muted">None: each project follows your choices here.</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% endblock %}

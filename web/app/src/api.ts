@@ -283,6 +283,46 @@ export async function markAllNotifications(upTo: string | undefined) {
   return unwrap(await iki.POST("/api/v1/notifications/read", { body: { up_to: upTo ?? null } }));
 }
 
+export type Watching = Schemas["WatchOut"];
+export type WatchMode = Watching["mode"];
+export type NotificationSettings = Schemas["SettingsOut"];
+export type NotifyBy = Schemas["KindOut"]["delivery"];
+
+/** Whether you watch a record, or muted it (ADR 0129). */
+export function watchQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...NOTIFICATIONS, "watch", ref],
+    meta: { background: true },
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/watch", { params: { path: { ref } } })),
+  });
+}
+
+export async function chooseWatch(ref: string, mode: WatchMode): Promise<Watching> {
+  return unwrap(
+    await iki.PUT("/api/v1/entities/{ref}/watch", { params: { path: { ref } }, body: { mode } }),
+  );
+}
+
+/** How you're told of each kind of notification, everywhere and in single projects. */
+export const notificationSettingsQuery = queryOptions({
+  queryKey: [...NOTIFICATIONS, "settings"],
+  meta: { background: true },
+  queryFn: async () => unwrap(await iki.GET("/api/v1/me/notification-settings")),
+});
+
+/** Chooses how you're told of kinds in one project; null follows your choice everywhere. */
+export async function chooseInProject(
+  project: string,
+  choices: { kind: string; delivery: NotifyBy | null }[],
+): Promise<NotificationSettings> {
+  return unwrap(
+    await iki.PATCH("/api/v1/me/notification-settings", {
+      body: { projects: choices.map((c) => ({ project, ...c })) },
+    }),
+  );
+}
+
 // --- Webhooks ----------------------------------------------------------------------
 
 export const WEBHOOKS = ["webhooks"] as const;

@@ -11,7 +11,8 @@ A component that shows many entities says which: their type and the fields it re
 each of which must be the type's. Its slots' searches name the type's fields (or the
 columns every entity has) with the operators each kind takes, sort by one that sorts,
 and take the place's context only where there is one: `{{ entity }}` on a tab, as a
-reference to its type, and `{{ me }}` where a person is named. A section on a person's
+reference to its type, and `{{ me }}` where a person is named. A date or a time can be
+compared with `{{ now }}`, when the search runs. A section on a person's
 home must name them.
 """
 
@@ -37,6 +38,7 @@ from iki_spec.model import (
     names_people,
     qualify,
 )
+from iki_spec.notifications import now_of
 from iki_spec.problems import Path
 
 if TYPE_CHECKING:
@@ -333,11 +335,13 @@ class _Search:
             if context is None:
                 continue
             at: Path = (*path, "value")
+            if context == "" and now_of(value) and kind in ("date", "datetime"):
+                continue  # The search's own: when it runs.
             if context == "":
                 self.add(
                     "unknown-context",
                     f"`{value}` isn't a value a search can take: `{{{{ entity }}}}` and "
-                    "`{{ me }}` are, as the whole value.",
+                    "`{{ me }}` are, as the whole value, and `{{ now }}` for a date or a time.",
                     self.source,
                     at,
                 )

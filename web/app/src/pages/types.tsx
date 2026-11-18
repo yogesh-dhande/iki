@@ -269,7 +269,64 @@ export function TypeDetail() {
           </table>
         </div>
       </section>
+      {type.notifications.length ? (
+        <TypeNotifications notifications={type.notifications} type={type} types={types} />
+      ) : null}
     </>
+  );
+}
+
+/** Whom its records tell, and when (ADR 0129): what its plugin declares, in words. */
+function TypeNotifications({
+  notifications,
+  type,
+  types,
+}: {
+  notifications: EntityType["notifications"];
+  type: EntityType;
+  types: EntityType[];
+}) {
+  return (
+    <section aria-labelledby="notifications-title">
+      <h2 className="section-title" id="notifications-title">
+        Notifications
+      </h2>
+      <p className="muted">
+        Who is told when its records change. Each person is told only of records they can read, and
+        not of their own changes; emails say what happened and link here, without values. Choose how
+        you’re told in <a href="/account/notifications/">your notification settings</a>.
+      </p>
+      <ul className="rows" aria-label="Its notifications">
+        {notifications.map((n) => (
+          <li className="row" key={n.kind}>
+            <div className="row-main">
+              <span className="row-title">{n.label}</span>
+              {n.description ? <span className="row-meta">{n.description}</span> : null}
+              <span className="row-meta">
+                {n.when}
+                {n.only_some ? ", for those its conditions find" : ""}. Tells{" "}
+                {n.tells.map((who, index) => (
+                  <span key={who}>
+                    {index ? (index === n.tells.length - 1 ? " and " : ", ") : ""}
+                    {who.charAt(0).toLowerCase() + who.slice(1)}
+                  </span>
+                ))}
+                .
+              </span>
+              {n.declared_by !== type.name ? (
+                <span className="row-meta">
+                  From <TypeLink name={n.declared_by} types={types} />
+                </span>
+              ) : null}
+            </div>
+            <div className="row-tags">
+              {n.required ? <Badge>Required</Badge> : null}
+              <Badge muted>{n.email ? "In Iki and by email" : "In Iki"}</Badge>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -42,6 +42,7 @@ __all__ = [
     "Signature",
     "State",
     "StateMove",
+    "TypeNotification",
     "Updates",
     "Volume",
     "Workflow",
@@ -487,6 +488,87 @@ class StateMove:
 
 
 @dataclass(frozen=True)
+class TypeNotification:
+    """Whom a type's records tell, and when (ADR 0129): on a state's change or a field's, the
+    people its fields name, holders of a lab role in its project, its creator or its
+    watchers, in Iki and by email."""
+
+    name: str
+    #: What the settings page and the type's page call it: "A sample is in review".
+    label: str
+    #: When it's sent, in a sentence, for the settings page.
+    description: str | None = None
+    #: When a record is made, rather than when a field changes.
+    created: bool = False
+    #: The field whose change sends it: one of the record's own, or ``ref.field``, a field of
+    #: the record one of its references names.
+    field: str = ""
+    #: Sent only when the field changes to one of these (states, an enum's values, true or
+    #: false)...
+    to_values: tuple[Any, ...] = ()
+    #: ...or from one of these.
+    from_values: tuple[Any, ...] = ()
+    #: Only for records these conditions find, as the search API takes them.
+    where: dict[str, Any] | None = None
+    #: Whom: the people these fields name...
+    tell_fields: tuple[str, ...] = ()
+    #: ...holders of these lab roles in the record's project, qualified...
+    tell_roles: tuple[str, ...] = ()
+    #: ...whoever made the record, whoever watches it, and whoever made the change.
+    tell_creator: bool = False
+    tell_watchers: bool = False
+    tell_actor: bool = False
+    #: What it says in Iki: templates over the record's fields, as a display title is.
+    title: str | None = None
+    body: str | None = None
+    #: Emailed unless the person turns it off.
+    email: bool = True
+    #: Nobody can turn it off in Iki, by kind, project or record; email stays their choice.
+    required: bool = False
+
+    @property
+    def ref(self) -> str | None:
+        """For a field of the record a reference names: the reference."""
+        return self.field.split(".", 1)[0] if "." in self.field else None
+
+    @property
+    def target(self) -> str:
+        """The field whose change sends it, of the record itself or of the one ``ref`` names."""
+        return self.field.split(".", 1)[1] if "." in self.field else self.field
+
+    @classmethod
+    def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> TypeNotification:
+        when: dict[str, Any] = data["when"] if isinstance(data.get("when"), dict) else {}
+        tell: dict[str, Any] = data["tell"] if isinstance(data.get("tell"), dict) else {}
+        message: dict[str, Any] = data["message"] if isinstance(data.get("message"), dict) else {}
+
+        def values(value: Any) -> tuple[Any, ...]:  # noqa: ANN401 - manifest data
+            if value is None:
+                return ()
+            return tuple(value) if isinstance(value, list) else (value,)
+
+        return cls(
+            name=name,
+            label=data.get("label") or name.replace("_", " ").capitalize(),
+            description=data.get("description"),
+            created=bool(when.get("created", False)),
+            field=when.get("field") or "",
+            to_values=values(when.get("to")),
+            from_values=values(when.get("from")),
+            where=data.get("where"),
+            tell_fields=tuple(tell.get("fields") or ()),
+            tell_roles=tuple(lab_role_name(r, plugin) for r in tell.get("roles") or ()),
+            tell_creator=bool(tell.get("creator", False)),
+            tell_watchers=bool(tell.get("watchers", False)),
+            tell_actor=bool(tell.get("actor", False)),
+            title=message.get("title"),
+            body=message.get("body"),
+            email=bool(data.get("email", True)),
+            required=bool(data.get("required", False)),
+        )
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -509,6 +591,9 @@ class EntityType:
     due: str | None = None
     #: Rules every save of its records keeps (ADR 0127), by name, as do its subtypes'.
     rules: dict[str, Rule] = field(default_factory=dict)
+    #: Whom its records tell, and when (ADR 0129), by name. Subtypes' records tell what their
+    #: ancestors' do too.
+    notifications: dict[str, TypeNotification] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1098,6 +1183,7 @@ _DATACLASSES = (
     Guard,
     Rule,
     StateMove,
+    TypeNotification,
     EntityType,
     Extension,
     Plugin,
@@ -1162,6 +1248,10 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
                         # ...or rules.
                         "rules": {n: _rule(r) for n, r in (v.get("rules") or {}).items()},
+                        # ...or notifications.
+                        "notifications": {
+                            n: _notification(x) for n, x in (v.get("notifications") or {}).items()
+                        },
                     }
                 )
                 for k, v in data["types"].items()
@@ -1201,6 +1291,18 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "components": {k: _component(v) for k, v in (data.get("components") or {}).items()},
             # ...or lab roles.
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
+        }
+    )
+
+
+def _notification(data: dict[str, Any]) -> TypeNotification:
+    return TypeNotification(
+        **{
+            **data,
+            "to_values": tuple(data["to_values"]),
+            "from_values": tuple(data["from_values"]),
+            "tell_fields": tuple(data["tell_fields"]),
+            "tell_roles": tuple(data["tell_roles"]),
         }
     )
 

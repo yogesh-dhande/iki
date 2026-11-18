@@ -158,6 +158,20 @@ def sample_take(w: World) -> tuple[Any, ...]:
     return f"/entities/{found.entity.pk}/take", {"field": "analyst"}, {"If-Match": '"1"'}
 
 
+def sample_watch(label: str, body: Any = None) -> Build:
+    """A sample, which tells its watchers when it's in review (ADR 0129)."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.entities import services as entities
+
+        found = entities.create(
+            w.users["editor"], "acme/protein.Sample", w.project, {"label": label}
+        )
+        return f"/entities/{found.entity.pk}/watch", body
+
+    return build
+
+
 def samples_assign(w: World) -> tuple[Any, ...]:
     """Emptying a sample's analyst: each record anyone can't change is skipped, with why."""
     from iki_server.entities import services as entities
@@ -1161,13 +1175,16 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/notifications/summary", fixed("/notifications/summary"), row(200)),
     ("PATCH", "/notifications/{notification_id}", viewers_notification, row(404, viewer=200)),
     ("POST", "/notifications/read", fixed("/notifications/read", {}), row(200)),
-    ("GET", "/me/notification-email", fixed("/me/notification-email"), row(200)),
+    ("GET", "/me/notification-settings", fixed("/me/notification-settings"), row(200)),
     (
         "PATCH",
-        "/me/notification-email",
-        fixed("/me/notification-email", {"email": {"project.added": False}}),
+        "/me/notification-settings",
+        fixed("/me/notification-settings", {"kinds": {"project.added": "in_app"}}),
         row(200),
     ),
+    # Watching a record (ADR 0129) takes reading it; what you can't read is 404.
+    ("GET", "/entities/{ref}/watch", sample_watch("S-watch"), readers(200)),
+    ("PUT", "/entities/{ref}/watch", sample_watch("S-watched", {"mode": "watching"}), readers(200)),
     # Webhooks: a project's are its Admins'; the org's are Org Admins', who can also
     # see where every project's webhook sends and turn it off.
     ("GET", "/webhook-events", fixed("/webhook-events"), row(200)),

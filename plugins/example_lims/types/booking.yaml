@@ -16,6 +16,7 @@ fields:
     type: bool
     default: false
     description: Cancelled bookings are kept, and don't hold the instrument.
+  booked_by: { type: person, label: Booked by, description: Who the time is for. }
 display:
   title: "{{ purpose }}"
 # Rules its records keep at every save (ADR 0127).
@@ -41,3 +42,16 @@ rules:
       {{ record.instrument.name }} isn't in service: book another, or ask an
       Engineer.
     fields: [instrument]
+# What its records tell, and whom (ADR 0129).
+notifications:
+  instrument_down:
+    label: Instrument out of service
+    description: >-
+      Whoever a booking is for hears when its instrument goes out of service
+      before the booking ends, so they can book another.
+    when: { field: instrument.service, to: out_of_service }
+    where: { field: ends_at, op: gte, value: "{{ now }}" }
+    tell: { fields: [booked_by] }
+    message:
+      title: "{{ instrument }} is out of service"
+      body: "Your booking “{{ purpose }}” starts {{ starts_at }}."

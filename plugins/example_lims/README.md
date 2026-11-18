@@ -81,6 +81,14 @@ It shows the parts of Iki such a plugin needs:
   the project, or loses the role, stays named, and the sample needs
   reassigning: the project's Admins are told, and reassign it, or many at
   once from the grid.
+- **Who hears of each sample**
+  ([ADR 0129](../../docs/adr/0129-types-declare-their-notifications.md)):
+  everyone with the QA role in its project when it's submitted for review,
+  and its analyst when QA rejects it, in Iki and by email. A rejection is
+  required: nobody can turn it off in Iki. Anyone who can read a sample can
+  watch it, to hear of both too, or mute it. Each person is told only while
+  they can read it, and not of their own change; emails say what happened
+  and link to it, without its values.
 
 - **Donors, and what's derived from them**: a `Donor` (by the study's
   pseudonymous code, never a name) gives `Sample`s, each sample `Aliquot`s,
@@ -114,7 +122,9 @@ It also books instruments, to show a component that shows many entities
   instrument has two state fields, set on their own: its `service` (In
   service, Out of service or Retired, which locks it) and its `calibration`
   (Due, Calibrated or Failed). Engineers set both; an Analyst can say it's
-  out of service, with a reason, and QA that its calibration is due.
+  out of service, with a reason, and QA that its calibration is due. A
+  booking names who it's for (`booked_by`), who hears when its instrument
+  goes out of service before the booking ends.
 - **`booking_calendar`**, a component that draws bookings by day, a month at
   a time. It's a tab on each instrument's page (its bookings), a way to show
   the grid of bookings ("Show as: Calendar"), a section of each project's

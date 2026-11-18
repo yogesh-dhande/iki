@@ -1358,6 +1358,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether you watch a record */
+        get: operations["iki_server_api_notifications_watch"];
+        /**
+         * Watch a record, mute it, or stop
+         * @description Watching it, you're told what its type tells its watchers (ADR 0129), beside what
+         *     names you. Muting it, you're told nothing of it but what its plugin requires. Either
+         *     is audited, and needs you to be able to read it.
+         */
+        put: operations["iki_server_api_notifications_choose_watch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-types": {
         parameters: {
             query?: never;
@@ -1750,22 +1773,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/notification-email": {
+    "/api/v1/me/notification-settings": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Which notifications you get by email */
-        get: operations["iki_server_api_notifications_email_settings"];
+        /** How you're told of each kind of notification */
+        get: operations["iki_server_api_notifications_notification_settings"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Choose which notifications you get by email */
-        patch: operations["iki_server_api_notifications_change_email_settings"];
+        /**
+         * Choose how you're told of notifications
+         * @description Each kind in Iki and by email, in Iki only, or (for a type's notification its plugin
+         *     doesn't require, ADR 0129) not at all: everywhere, or in one project, which overrides
+         *     your choice everywhere there. Changes are audited.
+         */
+        patch: operations["iki_server_api_notifications_change_notification_settings"];
         trace?: never;
     };
     "/api/v1/me/signing": {
@@ -5273,44 +5301,6 @@ export interface components {
              */
             refused: string | null;
         };
-        /** EmailKindOut */
-        EmailKindOut: {
-            /** Description */
-            description: string;
-            /** Email */
-            email: boolean;
-            /** Group */
-            group: string;
-            /** Kind */
-            kind: string;
-            /** Label */
-            label: string;
-        };
-        /** EmailSettingsIn */
-        EmailSettingsIn: {
-            /**
-             * Email
-             * @description Kind → whether to email it. Kinds left out keep their setting.
-             */
-            email: {
-                [key: string]: boolean;
-            };
-        };
-        /** EmailSettingsOut */
-        EmailSettingsOut: {
-            /**
-             * Address
-             * @description Where emails go: your address from the identity provider.
-             */
-            address: string;
-            /**
-             * Email Available
-             * @description Whether this organization sends email. If not, choices are kept for later.
-             */
-            email_available: boolean;
-            /** Kinds */
-            kinds: components["schemas"]["EmailKindOut"][];
-        };
         /** EnableIn */
         EnableIn: {
             /**
@@ -5614,6 +5604,11 @@ export interface components {
              * @description Qualified: plugin.Type.
              */
             name: string;
+            /**
+             * Notifications
+             * @description Whom its records tell, and when (ADR 0129): its own notifications and its parents'.
+             */
+            notifications: components["schemas"]["TypeNotificationOut"][];
             /** Plugin */
             plugin: string;
             /**
@@ -7081,6 +7076,49 @@ export interface components {
          * @enum {string}
          */
         JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
+        /** KindOut */
+        KindOut: {
+            /**
+             * Can Turn Off
+             * @description Whether it can be off: only a type's notification that isn't required.
+             */
+            can_turn_off: boolean;
+            /**
+             * Default
+             * @description How it's told to those who haven't chosen.
+             * @enum {string}
+             */
+            default: "email" | "in_app" | "off";
+            /**
+             * Delivery
+             * @description How you're told of it: in Iki and by email, in Iki only, or not at all.
+             * @enum {string}
+             */
+            delivery: "email" | "in_app" | "off";
+            /** Description */
+            description: string;
+            /** Group */
+            group: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /**
+             * Per Project
+             * @description Whether it can be chosen for one project.
+             */
+            per_project: boolean;
+            /**
+             * Required
+             * @description Its plugin requires it: it can't be turned off in Iki.
+             */
+            required: boolean;
+            /**
+             * Type
+             * @description The type that declares it (ADR 0129), or null for one of Iki's own.
+             */
+            type: string | null;
+        };
         /** LabRoleGrantOut */
         LabRoleGrantOut: {
             /**
@@ -7604,12 +7642,32 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * NotificationAgent
+         * @description The agent that made the change, for the actor (ADR 0072).
+         */
+        NotificationAgent: {
+            /** Client Id */
+            client_id: string;
+            /**
+             * Name
+             * @description The app's name, as it was when it acted.
+             */
+            name: string;
+        };
         /** NotificationOut */
         NotificationOut: {
             /** @description Who caused it, if anyone did. */
             actor: components["schemas"]["NotificationActor"] | null;
+            /** @description The agent that caused it for the actor, if one did. */
+            agent: components["schemas"]["NotificationAgent"] | null;
             /** Body */
             body: string;
+            /**
+             * Count
+             * @description How many records it's about, once several are told of together.
+             */
+            count: number;
             /**
              * Created At
              * Format: date-time
@@ -7622,9 +7680,14 @@ export interface components {
             id: string;
             /**
              * Kind
-             * @description What it's about, such as project.added.
+             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.
              */
             kind: string;
+            /**
+             * Kind Label
+             * @description What people's settings call its kind.
+             */
+            kind_label: string;
             /**
              * Path
              * @description Where it leads in Iki (a path on this site), or empty.
@@ -7633,6 +7696,11 @@ export interface components {
             project: components["schemas"]["NotificationProject"] | null;
             /** Read At */
             read_at: string | null;
+            /**
+             * Records
+             * @description The records it's about that you can read now, the first 20.
+             */
+            records: components["schemas"]["NotificationRecordOut"][];
             /** Title */
             title: string;
         };
@@ -7647,6 +7715,18 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** NotificationRecordOut */
+        NotificationRecordOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Type */
+            type: string;
         };
         /** OrgParams */
         OrgParams: {
@@ -8431,6 +8511,32 @@ export interface components {
              * @description The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
              */
             run: ("self_hosted" | "backend" | "container" | "vm")[];
+        };
+        /** ProjectChoiceIn */
+        ProjectChoiceIn: {
+            /**
+             * Delivery
+             * @description null: as you chose everywhere, in this project too.
+             */
+            delivery: ("email" | "in_app" | "off") | null;
+            /** Kind */
+            kind: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+        };
+        /** ProjectChoiceOut */
+        ProjectChoiceOut: {
+            /**
+             * Delivery
+             * @enum {string}
+             */
+            delivery: "email" | "in_app" | "off";
+            /** Kind */
+            kind: string;
+            project: components["schemas"]["NotificationProject"];
         };
         /** ProjectCostSummaryOut */
         ProjectCostSummaryOut: {
@@ -10412,6 +10518,41 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** SettingsIn */
+        SettingsIn: {
+            /**
+             * Kinds
+             * @description Kind → how you're told of it everywhere. Kinds left out keep theirs.
+             */
+            kinds?: {
+                [key: string]: "email" | "in_app" | "off";
+            };
+            /**
+             * Projects
+             * @description How you're told of a type's notification in one project. Others keep theirs.
+             */
+            projects?: components["schemas"]["ProjectChoiceIn"][];
+        };
+        /** SettingsOut */
+        SettingsOut: {
+            /**
+             * Address
+             * @description Where emails go: your address from the identity provider.
+             */
+            address: string;
+            /**
+             * Email Available
+             * @description Whether this organization sends email. If not, choices are kept for later.
+             */
+            email_available: boolean;
+            /** Kinds */
+            kinds: components["schemas"]["KindOut"][];
+            /**
+             * Projects
+             * @description How you're told of a type's notifications in single projects, which overrides your choice everywhere there.
+             */
+            projects: components["schemas"]["ProjectChoiceOut"][];
+        };
         /** SetupBuildOut */
         SetupBuildOut: {
             /** Approved At */
@@ -11625,6 +11766,53 @@ export interface components {
              */
             name: string;
         };
+        /**
+         * TypeNotificationOut
+         * @description A notification a type declares (ADR 0129), as its page previews it.
+         */
+        TypeNotificationOut: {
+            /**
+             * Declared By
+             * @description The type that declares it: this one or a parent.
+             */
+            declared_by: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Email
+             * @description Whether it's emailed unless someone chooses otherwise.
+             */
+            email: boolean;
+            /**
+             * Kind
+             * @description Its kind, which people's notification settings choose by: plugin.Type.name, of the type that declares it.
+             */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /**
+             * Only Some
+             * @description Whether only records its conditions find send it.
+             */
+            only_some: boolean;
+            /**
+             * Required
+             * @description Whether nobody can turn it off in Iki.
+             */
+            required: boolean;
+            /**
+             * Tells
+             * @description Whom it tells, in words.
+             */
+            tells: string[];
+            /**
+             * When
+             * @description When it's sent, in words.
+             */
+            when: string;
+        };
         /** UnitOption */
         UnitOption: {
             /**
@@ -12003,6 +12191,33 @@ export interface components {
              * @description How its manifestation reads: “Approved by …”.
              */
             verb: string;
+        };
+        /** WatchIn */
+        WatchIn: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "default" | "watching" | "muted";
+        };
+        /** WatchOut */
+        WatchOut: {
+            /**
+             * Can Mute
+             * @description Whether its type sends anything that can be muted.
+             */
+            can_mute: boolean;
+            /**
+             * Can Watch
+             * @description Whether its type tells its watchers anything.
+             */
+            can_watch: boolean;
+            /**
+             * Mode
+             * @description default: you're told what names you (a field, its creator, your lab role). watching: also what its type tells its watchers. muted: nothing but what its plugin requires.
+             * @enum {string}
+             */
+            mode: "default" | "watching" | "muted";
         };
         /** WebhookCreated */
         WebhookCreated: {
@@ -14611,6 +14826,58 @@ export interface operations {
             };
         };
     };
+    iki_server_api_notifications_watch: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_choose_watch: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_list_types: {
         parameters: {
             query?: never;
@@ -15126,7 +15393,7 @@ export interface operations {
             };
         };
     };
-    iki_server_api_notifications_email_settings: {
+    iki_server_api_notifications_notification_settings: {
         parameters: {
             query?: never;
             header?: never;
@@ -15141,12 +15408,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmailSettingsOut"];
+                    "application/json": components["schemas"]["SettingsOut"];
                 };
             };
         };
     };
-    iki_server_api_notifications_change_email_settings: {
+    iki_server_api_notifications_change_notification_settings: {
         parameters: {
             query?: never;
             header?: never;
@@ -15155,7 +15422,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EmailSettingsIn"];
+                "application/json": components["schemas"]["SettingsIn"];
             };
         };
         responses: {
@@ -15165,7 +15432,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmailSettingsOut"];
+                    "application/json": components["schemas"]["SettingsOut"];
                 };
             };
         };

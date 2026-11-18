@@ -29,6 +29,7 @@ entities above (``visible`` and the rest) are records; :func:`visible_entries`
 are entries.
 """
 
+from collections.abc import Iterable
 from typing import Any, cast
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -39,7 +40,7 @@ from iki_server.entities.people import Namer
 from iki_server.entities.values import Refs, shape, subtypes
 from iki_server.files.models import File, FileUse
 from iki_server.org import permissions
-from iki_server.org.models import Project
+from iki_server.org.models import Project, ProjectMembership
 from iki_server.org.permissions import Action
 
 
@@ -205,6 +206,36 @@ def refs_for(user: Any, project: Project) -> Refs:  # noqa: ANN401
         project=project.name,
         namer=Namer(project),
     )
+
+
+def readers(entity: Entity, users: Iterable[Any]) -> set[Any]:
+    """Of ``users``, the IDs of those who can read ``entity``, as :func:`can_read` says, in
+    the same few queries however many there are: whom a notification tells (ADR 0129).
+
+    Someone reads a record through a role in a project it's linked into, by their own grant
+    or a team's; an entry, through a record of it. A view (ADR 0110) also needs every
+    entity it shows readable, and someone whose token limits what they read is held to it:
+    those are asked one by one, which notifications rarely need."""
+    people = [u for u in users if getattr(u, "is_active", False)]
+    if not people or entity.purged_at is not None:
+        return set()
+    one_by_one = [u for u in people if permissions.token_limits(u) is not None]
+    together = {u.pk for u in people if permissions.token_limits(u) is None}
+    found = {u.pk for u in one_by_one if can_read(u, entity)}
+    if VIEW in registry.types() and entity.type in subtypes(VIEW):
+        return found | {u.pk for u in people if u.pk in together and can_read(u, entity)}
+    if entity.registry_id is not None:
+        links = ProjectLink.objects.filter(entity__entry=entity, entity__purged_at__isnull=True)
+    else:
+        links = ProjectLink.objects.filter(entity=entity)
+    grants = (
+        ProjectMembership.objects.filter(project__in=links.values("project"))
+        .filter(Q(user__in=together) | Q(team__memberships__user__in=together))
+        .values_list("user", "team__memberships__user")
+        .order_by()
+        .distinct()
+    )
+    return found | ({pk for row in grants for pk in row} & together)
 
 
 def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401

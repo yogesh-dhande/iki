@@ -458,6 +458,66 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+### Notifications
+
+A type says who is told when its records change, in Iki and by email
+([ADR 0129](../docs/adr/0129-types-declare-their-notifications.md)): each
+notification by name, when it's sent, and whom it tells. Iki decides the
+rest: each person is told only while they can read the record, not of
+their own change (an agent's, a run's or a trigger's change for them does
+tell them), as they choose, folded with others of its kind into one
+notification and one email, and each one sent is in the record's audit
+log. Emails say what happened and link to it, without the record's values.
+
+```yaml
+notifications:
+  in_review:
+    label: Submitted for review
+    description: QA hears when an analyst submits a sample's results.
+    when: { field: status, to: in_review }
+    tell: { roles: [qa], watchers: true }
+    message:
+      title: "{{ hrid }} is in review"
+      body: "{{ protein }}, lot {{ lot or 'not given' }}."
+  rejected:
+    label: Rejected
+    when: { field: status, from: [approved, released], to: rejected }
+    tell: { fields: [analyst] }
+    required: true
+```
+
+- `when` is `created: true` (a record is made) or a `field` changing,
+  optionally `to` and `from` a value or values, for state, enum and bool
+  fields (`notification-values`, `unknown-state`). The field can be a
+  referenced record's, `ref.field` (`instrument.service`): every record
+  referring to the one that changed is told of, up to 1000.
+- `where` keeps only the records a search's conditions find, on the
+  type's own fields, as a component's `search` takes them
+  ([Components that show many entities](#components-that-show-many-entities));
+  `{{ now }}` is the moment it's sent, for date and datetime fields.
+- `tell` names at least one of: `fields`, its person fields
+  (`notification-recipients`); `roles`, lab roles whose holders in the
+  record's project are told (`unknown-role`); `creator`; `watchers`, those
+  who watch the record; and `actor`, the person who made the change, who
+  isn't told otherwise.
+- `message` has a `title` (200 characters) and `body` (1000) in the display
+  title's template language: field names, `hrid`, strings and `or`
+  (`notification-message`). States show their label, people their name,
+  references their HRID only to someone who can read them. Without one it
+  reads "SAM-000012: Submitted for review".
+- `email: false` makes it in Iki only, unless someone chooses email too.
+- `required: true` means nobody can turn it off in Iki, or mute it on a
+  record; whether it's emailed stays their choice.
+- A type's notifications are its parents' too, and can't reuse a parent's
+  names (`notification-shadows-parent`). A registry's fields can't send one
+  (`notification-in-registry`): an entry has no project to tell.
+- One that tells an assignment field's person when the record becomes
+  theirs repeats Iki's own "It's ready for you"
+  (`notification-repeats-ready`, a warning).
+
+Each person chooses, per notification, in Iki and by email, in Iki only, or
+off, everywhere or in one project; and can watch or mute a record.
+
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
@@ -1076,7 +1136,7 @@ A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
 levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
 page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
-`created_by`. Iki's server runs it, as the person may read, and the element
+`created_by`; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
 gets the results as its `entities` property: `items`, each with `id`,
 `hrid`, `title`, `type`, `revision`, `project`, the fields declared in
 `values` and the entities those fields name in `refs`, a page at a time.
@@ -1791,6 +1851,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                         | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
+| `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                              | Identities                      |

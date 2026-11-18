@@ -80,6 +80,25 @@ def test_the_plugin_is_valid() -> None:
         "Aliquot": ["iki/example_lims.Sample"],
         "Result": ["iki/example_lims.Aliquot"],
     }
+    # Its notifications (ADR 0129): QA hears of samples in review, the analyst of one
+    # rejected, and whoever a booking is for of its instrument going out of service.
+    types = result.plugin.types
+    assert types["iki/example_lims.Sample"].hrid_prefix == "SAM"
+    review, rejected = types["iki/example_lims.Sample"].notifications.values()
+    assert (review.field, review.to_values, review.tell_roles) == (
+        "status",
+        ("in_review",),
+        ("iki/example_lims.qa",),
+    )
+    assert (rejected.to_values, rejected.tell_fields, rejected.required) == (
+        ("rejected",),
+        ("analyst",),
+        True,
+    )
+    (down,) = types["iki/example_lims.Booking"].notifications.values()
+    assert (down.ref, down.target, down.to_values) == ("instrument", "service", ("out_of_service",))
+    assert down.tell_fields == ("booked_by",)
+    assert down.where == {"field": "ends_at", "op": "gte", "value": "{{ now }}"}
 
 
 class FakeLims:

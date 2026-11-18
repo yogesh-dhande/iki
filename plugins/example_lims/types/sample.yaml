@@ -213,3 +213,25 @@ rules:
     when: record.reviewer != null && record.analyst != null
     message: Someone other than its analyst reviews it.
     fields: [reviewer]
+# What its records tell, and whom (ADR 0129): in Iki and by email, each person only of
+# samples they can read, and not of their own changes.
+notifications:
+  in_review:
+    label: Submitted for review
+    description: QA hears when an analyst submits a sample's results, to plan its release.
+    when: { field: status, to: in_review }
+    tell: { roles: [qa], watchers: true }
+    message:
+      title: "{{ hrid }} is in review"
+      body: "{{ protein }}, lot {{ lot or 'not given' }}, tested by {{ analyst or 'nobody named' }}."
+  rejected:
+    label: Rejected
+    description: >-
+      Its analyst hears when QA rejects a sample. It's required: a rejection needs
+      following up, so nobody can turn it off.
+    when: { field: status, to: rejected }
+    tell: { fields: [analyst], watchers: true }
+    message:
+      title: "{{ hrid }} was rejected"
+      body: "QA rejected {{ protein }}, lot {{ lot or 'not given' }}. Its history says why."
+    required: true

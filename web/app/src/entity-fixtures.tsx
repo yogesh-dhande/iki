@@ -77,6 +77,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   hrid_prefix: "PRT",
   identity: ["sequence"],
   viewers: [],
+  notifications: [],
   values_schema: {},
   fields: [
     field({ name: "name", label: "Name", type: "string" }),

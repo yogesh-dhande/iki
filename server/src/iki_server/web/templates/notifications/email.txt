@@ -1,8 +1,12 @@
-{% autoescape off %}{% if details %}{{ notification.title }}
-{% if notification.body %}
-{{ notification.body }}
-{% endif %}{% if notification.actor %}
-From {{ notification.actor.get_full_name }}.
+{% autoescape off %}{% if details %}{{ title }}
+{% if body %}
+{{ body }}
+{% endif %}{% if description %}
+{{ description }}
+{% endif %}{% if project %}
+In {{ project }}.
+{% endif %}{% if who %}
+From {{ who }}.
 {% endif %}
 Open it in Iki: {{ url }}
 {% else %}You have a new notification in {{ organization }}’s Iki.

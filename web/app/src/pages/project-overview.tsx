@@ -18,6 +18,7 @@ import { usePageTitle } from "../layout";
 import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
 import { PluginSections } from "./plugin-sections";
+import { ProjectNotifications } from "./project-notifications";
 import { Badge, Button, Loading, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
@@ -45,6 +46,7 @@ export function ProjectTabs() {
             </>
           ) : null
         }
+        actions={project.can.read ? <ProjectNotifications project={project} /> : undefined}
       />
       <nav className="tabs" aria-label="Project">
         <Link

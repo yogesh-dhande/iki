@@ -85,6 +85,17 @@
       "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
+    "notifications": {
+      "description": "Whom its records tell, and when (ADR 0129): on a state's change or a field's, the people its fields name, holders of a lab role in its project, its creator or its watchers, in Iki and by email. Each by name, which never changes once released: people's choices are kept by it.",
+      "type": "object",
+      "maxProperties": 50,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/notification"
+      }
+    },
     "display": {
       "type": "object",
       "properties": {
@@ -218,6 +229,145 @@
           }
         }
       ]
+    },
+    "notification": {
+      "type": "object",
+      "required": ["label", "when", "tell"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "description": "What people's settings and the type's page call it, such as `A sample is in review`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "description": {
+          "description": "When it's sent and why, in a sentence, beside it in people's settings.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+        },
+        "when": {
+          "description": "What sends it: a record being made (`created: true`), or a field changing, optionally to or from some of its values.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "description": "When a record is made.",
+              "const": true
+            },
+            "field": {
+              "description": "The field whose change sends it: one of the record's own, or `ref.field`, a field of the record one of its references names, such as `instrument.service`.",
+              "type": "string",
+              "maxLength": 101,
+              "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*(\\.[a-z][a-z0-9]*(_[a-z0-9]+)*)?$"
+            },
+            "to": {
+              "description": "For a state field, an enum or a yes-or-no field: only when it changes to one of these, such as a state it enters.",
+              "oneOf": [
+                {
+                  "description": "A state, an enum's value, or true or false.",
+                  "type": ["string", "boolean"]
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 50,
+                  "items": {
+                    "description": "A state, an enum's value, or true or false.",
+                    "type": ["string", "boolean"]
+                  }
+                }
+              ]
+            },
+            "from": {
+              "description": "For a state field, an enum or a yes-or-no field: only when it changes from one of these, such as a state it leaves.",
+              "oneOf": [
+                {
+                  "description": "A state, an enum's value, or true or false.",
+                  "type": ["string", "boolean"]
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 50,
+                  "items": {
+                    "description": "A state, an enum's value, or true or false.",
+                    "type": ["string", "boolean"]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "where": {
+          "description": "Only for records these conditions find, as the search API takes them: the type's fields compared with values, or with `{{ now }}` for a date or a time, such as bookings that haven't ended.",
+          "$ref": "https://ikisci.org/schemas/component/v1#/$defs/condition"
+        },
+        "tell": {
+          "description": "Whom it tells. Each must be able to read the record when it's sent; whoever made the change isn't told unless `actor` says so, or an agent, a run or a trigger made it for them.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fields": {
+              "description": "The people these fields of the record name (`type: person`, or lists of them).",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "roles": {
+              "description": "Whoever holds one of these lab roles in the record's project, such as `qa`.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+              }
+            },
+            "creator": {
+              "description": "Whoever made the record.",
+              "type": "boolean"
+            },
+            "watchers": {
+              "description": "Whoever watches the record.",
+              "type": "boolean"
+            },
+            "actor": {
+              "description": "Whoever made the change, even with their own hands.",
+              "type": "boolean"
+            }
+          }
+        },
+        "message": {
+          "description": "What it says in Iki, written as a display title is: text with `{{ field or \"text\" }}` parts naming the record's fields or `hrid`. Emails never carry it: only what it is, the record's HRID and a link.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "description": "Its headline, such as `{{ hrid }} is ready for QA`. The record's HRID and the notification's label if left out.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "body": {
+              "description": "A line or two under it.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "email": {
+          "description": "Whether it's emailed to those who haven't chosen otherwise. Defaults to true.",
+          "type": "boolean"
+        },
+        "required": {
+          "description": "Nobody can turn it off in Iki, for every project, one project, or one record; whether it's emailed stays their choice.",
+          "type": "boolean"
+        }
+      }
     }
   }
 }

@@ -415,10 +415,26 @@ the `iki-tasks` Deployment, and more replicas share the queue.
 ## Notifications and email
 
 People are told in Iki when something concerns them: being added to a
-project or team, a role change, or (for Org Admins) an app awaiting
-approval. Nobody is told about their own actions. The bell in the header
-counts unread notifications, and `/notifications/` lists them. Each person
-chooses which kinds also come by email, at Account → Notifications.
+project or team, a role change, (for Org Admins) an app awaiting
+approval, or work assigned to them (ADR 0122). Nobody is told about their
+own actions. The bell in the header counts unread notifications, and
+`/notifications/` lists them.
+
+A type also declares its own (ADR 0129): when a state or field changes,
+its records tell the people their fields name, holders of a lab role in
+their project, their creator or their watchers. Each person is told only
+while they can read the record; a change an agent, a run or a trigger made
+for someone tells them too, naming who did it ("Ada Lovelace, through
+Claude Code"). Many at once fold into one notification about all of them,
+and its email waits `IKI_NOTIFICATION_BATCH_SECONDS` (120) for others to
+join it. Emails about records carry no values: what happened, and a link.
+Each one sent is audited (`notification.sent`), naming who was told and who
+wasn't, and why.
+
+Each person chooses, per kind, in Iki and by email, in Iki only, or (for a
+type's notification its plugin doesn't require) off, everywhere at
+Account → Notifications, or in one project from its page. A record's page
+lets them watch it, to hear what its type tells watchers, or mute it.
 
 Email is off until `IKI_EMAIL_URL` is set. Encryption is required:
 STARTTLS (`smtp+tls://`) or TLS from the start (`smtp+ssl://`), with the

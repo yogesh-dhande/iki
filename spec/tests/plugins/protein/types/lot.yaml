@@ -35,3 +35,9 @@ fields:
         locks: true
         reason: required
         signatures: [{ meaning: responsibility }]
+# A signed state tells of itself as any other does (ADR 0129).
+notifications:
+  in_review:
+    label: Signed for review
+    when: { field: status, to: in_review }
+    tell: { roles: [reviewer] }

@@ -1,13 +1,18 @@
-"""The kinds of notification, which people choose email for one by one.
+"""The kinds of notification, which people choose how they're told of one by one.
 
 Core registers its kinds here; plugins register theirs with :func:`register`
 when their app loads. A kind's key never changes once released: people's
-email choices are stored against it.
+choices are stored against it.
+
+Each notification a type declares (ADR 0129) is a kind too, keyed by its type and name
+(``iki/example_lims.Sample.in_review``), read from the installed plugins: :func:`get` and
+:func:`every` find them beside core's.
 """
 
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import cache
 
 
 class Audience(StrEnum):
@@ -28,6 +33,21 @@ class Kind:
     #: Emailed unless the person turns it off.
     email: bool = True
     audience: Audience = Audience.EVERYONE
+    #: For a type's declared notification (ADR 0129): the type, qualified, and its name.
+    type: str = ""
+    name: str = ""
+    #: A declared notification nobody can turn off in Iki.
+    required: bool = False
+
+    @property
+    def declared(self) -> bool:
+        return bool(self.type)
+
+    @property
+    def can_turn_off(self) -> bool:
+        """Whether someone can choose not to be told at all: only of a type's notification
+        that isn't required. Core's are about the person themselves, and few."""
+        return self.declared and not self.required
 
 
 KINDS: dict[str, Kind] = {}
@@ -45,10 +65,54 @@ def register(kind: Kind) -> Kind:
 
 
 def get(key: str) -> Kind:
-    try:
-        return KINDS[key]
-    except KeyError:
-        raise ValueError(f"No notification kind {key!r}. Register it first.") from None
+    found = KINDS.get(key) or declared().get(key)
+    if found is None:
+        raise ValueError(f"No notification kind {key!r}. Register it first.")
+    return found
+
+
+def find(key: str) -> Kind | None:
+    """The kind, if it's registered or a type declares it."""
+    return KINDS.get(key) or declared().get(key)
+
+
+def every() -> list[Kind]:
+    """Core's kinds in the order registered, then the types' declared ones, by type."""
+    return [*KINDS.values(), *declared().values()]
+
+
+def key_of(type_name: str, name: str) -> str:
+    """A declared notification's kind: its type's qualified name, a dot, and its name."""
+    return f"{type_name}.{name}"
+
+
+@cache
+def declared() -> dict[str, Kind]:
+    """The installed types' declared notifications (ADR 0129), as kinds, by key: each type's
+    own, grouped by type. A subtype's records send its ancestors' too, as theirs."""
+    from iki_server.entities import registry
+
+    plugins = registry.plugins()
+    out: dict[str, Kind] = {}
+    for name, entity_type in sorted(registry.types().items()):
+        if not entity_type.notifications:
+            continue
+        plugin = plugins.get(entity_type.plugin)
+        title = (plugin.title if plugin is not None else "") or entity_type.plugin
+        group = f"{entity_type.label_plural or entity_type.label or entity_type.name} ({title})"
+        for n in entity_type.notifications.values():
+            key = key_of(name, n.name)
+            out[key] = Kind(
+                key,
+                n.label,
+                n.description or "",
+                group=group,
+                email=n.email,
+                type=name,
+                name=n.name,
+                required=n.required,
+            )
+    return out
 
 
 PROJECT_ADDED = register(

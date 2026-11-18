@@ -40,3 +40,33 @@ fields:
       quarantined: { label: Quarantined, set_by: [qa], locks: true, reason: required }
       disposed: { label: Disposed, set_by: [qa], reason: required }
 due: due_on
+# What its records tell, and whom (ADR 0129).
+notifications:
+  in_review:
+    label: Ready for review
+    description: Reviewers hear when an analyst submits a sample's results for review.
+    when: { field: status, to: in_review }
+    tell: { roles: [reviewer], watchers: true }
+    message:
+      title: "{{ label }} is ready for review"
+      body: "Purity {{ purity or 'not measured' }}, by {{ analyst or 'nobody' }}, on {{ protein or 'no protein' }}."
+  released:
+    label: Released
+    description: Its analyst and whoever logged it hear when QA releases it.
+    when: { field: status, from: [reviewed], to: [released] }
+    tell: { fields: [analyst], creator: true }
+    required: true
+  quarantined:
+    label: Quarantined
+    when: { field: custody, to: quarantined }
+    where: { field: due_on, op: gte, value: "{{ now }}" }
+    tell: { fields: [received_by, helpers] }
+    email: false
+  relabelled:
+    label: Its protein's LIMS ID changed
+    when: { field: protein.lims_id }
+    tell: { fields: [received_by] }
+  logged:
+    label: Logged
+    when: { created: true }
+    tell: { fields: [received_by] }

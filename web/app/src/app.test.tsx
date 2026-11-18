@@ -356,6 +356,72 @@ describe("a project", () => {
     expect(screen.getByText("14 Mar 2026")).toBeVisible();
   });
 
+  it("chooses how you're told of its records' notifications", async () => {
+    signedIn();
+    const found = onProjectPage();
+    const kind = (overrides: Partial<Schemas["KindOut"]>): Schemas["KindOut"] => ({
+      kind: "acme/lims.Sample.in_review",
+      label: "Submitted for review",
+      description: "QA hears when a sample is submitted.",
+      group: "Samples (LIMS)",
+      type: "acme/lims.Sample",
+      required: false,
+      can_turn_off: true,
+      per_project: true,
+      default: "email",
+      delivery: "email",
+      ...overrides,
+    });
+    const settings = {
+      email_available: true,
+      address: ME.email,
+      kinds: [
+        kind({ kind: "project.added", group: "Projects", type: null, per_project: false }),
+        kind({}),
+        kind({
+          kind: "acme/lims.Sample.rejected",
+          label: "Rejected",
+          required: true,
+          can_turn_off: false,
+          delivery: "in_app",
+        }),
+      ],
+      projects: [],
+    };
+    answer("GET /api/v1/me/notification-settings", settings);
+    answer("PATCH /api/v1/me/notification-settings", {
+      ...settings,
+      projects: [
+        {
+          project: { id: found.id, name: found.name, slug: found.slug },
+          kind: "acme/lims.Sample.in_review",
+          delivery: "off",
+        },
+      ],
+    });
+    const { user } = await renderApp("/projects/kinase-atlas/");
+    await user.click(await screen.findByRole("button", { name: "Notifications in Kinase Atlas" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Notifications in Kinase Atlas",
+    });
+    // Only types' notifications: Iki's own are chosen everywhere.
+    expect(within(dialog).queryByRole("combobox", { name: /Projects/ })).toBeNull();
+    const rejected = within(dialog).getByRole("combobox", { name: "Samples (LIMS): Rejected" });
+    expect(within(rejected).queryByRole("option", { name: "Off" })).toBeNull();
+    expect(within(rejected).getByRole("option", { selected: true })).toHaveTextContent(
+      "As everywhere: In Iki only",
+    );
+    await user.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Samples (LIMS): Submitted for review" }),
+      "off",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved how you’re told in Kinase Atlas.")).toBeVisible();
+    expect(calls("PATCH", "/api/v1/me/notification-settings")[0]?.body).toEqual({
+      projects: [{ project: found.id, kind: "acme/lims.Sample.in_review", delivery: "off" }],
+    });
+  });
+
   it("lets an Org Admin who isn't a member add themselves", async () => {
     signedIn({
       can: {
@@ -1013,11 +1079,53 @@ describe("notifications", () => {
     const older = rows[1];
     if (!older) throw new Error("expected two notifications");
     expect(within(older).getByRole("link")).toHaveAttribute("href", "/teams/structural-biology/");
-    expect(screen.getByRole("link", { name: "Email settings" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Notification settings" })).toHaveAttribute(
       "href",
       "/account/notifications/",
     );
     expect(calls("GET", "/api/v1/notifications")[0]?.query.has("unread")).toBe(false);
+  });
+
+  it("lists the records one tells of together, and the agent that acted", async () => {
+    signedIn();
+    answer(
+      "GET /api/v1/notifications",
+      page([
+        notification({
+          kind: "acme/lims.Sample.in_review",
+          kind_label: "Submitted for review",
+          title: "3 Samples: Submitted for review",
+          path: "/projects/kinase-atlas/entities?type=acme/lims.Sample",
+          agent: { client_id: "c-81f3", name: "Claude Code" },
+          count: 3,
+          records: [
+            {
+              id: "00000000-0000-7000-8000-00000000s001",
+              hrid: "SAM-000001",
+              type: "acme/lims.Sample",
+            },
+            {
+              id: "00000000-0000-7000-8000-00000000s002",
+              hrid: "SAM-000002",
+              type: "acme/lims.Sample",
+            },
+          ],
+        }),
+      ]),
+    );
+    await renderApp("/notifications/");
+    const row = (await screen.findAllByRole("listitem"))[0];
+    if (!row) throw new Error("expected a notification");
+    expect(row).toHaveTextContent("Kinase Atlas · by Maurice Wilkins, through Claude Code");
+    const records = within(row).getByRole("list", {
+      name: "Records in: 3 Samples: Submitted for review",
+    });
+    expect(within(records).getByRole("link", { name: "SAM-000001" })).toHaveAttribute(
+      "href",
+      "/entities/00000000-0000-7000-8000-00000000s001/",
+    );
+    // One the person can no longer read isn't listed, only counted.
+    expect(records).toHaveTextContent("and 1 more");
   });
 
   it("shows only unread ones when asked", async () => {

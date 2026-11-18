@@ -27,6 +27,7 @@ from iki_spec import (
     actions,
     components,
     naming,
+    notifications,
     releases,
     rules,
     schemas,
@@ -49,6 +50,7 @@ from iki_spec.model import (
     State,
     Track,
     Trigger,
+    TypeNotification,
     Viewer,
     Workflow,
     matches_format,
@@ -692,6 +694,11 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         file=document.file,
         due=body.get("due"),
         rules=rules.read(body.get("rules"), plugin),
+        notifications={
+            n: TypeNotification.from_manifest(n, x, plugin=plugin)
+            for n, x in (body.get("notifications") or {}).items()
+            if isinstance(x, dict)
+        },
     )
 
 
@@ -1184,6 +1191,7 @@ class _Semantics:
         self.assignments(entity_type.fields, entity_type, source)
         if entity_type.due is not None:
             self.due(entity_type, source, every)
+        notifications.check(self, entity_type, source)
 
     def state_signatures(self, f: Field, state: State, source: Document, at: Path) -> None:
         """The electronic signatures setting a state needs (ADR 0126): who gives each, and
@@ -2293,39 +2301,55 @@ def _suggest_prefix(name: str) -> str:
 _TOKEN = titles.TOKEN
 
 
-def _title_problems(template: str, fields: dict[str, Field]) -> Iterable[tuple[str, str | None]]:
-    """Check a title template: text with `{{ a or b or "text" }}` parts."""
+def _title_problems(
+    template: str,
+    fields: dict[str, Field],
+    *,
+    noun: str = "The title",
+    kinds: frozenset[str] = TITLE_TYPES,
+    constant: bool = False,
+) -> Iterable[tuple[str, str | None]]:
+    """Check a title template: text with `{{ a or b or "text" }}` parts. A notification's
+    message (ADR 0129) is checked the same way, as ``noun``, showing ``kinds`` of field, and
+    may be the same text every time (``constant``)."""
     position = 0
     found = False
     while True:
         start = template.find("{{", position)
         stray = template.find("}}", position)
         if stray != -1 and (start == -1 or stray < start):
-            yield ("The title has a `}}` without a `{{`.", None)
+            yield (f"{noun} has a `}}}}` without a `{{{{`.", None)
             return
         if start == -1:
             break
         end = template.find("}}", start + 2)
         if end == -1:
-            yield ("The title has a `{{` without a `}}`.", None)
+            yield (f"{noun} has a `{{{{` without a `}}}}`.", None)
             return
         found = True
-        yield from _title_expression(template[start + 2 : end], fields)
+        yield from _title_expression(template[start + 2 : end], fields, noun=noun, kinds=kinds)
         position = end + 2
-    if not found:
+    if not found and not constant:
         yield (
-            "The title is the same text for every entity.",
+            f"{noun} is the same text for every entity.",
             "Name fields in it, such as `{{ name or hrid }}`.",
         )
 
 
 def _title_expression(
-    expression: str, fields: dict[str, Field]
+    expression: str,
+    fields: dict[str, Field],
+    *,
+    noun: str = "The title",
+    kinds: frozenset[str] = TITLE_TYPES,
 ) -> Iterable[tuple[str, str | None]]:
     tokens = [m for m in _TOKEN.finditer(expression) if m.group().strip()]
     if not tokens:
-        yield ("The title has an empty `{{ }}`.", None)
+        yield (f"{noun} has an empty `{{{{ }}}}`.", None)
         return
+    combine = (
+        "Titles combine" if noun == "The title" else "Messages combine"
+    ) + " fields and quoted text with `or`, as in `{{ name or hrid }}`."
     expect_operand = True
     for token in tokens:
         word, string = token.group("word"), token.group("string")
@@ -2337,27 +2361,24 @@ def _title_expression(
                     pass
                 elif word not in fields:
                     yield (
-                        f"The title names `{word}`, which isn't a field of this type.",
+                        f"{noun} names `{word}`, which isn't a field of this type.",
                         schemas._did_you_mean(word, [*fields, "hrid"]),
                     )
-                elif fields[word].type not in TITLE_TYPES:
-                    yield (f"The title can't show `{word}`, a {fields[word].type} field.", None)
+                elif fields[word].type not in kinds:
+                    yield (f"{noun} can't show `{word}`, a {fields[word].type} field.", None)
             else:
                 yield (
-                    f"The title has `{token.group().strip()}` where a field name or quoted text "
+                    f"{noun} has `{token.group().strip()}` where a field name or quoted text "
                     "belongs.",
-                    "Titles combine fields and quoted text with `or`, as in `{{ name or hrid }}`.",
+                    combine,
                 )
                 return
         elif word != "or":
-            yield (
-                f"The title has `{token.group().strip()}` where `or` belongs.",
-                "Titles combine fields and quoted text with `or`, as in `{{ name or hrid }}`.",
-            )
+            yield (f"{noun} has `{token.group().strip()}` where `or` belongs.", combine)
             return
         expect_operand = not expect_operand
     if expect_operand:
-        yield ("The title ends with `or`.", None)
+        yield (f"{noun} ends with `or`.", None)
 
 
 # --- Settings values ---------------------------------------------------------------------------

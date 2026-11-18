@@ -74,6 +74,42 @@ describe("the type browser", () => {
     expect(screen.queryByText(/duplicate/i)).not.toBeInTheDocument();
   });
 
+  it("previews whom a type's notifications tell, and when", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        notifications: [
+          {
+            name: "renamed",
+            kind: "iki/protein.Protein.renamed",
+            label: "Renamed",
+            description: "Its owner hears when it's renamed.",
+            declared_by: "iki/protein.Protein",
+            when: "When its Name changes",
+            only_some: true,
+            tells: ["Whoever its Owner names", "Everyone with the QA role in its project"],
+            email: false,
+            required: true,
+          },
+        ],
+      },
+    ]);
+    await renderApp("/types/iki/protein.Protein/");
+    const section = screen.getByRole("list", { name: "Its notifications" });
+    const row = within(section).getByRole("listitem");
+    expect(row).toHaveTextContent("Renamed");
+    expect(row).toHaveTextContent(
+      "When its Name changes, for those its conditions find. Tells whoever its Owner names and everyone with the QA role in its project.",
+    );
+    expect(within(row).getByText("Required")).toBeVisible();
+    expect(within(row).getByText("In Iki")).toBeVisible();
+    expect(screen.getByRole("link", { name: "your notification settings" })).toHaveAttribute(
+      "href",
+      "/account/notifications/",
+    );
+  });
+
   it("says when there's no such type", async () => {
     withTypes();
     await renderApp("/types/acme/nope.Nope/");
@@ -695,6 +731,45 @@ describe("an entity's page", () => {
         .getAllByRole("row")
         .map((r) => r.textContent),
     ).toEqual(["FieldBeforeAfter", "Resolution2.4 Å2.1 Å"]);
+  });
+
+  it("watches a record, or mutes it", async () => {
+    onStructure();
+    const watch = "/api/v1/entities/00000000-0000-7000-8000-00000000e002/watch";
+    answer(`GET ${watch}`, { mode: "default", can_watch: true, can_mute: true });
+    answer(`PUT ${watch}`, { mode: "muted", can_watch: true, can_mute: true });
+    const { user } = await renderApp("/entities/PST-000001/");
+    await user.click(
+      await screen.findByRole("button", { name: "Watch: notifications about PST-000001" }),
+    );
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Notifications about PST-000001",
+    });
+    expect(within(dialog).getByRole("radio", { name: /^As it names me/ })).toBeChecked();
+    await user.click(within(dialog).getByRole("radio", { name: /^Muted/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("You’ve muted it.")).toBeVisible();
+    expect(calls("PUT", watch)[0]?.body).toEqual({ mode: "muted" });
+    expect(
+      screen.getByRole("button", { name: "Muted: notifications about PST-000001" }),
+    ).toBeVisible();
+  });
+
+  it("offers no watching where a type tells nobody", async () => {
+    onStructure();
+    answer("GET /api/v1/entities/00000000-0000-7000-8000-00000000e002/watch", {
+      mode: "default",
+      can_watch: false,
+      can_mute: false,
+    });
+    await renderApp("/entities/PST-000001/");
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => {
+      expect(
+        calls("GET", "/api/v1/entities/00000000-0000-7000-8000-00000000e002/watch"),
+      ).toHaveLength(1);
+    });
+    expect(screen.queryByRole("button", { name: /notifications about/ })).toBeNull();
   });
 
   it("says when there's no such entity", async () => {

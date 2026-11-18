@@ -397,6 +397,41 @@ def test_work_is_listed_page_by_page(fake: FakeIki, client: Client) -> None:
     assert fake.sent("GET", "/api/v1/me/work/open")[0].url.params["sort"] == "updated"
 
 
+def test_notifications_are_listed_and_chosen(fake: FakeIki, client: Client) -> None:
+    told: dict[str, Any] = {
+        "id": "n1",
+        "kind": "acme/lims.Sample.in_review",
+        "title": "SMP-000001: In review",
+    }
+    fake.on("GET", "/api/v1/notifications", page([told]))
+    assert [dict(n) for n in client.notifications.list(unread=True)] == [told]
+    assert fake.sent("GET", "/api/v1/notifications")[0].url.params["unread"] == "true"
+    fake.on("PATCH", "/api/v1/notifications/n1", told)
+    client.notifications.mark_read(told)
+    assert fake.body("PATCH", "/api/v1/notifications/n1") == {"read": True}
+
+    settings: dict[str, Any] = {"kinds": [], "projects": []}
+    fake.on("PATCH", "/api/v1/me/notification-settings", settings, settings)
+    client.notifications.choose({"acme/lims.Sample.in_review": "in_app"})
+    client.notifications.choose({"acme/lims.Sample.in_review": None}, project=PROJECT)
+    first, second = fake.sent("PATCH", "/api/v1/me/notification-settings")
+    assert json.loads(first.content) == {"kinds": {"acme/lims.Sample.in_review": "in_app"}}
+    assert json.loads(second.content) == {
+        "projects": [{"project": PROJECT, "kind": "acme/lims.Sample.in_review", "delivery": None}]
+    }
+
+
+def test_a_record_is_watched_or_muted(fake: FakeIki, client: Client) -> None:
+    record = entity("SMP-000001")
+    path = f"/api/v1/entities/{record['id']}/watch"
+    watching = {"mode": "watching", "can_watch": True, "can_mute": True}
+    fake.on("PUT", path, watching)
+    assert client.notifications.watch(record) == watching
+    assert fake.body("PUT", path) == {"mode": "watching"}
+    fake.on("GET", path, watching)
+    assert client.notifications.watching(record)["mode"] == "watching"
+
+
 def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> None:
     linked = entity(
         "PRT-000002", name="SRC", length=536, parent="00000000-0000-7000-8000-000000000001"

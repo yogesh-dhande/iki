@@ -58,6 +58,7 @@ import { EntityHolds } from "./entity-holds";
 import { EntitySignatures } from "./entity-signatures";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
+import { EntityWatch } from "./entity-watch";
 import {
   Badge,
   Button,
@@ -474,7 +475,15 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
         Run action
       </Link>
     ) : null;
-  if (!entity.can.edit || !type) return running ? <div className="actions">{running}</div> : null;
+  const watch = <EntityWatch entity={entity} />;
+  if (!entity.can.edit || !type) {
+    return (
+      <div className="actions">
+        {running}
+        {watch}
+      </div>
+    );
+  }
   const close = () => {
     setAsking(false);
     setReason("");
@@ -494,6 +503,7 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
         </Link>
       )}
       {running}
+      {watch}
       <Button
         {...(archiving ? { variant: "danger" as const } : {})}
         onClick={() => {
