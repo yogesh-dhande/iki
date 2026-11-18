@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from iki_server import expressions
+from iki_spec import wasm
 
 pytestmark = pytest.mark.wasm
 
@@ -71,9 +72,9 @@ def test_each_thread_has_an_instance_of_its_own() -> None:
 
 
 def test_nothing_to_check_needs_no_module(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(expressions, "WASM", Path("/nowhere/iki_wasm.wasm"))
-    monkeypatch.setattr(expressions, "_compiled", None)
-    monkeypatch.setattr(expressions, "_local", threading.local())
+    monkeypatch.setattr(wasm, "WASM", Path("/nowhere/iki_wasm.wasm"))
+    monkeypatch.setattr(wasm, "_compiled", None)
+    monkeypatch.setattr(wasm, "_local", threading.local())
     assert expressions.check([]) == []
     # Text without braces has no expressions, so the module isn't needed for it.
     assert expressions.check(["Hello.", ""]) == [expressions.Checked(), expressions.Checked()]
@@ -82,7 +83,7 @@ def test_nothing_to_check_needs_no_module(monkeypatch: pytest.MonkeyPatch) -> No
 def test_plain_text_reads_as_the_module_says() -> None:
     texts = ["Hello.", "{{ a.b }} and", "", "x }} y", "plain { brace }"]
     found = expressions.check(texts)
-    asked: dict[str, Any] = expressions._call("iki_check", {"templates": texts}, expressions.FUEL)
+    asked: dict[str, Any] = wasm.call("iki_check", {"templates": texts}, wasm.FUEL)
     assert len(found) == len(texts) == len(asked["checked"])
     plain = {"names": [], "fields": [], "whole": False}
     for i in (0, 2, 4):
@@ -95,9 +96,9 @@ def test_plain_text_reads_as_the_module_says() -> None:
 
 
 def test_a_missing_module_says_how_to_build_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(expressions, "WASM", Path("/nowhere/iki_wasm.wasm"))
-    monkeypatch.setattr(expressions, "_compiled", None)
-    monkeypatch.setattr(expressions, "_local", threading.local())
+    monkeypatch.setattr(wasm, "WASM", Path("/nowhere/iki_wasm.wasm"))
+    monkeypatch.setattr(wasm, "_compiled", None)
+    monkeypatch.setattr(wasm, "_local", threading.local())
 
     with pytest.raises(expressions.UnavailableError, match=r"Run scripts/build-wasm\.sh"):
         expressions.check(["{{ 1 }}"])

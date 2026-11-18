@@ -1282,6 +1282,7 @@ def signing(
     as_user: str,
     *,
     someone_else: bool = False,
+    reason: str = "",
 ) -> Any:  # noqa: ANN401
     """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
     than the session's person, if `someone_else`), and returns what came of it."""
@@ -1294,6 +1295,7 @@ def signing(
             "field": "status",
             "state": state,
             "acknowledge": True,
+            "reason": reason,
             "return_to": f"/entities/{sample['hrid']}/",
         },
         {"If-Match": etag},
@@ -1336,7 +1338,9 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
             fail(f"recording the certification answered HTTP {certified.status_code}")
     members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
     grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    roles = {"roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer"]}
+    roles = {
+        "roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer", "iki/example_lims.qa"]
+    }
     given = api_call(
         alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", roles
     )
@@ -1349,7 +1353,8 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
         {
             "type": "iki/example_lims.Sample",
             "project": project["id"],
-            "values": {"protein": entry_of(protein), "lot": "DEV-1"},
+            # Its guards submit it for review once its result is recorded (ADR 0128).
+            "values": {"protein": entry_of(protein), "lot": "DEV-1", "result": "pass"},
         },
     )
     if made.status_code != 201:
@@ -1389,7 +1394,10 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if not signature["verification"]["valid"]:
         fail(f"{sample['hrid']}'s signature doesn't verify: {signature['verification']}")
     ok(f"{sample['hrid']}: {signature['manifestation']} (signed in again at Keycloak, verified)")
-    refused = signing(alice, sample, "approved", "bob", someone_else=True)
+    # Rejecting it, which alice may (approving it is someone else's: she submitted it).
+    refused = signing(
+        alice, sample, "rejected", "bob", someone_else=True, reason="Contaminated in transit"
+    )
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")

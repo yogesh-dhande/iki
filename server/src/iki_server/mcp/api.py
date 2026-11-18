@@ -147,11 +147,21 @@ def problem_text(status: int, problem: Any) -> str:  # noqa: ANN401 - JSON
     code = problem.get("code")
     lines[0] += f" ({status}{', ' + code if code else ''})"
     lines += [
-        f"- {error.get('pointer', '#')}: {error.get('detail', '')}"
+        f"- {error.get('pointer', '#')}: {error.get('detail', '')}" + _rule(error)
         for error in problem.get("errors") or []
         if isinstance(error, dict)
     ]
+    if problem.get("guard"):
+        lines.append(f"- guard: {problem['guard']}")
     return "\n".join(lines)
+
+
+def _rule(error: dict[str, Any]) -> str:
+    """Which plugin's rule an error is (ADR 0127), and whether a reason would save it."""
+    if not error.get("rule"):
+        return ""
+    held = "; it holds records: a hold_reason saves it, held" if error.get("hold") else ""
+    return f" (rule {error['rule']}{held})"
 
 
 def resource_allowed(request_uri: str, audiences: list[str]) -> bool:

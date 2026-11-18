@@ -331,6 +331,16 @@ class BatchRefOut(TypedDict):
     id: str
 
 
+class BreachOut(TypedDict):
+    """A rule the record breaks, found after it was saved (ADR 0127): its plugin added or
+changed the rule, or a bundle brought it. The next save that checks it clears it.
+    """
+    found_at: str
+    label: str
+    message: str
+    rule: str
+
+
 class BudgetIn(TypedDict):
     #: A month's.
     amount: float | str
@@ -610,6 +620,8 @@ class CostTotalOut(TypedDict):
 class CreatedOut(TypedDict):
     archived: bool
     archived_at: str | None
+    #: Rules it breaks that it was saved before (ADR 0127).
+    breaches: NotRequired[list[BreachOut]]
     can: EntityCan
     created_at: str
     created_by: UserOut | None
@@ -617,6 +629,8 @@ class CreatedOut(TypedDict):
     entry: NotRequired[EntryRefOut | None]
     #: The files its values refer to that you can read, by ID.
     files: dict[str, FileRef]
+    #: The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+    holds: NotRequired[list[HoldOut]]
     hrid: str
     id: str
     #: A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
@@ -835,6 +849,8 @@ class EntityFilters(TypedDict):
 
 
 class EntityIn(TypedDict):
+    #: Why to save it though it breaks rules that hold records for review, such as a result outside its specification (ADR 0127): it's saved, and held. Without it, such a save is refused with `hold_reason_required`.
+    hold_reason: NotRequired[str | None]
     #: The project it belongs to. It needs you as an Editor.
     project: str
     #: Why, for the record.
@@ -847,6 +863,8 @@ class EntityIn(TypedDict):
 class EntityOut(TypedDict):
     archived: bool
     archived_at: str | None
+    #: Rules it breaks that it was saved before (ADR 0127).
+    breaches: NotRequired[list[BreachOut]]
     can: EntityCan
     created_at: str
     created_by: UserOut | None
@@ -854,6 +872,8 @@ class EntityOut(TypedDict):
     entry: NotRequired[EntryRefOut | None]
     #: The files its values refer to that you can read, by ID.
     files: dict[str, FileRef]
+    #: The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+    holds: NotRequired[list[HoldOut]]
     hrid: str
     id: str
     #: A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
@@ -881,6 +901,8 @@ class EntityOut(TypedDict):
 class EntityPatch(TypedDict):
     #: Archived entities can't change: restore one to change it.
     archived: NotRequired[bool | None]
+    #: As for creating one: why to save values that break rules that hold.
+    hold_reason: NotRequired[str | None]
     #: Why, for the record.
     reason: NotRequired[str]
     #: Only the fields to change.
@@ -912,6 +934,10 @@ class EntityTypeOut(TypedDict):
     #: Qualified: plugin.Type.
     name: str
     plugin: str
+    #: What its rules' `check` reads, as the schemas iki-wasm evaluates them against: so a form checks them as you type, as the server will.
+    rule_variables: NotRequired[dict[str, Any] | None]
+    #: The rules its records keep at every save (ADR 0127): its own, its parents' and those extensions add.
+    rules: NotRequired[list[RuleOut]]
     #: The types that extend it, at any depth.
     subtypes: list[str]
     #: A JSON Schema (2020-12) of the entity's values.
@@ -1289,6 +1315,56 @@ class GraphRunOut(TypedDict):
     key: str
     #: The run, if you can read its project.
     run: RunRefOut | None
+
+
+class GuardOut(TypedDict):
+    """A condition on setting a state field to a state (ADR 0128), in CEL."""
+    #: True when the change may be made.
+    check: str
+    description: NotRequired[str | None]
+    #: What whoever's refused is told; `{{ }}` holds CEL.
+    message: str
+    name: str
+    #: It applies only while this is true.
+    when: NotRequired[str | None]
+
+
+class HoldOut(TypedDict):
+    """A rule holding the record for review (ADR 0127): a save broke it, and was kept
+with a reason.
+    """
+    #: The app or agent that saved it for them.
+    agent: NotRequired[str | None]
+    #: You may review it now.
+    can_review: bool
+    held_at: str
+    #: Who saved it; null for a deploy's check.
+    held_by: UserOut | None
+    id: str
+    label: str
+    #: The latest revision that broke the rule again.
+    last_revision: int
+    #: What the save that held it was told.
+    message: str
+    #: Why it was saved anyway.
+    reason: str
+    #: The lab roles whose holders may review it.
+    reviewed_by: list[str]
+    #: The revision that held it.
+    revision: int
+    rule: str
+    #: Why you may not, when you may not.
+    why_not: NotRequired[str | None]
+
+
+class HoldReviewIn(TypedDict):
+    #: Why the record may stand as it is.
+    reason: str
+
+
+class HoldRuleOut(TypedDict):
+    #: The lab roles (ADR 0116) whose holders review a record it holds.
+    reviewed_by: list[str]
 
 
 class ImportCounts(TypedDict):
@@ -1711,6 +1787,8 @@ class MoveIn(TypedDict):
 class MovedOut(TypedDict):
     archived: bool
     archived_at: str | None
+    #: Rules it breaks that it was saved before (ADR 0127).
+    breaches: NotRequired[list[BreachOut]]
     can: EntityCan
     created_at: str
     created_by: UserOut | None
@@ -1718,6 +1796,8 @@ class MovedOut(TypedDict):
     entry: NotRequired[EntryRefOut | None]
     #: The files its values refer to that you can read, by ID.
     files: dict[str, FileRef]
+    #: The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+    holds: NotRequired[list[HoldOut]]
     hrid: str
     id: str
     #: A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
@@ -1864,6 +1944,16 @@ class OutsideRef(TypedDict):
     id: str
     type: str | None
     why: Literal['another-project', 'history', 'purged', 'run', 'unreadable']
+
+
+OverlapOut = TypedDict(
+    'OverlapOut',
+    {
+        'from': 'str',
+        'per': 'list[str]',
+        'to': 'str',
+    },
+)
 
 
 class OverviewOut(TypedDict):
@@ -2688,6 +2778,29 @@ class RoleIn(TypedDict):
     role: Literal['viewer', 'editor', 'runner', 'admin']
 
 
+#: A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
+#: database holds (`unique` together, ranges that don't overlap).
+RuleOut = TypedDict(
+    'RuleOut',
+    {
+        'check': 'NotRequired[str | None]',
+        'description': 'NotRequired[str | None]',
+        'fields': 'list[str]',
+        'hold': 'NotRequired[HoldRuleOut | None]',
+        'kind': "Literal['check', 'unique', 'no_overlap']",
+        'label': 'str',
+        'message': 'str',
+        'name': 'str',
+        'no_overlap': 'NotRequired[OverlapOut | None]',
+        'plugin': 'str',
+        'reads': 'list[str]',
+        'unique': 'NotRequired[list[str]]',
+        'when': 'NotRequired[str | None]',
+        'while': 'NotRequired[dict[str, list[str]]]',
+    },
+)
+
+
 class RunApprovalOut(TypedDict):
     #: The agent that asked, acting for requested_by, if one did (ADR 0072).
     agent: AgentOut | None
@@ -3463,6 +3576,8 @@ class StateCan(TypedDict):
     """A state a record's state field could be set to (ADR 0125), and whether you may."""
     #: You may set it now.
     allowed: bool
+    #: The guard refusing it (ADR 0128), when one is why you may not.
+    guard: NotRequired[str | None]
     label: str
     locks: bool
     name: str
@@ -3484,6 +3599,8 @@ class StateIn(TypedDict):
 class StateOut(TypedDict):
     """One of a state field's states (ADR 0125)."""
     description: NotRequired[str | None]
+    #: Conditions on setting the field to it, besides `set_by` (ADR 0128): each must be true. `can.states` says, for a record, whether one refuses you.
+    guards: NotRequired[list[GuardOut]]
     label: str
     #: A record in it is locked: its other fields can't change, and it can't be archived, restored or moved, until its state field is set to a state that doesn't.
     locks: bool
@@ -4208,4 +4325,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RuleOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

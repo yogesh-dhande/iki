@@ -1270,7 +1270,6 @@ dependencies = [
     { name = "servestatic" },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "wasmtime" },
 ]
 
 [package.optional-dependencies]
@@ -1304,7 +1303,6 @@ requires-dist = [
     { name = "servestatic", specifier = ">=4.4.0" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
-    { name = "wasmtime", specifier = ">=50.0.1" },
 ]
 provides-extras = ["c"]
 
@@ -1315,12 +1313,14 @@ source = { editable = "spec" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pyyaml" },
+    { name = "wasmtime" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "jsonschema", specifier = ">=4.25.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "wasmtime", specifier = ">=50.0.1" },
 ]
 
 [[package]]

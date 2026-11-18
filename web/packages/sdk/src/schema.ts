@@ -1040,6 +1040,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/holds/{hold_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review a hold
+         * @description Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
+         *     cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
+         *     an app or agent's token, with one of the rule's lab roles in the record's project, and
+         *     not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
+         *     record back within the rule doesn't clear a hold; only a review does.
+         */
+        post: operations["iki_server_api_entities_review_hold"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/making": {
         parameters: {
             query?: never;
@@ -4298,6 +4322,24 @@ export interface components {
              */
             id: string;
         };
+        /**
+         * BreachOut
+         * @description A rule the record breaks, found after it was saved (ADR 0127): its plugin added or
+         *     changed the rule, or a bundle brought it. The next save that checks it clears it.
+         */
+        BreachOut: {
+            /**
+             * Found At
+             * Format: date-time
+             */
+            found_at: string;
+            /** Label */
+            label: string;
+            /** Message */
+            message: string;
+            /** Rule */
+            rule: string;
+        };
         /** BudgetIn */
         BudgetIn: {
             /**
@@ -4887,6 +4929,11 @@ export interface components {
             archived: boolean;
             /** Archived At */
             archived_at: string | null;
+            /**
+             * Breaches
+             * @description Rules it breaks that it was saved before (ADR 0127).
+             */
+            breaches?: components["schemas"]["BreachOut"][];
             can: components["schemas"]["EntityCan"];
             /**
              * Created At
@@ -4903,6 +4950,11 @@ export interface components {
             files: {
                 [key: string]: components["schemas"]["FileRef"];
             };
+            /**
+             * Holds
+             * @description The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+             */
+            holds?: components["schemas"]["HoldOut"][];
             /** Hrid */
             hrid: string;
             /**
@@ -5364,6 +5416,11 @@ export interface components {
         /** EntityIn */
         EntityIn: {
             /**
+             * Hold Reason
+             * @description Why to save it though it breaks rules that hold records for review, such as a result outside its specification (ADR 0127): it's saved, and held. Without it, such a save is refused with `hold_reason_required`.
+             */
+            hold_reason?: string | null;
+            /**
              * Project
              * Format: uuid
              * @description The project it belongs to. It needs you as an Editor.
@@ -5391,6 +5448,11 @@ export interface components {
             archived: boolean;
             /** Archived At */
             archived_at: string | null;
+            /**
+             * Breaches
+             * @description Rules it breaks that it was saved before (ADR 0127).
+             */
+            breaches?: components["schemas"]["BreachOut"][];
             can: components["schemas"]["EntityCan"];
             /**
              * Created At
@@ -5407,6 +5469,11 @@ export interface components {
             files: {
                 [key: string]: components["schemas"]["FileRef"];
             };
+            /**
+             * Holds
+             * @description The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+             */
+            holds?: components["schemas"]["HoldOut"][];
             /** Hrid */
             hrid: string;
             /**
@@ -5478,6 +5545,11 @@ export interface components {
              */
             archived?: boolean | null;
             /**
+             * Hold Reason
+             * @description As for creating one: why to save values that break rules that hold.
+             */
+            hold_reason?: string | null;
+            /**
              * Reason
              * @description Why, for the record.
              * @default
@@ -5544,6 +5616,18 @@ export interface components {
             name: string;
             /** Plugin */
             plugin: string;
+            /**
+             * Rule Variables
+             * @description What its rules' `check` reads, as the schemas iki-wasm evaluates them against: so a form checks them as you type, as the server will.
+             */
+            rule_variables?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Rules
+             * @description The rules its records keep at every save (ADR 0127): its own, its parents' and those extensions add.
+             */
+            rules?: components["schemas"]["RuleOut"][];
             /**
              * Subtypes
              * @description The types that extend it, at any depth.
@@ -6370,6 +6454,110 @@ export interface components {
             key: string;
             /** @description The run, if you can read its project. */
             run: components["schemas"]["RunRefOut"] | null;
+        };
+        /**
+         * GuardOut
+         * @description A condition on setting a state field to a state (ADR 0128), in CEL.
+         */
+        GuardOut: {
+            /**
+             * Check
+             * @description True when the change may be made.
+             */
+            check: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Message
+             * @description What whoever's refused is told; `{{ }}` holds CEL.
+             */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * When
+             * @description It applies only while this is true.
+             */
+            when?: string | null;
+        };
+        /**
+         * HoldOut
+         * @description A rule holding the record for review (ADR 0127): a save broke it, and was kept
+         *     with a reason.
+         */
+        HoldOut: {
+            /**
+             * Agent
+             * @description The app or agent that saved it for them.
+             */
+            agent?: string | null;
+            /**
+             * Can Review
+             * @description You may review it now.
+             */
+            can_review: boolean;
+            /**
+             * Held At
+             * Format: date-time
+             */
+            held_at: string;
+            /** @description Who saved it; null for a deploy's check. */
+            held_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Last Revision
+             * @description The latest revision that broke the rule again.
+             */
+            last_revision: number;
+            /**
+             * Message
+             * @description What the save that held it was told.
+             */
+            message: string;
+            /**
+             * Reason
+             * @description Why it was saved anyway.
+             */
+            reason: string;
+            /**
+             * Reviewed By
+             * @description The lab roles whose holders may review it.
+             */
+            reviewed_by: string[];
+            /**
+             * Revision
+             * @description The revision that held it.
+             */
+            revision: number;
+            /** Rule */
+            rule: string;
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not?: string | null;
+        };
+        /** HoldReviewIn */
+        HoldReviewIn: {
+            /**
+             * Reason
+             * @description Why the record may stand as it is.
+             */
+            reason: string;
+        };
+        /** HoldRuleOut */
+        HoldRuleOut: {
+            /**
+             * Reviewed By
+             * @description The lab roles (ADR 0116) whose holders review a record it holds.
+             */
+            reviewed_by: string[];
         };
         /** ImportCounts */
         ImportCounts: {
@@ -7240,6 +7428,11 @@ export interface components {
             archived: boolean;
             /** Archived At */
             archived_at: string | null;
+            /**
+             * Breaches
+             * @description Rules it breaks that it was saved before (ADR 0127).
+             */
+            breaches?: components["schemas"]["BreachOut"][];
             can: components["schemas"]["EntityCan"];
             /**
              * Created At
@@ -7256,6 +7449,11 @@ export interface components {
             files: {
                 [key: string]: components["schemas"]["FileRef"];
             };
+            /**
+             * Holds
+             * @description The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.
+             */
+            holds?: components["schemas"]["HoldOut"][];
             /** Hrid */
             hrid: string;
             /**
@@ -7572,6 +7770,24 @@ export interface components {
              * @enum {string}
              */
             why: "another-project" | "history" | "purged" | "run" | "unreadable";
+        };
+        /** OverlapOut */
+        OverlapOut: {
+            /**
+             * From
+             * @description The field its range starts at.
+             */
+            from: string;
+            /**
+             * Per
+             * @description Ranges only clash with the same values of these.
+             */
+            per: string[];
+            /**
+             * To
+             * @description The field its range ends at.
+             */
+            to: string;
         };
         /** OverviewOut */
         OverviewOut: {
@@ -9222,6 +9438,69 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "editor" | "runner" | "admin";
+        };
+        /**
+         * RuleOut
+         * @description A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
+         *     database holds (`unique` together, ranges that don't overlap).
+         */
+        RuleOut: {
+            /**
+             * Check
+             * @description CEL over `record`, `now` and `today`.
+             */
+            check?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Fields
+             * @description The fields its message points at.
+             */
+            fields: string[];
+            /** @description It holds a record that breaks it for review, rather than refuse it: a save that breaks it needs `hold_reason`. */
+            hold?: components["schemas"]["HoldRuleOut"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "check" | "unique" | "no_overlap";
+            /** Label */
+            label: string;
+            /**
+             * Message
+             * @description What a save that breaks it is told; `{{ }}` holds CEL.
+             */
+            message: string;
+            /**
+             * Name
+             * @description Its name; an extension's is `plugin:name`.
+             */
+            name: string;
+            no_overlap?: components["schemas"]["OverlapOut"] | null;
+            /** Plugin */
+            plugin: string;
+            /**
+             * Reads
+             * @description The fields it reads: an edit is checked against it only if it changes one of them.
+             */
+            reads: string[];
+            /**
+             * Unique
+             * @description No two of a project's records share these together.
+             */
+            unique?: string[];
+            /**
+             * When
+             * @description It applies only while this is true.
+             */
+            when?: string | null;
+            /**
+             * While
+             * @description For `unique` and `no_overlap`: only records with one of these values of each field count.
+             */
+            while?: {
+                [key: string]: string[];
+            };
         };
         /** RunApprovalOut */
         RunApprovalOut: {
@@ -10902,6 +11181,11 @@ export interface components {
              * @description You may set it now.
              */
             allowed: boolean;
+            /**
+             * Guard
+             * @description The guard refusing it (ADR 0128), when one is why you may not.
+             */
+            guard?: string | null;
             /** Label */
             label: string;
             /** Locks */
@@ -10945,6 +11229,11 @@ export interface components {
         StateOut: {
             /** Description */
             description?: string | null;
+            /**
+             * Guards
+             * @description Conditions on setting the field to it, besides `set_by` (ADR 0128): each must be true. `can.states` says, for a record, whether one refuses you.
+             */
+            guards?: components["schemas"]["GuardOut"][];
             /** Label */
             label: string;
             /**
@@ -13882,6 +14171,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_review_hold: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HoldReviewIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
         };

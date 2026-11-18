@@ -32,12 +32,14 @@ web/**/dist/
 # A local build would otherwise ride along; the image builds its own.
 server/src/iki_server/web/static/app/
 web/app/wasm/
+spec/src/iki_spec/iki_wasm.wasm
 server/tests/
 spec/tests/
 # The worker, built by worker/Dockerfile, without its build output.
 !worker/Cargo.toml
 !worker/Cargo.lock
 !worker/rust-toolchain.toml
+!worker/.cargo/
 !worker/crates/
 worker/target/
 **/__pycache__/

@@ -13,6 +13,9 @@
  *   started from (If-Match). If someone else saved in between, nothing is
  *   overwritten: their values come in for the fields this person didn't
  *   touch, the form says what changed, and they save again.
+ * - Its plugins' rules (ADR 0127) are checked as it's typed, each field saying
+ *   which it breaks. A rule that holds records for review, such as a result's
+ *   specification, asks why to save it anyway: it's saved, and held.
  */
 
 import { ApiError, unwrap } from "@ikisci/sdk";
@@ -48,6 +51,8 @@ import { usePageTitle } from "../layout";
 import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
 import { APP_TYPE } from "../apps";
 import { createdMessage } from "../registries";
+
+import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
 import { AppPreview } from "./app-preview";
 import { useProject } from "./project-overview";
@@ -174,6 +179,62 @@ function Reason({
   );
 }
 
+/** The values typed so far that are valid, for checking rules against. */
+function typedValues(type: EntityType, drafts: Drafts): Record<string, unknown> {
+  return encodeAll(type, formFields(type), drafts).values;
+}
+
+/** Whether a save needs a hold reason: the rules it breaks hold records, or the server
+ * said so. */
+function needsHold(found: RuleBreak[], error: unknown): boolean {
+  if (error instanceof ApiError && error.problem.code === "hold_reason_required") return true;
+  return found.length > 0 && found.every((b) => b.hold);
+}
+
+/** The checks a save makes of the rules it breaks: those that refuse it, by field, and a
+ * reason for those that hold it. */
+function ruleChecks(found: RuleBreak[], hold: boolean, reason: string): Record<string, string> {
+  const errors = breakErrors(found.filter((b) => !b.hold));
+  if (hold && !reason.trim()) {
+    errors["hold_reason"] = "Say why it’s saved though it breaks these rules.";
+  }
+  return errors;
+}
+
+function HoldReason({
+  found,
+  value,
+  onChange,
+  error,
+}: {
+  found: RuleBreak[];
+  value: string;
+  onChange: (value: string) => void;
+  error: string | undefined;
+}) {
+  const labels = [...new Set(found.filter((b) => b.hold).map((b) => `“${b.label}”`))];
+  return (
+    <div className="alert alert-warning" role="note">
+      <p>
+        {labels.length
+          ? `It breaks ${labels.join(" and ")}, which ${labels.length === 1 ? "holds" : "hold"} it for review.`
+          : "It breaks rules that hold it for review."}{" "}
+        It’s saved as it is, with your reason, and held until someone with the rule’s lab role,
+        other than you, reviews it. While it’s held, it can’t be set to a state that locks it.
+      </p>
+      <TextField
+        label="Why save it anyway"
+        value={value}
+        onChange={onChange}
+        error={error}
+        maxLength={2000}
+        multiline
+        help="Such as what was measured, and how. It’s kept with the hold, and its reviewer reads it."
+      />
+    </div>
+  );
+}
+
 /** Where the form is: the project, and its registry. */
 interface Context {
   project: string;
@@ -295,16 +356,25 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
     Object.fromEntries(formFields(type).map((f) => [f.name, initialDraft(f, type)])),
   );
   const [reason, setReason] = useState("");
+  const [holdReason, setHoldReason] = useState("");
+  const found = useRuleBreaks(type, typedValues(type, drafts));
 
   const create = useApiMutation(
     async (values: Record<string, unknown>) =>
       unwrap(
         await iki.POST("/api/v1/entities", {
-          body: { type: type.name, project: project.id, values, reason: reason.trim() },
+          body: {
+            type: type.name,
+            project: project.id,
+            values,
+            reason: reason.trim(),
+            ...(hold ? { hold_reason: holdReason.trim() } : {}),
+          },
         }),
       ),
     [ENTITIES],
   );
+  const hold = needsHold(found, create.error);
   const form = useForm(create.error);
   const label = inSentence(type.label);
   const registers = type.identity.length > 0;
@@ -312,7 +382,7 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
   function send() {
     const fields = formFields(type);
     const { values, errors } = encodeAll(type, fields, drafts);
-    if (!form.validate(errors)) return;
+    if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     // Blank fields are left out, so the type's defaults apply.
     const given = Object.fromEntries(
       Object.entries(values).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length)),
@@ -360,7 +430,7 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
             setDraft={(name, draft) => {
               setDrafts((current) => ({ ...current, [name]: draft }));
             }}
-            errors={form.errors}
+            errors={{ ...breakErrors(found), ...form.errors }}
             creating
             notes={notesFor(type, false, drafts, {
               project: project.name,
@@ -369,6 +439,14 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
             locked={new Set()}
             projectId={project.id}
           />
+          {hold ? (
+            <HoldReason
+              found={found}
+              value={holdReason}
+              onChange={setHoldReason}
+              error={form.errors["hold_reason"]}
+            />
+          ) : null}
           <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
           <div className="actions">
             <Button type="submit" variant="primary" busy={create.isPending} busyText="Creating…">
@@ -460,6 +538,9 @@ function EditEntityForm({
   const changed = fields.filter(
     (f) => !locked.has(f.name) && !same(drafts[f.name], base.drafts[f.name]),
   );
+  const [holdReason, setHoldReason] = useState("");
+  // Only rules reading what it changes, as the server checks an edit.
+  const found = useRuleBreaks(type, typedValues(type, drafts), new Set(changed.map((f) => f.name)));
 
   const save = useApiMutation(
     async (values: Record<string, unknown>) =>
@@ -469,11 +550,16 @@ function EditEntityForm({
             path: { ref: base.entity.id },
             header: { "If-Match": `"${String(base.entity.revision)}"` },
           },
-          body: { values, reason: reason.trim() },
+          body: {
+            values,
+            reason: reason.trim(),
+            ...(hold ? { hold_reason: holdReason.trim() } : {}),
+          },
         }),
       ),
     [ENTITIES],
   );
+  const hold = needsHold(found, save.error);
   const stale = save.error instanceof ApiError && save.error.problem.code === "stale";
   const form = useForm(stale ? null : save.error);
 
@@ -502,7 +588,7 @@ function EditEntityForm({
     event.preventDefault();
     setUnchanged(false);
     const { values, errors } = encodeAll(type, changed, drafts);
-    if (!form.validate(errors)) return;
+    if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     if (changed.length === 0) {
       setUnchanged(true);
       return;
@@ -580,7 +666,7 @@ function EditEntityForm({
             setDraft={(name, draft) => {
               setDrafts((current) => ({ ...current, [name]: draft }));
             }}
-            errors={form.errors}
+            errors={{ ...breakErrors(found), ...form.errors }}
             notes={notesFor(type, true, base.drafts, {
               project: opened.owner_project?.name ?? "the project",
               registry: opened.entry?.registry.name ?? "",
@@ -589,6 +675,14 @@ function EditEntityForm({
             locked={locked}
             projectId={opened.owner_project?.id ?? ""}
           />
+          {hold ? (
+            <HoldReason
+              found={found}
+              value={holdReason}
+              onChange={setHoldReason}
+              error={form.errors["hold_reason"]}
+            />
+          ) : null}
           <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
           <div className="actions">
             <Button type="submit" variant="primary" busy={save.isPending} busyText="Saving…">

@@ -28,7 +28,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from iki_server.entities import access, assignments, registry, unique
+from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity, UniqueValue
@@ -570,6 +570,7 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
                 update.values,
                 expected_revision=entity.revision,
                 by_run=True,
+                hold_reason=holds.run_reason(check.run),
             )
         except Invalid as error:
             invalid(check, update.pointer, error)
@@ -692,7 +693,14 @@ def update_match(
             "not_allowed", f"{user.name} can no longer edit {entity.hrid}, which it matches."
         )
     try:
-        return entities.update(user, entity, values, expected_revision=entity.revision, by_run=True)
+        return entities.update(
+            user,
+            entity,
+            values,
+            expected_revision=entity.revision,
+            by_run=True,
+            hold_reason=holds.run_reason(check.run),
+        )
     except Invalid as error:
         invalid(check, at, error)
     except Refused as error:
@@ -726,6 +734,7 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
                     run.project,
                     values,
                     by_run=True,
+                    hold_reason=holds.run_reason(run),
                 )
             except Invalid as error:
                 invalid(check, create.pointer, error)

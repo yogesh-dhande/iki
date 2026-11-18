@@ -1,0 +1,8 @@
+# Cargo settings for everything built from worker/.
+
+[env]
+# iki-wasm's rules (ADR 0127) compare times, which brings cel's chrono-tz and its IANA
+# time-zone database (about 1 MB of the WebAssembly module). Rules' times are UTC only,
+# and the checker refuses time zones, so chrono-tz keeps the UTC zone alone: the filter
+# keeps the module small. Unset, chrono-tz keeps every zone.
+CHRONO_TZ_TIMEZONE_FILTER = "^UTC$"

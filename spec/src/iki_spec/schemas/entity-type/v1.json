@@ -78,6 +78,9 @@
         "$ref": "https://ikisci.org/schemas/field/v1"
       }
     },
+    "rules": {
+      "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
+    },
     "due": {
       "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"

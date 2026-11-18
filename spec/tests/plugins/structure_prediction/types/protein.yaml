@@ -6,3 +6,9 @@ fields:
   disorder: { type: float, registry: derived, computed: true, min: 0, max: 1 }
   # Each project's own.
   predicted_by: { type: string, max_length: 64 }
+rules:
+  # An extension's rule (ADR 0127): `acme/structure_prediction:predictor_named`.
+  predictor_named:
+    label: Its predictor is named
+    check: record.predicted_by != "unknown"
+    message: Name what predicted it, not “unknown”.

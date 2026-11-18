@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod expressions;
+pub mod rules;
 pub mod templates;
 
 /// The most a file may be: the web app refuses larger ones before sending them.
@@ -386,6 +387,32 @@ pub fn render_json(bytes: &[u8]) -> Vec<u8> {
     }
 }
 
+/// [`rules::check`], from and to JSON: a [`rules::CheckRequest`] in, `{"checked":
+/// [...]}` out, or `{"error": ...}` if what came in isn't one.
+#[must_use]
+pub fn check_rules_json(bytes: &[u8]) -> Vec<u8> {
+    match serde_json::from_slice::<rules::CheckRequest>(bytes) {
+        Ok(request) => {
+            serde_json::to_vec(&serde_json::json!({ "checked": rules::check(&request) }))
+                .unwrap_or_else(|_| failed("The check couldn't be written out."))
+        }
+        Err(error) => failed(&format!("The request isn't one: {error}.")),
+    }
+}
+
+/// [`rules::evaluate`], from and to JSON: a [`rules::EvaluateRequest`] in, `{"results":
+/// [...]}` out (each context's outcomes, one per expression), or `{"error": ...}`.
+#[must_use]
+pub fn evaluate_rules_json(bytes: &[u8]) -> Vec<u8> {
+    match serde_json::from_slice::<rules::EvaluateRequest>(bytes) {
+        Ok(request) => {
+            serde_json::to_vec(&serde_json::json!({ "results": rules::evaluate(&request) }))
+                .unwrap_or_else(|_| failed("The outcomes couldn't be written out."))
+        }
+        Err(error) => failed(&format!("The request isn't one: {error}.")),
+    }
+}
+
 /// The module's exports, for the web app's worker. It asks for a buffer of the file's size,
 /// writes the file into it, calls `iki_read`, then reads the JSON from `iki_output` and
 /// `iki_output_len`. The buffers live in this thread's state, so no export takes a pointer
@@ -429,6 +456,23 @@ pub mod exports {
     pub extern "C" fn iki_render() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::render_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Checks the rules in the input buffer (see [`super::check_rules_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_check_rules() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::check_rules_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Evaluates the rules in the input buffer (see [`super::evaluate_rules_json`]), and
+    /// frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_evaluate_rules() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::evaluate_rules_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
@@ -602,6 +646,77 @@ mod tests {
         exports::write_input(request);
         exports::iki_render();
         assert_eq!(exports::output(), br#"{"values":[[{"value":"3 picked"}]]}"#);
+    }
+
+    #[test]
+    fn the_exports_check_and_evaluate_rules_as_json() {
+        let variables = serde_json::json!({
+            "record": {"type": "object", "label": "Sample", "fields": {
+                "purity": {"type": "double"},
+                "status": {"type": "string", "label": "Status", "values": ["received", "approved"]},
+            }},
+        });
+        let expressions = serde_json::json!([
+            {"source": "record.purity >= 95.0", "kind": "condition"},
+            {"source": "record.status == 'aproved'", "kind": "condition"},
+            {"source": "Purity {{ record.purity }}", "kind": "message"},
+        ]);
+        let request = serde_json::to_vec(
+            &serde_json::json!({"variables": variables, "expressions": expressions}),
+        )
+        .unwrap_or_default();
+        exports::iki_input(request.len());
+        exports::write_input(&request);
+        exports::iki_check_rules();
+        let checked: serde_json::Value =
+            serde_json::from_slice(&exports::output()).unwrap_or_default();
+        assert_eq!(
+            checked["checked"][0],
+            serde_json::json!({"reads": {"record": ["purity"]}})
+        );
+        assert_eq!(
+            checked["checked"][1],
+            serde_json::json!({
+                "error": "`aproved` isn't one of Status's values.",
+                "hint": "Did you mean `approved`? It's one of `received`, `approved`.",
+                "line": 1,
+                "column": 18,
+            })
+        );
+        assert_eq!(
+            checked["checked"][2],
+            serde_json::json!({"reads": {"record": ["purity"]}})
+        );
+
+        let request = serde_json::to_vec(&serde_json::json!({
+            "variables": variables,
+            "expressions": expressions,
+            "contexts": [{"record": {"purity": 96, "status": "approved"}}, {"record": {}}],
+        }))
+        .unwrap_or_default();
+        exports::iki_input(request.len());
+        exports::write_input(&request);
+        exports::iki_evaluate_rules();
+        let results: serde_json::Value =
+            serde_json::from_slice(&exports::output()).unwrap_or_default();
+        assert_eq!(results["results"][0][0], serde_json::json!({"value": true}));
+        assert_eq!(
+            results["results"][0][2],
+            serde_json::json!({"text": "Purity 96"})
+        );
+        assert_eq!(results["results"][1][0]["empty"], true);
+        assert_eq!(results["results"][1][1]["empty"], false);
+        assert_eq!(
+            results["results"][1][2],
+            serde_json::json!({"text": "Purity "})
+        );
+
+        let answer: serde_json::Value =
+            serde_json::from_slice(&check_rules_json(br#"{"expressions": 1}"#)).unwrap_or_default();
+        assert!(answer["error"].is_string());
+        let answer: serde_json::Value =
+            serde_json::from_slice(&evaluate_rules_json(b"[]")).unwrap_or_default();
+        assert!(answer["error"].is_string());
     }
 
     #[test]

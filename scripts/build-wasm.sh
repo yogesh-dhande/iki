@@ -25,6 +25,6 @@ cd "$root/worker"
 cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
 mkdir -p "$root/web/app/wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/app/wasm/iki_wasm.wasm"
-# The server checks apps' expressions with the same module (ADR 0090).
-cp target/wasm32-unknown-unknown/release/iki_wasm.wasm \
-  "$root/server/src/iki_server/expressions/iki_wasm.wasm"
+# The server checks apps' expressions (ADR 0090), and iki-spec plugins' rules and guards
+# (ADR 0127), with the same module.
+cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/spec/src/iki_spec/iki_wasm.wasm"

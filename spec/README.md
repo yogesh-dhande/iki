@@ -236,7 +236,8 @@ fields:
   state, from any other state, in the record's project (`unknown-role`).
   Every state but the initial one has some (`state-unreachable`). That's all
   core decides: which states may follow which, and keeping who sets one apart
-  from who set another (four eyes), are a plugin's policy, for guards to come.
+  from who set another (four eyes), are a plugin's policy, in its
+  [guards](#guards).
 - `reason: required` or `optional` asks whoever sets it why.
 - A state that `locks` keeps the record's other fields from changing, by
   any path, and keeps it from being archived, restored or moved to another
@@ -335,6 +336,127 @@ due: due_on
 - Someone who leaves the project, loses the role or is deactivated stays
   named, as the history must say; the record needs reassigning, and the
   project's Admins are told.
+
+### Rules
+
+A type's `rules` are what its records keep at every save
+([ADR 0127](../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)):
+in forms as values are typed, and on every path that writes, the API,
+agents, runs' results, bulk imports and bundles. Each is one of three kinds.
+
+```yaml
+rules:
+  purity_in_specification:
+    label: Purity in specification
+    check: record.purity >= 95.0
+    message: Purity {{ record.purity }}% is below its specification, at least 95%.
+    hold: { reviewed_by: [qa] }
+  reviewer_isnt_analyst:
+    check: record.reviewer != record.analyst
+    when: record.reviewer != null && record.analyst != null
+    message: Someone other than its analyst reviews it.
+    fields: [reviewer]
+  instrument_in_service:
+    check: record.instrument.status == "in_service"
+    message: "{{ record.instrument }} isn't in service."
+  one_per_position:
+    unique: [box, position]
+    while: { status: [stored] }
+    message: Another tube is stored at {{ record.position }} in this box.
+  one_at_a_time:
+    no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
+    while: { cancelled: [false] }
+    message: The instrument is booked then.
+```
+
+- A `check` is a [CEL](https://cel.dev) expression, true of a record that
+  keeps the rule. It reads `record` (its fields, with `id` and `hrid`, and
+  one step into what each reference refers to: `record.instrument.status`),
+  `now` and `today` (midnight UTC). Dates are timestamps at midnight UTC, and
+  quantities numbers in their field's unit. CEL is pure, typed and bounded: it
+  can't loop, call out or change anything, and an expression that runs too
+  long is stopped. `when` limits it to records it's true of.
+- Expressions are type-checked against the type's fields when the plugin is
+  validated, saying where and what to write instead (`invalid-expression`,
+  as `x != null` for `has(x)`). Without iki-wasm, the validator can't check
+  them (`expressions-unchecked`).
+- A check that can't be worked out because a value it reads is empty
+  passes, as a database's CHECK does: make the field `required` to require
+  it. One that fails for any other reason refuses the save.
+- `message` is what whoever saves is told, as text (never HTML), with CEL
+  between `{{` and `}}`. A record reads as its HRID, and a date as the day.
+  `fields` are what it points at, in forms and in the API's errors
+  (`#/values/<field>`); without it, the fields its check reads.
+- A rule that `hold`s keeps a save that breaks it, rather than refuse it, as
+  a result out of its specification must be kept: whoever saves says why
+  (`hold_reason`, or the API answers `hold_reason_required`), and the record
+  is held until someone with one of its `reviewed_by` lab roles, other than
+  whoever saved it, reviews it, with a reason of their own. A run's results
+  and a bulk import hold with the run as their reason. A held record can't be
+  set to a state that locks it. Only a `check` holds (`rule-kind`).
+- `unique` fields: no two of a project's records have the same values of all
+  of them. `no_overlap`: no two records' ranges, `from` one field `to`
+  another (dates, datetimes, ints, floats or quantities), overlap, `per` the
+  values of other fields. A range includes where it starts but not where it
+  ends, so a booking can end as the next starts; a date range includes both.
+  The database keeps these two, whatever writes, so two saves at once can't
+  both win. `while` counts only records whose enum, state or bool fields have
+  one of its values (`rule-while`). A record with any of their fields empty
+  doesn't count.
+- An edit is checked only against the rules that read a field it changes,
+  so a record saved before a rule was added can still change elsewhere.
+  When a plugin is deployed with new or changed rules, its records are
+  checked again: those that break one are listed on them, and org admins are
+  told; a rule that holds holds them, by Iki. A bundle's records are checked
+  as they're brought, as they were.
+- A rule names fields of its type (`rule-field`, `unknown-field`), and a
+  subtype's can't share a name with its parent's (`rule-shadows-parent`). An
+  extension's rules read the type's fields with its own; they're named
+  `plugin:name`. A type has at most 50.
+
+### Guards
+
+A state's `guards` say when it may be set, besides `set_by`
+([ADR 0128](../docs/adr/0128-guards-say-when-a-state-may-be-set.md)): each
+must be true, or the change is refused with its message. Which state may
+follow which, four eyes, and what a record must have before it moves on are
+guards.
+
+```yaml
+approved:
+  set_by: [reviewer]
+  locks: true
+  guards:
+    reviewed:
+      check: state.from == "in_review"
+      message: A sample is approved from In review.
+    four_eyes:
+      check: last.status.in_review == null || last.status.in_review.by != actor.person
+      message: You submitted it for review, so someone else approves it.
+    a_person:
+      check: actor.agent == null
+      message: Approve it yourself, in Iki, not through an app or agent.
+```
+
+- A guard reads what a rule does, with every state field in `record`, and:
+  `actor` (`person`, the person acting or null for a service account;
+  `agent`, the app or agent acting for them, with `name` and `client_id`, or
+  null; `roles`, their lab roles in the record's project; and
+  `service_account`), `state` (`field`, `from` and `to`), `history` (each
+  state field's changes, oldest first, each with `from`, `to`, `by` (the
+  person), `agent`, `at` and `reason`), `last` (each state field's latest
+  change into each of its states, or null: `last.status.approved.by`),
+  `holds` (the names of the rules holding the record) and, for a state set
+  by signing for it, `signatures` (those given for the change so far, each
+  with its `index`, `meaning`, `by` (the signer) and `at`), so a plugin says
+  whether one person may give two:
+  `signatures.all(s, s.by != actor.person)`.
+- One that can't be worked out refuses the change, whatever's empty. `when`
+  limits it to changes it's true of.
+- The record's page offers only the states its person may set, saying why
+  not of the others, in the guard's words. A refused change is answered
+  `guard_refused`, with the guard's name.
+- A state has at most 20.
 
 ### Extensions
 
@@ -1667,6 +1789,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                         | States                          |
+| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |

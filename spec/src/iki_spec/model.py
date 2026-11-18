@@ -30,6 +30,7 @@ __all__ = [
     "Environment",
     "Extension",
     "Field",
+    "Guard",
     "Input",
     "LabRole",
     "Meaning",
@@ -37,6 +38,7 @@ __all__ = [
     "Plugin",
     "Related",
     "Resources",
+    "Rule",
     "Signature",
     "State",
     "StateMove",
@@ -270,6 +272,9 @@ class State:
     #: The electronic signatures setting it needs (21 CFR Part 11, ADR 0126): it's set by
     #: the last of them, once each is given on the same revision. Empty: it's set directly.
     signatures: tuple[Signature, ...] = ()
+    #: Conditions on setting the field to this state, by name (ADR 0128): each must hold,
+    #: besides ``set_by``.
+    guards: dict[str, Guard] = field(default_factory=dict)
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
@@ -288,6 +293,11 @@ class State:
             )
             if isinstance(wanted, list)
             else (),
+            guards={
+                n: Guard.from_manifest(n, g)
+                for n, g in (data.get("guards") or {}).items()
+                if isinstance(g, dict)
+            },
         )
 
 
@@ -345,6 +355,128 @@ class Signature:
 
 
 @dataclass(frozen=True)
+class Guard:
+    """A condition on setting a state field to one of its states (ADR 0128): CEL over
+    who's acting, the record, and its states' history, which must be true."""
+
+    name: str
+    #: CEL that must be true for the state to be set.
+    check: str
+    #: What whoever tries is told when it isn't: text, with CEL between ``{{`` and ``}}``.
+    message: str
+    #: CEL: the guard applies only when it's true.
+    when: str | None = None
+    description: str | None = None
+    #: The record's fields its expressions read, filled in by the validator.
+    reads: tuple[str, ...] = ()
+
+    @classmethod
+    def from_manifest(cls, name: str, data: dict[str, Any]) -> Guard:
+        return cls(
+            name=name,
+            check=data.get("check") or "",
+            message=data.get("message") or "",
+            when=data.get("when"),
+            description=data.get("description"),
+        )
+
+
+def _while_value(value: object) -> str:
+    """A value a rule's ``while`` counts records by, as text: bools as JSON has them."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A rule every save of a type's records keeps (ADR 0127): a CEL check of the record,
+    a combination of fields no two of a project's records share, or ranges none of them
+    overlap. The database holds the last two."""
+
+    name: str
+    label: str
+    #: The plugin that declares it: the type's own, or an extension's.
+    plugin: str
+    description: str | None = None
+    #: What a person is told when a save breaks it: text, with CEL between ``{{`` and ``}}``.
+    message: str = ""
+    #: CEL that must be true of the record.
+    check: str | None = None
+    #: CEL: the check applies only when it's true.
+    when: str | None = None
+    #: Fields no two of a project's records have the same values of, together.
+    unique: tuple[str, ...] = ()
+    #: The fields a range starts and ends at: no two of a project's records' ranges overlap.
+    no_overlap: tuple[str, ...] = ()
+    #: With ``no_overlap``: records' ranges overlap only if they have the same values of these.
+    per: tuple[str, ...] = ()
+    #: With ``unique`` or ``no_overlap``: only records whose fields have one of these values
+    #: count, as (field, values), sorted.
+    only_while: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    #: Qualified lab roles (ADR 0116). When given, a save that breaks the check is kept,
+    #: with a reason, and the record is held until someone with one of them reviews it.
+    hold: tuple[str, ...] = ()
+    #: The fields a failure points at: those given, or those its check reads.
+    fields: tuple[str, ...] = ()
+    #: Every field of the record its expressions read, filled in by the validator.
+    reads: tuple[str, ...] = ()
+    #: An extension's rule, rather than a type's own.
+    extension: bool = False
+
+    @property
+    def kind(self) -> str:
+        """``check``, ``unique`` or ``no_overlap``."""
+        if self.unique:
+            return "unique"
+        if self.no_overlap:
+            return "no_overlap"
+        return "check"
+
+    @property
+    def key(self) -> str:
+        """Its name among the rules of the types it applies to: an extension's has its
+        plugin before it, as another plugin may use the same name."""
+        return f"{self.plugin}:{self.name}" if self.extension else self.name
+
+    @classmethod
+    def from_manifest(
+        cls, name: str, data: dict[str, Any], *, plugin: str, extension: bool = False
+    ) -> Rule:
+        overlap = data.get("no_overlap")
+        hold = data.get("hold")
+        only = data.get("while")
+        return cls(
+            name=name,
+            label=data.get("label") or name.replace("_", " ").capitalize(),
+            plugin=plugin,
+            description=data.get("description"),
+            message=data.get("message") or "",
+            check=data.get("check"),
+            when=data.get("when"),
+            unique=tuple(data.get("unique") or ()),
+            no_overlap=(str(overlap.get("from", "")), str(overlap.get("to", "")))
+            if isinstance(overlap, dict)
+            else (),
+            per=tuple(overlap.get("per") or ()) if isinstance(overlap, dict) else (),
+            only_while=tuple(
+                sorted(
+                    (str(k), tuple(_while_value(x) for x in v))
+                    for k, v in only.items()
+                    if isinstance(v, list)
+                )
+            )
+            if isinstance(only, dict)
+            else (),
+            hold=tuple(lab_role_name(r, plugin) for r in (hold.get("reviewed_by") or ()))
+            if isinstance(hold, dict)
+            else (),
+            fields=tuple(data.get("fields") or ()),
+            extension=extension,
+        )
+
+
+@dataclass(frozen=True)
 class StateMove:
     """Where a removed state field's records go (ADR 0125): another state field of the
     type, each of its states to one of that field's."""
@@ -375,6 +507,8 @@ class EntityType:
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
     due: str | None = None
+    #: Rules every save of its records keeps (ADR 0127), by name, as do its subtypes'.
+    rules: dict[str, Rule] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -420,6 +554,8 @@ class Extension:
     fields: dict[str, Field]
     description: str | None = None
     file: str | None = None
+    #: Rules every save of the extended type's records keeps (ADR 0127), by name.
+    rules: dict[str, Rule] = field(default_factory=dict)
 
     @property
     def table(self) -> str:
@@ -959,6 +1095,8 @@ _DATACLASSES = (
     Field,
     State,
     Signature,
+    Guard,
+    Rule,
     StateMove,
     EntityType,
     Extension,
@@ -1022,12 +1160,20 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
+                        # ...or rules.
+                        "rules": {n: _rule(r) for n, r in (v.get("rules") or {}).items()},
                     }
                 )
                 for k, v in data["types"].items()
             },
             "extensions": tuple(
-                Extension(**{**e, "fields": {n: _field(f) for n, f in e["fields"].items()}})
+                Extension(
+                    **{
+                        **e,
+                        "fields": {n: _field(f) for n, f in e["fields"].items()},
+                        "rules": {n: _rule(r) for n, r in (e.get("rules") or {}).items()},
+                    }
+                )
                 for e in data["extensions"]
             ),
             "actions": {k: _action(v) for k, v in data["actions"].items()},
@@ -1168,6 +1314,11 @@ def _field(data: dict[str, Any]) -> Field:
                         "set_by": tuple(st["set_by"]),
                         # Plugins built before signatures have none.
                         "signatures": tuple(Signature(**x) for x in st.get("signatures") or ()),
+                        # ...or guards.
+                        "guards": {
+                            g: Guard(**{**guard, "reads": tuple(guard.get("reads") or ())})
+                            for g, guard in (st.get("guards") or {}).items()
+                        },
                     }
                 )
                 for n, st in (data.get("states") or {}).items()
@@ -1177,5 +1328,20 @@ def _field(data: dict[str, Any]) -> Field:
             )
             if moved
             else None,
+        }
+    )
+
+
+def _rule(data: dict[str, Any]) -> Rule:
+    return Rule(
+        **{
+            **data,
+            "unique": tuple(data.get("unique") or ()),
+            "no_overlap": tuple(data.get("no_overlap") or ()),
+            "per": tuple(data.get("per") or ()),
+            "only_while": tuple((k, tuple(v)) for k, v in data.get("only_while") or ()),
+            "hold": tuple(data.get("hold") or ()),
+            "fields": tuple(data.get("fields") or ()),
+            "reads": tuple(data.get("reads") or ()),
         }
     )

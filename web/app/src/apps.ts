@@ -184,10 +184,12 @@ export type Rendered = { value: unknown } | { error: string };
 export const LIMIT_MS = 1000;
 
 interface Pending {
-  resolve: (values: Rendered[][]) => void;
+  resolve: (found: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
   request: string;
+  /** Templates, or plugins' rules (ADR 0127). */
+  call: "render" | "rules";
 }
 
 /** One worker, kept between renderings and replaced when one runs too long. Requests
@@ -199,8 +201,17 @@ class Renderer {
   private busy: Pending | null = null;
 
   render(request: string): Promise<Rendered[][]> {
+    return this.ask(request, "render") as Promise<Rendered[][]>;
+  }
+
+  /** Plugins' rules' expressions, evaluated in each context (see `rules.ts`). */
+  rules(request: string): Promise<unknown> {
+    return this.ask(request, "rules");
+  }
+
+  private ask(request: string, call: Pending["call"]): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ resolve, reject, timer: undefined, request });
+      this.queue.push({ resolve, reject, timer: undefined, request, call });
       this.next();
     });
   }
@@ -236,7 +247,7 @@ class Renderer {
             new Error(`Its expressions ran for over ${String(LIMIT_MS)} ms, so they were stopped.`),
           );
         }, LIMIT_MS);
-        this.worker?.postMessage({ request: pending.request });
+        this.worker?.postMessage({ request: pending.request, call: pending.call });
       },
       (error: unknown) => {
         this.stop(error instanceof Error ? error : new Error(String(error)));
@@ -252,8 +263,13 @@ class Renderer {
     if (data.json === undefined) {
       pending.reject(new Error(data.error ?? "Expressions failed."));
     } else {
-      const found = JSON.parse(data.json) as { values?: Rendered[][]; error?: string };
-      if (found.values) pending.resolve(found.values);
+      const found = JSON.parse(data.json) as {
+        values?: Rendered[][];
+        results?: unknown;
+        error?: string;
+      };
+      const answer = pending.call === "rules" ? found.results : found.values;
+      if (answer !== undefined) pending.resolve(answer);
       else pending.reject(new Error(found.error ?? "Expressions failed."));
     }
     this.next();
@@ -276,6 +292,12 @@ class Renderer {
 
 let renderer: Renderer | null = null;
 
+/** The page's one worker for expressions: apps' and rules'. */
+export function expressionRenderer(): Renderer {
+  renderer ??= new Renderer();
+  return renderer;
+}
+
 /** Each template's value, once or for each row: a whole expression's value as it is,
  * text with each expression's value written in, or why it has none. */
 export function renderTemplates(
@@ -284,6 +306,7 @@ export function renderTemplates(
   rows?: unknown[],
 ): Promise<Rendered[][]> {
   if (templates.length === 0) return Promise.resolve([]);
-  renderer ??= new Renderer();
-  return renderer.render(JSON.stringify({ templates, variables, ...(rows ? { rows } : {}) }));
+  return expressionRenderer().render(
+    JSON.stringify({ templates, variables, ...(rows ? { rows } : {}) }),
+  );
 }

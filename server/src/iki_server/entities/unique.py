@@ -214,7 +214,12 @@ def install(cursor: Any, wanted: list[Column]) -> list[str]:  # noqa: ANN401 - D
         cursor.execute(
             sql.SQL("DROP TRIGGER {} ON {}").format(sql.Identifier(name), sql.Identifier(table))
         )
-    cursor.execute("DELETE FROM iki_unique_value WHERE NOT (key = ANY(%s))", [keys])
+    # A field's key is `table.column`; a plugin rule's (ADR 0127) has a colon, and is
+    # kept by `constraints.install`.
+    cursor.execute(
+        "DELETE FROM iki_unique_value WHERE key NOT LIKE %s AND NOT (key = ANY(%s))",
+        ["%:%", keys],
+    )
     clashes = [found for c in wanted for found in _clashes(cursor, c)]
     if clashes:
         raise Clash(

@@ -12,5 +12,32 @@ fields:
   instrument: { type: ref, to: Instrument, required: true, description: "What's booked." }
   starts_at: { type: datetime, required: true, indexed: true }
   ends_at: { type: datetime, required: true }
+  cancelled:
+    type: bool
+    default: false
+    description: Cancelled bookings are kept, and don't hold the instrument.
 display:
   title: "{{ purpose }}"
+# Rules its records keep at every save (ADR 0127).
+rules:
+  ends_after_it_starts:
+    label: Ends after it starts
+    check: record.ends_at > record.starts_at
+    message: It ends before it starts.
+    fields: [ends_at]
+  one_at_a_time:
+    label: One booking at a time
+    description: >-
+      The database refuses two bookings of an instrument whose times overlap,
+      unless one is cancelled. One can start as another ends.
+    no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
+    while: { cancelled: [false] }
+    message: "{{ record.instrument.name }} is booked then already."
+  instrument_in_service:
+    label: Its instrument is in service
+    check: record.instrument.service == "in_service"
+    when: "!record.cancelled"
+    message: >-
+      {{ record.instrument.name }} isn't in service: book another, or ask an
+      Engineer.
+    fields: [instrument]

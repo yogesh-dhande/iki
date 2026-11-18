@@ -54,6 +54,7 @@ import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
+import { EntityHolds } from "./entity-holds";
 import { EntitySignatures } from "./entity-signatures";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
@@ -913,6 +914,7 @@ export function EntityOverview() {
           </p>
         </div>
       ) : null}
+      {!entity.archived ? <EntityHolds entity={entity} /> : null}
       {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
       {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
       <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />

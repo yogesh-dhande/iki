@@ -35,8 +35,11 @@ from iki_spec.validate import value_problems
 class Invalid(Exception):  # noqa: N818 - reads as "the values are invalid"
     """Values that don't fit their fields: field name → what's wrong, as sentences."""
 
-    def __init__(self, errors: Mapping[str, list[str]]) -> None:
+    def __init__(self, errors: Mapping[str, list[str]], *, broken: Iterable[Any] = ()) -> None:
         self.errors = dict(errors)
+        #: The plugins' rules among them (ADR 0127), as ``checking.Broken``: which rule each
+        #: message is, and the fields it points at.
+        self.broken = list(broken)
         super().__init__("; ".join(f"{k}: {' '.join(v)}" for k, v in self.errors.items()))
 
 

@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 ref="$1"
 docker build -f server/Dockerfile -t iki-server-base:dev .
+deploy/dev/build-wasm.sh
 rm -rf build/dev/server
 uv run --frozen iki deploy build deploy/dev --output build/dev/server/plugins --allow-local
 docker build -f deploy/plugins.Dockerfile --build-arg IKI_SERVER_IMAGE=iki-server-base:dev \

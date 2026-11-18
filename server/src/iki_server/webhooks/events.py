@@ -120,6 +120,20 @@ _register(
         org=True,
     ),
     EventType(
+        "entity.held",
+        "A save, a run's results or a deploy's check breaks a rule that holds records for "
+        "review, such as a result outside its specification (ADR 0127): `hold`, with the "
+        "rule and the reason it was saved anyway.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "entity.hold_reviewed",
+        "Someone reviews a record's hold (ADR 0127), with why it may stand: `hold`.",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "entity.assigned",
         "Someone names people in a record's assignment field, or takes them off it (ADR "
         "0122): `field`, and who was `added` and `removed`.",

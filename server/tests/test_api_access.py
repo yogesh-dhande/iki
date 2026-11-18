@@ -132,6 +132,22 @@ def sample_state(w: World) -> tuple[Any, ...]:
     )
 
 
+def batch_hold(w: World) -> tuple[Any, ...]:
+    """A batch's hold reviewed (ADR 0127), which needs the QA role nobody has."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import RuleHold
+
+    found = entities.create(
+        w.users["editor"],
+        "acme/protein.Batch",
+        w.project,
+        {"name": "L", "purity": 50.0},
+        hold_reason="Measured twice.",
+    )
+    hold = RuleHold.objects.get(entity_id=found.entity.pk)
+    return f"/entities/{found.entity.pk}/holds/{hold.pk}/review", {"reason": "Fine."}
+
+
 def sample_take(w: World) -> tuple[Any, ...]:
     """Taking a received sample as its analyst (ADR 0122), which needs the role nobody has."""
     from iki_server.entities import services as entities
@@ -796,6 +812,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/entities/{ref}/states/{field}", sample_state, readers(403)),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
     ("POST", "/entities/{ref}/take", sample_take, readers(403)),
+    # A hold is reviewed by its rule's lab roles (ADR 0127): nobody here has one.
+    ("POST", "/entities/{ref}/holds/{hold_id}/review", batch_hold, readers(403)),
     # Reassigning many skips what you can't change, rather than refusing them all; what you
     # can't read is 404.
     ("POST", "/entities/assign", samples_assign, readers(200)),

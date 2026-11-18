@@ -27,7 +27,11 @@ changes. It builds the image as a deployment does: the server image, then
 the plugins in [`plugins.lock.yaml`](plugins.lock.yaml), built with
 `iki deploy build --allow-local` and added by
 [`deploy/plugins.Dockerfile`](../plugins.Dockerfile). To try a plugin you
-are writing, add it there with `local:`.
+are writing, add it there with `local:`. `iki deploy build` checks the
+plugins' rules and guards with iki-wasm
+([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),
+which [`build-wasm.sh`](build-wasm.sh) builds first, in Docker as the server
+image does, so the builds need no Rust on your machine.
 
 It builds the worker image the same way: Iki's worker image, then the same
 plugins with their environments built in (`iki deploy build --workers`,

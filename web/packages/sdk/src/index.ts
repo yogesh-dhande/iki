@@ -38,8 +38,18 @@ export interface Problem {
   detail: string;
   /** Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, … */
   code: string;
-  /** For `validation_failed`: which fields, and why. */
-  errors?: { detail: string; pointer?: string; parameter?: string }[];
+  /** For `validation_failed` and `hold_reason_required`: which fields, and why. A plugin's
+   * rule's (ADR 0127) names the `rule`, and whether it would `hold` the record, rather
+   * than refuse, given a `hold_reason`. */
+  errors?: {
+    detail: string;
+    pointer?: string;
+    parameter?: string;
+    rule?: string;
+    hold?: boolean;
+  }[];
+  /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
+  guard?: string;
   /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
   entities?: { id: string; hrid: string; type: string }[];
   request_id?: string;

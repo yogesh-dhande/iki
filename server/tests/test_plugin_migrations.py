@@ -232,6 +232,8 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_sample__helpers",
         "acme__protein_lot",
         "acme__protein_lot__history",
+        "acme__protein_batch",
+        "acme__protein_batch__history",
         "acme__prediction__acme__protein_proteinstructure",
         "acme__prediction__acme__protein_proteinstructure__history",
     }
@@ -372,11 +374,12 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:9] == [
+    assert report.splitlines()[:10] == [
         # The core plugin's alignments, apps, collections and views, which every deployment
         # has.
         "  HRID sequence iki_hrid_aln",
         "  HRID sequence iki_hrid_app",
+        "  HRID sequence iki_hrid_bat",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_lot",

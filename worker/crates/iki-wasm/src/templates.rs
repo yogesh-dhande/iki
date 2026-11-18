@@ -139,7 +139,7 @@ pub enum Checked {
 const QUOTED: usize = 60;
 
 /// Where a failure is, for a person: "In `{{ size(rows) }}`", its start if it's long.
-fn quoted(source: &str) -> String {
+pub(crate) fn quoted(source: &str) -> String {
     if source.chars().count() <= QUOTED {
         return format!("In `{{{{{source}}}}}`");
     }

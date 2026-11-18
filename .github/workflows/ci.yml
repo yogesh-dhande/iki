@@ -117,12 +117,14 @@ jobs:
       matrix:
         # 3.12 is the oldest supported version; 3.14 is what servers run.
         # The browser tests don't depend on Python's version: they run once,
-        # on the version servers run, as do the tests that run iki-wasm, which
-        # the web app's build makes.
+        # on the version servers run.
         # So do the iki-worker end-to-end tests, which need Rust to build it.
+        # Both build iki-wasm: saves and the validator evaluate plugins' rules with it
+        # (ADR 0127), whatever Python runs them.
         include:
           - python: "3.12"
-            markers: not built_web_app and not worker_e2e and not wasm
+            wasm: true
+            markers: not built_web_app and not worker_e2e
           - python: "3.14"
             browsers: true
             rust: true
@@ -163,15 +165,18 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
-      # Rust builds the web app's parsers (iki-wasm) and iki-worker.
-      - name: Install the pinned Rust toolchain (for the web app and the worker end-to-end tests)
-        if: matrix.rust || matrix.browsers
+      # Rust builds iki-wasm (the web app's parsers, and CEL for apps and rules) and iki-worker.
+      - name: Install the pinned Rust toolchain (for iki-wasm and the worker end-to-end tests)
+        if: matrix.rust || matrix.browsers || matrix.wasm
         working-directory: worker
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: matrix.rust || matrix.browsers
+        if: matrix.rust || matrix.browsers || matrix.wasm
         with:
           workspaces: worker
+      - name: Build iki-wasm (without the web app)
+        if: matrix.wasm && !matrix.browsers
+        run: scripts/build-wasm.sh
       - name: Build the web app (for the browser tests)
         if: matrix.browsers
         run: |
@@ -357,6 +362,15 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: "3.14"
           enable-cache: true
+      # `iki deploy build` checks the plugins' rules and guards with iki-wasm (ADR 0127).
+      - name: Install the pinned Rust toolchain (for iki-wasm)
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: worker
+      - name: Build iki-wasm
+        run: scripts/build-wasm.sh
       - name: Build the worker image, and a deployment's on top of it
         run: scripts/ci/worker-image.sh iki-worker:ci
       - name: Install Grype and Syft (pinned, checksum verified)

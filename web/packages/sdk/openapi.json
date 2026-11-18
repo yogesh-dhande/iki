@@ -1243,6 +1243,36 @@
         "title": "BatchRefOut",
         "type": "object"
       },
+      "BreachOut": {
+        "description": "A rule the record breaks, found after it was saved (ADR 0127): its plugin added or\nchanged the rule, or a bundle brought it. The next save that checks it clears it.",
+        "properties": {
+          "found_at": {
+            "format": "date-time",
+            "title": "Found At",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "label",
+          "message",
+          "found_at"
+        ],
+        "title": "BreachOut",
+        "type": "object"
+      },
       "BudgetIn": {
         "properties": {
           "amount": {
@@ -2487,6 +2517,14 @@
             ],
             "title": "Archived At"
           },
+          "breaches": {
+            "description": "Rules it breaks that it was saved before (ADR 0127).",
+            "items": {
+              "$ref": "#/components/schemas/BreachOut"
+            },
+            "title": "Breaches",
+            "type": "array"
+          },
           "can": {
             "$ref": "#/components/schemas/EntityCan"
           },
@@ -2523,6 +2561,14 @@
             "description": "The files its values refer to that you can read, by ID.",
             "title": "Files",
             "type": "object"
+          },
+          "holds": {
+            "description": "The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.",
+            "items": {
+              "$ref": "#/components/schemas/HoldOut"
+            },
+            "title": "Holds",
+            "type": "array"
           },
           "hrid": {
             "title": "Hrid",
@@ -3485,6 +3531,19 @@
       },
       "EntityIn": {
         "properties": {
+          "hold_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why to save it though it breaks rules that hold records for review, such as a result outside its specification (ADR 0127): it's saved, and held. Without it, such a save is refused with `hold_reason_required`.",
+            "title": "Hold Reason"
+          },
           "project": {
             "description": "The project it belongs to. It needs you as an Editor.",
             "format": "uuid",
@@ -3534,6 +3593,14 @@
             ],
             "title": "Archived At"
           },
+          "breaches": {
+            "description": "Rules it breaks that it was saved before (ADR 0127).",
+            "items": {
+              "$ref": "#/components/schemas/BreachOut"
+            },
+            "title": "Breaches",
+            "type": "array"
+          },
           "can": {
             "$ref": "#/components/schemas/EntityCan"
           },
@@ -3570,6 +3637,14 @@
             "description": "The files its values refer to that you can read, by ID.",
             "title": "Files",
             "type": "object"
+          },
+          "holds": {
+            "description": "The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.",
+            "items": {
+              "$ref": "#/components/schemas/HoldOut"
+            },
+            "title": "Holds",
+            "type": "array"
           },
           "hrid": {
             "title": "Hrid",
@@ -3689,6 +3764,19 @@
             ],
             "description": "Archived entities can't change: restore one to change it.",
             "title": "Archived"
+          },
+          "hold_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As for creating one: why to save values that break rules that hold.",
+            "title": "Hold Reason"
           },
           "reason": {
             "default": "",
@@ -3836,6 +3924,27 @@
           "plugin": {
             "title": "Plugin",
             "type": "string"
+          },
+          "rule_variables": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its rules' `check` reads, as the schemas iki-wasm evaluates them against: so a form checks them as you type, as the server will.",
+            "title": "Rule Variables"
+          },
+          "rules": {
+            "description": "The rules its records keep at every save (ADR 0127): its own, its parents' and those extensions add.",
+            "items": {
+              "$ref": "#/components/schemas/RuleOut"
+            },
+            "title": "Rules",
+            "type": "array"
           },
           "subtypes": {
             "description": "The types that extend it, at any depth.",
@@ -5562,6 +5671,194 @@
           "run"
         ],
         "title": "GraphRunOut",
+        "type": "object"
+      },
+      "GuardOut": {
+        "description": "A condition on setting a state field to a state (ADR 0128), in CEL.",
+        "properties": {
+          "check": {
+            "description": "True when the change may be made.",
+            "title": "Check",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "message": {
+            "description": "What whoever's refused is told; `{{ }}` holds CEL.",
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "It applies only while this is true.",
+            "title": "When"
+          }
+        },
+        "required": [
+          "name",
+          "check",
+          "message"
+        ],
+        "title": "GuardOut",
+        "type": "object"
+      },
+      "HoldOut": {
+        "description": "A rule holding the record for review (ADR 0127): a save broke it, and was kept\nwith a reason.",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app or agent that saved it for them.",
+            "title": "Agent"
+          },
+          "can_review": {
+            "description": "You may review it now.",
+            "title": "Can Review",
+            "type": "boolean"
+          },
+          "held_at": {
+            "format": "date-time",
+            "title": "Held At",
+            "type": "string"
+          },
+          "held_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who saved it; null for a deploy's check."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_revision": {
+            "description": "The latest revision that broke the rule again.",
+            "title": "Last Revision",
+            "type": "integer"
+          },
+          "message": {
+            "description": "What the save that held it was told.",
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was saved anyway.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reviewed_by": {
+            "description": "The lab roles whose holders may review it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reviewed By",
+            "type": "array"
+          },
+          "revision": {
+            "description": "The revision that held it.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "id",
+          "rule",
+          "label",
+          "message",
+          "reviewed_by",
+          "held_by",
+          "held_at",
+          "reason",
+          "revision",
+          "last_revision",
+          "can_review"
+        ],
+        "title": "HoldOut",
+        "type": "object"
+      },
+      "HoldReviewIn": {
+        "properties": {
+          "reason": {
+            "description": "Why the record may stand as it is.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "HoldReviewIn",
+        "type": "object"
+      },
+      "HoldRuleOut": {
+        "properties": {
+          "reviewed_by": {
+            "description": "The lab roles (ADR 0116) whose holders review a record it holds.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reviewed By",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reviewed_by"
+        ],
+        "title": "HoldRuleOut",
         "type": "object"
       },
       "ImportCounts": {
@@ -7342,6 +7639,14 @@
             ],
             "title": "Archived At"
           },
+          "breaches": {
+            "description": "Rules it breaks that it was saved before (ADR 0127).",
+            "items": {
+              "$ref": "#/components/schemas/BreachOut"
+            },
+            "title": "Breaches",
+            "type": "array"
+          },
           "can": {
             "$ref": "#/components/schemas/EntityCan"
           },
@@ -7378,6 +7683,14 @@
             "description": "The files its values refer to that you can read, by ID.",
             "title": "Files",
             "type": "object"
+          },
+          "holds": {
+            "description": "The rules holding it for review (ADR 0127), oldest first. While any does, it can't be set to a state that locks it.",
+            "items": {
+              "$ref": "#/components/schemas/HoldOut"
+            },
+            "title": "Holds",
+            "type": "array"
           },
           "hrid": {
             "title": "Hrid",
@@ -8053,6 +8366,35 @@
           "here"
         ],
         "title": "OutsideRef",
+        "type": "object"
+      },
+      "OverlapOut": {
+        "properties": {
+          "from": {
+            "description": "The field its range starts at.",
+            "title": "From",
+            "type": "string"
+          },
+          "per": {
+            "description": "Ranges only clash with the same values of these.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Per",
+            "type": "array"
+          },
+          "to": {
+            "description": "The field its range ends at.",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "per"
+        ],
+        "title": "OverlapOut",
         "type": "object"
       },
       "OverviewOut": {
@@ -11961,6 +12303,140 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "RuleOut": {
+        "description": "A rule its records keep at every save (ADR 0127): a CEL `check`, or one the\ndatabase holds (`unique` together, ranges that don't overlap).",
+        "properties": {
+          "check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CEL over `record`, `now` and `today`.",
+            "title": "Check"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "fields": {
+            "description": "The fields its message points at.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HoldRuleOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "It holds a record that breaks it for review, rather than refuse it: a save that breaks it needs `hold_reason`."
+          },
+          "kind": {
+            "enum": [
+              "check",
+              "unique",
+              "no_overlap"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "description": "What a save that breaks it is told; `{{ }}` holds CEL.",
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name; an extension's is `plugin:name`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "no_overlap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OverlapOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "reads": {
+            "description": "The fields it reads: an edit is checked against it only if it changes one of them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reads",
+            "type": "array"
+          },
+          "unique": {
+            "description": "No two of a project's records share these together.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unique",
+            "type": "array"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "It applies only while this is true.",
+            "title": "When"
+          },
+          "while": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "For `unique` and `no_overlap`: only records with one of these values of each field count.",
+            "title": "While",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "kind",
+          "message",
+          "fields",
+          "reads"
+        ],
+        "title": "RuleOut",
+        "type": "object"
+      },
       "RunApprovalOut": {
         "properties": {
           "agent": {
@@ -15486,6 +15962,18 @@
             "title": "Allowed",
             "type": "boolean"
           },
+          "guard": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The guard refusing it (ADR 0128), when one is why you may not.",
+            "title": "Guard"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -15579,6 +16067,14 @@
               }
             ],
             "title": "Description"
+          },
+          "guards": {
+            "description": "Conditions on setting the field to it, besides `set_by` (ADR 0128): each must be true. `can.states` says, for a record, whether one refuses you.",
+            "items": {
+              "$ref": "#/components/schemas/GuardOut"
+            },
+            "title": "Guards",
+            "type": "array"
           },
           "label": {
             "title": "Label",
@@ -22157,6 +22653,84 @@
         "summary": "Its graph, to draw",
         "tags": [
           "graph"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/holds/{hold_id}/review": {
+      "post": {
+        "description": "Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is\ncleared, and the audit log keeps who reviewed it, when and why. It takes a person, not\nan app or agent's token, with one of the rule's lab roles in the record's project, and\nnot whoever saved what held it: `holds[].can_review` says whether you may. Editing the\nrecord back within the rule doesn't clear a hold; only a review does.",
+        "operationId": "iki_server_api_entities_review_hold",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Hold Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Review a hold",
+        "tags": [
+          "entities"
         ]
       }
     },

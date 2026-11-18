@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Box
+label: Box
+label_plural: Boxes
+schema_version: 1
+description: A box of tubes in a freezer, with a position for each, such as A1.
+hrid: { prefix: BOX }
+fields:
+  name: { type: string, required: true, max_length: 100, indexed: true }
+  location:
+    type: string
+    max_length: 200
+    description: Where it is, such as a freezer and its shelf.
+  positions:
+    type: int
+    min: 1
+    max: 400
+    default: 81
+    description: How many tubes it holds.
+display:
+  title: "{{ name }}"

@@ -430,17 +430,26 @@ class Entities(_Part):
         *,
         project: str | Mapping[str, Any],
         reason: str = "",
+        hold_reason: str = "",
     ) -> CreatedOut:
         """A new entity in `project` (its ID or slug). For a type with an identity, it
         registers it: a new identity gets a registry ID (``registered`` true); one
         registered already gets the project a record of that entry; one the project has
-        a record of already comes back as it is (``reused`` true)."""
+        a record of already comes back as it is (``reused`` true).
+
+        Values that break a plugin's rule are refused with ``iki.Invalid``, each of its
+        ``errors`` naming the ``rule``. A rule that holds records for review, such as a
+        result's specification, refuses with the code ``hold_reason_required`` unless
+        you say why in ``hold_reason``: then it's saved, and held until it's reviewed
+        (see :meth:`review_hold`)."""
         body = {
             "type": type,
             "project": self._client._project_id(project),
             "values": dict(values),
             "reason": reason,
         }
+        if hold_reason:
+            body["hold_reason"] = hold_reason
         return cast("CreatedOut", self._client.request("POST", "/entities", json=body))
 
     def move(self, ref: str, *, reason: str = "") -> EntityOut:
@@ -455,12 +464,34 @@ class Entities(_Part):
         )
 
     def update(
-        self, ref: str, values: Mapping[str, Any], *, revision: int, reason: str
+        self,
+        ref: str,
+        values: Mapping[str, Any],
+        *,
+        revision: int,
+        reason: str,
+        hold_reason: str = "",
     ) -> EntityOut:
         """Changes some of an entity's values as one new revision. `revision` is the
         one you read: if it has changed since, nothing changes and ``iki.Conflict`` is
-        raised. A value of None unsets that field."""
-        return self._patch(ref, {"values": dict(values), "reason": reason}, revision)
+        raised. A value of None unsets that field. ``hold_reason`` as for :meth:`create`."""
+        body: dict[str, Any] = {"values": dict(values), "reason": reason}
+        if hold_reason:
+            body["hold_reason"] = hold_reason
+        return self._patch(ref, body, revision)
+
+    def review_hold(self, ref: str, hold: str, *, reason: str) -> EntityOut:
+        """Reviews one of a record's holds (its ``holds``), saying why it may stand: the
+        hold is cleared. It takes a person with one of the rule's lab roles, other than
+        whoever saved what held it, signed in as themselves: an app's token can't."""
+        return cast(
+            "EntityOut",
+            self._client.request(
+                "POST",
+                _path("/entities/{ref}/holds/{hold}/review", ref=ref, hold=hold),
+                json={"reason": reason},
+            ),
+        )
 
     def archive(self, ref: str, *, revision: int, reason: str) -> EntityOut:
         """Archives an entity: it's kept, with its history, and can't change."""
@@ -476,7 +507,10 @@ class Entities(_Part):
         """Sets one of a record's state fields to one of its states, such as ``"status"``
         to ``"approved"``: those its ``can["states"][field]`` lists, with whether you may
         set each and why not. A state needs one of its lab roles in the record's project,
-        and may need a ``reason``. ``revision`` is the one you read, as for :meth:`update`::
+        and may need a ``reason``. Its plugin's guards may refuse it (``iki.Conflict``
+        with the code ``guard_refused``, naming the ``guard`` in its problem), as can a
+        hold on the record for a state that locks it. ``revision`` is the one you read,
+        as for :meth:`update`::
 
             sample = iki.entities.get("SAM-000012")
             iki.entities.set_state("SAM-000012", "status", "approved", revision=sample["revision"])

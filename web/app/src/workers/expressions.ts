@@ -1,6 +1,7 @@
 /**
  * Apps' expressions' Web Worker (ADR 0090): it renders templates with iki-wasm, the CEL
- * the server checked them with, and posts back their values. It's kept between
+ * the server checked them with, and posts back their values. Forms evaluate plugins'
+ * rules with it too (ADR 0127), as the server will at the save. It's kept between
  * renderings, since apps render often; a rendering that runs too long has the page end
  * the worker and start another. Like the parsers' worker, it has a policy of its own: no
  * network beyond Iki's origin, which it loads the module from, and no `eval`.
@@ -12,6 +13,7 @@ interface Exports {
   memory: WebAssembly.Memory;
   iki_input: (len: number) => number;
   iki_render: () => void;
+  iki_evaluate_rules: () => void;
   iki_output: () => number;
   iki_output_len: () => number;
 }
@@ -28,11 +30,15 @@ async function instantiate(): Promise<Exports> {
   return instance.exports as unknown as Exports;
 }
 
-function render(wasm: Exports, request: string): string {
+/** What a page may ask the module for: apps' templates, or rules' expressions. */
+const CALLS = { render: "iki_render", rules: "iki_evaluate_rules" } as const;
+type Call = keyof typeof CALLS;
+
+function render(wasm: Exports, request: string, call: Call = "render"): string {
   const bytes = new TextEncoder().encode(request);
   const at = wasm.iki_input(bytes.length);
   new Uint8Array(wasm.memory.buffer, at, bytes.length).set(bytes);
-  wasm.iki_render();
+  wasm[CALLS[call]]();
   // Read the memory after the call: it may have grown, which replaces its buffer.
   const out = new Uint8Array(wasm.memory.buffer, wasm.iki_output(), wasm.iki_output_len());
   return new TextDecoder().decode(out);
@@ -57,9 +63,9 @@ instantiate().then(
       return;
     }
     scope.addEventListener("message", (event) => {
-      const { request } = event.data as { request: string };
+      const { request, call } = event.data as { request: string; call?: Call };
       try {
-        scope.postMessage({ json: render(wasm, request) });
+        scope.postMessage({ json: render(wasm, request, call === "rules" ? "rules" : "render") });
       } catch (error) {
         scope.postMessage({ error: error instanceof Error ? error.message : String(error) });
       }

@@ -51,6 +51,10 @@ class FieldError:
     #: Where, as a JSON Pointer into the request (``#/values/sequence``).
     pointer: str
     detail: str
+    #: The plugin's rule it breaks, if it's a rule's.
+    rule: str | None = None
+    #: The rule holds records for review: saving with a ``hold_reason`` keeps it.
+    hold: bool = False
 
     def __str__(self) -> str:
         return f"{self.pointer}: {self.detail}"
@@ -139,7 +143,12 @@ def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
     problem = body if isinstance(body, dict) else {}
     detail = str(problem.get("detail") or problem.get("title") or f"Iki answered {status}.")
     errors = tuple(
-        FieldError(pointer=str(e.get("pointer", "#")), detail=str(e.get("detail", "")))
+        FieldError(
+            pointer=str(e.get("pointer", "#")),
+            detail=str(e.get("detail", "")),
+            rule=str(e["rule"]) if e.get("rule") else None,
+            hold=bool(e.get("hold")),
+        )
         for e in problem.get("errors") or []
         if isinstance(e, dict)
     )

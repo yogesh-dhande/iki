@@ -41,9 +41,7 @@ It shows the parts of Iki such a plugin needs:
   back to testing, rejecting it, or registering it again asks why. Approved,
   Released and Rejected lock it: its results can't change, by anyone or
   anything, until someone sets its status back, and each change is kept in
-  its history with who made it and why. Keeping the reviewer apart from the
-  analyst who submitted it (four eyes) comes with guards, rules a plugin
-  declares on top of who may set a state.
+  its history with who made it and why.
 - **Electronic signatures** under 21 CFR Part 11
   ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
   setting a sample In review is its analyst's signature of authorship,
@@ -53,6 +51,23 @@ It shows the parts of Iki such a plugin needs:
   and the sample's page shows each signature: who, when, and what it means,
   checked again on request. A sample's bundle carries them, and
   `iki bundle verify` checks them anywhere.
+- **Guards** on its status
+  ([ADR 0128](../../docs/adr/0128-guards-say-when-a-state-may-be-set.md)),
+  conditions on top of who may set a state. A sample moves along its process:
+  it's submitted for review from In testing, once its result is recorded, and
+  approved from In review, released once approved, and rejected once in review
+  or approved. Whoever submitted it for review can't approve it, and whoever
+  approved it can't release it (four eyes). Guards are checked as each
+  signature is given, with its signer acting, so nobody signs a change a guard
+  refuses. Where one won't let someone sign, the sample's page says why.
+- **Rules** checked at every save
+  ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)).
+  A sample's purity (at least 95%) and concentration (0.5 to 10 mg/mL) are
+  its specification: a result outside it is saved as measured, with why, and
+  the sample is held until someone with the QA role, other than whoever saved
+  it, reviews it. While it's held it can't be approved, released or rejected.
+  A sample whose purity is out of specification can't pass, and its reviewer
+  isn't its analyst. The sample's form checks each rule as you type.
 - **Who has each sample**
   ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
   its `analyst`, `reviewer` and `qa`, each someone in the project with that
@@ -91,7 +106,11 @@ It also books instruments, to show a component that shows many entities
 ([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places.md)):
 
 - **`Instrument`** and **`Booking`**, types of its own: a booking is time on
-  an instrument, from `starts_at` to `ends_at`, for a `purpose`. An
+  an instrument, from `starts_at` to `ends_at`, for a `purpose`. No two
+  bookings of an instrument overlap, unless one is `cancelled`: the database
+  refuses the second, whatever writes it, and says which booking it clashes
+  with (`no_overlap`). One can start as another ends. A booking ends after
+  it starts, and is of an instrument that's in service. An
   instrument has two state fields, set on their own: its `service` (In
   service, Out of service or Retired, which locks it) and its `calibration`
   (Due, Calibrated or Failed). Engineers set both; an Analyst can say it's
@@ -109,6 +128,11 @@ It also books instruments, to show a component that shows many entities
 
 A booking that starts in one month and ends in the next shows on the day it
 starts.
+
+And it keeps tubes in boxes: **`Box`** and **`Tube`**, a tube of a sample at
+a `position` in a box, such as A1. No two stored tubes share a box's position
+(`unique: [box, position]`, `while: {stored: [true]}`): the database refuses a
+second, and a tube that's used up frees its position once it isn't `stored`.
 
 ## Setting it up
 

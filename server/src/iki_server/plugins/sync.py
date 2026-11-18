@@ -25,6 +25,12 @@ build installed (:mod:`iki_server.entities.registry`):
   references, and every list of them, keep ``iki_graph_edge`` in step, so the
   graph across references is whatever the tables hold. Tables whose triggers
   are new are filled in, and edges of fields no longer there are dropped.
+- **Plugins' rules** (ADR 0127): triggers keep the rows the database holds
+  ``unique`` and ``no_overlap`` rules with, filling in records already there; if
+  records already break one, the sync stops, saying which. Then each type whose
+  checks, or whose plugins' versions, changed has its records checked again: those
+  breaking a rule are reported, or for a rule that holds, held for review
+  (:mod:`iki_server.entities.breaches`).
 - **Locked records' guards** (ADR 0125): a trigger on every table holding
   the values of records with state fields refuses a change to a record a
   state locks, whatever writes it. Tables that no longer need one lose it.
@@ -48,7 +54,7 @@ from django.db.models.functions import Now
 from psycopg import sql
 
 from iki_server.audit import log as audit
-from iki_server.entities import hrids, registry, states, unique
+from iki_server.entities import breaches, constraints, hrids, registry, states, unique
 from iki_server.entities.values import shape
 from iki_server.graph import edges
 from iki_server.plugins.models import PluginState
@@ -80,6 +86,10 @@ class Report:
     unique: list[str] = field(default_factory=list)
     graph: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
+    #: The rules the database holds, as ``table:rule``.
+    rules: list[str] = field(default_factory=list)
+    #: Each type whose records were checked again.
+    checked: list[breaches.Checked] = field(default_factory=list)
     analyst: str | None = None
 
 
@@ -110,9 +120,11 @@ def sync(analyst_role: str | None = None) -> Report:
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
+        report.rules = constraints.install(cursor, constraints.wanted())
         report.guards = states.install_guards(cursor, states.guarded_tables())
         report.views = _views(cursor)
         report.plugins = _states()
+        report.checked = breaches.recheck()
         if analyst_role:
             for statement in _analyst_grants(analyst_role):
                 cursor.execute(statement)

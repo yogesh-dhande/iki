@@ -21,6 +21,30 @@ typescript-eslint. They match glob patterns from our own configs and file names 
 checkout, never input from outside, so the attack isn't reachable, and nothing that ships \
 includes it. Remove this once a fixed picomatch is out and the tools take it."""
 
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-18T00:00:00Z
+reason = """chrono: an unmaintained-crate advisory, not a vulnerability, with no fixed \
+version. It's cel's only time backend, for plugins' rules' dates and times (ADR 0127), and \
+runs in iki-wasm, a WebAssembly module with no imports: it reaches no files, network or \
+host. worker/deny.toml ignores it too. Remove both once cel moves to jiff or time."""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0555"
+ignoreUntil = 2027-02-18T00:00:00Z
+reason = """chrono-tz: an unmaintained-crate advisory, not a vulnerability, with no fixed \
+version. It's cel's only time backend, for plugins' rules' dates and times (ADR 0127), and \
+runs in iki-wasm, a WebAssembly module with no imports: it reaches no files, network or \
+host. worker/deny.toml ignores it too. Remove both once cel moves to jiff or time."""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0559"
+ignoreUntil = 2027-02-18T00:00:00Z
+reason = """chrono-tz-build: an unmaintained-crate advisory, not a vulnerability, with no fixed \
+version. It's cel's only time backend, for plugins' rules' dates and times (ADR 0127), and \
+runs in iki-wasm, a WebAssembly module with no imports: it reaches no files, network or \
+host. worker/deny.toml ignores it too. Remove both once cel moves to jiff or time."""
+
 # --- License corrections -----------------------------------------------------
 # deps.dev reports these with missing or non-SPDX license data; the values
 # below are taken from each project's LICENSE file.

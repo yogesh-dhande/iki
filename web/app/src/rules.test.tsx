@@ -1,0 +1,394 @@
+/**
+ * Plugins' rules (ADR 0127) and guards (ADR 0128) in the app, against a fake API: forms
+ * check rules as they're typed with the real iki-wasm, run here without a worker; a save
+ * a rule holds asks why; a held record is reviewed; and a guard's refusal is said.
+ */
+
+import type { Schemas } from "@ikisci/sdk";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+
+import { ALICE, entity, field, KINASE, PROTEIN, renderApp } from "./entity-fixtures";
+import { answer, calls, page, problem, respond, signedIn } from "./test-server";
+
+vi.mock("./apps", async (original) => {
+  const real = await original<typeof import("./apps")>();
+  // Built by scripts/build-wasm.sh, as the TypeScript job does before the tests.
+  const here = join(process.cwd(), "wasm", "iki_wasm.wasm");
+  const bytes = readFileSync(existsSync(here) ? here : join("web", "app", "wasm", "iki_wasm.wasm"));
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  const wasm = instance.exports as unknown as {
+    memory: WebAssembly.Memory;
+    iki_input: (len: number) => number;
+    iki_evaluate_rules: () => void;
+    iki_output: () => number;
+    iki_output_len: () => number;
+  };
+  return {
+    ...real,
+    expressionRenderer: () => ({
+      rules: (request: string) => {
+        const sent = new TextEncoder().encode(request);
+        const at = wasm.iki_input(sent.length);
+        new Uint8Array(wasm.memory.buffer, at, sent.length).set(sent);
+        wasm.iki_evaluate_rules();
+        const out = new Uint8Array(wasm.memory.buffer, wasm.iki_output(), wasm.iki_output_len());
+        const found = JSON.parse(new TextDecoder().decode(out)) as { results: unknown };
+        return Promise.resolve(found.results);
+      },
+    }),
+  };
+});
+
+const LOT_ID = "00000000-0000-7000-8000-00000000c001";
+const HOLD_ID = "00000000-0000-7000-8000-00000000c101";
+
+function rule(more: Partial<Schemas["RuleOut"]> & Pick<Schemas["RuleOut"], "name">) {
+  return {
+    plugin: "acme/lab",
+    label: more.name,
+    description: null,
+    kind: "check" as const,
+    check: null,
+    when: null,
+    message: "",
+    fields: [],
+    reads: [],
+    hold: null,
+    unique: [],
+    no_overlap: null,
+    while: {},
+    ...more,
+  } as Schemas["RuleOut"];
+}
+
+const LOT: Schemas["EntityTypeOut"] = {
+  ...PROTEIN,
+  name: "acme/lab.Lot",
+  plugin: "acme/lab",
+  label: "Lot",
+  label_plural: "Lots",
+  description: null,
+  hrid_prefix: "LOT",
+  identity: [],
+  values_schema: {},
+  fields: [
+    field({ name: "name", label: "Name", type: "string", plugin: "acme/lab" }),
+    field({ name: "purity", label: "Purity", type: "float", plugin: "acme/lab" }),
+    field({ name: "made_on", label: "Made on", type: "date", plugin: "acme/lab" }),
+    field({ name: "expires_on", label: "Expires on", type: "date", plugin: "acme/lab" }),
+  ],
+  rules: [
+    rule({
+      name: "purity_in_specification",
+      label: "Purity in specification",
+      check: "record.purity >= 90.0",
+      message: "Its purity, {{ record.purity }}%, is under 90%.",
+      fields: ["purity"],
+      reads: ["purity"],
+      hold: { reviewed_by: ["acme/lab:qa"] },
+    }),
+    rule({
+      name: "expires_after_made",
+      label: "Expires after it's made",
+      check: "record.expires_on > record.made_on",
+      message: "It expires on {{ record.expires_on }}, before it's made.",
+      fields: ["expires_on"],
+      reads: ["expires_on", "made_on"],
+    }),
+    rule({
+      name: "one_per_name",
+      label: "One per name",
+      kind: "unique",
+      message: "Another lot has this name.",
+      fields: ["name"],
+      reads: ["name"],
+      unique: ["name"],
+    }),
+  ],
+  rule_variables: {
+    record: {
+      type: "object",
+      label: "Lot",
+      fields: {
+        id: { type: "string" },
+        hrid: { type: "string" },
+        name: { type: "string" },
+        purity: { type: "double" },
+        made_on: { type: "timestamp" },
+        expires_on: { type: "timestamp" },
+      },
+    },
+    now: { type: "timestamp" },
+    today: { type: "timestamp" },
+  },
+};
+
+function lot(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"] {
+  return entity({
+    id: LOT_ID,
+    hrid: "LOT-000001",
+    type: "acme/lab.Lot",
+    values: { name: "Lot 7", purity: 97.5, made_on: "2026-11-01", expires_on: "2027-11-01" },
+    holds: [],
+    breaches: [],
+    ...overrides,
+  });
+}
+
+function onLab(): void {
+  signedIn();
+  answer("GET /api/v1/entity-types", [PROTEIN, LOT]);
+  answer("GET /api/v1/projects", page([KINASE]));
+  answer("GET /api/v1/entities/LOT-000001", lot());
+  answer("GET /api/v1/entities/LOT-000001/provenance", {});
+  answer("GET /api/v1/entities/LOT-000001/projects", []);
+}
+
+describe("rules in forms", () => {
+  it("says what a save would break as it's typed, and sends nothing a rule refuses", async () => {
+    onLab();
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=acme/lab.Lot");
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Lot 8");
+    // Date inputs have no role of their own.
+    fireEvent.change(screen.getByLabelText(/^Made on/), { target: { value: "2026-11-02" } });
+    const expires = screen.getByLabelText(/^Expires on/);
+    fireEvent.change(expires, { target: { value: "2026-11-01" } });
+    // A date reads as the day alone.
+    expect(
+      await screen.findByText("It expires on 2026-11-01, before it's made."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create lot" }));
+    expect(calls("POST", "/api/v1/entities")).toHaveLength(0);
+    expect(expires).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("asks why to save values a rule holds, and sends the reason", async () => {
+    onLab();
+    answer("POST /api/v1/entities", respond(201, { ...lot(), reused: false, registered: false }));
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=acme/lab.Lot");
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Lot 7");
+    await user.type(screen.getByRole("textbox", { name: /^Purity/ }), "88.5");
+    expect(await screen.findByText("Its purity, 88.5%, is under 90%.")).toBeInTheDocument();
+    const why = await screen.findByRole("textbox", { name: "Why save it anyway" });
+    await user.click(screen.getByRole("button", { name: "Create lot" }));
+    expect(
+      await screen.findByText("Say why it’s saved though it breaks these rules."),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities")).toHaveLength(0);
+
+    await user.type(why, "Retested: the first assay's column was failing.");
+    await user.click(screen.getByRole("button", { name: "Create lot" }));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/entities")).toHaveLength(1);
+    });
+    expect(calls("POST", "/api/v1/entities")[0]?.body).toMatchObject({
+      values: { name: "Lot 7", purity: 88.5 },
+      hold_reason: "Retested: the first assay's column was failing.",
+    });
+  });
+
+  it("asks for a hold reason when Iki says a rule it couldn't check here holds it", async () => {
+    onLab();
+    answer(
+      "POST /api/v1/entities",
+      problem(422, "hold_reason_required", "Its values break rules that hold it for review.", [
+        {
+          pointer: "#/values/name",
+          detail: "Its protein is BSL-3.",
+          rule: "protein_not_bsl3",
+          hold: true,
+        } as { pointer: string; detail: string },
+      ]),
+    );
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=acme/lab.Lot");
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Lot 9");
+    await user.click(screen.getByRole("button", { name: "Create lot" }));
+    expect(await screen.findByText("Its protein is BSL-3.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Why save it anyway" })).toBeInTheDocument();
+  });
+
+  it("checks only the rules an edit's changes read", async () => {
+    onLab();
+    // Saved before its rule changed: it breaks it, but an edit of its name doesn't ask.
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({ values: { name: "Lot 7", purity: 80, made_on: null, expires_on: null } }),
+    );
+    answer(`PATCH /api/v1/entities/${LOT_ID}`, respond(200, lot({ revision: 3 })));
+    const { user } = await renderApp("/entities/LOT-000001/edit");
+    const name = await screen.findByRole("textbox", { name: /^Name/ });
+    await user.type(name, "b");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      expect(calls("PATCH", `/api/v1/entities/${LOT_ID}`)).toHaveLength(1);
+    });
+    expect(screen.queryByRole("textbox", { name: "Why save it anyway" })).not.toBeInTheDocument();
+  });
+});
+
+describe("holds and breaches", () => {
+  const HOLD: Schemas["HoldOut"] = {
+    id: HOLD_ID,
+    rule: "purity_in_specification",
+    label: "Purity in specification",
+    message: "Its purity, 88.5%, is under 90%.",
+    reviewed_by: ["acme/lab:qa"],
+    held_by: ALICE,
+    agent: null,
+    held_at: "2026-11-18T09:00:00Z",
+    reason: "Retested.",
+    revision: 2,
+    last_revision: 2,
+    can_review: true,
+    why_not: null,
+  };
+
+  it("shows a hold, and its reviewer clears it with a reason", async () => {
+    onLab();
+    answer("GET /api/v1/entities/LOT-000001", lot({ holds: [HOLD] }));
+    answer(`POST /api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`, respond(200, lot()));
+    const { user } = await renderApp("/entities/LOT-000001/");
+    const held = await screen.findByRole("region", { name: "Held for review" });
+    expect(within(held).getByText("Purity in specification")).toBeInTheDocument();
+    expect(within(held).getByText(/“Retested\.”/)).toBeInTheDocument();
+    await user.click(within(held).getByRole("button", { name: "Review" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Review the hold on LOT-000001",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Clear the hold" }));
+    expect(await within(dialog).findByText("Say why it may stand as it is.")).toBeInTheDocument();
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Why it may stand" }),
+      "Within the method's error.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Clear the hold" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(calls("POST", `/api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`)[0]?.body).toEqual({
+      reason: "Within the method's error.",
+    });
+  });
+
+  it("says why someone may not review a hold", async () => {
+    onLab();
+    const why = "You saved what it holds: someone else reviews it.";
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({ holds: [{ ...HOLD, can_review: false, why_not: why }] }),
+    );
+    await renderApp("/entities/LOT-000001/");
+    const held = await screen.findByRole("region", { name: "Held for review" });
+    const review = within(held).getByRole("button", { name: "Review" });
+    expect(review).toHaveAttribute("aria-disabled", "true");
+    expect(review).toHaveAccessibleDescription(why);
+  });
+
+  it("shows the rules a deploy found it breaks", async () => {
+    onLab();
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({
+        breaches: [
+          {
+            rule: "expires_after_made",
+            label: "Expires after it's made",
+            message: "It expires on 2026-10-01, before it's made.",
+            found_at: "2026-11-18T09:00:00Z",
+          },
+        ],
+      }),
+    );
+    await renderApp("/entities/LOT-000001/");
+    const breaks = await screen.findByRole("region", { name: "Breaks its plugins’ rules" });
+    expect(within(breaks).getByText("Expires after it's made")).toBeInTheDocument();
+  });
+});
+
+describe("guards", () => {
+  const STATUS = field({
+    name: "status",
+    label: "Status",
+    type: "state",
+    plugin: "acme/lab",
+    initial: "in_review",
+    states: [
+      {
+        name: "in_review",
+        label: "In review",
+        description: null,
+        set_by: ["acme/lab:analyst"],
+        locks: false,
+        reason: null,
+        signatures: [],
+        guards: [],
+      },
+      {
+        name: "approved",
+        label: "Approved",
+        description: null,
+        set_by: ["acme/lab:qa"],
+        locks: true,
+        reason: null,
+        signatures: [],
+        guards: [],
+      },
+    ] as Schemas["StateOut"][],
+  });
+  const FOUR_EYES = "Someone other than its analyst approves it.";
+
+  it("says a guard's refusal by the state, and Iki's if it refuses at the save", async () => {
+    onLab();
+    answer("GET /api/v1/entity-types", [PROTEIN, { ...LOT, fields: [...LOT.fields, STATUS] }]);
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({
+        values: { name: "Lot 7", purity: 97.5, status: "in_review" },
+        can: {
+          edit: true,
+          sign: [],
+          states: {
+            status: [
+              {
+                name: "approved",
+                label: "Approved",
+                locks: true,
+                reason: null,
+                allowed: true,
+                why_not: null,
+                guard: null,
+                signed: false,
+              },
+              {
+                name: "in_review",
+                label: "In review",
+                locks: false,
+                reason: null,
+                allowed: false,
+                why_not: "It's in review already.",
+                guard: "allowed_move",
+                signed: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    answer(
+      `POST /api/v1/entities/${LOT_ID}/states/status`,
+      problem(409, "guard_refused", FOUR_EYES, undefined, { guard: "four_eyes" }),
+    );
+    const { user } = await renderApp("/entities/LOT-000001/");
+    const states = await screen.findByRole("region", { name: "States" });
+    await user.click(within(states).getByRole("button", { name: "Set Status" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Set Status of LOT-000001" });
+    expect(
+      within(dialog).getByRole("radio", { name: "In review: It's in review already." }),
+    ).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    expect(await within(dialog).findByText(FOUR_EYES)).toBeInTheDocument();
+  });
+});

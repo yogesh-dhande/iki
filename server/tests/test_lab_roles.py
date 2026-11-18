@@ -48,6 +48,8 @@ def held(world: World, principal: str) -> frozenset[str]:
 
 def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
     listed = api_as(world, "viewer").get("/lab-roles").json()
+    for role in listed:  # the rules and guards tests' own type (ADRs 0127, 0128)
+        role["uses"] = [u for u in role["uses"] if u["owner"] != "acme/protein.Batch"]
     assert [r["name"] for r in listed] == [ANALYST, QA, REVIEWER]
     qa = listed[1]
     assert (qa["label"], qa["plugin"], qa["description"]) == (

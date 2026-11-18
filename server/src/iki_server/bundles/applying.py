@@ -15,6 +15,11 @@ and shows the new plan. Otherwise it writes:
   revision with its author, time, means and reason, and each table's history; and, for an
   entity here from an earlier import, the revisions it doesn't have yet.
 
+Its records are then checked against this deployment's plugins' rules (ADR 0127). They
+stay as they were made: one that breaks a rule is reported on it, or for a rule that holds,
+held for review by the applier. The database's own rules (``unique``, ``no_overlap``)
+refuse the whole import instead, as unique fields do.
+
 Revisions keep who made them and when: the import itself is the record of who brought them
 here, why and when, and each imported entity's page links to it.
 """
@@ -46,7 +51,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import hrids, registry, states
+from iki_server.entities import breaches, hrids, registry, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -258,6 +263,13 @@ class _Writer:
         for run in self.bundle.lines("runs.ndjson"):
             self._run(run)
         self._rename_in_apps()
+        checked = breaches.check_brought(
+            [r.entity_id for r in planned.values()],
+            user=self.made.applied_by,
+            reason=f"Imported from {self.made.trusted_as}, as it was there: {self.made.reason}",
+        )
+        self.counts["breaking"] = sum(checked.broken.values())
+        self.counts["held"] = sum(checked.held.values())
         for name, number in self.kept.items():
             _advance(name, number)
         return {
@@ -270,6 +282,8 @@ class _Writer:
             "runs": self.counts["runs"],
             "apps_renamed": self.counts["apps_renamed"],
             "signatures": self.counts["signatures"],
+            "breaking": self.counts["breaking"],
+            "held": self.counts["held"],
         }
 
     # Who --------------------------------------------------------------------------------

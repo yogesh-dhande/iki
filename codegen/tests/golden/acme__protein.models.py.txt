@@ -24,6 +24,129 @@ from iki_server.files.models import File
 import iki_plugin_acme__dna.models
 
 
+class Batch(Entity):
+    """Batch (acme/protein.Batch), schema version 1."""
+
+    IKI_TYPE = 'acme/protein.Batch'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=100)
+    protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    purity = models.FloatField(null=True)
+    result = models.TextField(null=True)
+    analyst = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    reviewer = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    plate = models.CharField(max_length=20, null=True)
+    well = models.CharField(max_length=4, null=True)
+    stored = models.BooleanField(null=True, db_default=True)
+    made_on = models.DateField(null=True)
+    expires_on = models.DateField(null=True)
+    starts_at = models.DateTimeField(null=True)
+    ends_at = models.DateTimeField(null=True)
+    status = StateField(
+        states=['in_testing', 'in_review', 'approved', 'released', 'certified'],
+        locking=['approved'],
+        db_default='in_testing',
+        db_comment='A state field (ADR 0125): one of in_testing, in_review, approved, released, certified.',
+    )
+    custody = StateField(
+        states=['in_lab', 'quarantined'],
+        db_default='in_lab',
+        db_comment='A state field (ADR 0125): one of in_lab, quarantined.',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_batch'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_batch__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_batch__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__gt=float('-inf'), purity__lt=float('inf')),
+                name='acme__protein_batch__purity__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__gte=0),
+                name='acme__protein_batch__purity__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__lte=100),
+                name='acme__protein_batch__purity__max',
+            ),
+            models.CheckConstraint(
+                condition=Q(result__in=['pass', 'fail']),
+                name='acme__protein_batch__result__values',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('plate'), 1),
+                name='acme__protein_batch__plate__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(plate__regex='[\\r\\n]'),
+                name='acme__protein_batch__plate__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('well'), 1),
+                name='acme__protein_batch__well__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(well__regex='[\\r\\n]'),
+                name='acme__protein_batch__well__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=['in_testing', 'in_review', 'approved', 'released', 'certified'],
+                ),
+                name='acme__protein_batch__status__known',
+            ),
+            models.CheckConstraint(
+                condition=Q(custody__in=['in_lab', 'quarantined']),
+                name='acme__protein_batch__custody__known',
+            ),
+        ]
+
+
+class Batch_History(models.Model):
+    """The history of acme__protein_batch: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Batch'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    protein = models.UUIDField(db_column='protein_id', null=True)
+    purity = models.FloatField(null=True)
+    result = models.TextField(null=True)
+    analyst = models.UUIDField(db_column='analyst_id', null=True)
+    reviewer = models.UUIDField(db_column='reviewer_id', null=True)
+    plate = models.TextField(null=True)
+    well = models.TextField(null=True)
+    stored = models.BooleanField(null=True)
+    made_on = models.DateField(null=True)
+    expires_on = models.DateField(null=True)
+    starts_at = models.DateTimeField(null=True)
+    ends_at = models.DateTimeField(null=True)
+    status = models.TextField(null=True)
+    custody = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_batch__history'
+
+
 class Lot(Entity):
     """Lot (acme/protein.Lot), schema version 1. A lot of protein, signed for at each step under 21 CFR Part 11."""
 

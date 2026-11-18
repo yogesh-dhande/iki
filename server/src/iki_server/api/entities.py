@@ -18,6 +18,7 @@
 """
 
 import math
+from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -47,6 +48,8 @@ from iki_server.api.schemas import (
 from iki_server.entities import (
     access,
     assignments,
+    checking,
+    holds,
     people,
     registry,
     schema,
@@ -55,7 +58,14 @@ from iki_server.entities import (
     states,
     unique,
 )
-from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
+from iki_server.entities.models import (
+    Entity,
+    ProjectLink,
+    Revision,
+    RevisionKind,
+    RuleBreach,
+    RuleHold,
+)
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
@@ -68,6 +78,7 @@ from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     EntityType,
+    Rule,
     State,
     Track,
     Viewer,
@@ -106,6 +117,62 @@ class WantedSignatureOut(Schema):
     )
 
 
+class GuardOut(Schema):
+    """A condition on setting a state field to a state (ADR 0128), in CEL."""
+
+    name: str
+    description: str | None = None
+    check: str = Field(description="True when the change may be made.")
+    when: str | None = Field(None, description="It applies only while this is true.")
+    message: str = Field(description="What whoever's refused is told; `{{ }}` holds CEL.")
+
+
+class HoldRuleOut(Schema):
+    reviewed_by: list[str] = Field(
+        description="The lab roles (ADR 0116) whose holders review a record it holds."
+    )
+
+
+class OverlapOut(Schema):
+    from_: str = Field(alias="from", description="The field its range starts at.")
+    to: str = Field(description="The field its range ends at.")
+    per: list[str] = Field(description="Ranges only clash with the same values of these.")
+
+
+class RuleOut(Schema):
+    """A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
+    database holds (`unique` together, ranges that don't overlap)."""
+
+    name: str = Field(description="Its name; an extension's is `plugin:name`.")
+    plugin: str
+    label: str
+    description: str | None = None
+    kind: Literal["check", "unique", "no_overlap"]
+    check: str | None = Field(None, description="CEL over `record`, `now` and `today`.")
+    when: str | None = Field(None, description="It applies only while this is true.")
+    message: str = Field(description="What a save that breaks it is told; `{{ }}` holds CEL.")
+    fields: list[str] = Field(description="The fields its message points at.")
+    reads: list[str] = Field(
+        description="The fields it reads: an edit is checked against it only if it changes "
+        "one of them."
+    )
+    hold: HoldRuleOut | None = Field(
+        None,
+        description="It holds a record that breaks it for review, rather than refuse it: a "
+        "save that breaks it needs `hold_reason`.",
+    )
+    unique: list[str] = Field(
+        default_factory=list, description="No two of a project's records share these together."
+    )
+    no_overlap: OverlapOut | None = None
+    while_: dict[str, list[str]] = Field(
+        default_factory=dict,
+        alias="while",
+        description="For `unique` and `no_overlap`: only records with one of these values of "
+        "each field count.",
+    )
+
+
 class StateOut(Schema):
     """One of a state field's states (ADR 0125)."""
 
@@ -128,6 +195,11 @@ class StateOut(Schema):
         description="The electronic signatures setting it needs (ADR 0126): it's set by the "
         "last of them, once they're all given on the same revision, never directly. Empty for "
         "a state set directly."
+    )
+    guards: list[GuardOut] = Field(
+        default_factory=list,
+        description="Conditions on setting the field to it, besides `set_by` (ADR 0128): each "
+        "must be true. `can.states` says, for a record, whether one refuses you.",
     )
 
 
@@ -286,6 +358,16 @@ class EntityTypeOut(Schema):
         description="The date or datetime field saying when its records are due (ADR 0122), "
         "which My work sorts by.",
     )
+    rules: list[RuleOut] = Field(
+        default_factory=list,
+        description="The rules its records keep at every save (ADR 0127): its own, its "
+        "parents' and those extensions add.",
+    )
+    rule_variables: dict[str, Any] | None = Field(
+        None,
+        description="What its rules' `check` reads, as the schemas iki-wasm evaluates them "
+        "against: so a form checks them as you type, as the server will.",
+    )
 
 
 class StateCan(Schema):
@@ -299,6 +381,9 @@ class StateCan(Schema):
     )
     allowed: bool = Field(description="You may set it now.")
     why_not: str | None = Field(description="Why you may not, when you may not.")
+    guard: str | None = Field(
+        None, description="The guard refusing it (ADR 0128), when one is why you may not."
+    )
     signed: bool = Field(
         description="It's set by signing for it (ADR 0126), never directly: see `can.sign`."
     )
@@ -433,6 +518,35 @@ class EntryRefOut(Schema):
     )
 
 
+class HoldOut(Schema):
+    """A rule holding the record for review (ADR 0127): a save broke it, and was kept
+    with a reason."""
+
+    id: UUID
+    rule: str
+    label: str
+    message: str = Field(description="What the save that held it was told.")
+    reviewed_by: list[str] = Field(description="The lab roles whose holders may review it.")
+    held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
+    agent: str | None = Field(None, description="The app or agent that saved it for them.")
+    held_at: datetime
+    reason: str = Field(description="Why it was saved anyway.")
+    revision: int = Field(description="The revision that held it.")
+    last_revision: int = Field(description="The latest revision that broke the rule again.")
+    can_review: bool = Field(description="You may review it now.")
+    why_not: str | None = Field(None, description="Why you may not, when you may not.")
+
+
+class BreachOut(Schema):
+    """A rule the record breaks, found after it was saved (ADR 0127): its plugin added or
+    changed the rule, or a bundle brought it. The next save that checks it clears it."""
+
+    rule: str
+    label: str
+    message: str
+    found_at: datetime
+
+
 class EntityOut(Schema):
     id: UUID
     hrid: str
@@ -475,7 +589,22 @@ class EntityOut(Schema):
         description="For a record of a type with an identity, its registry entry (ADR 0115): "
         "the values marked `registry` are the entry's.",
     )
+    holds: list[HoldOut] = Field(
+        default_factory=list,
+        description="The rules holding it for review (ADR 0127), oldest first. While any "
+        "does, it can't be set to a state that locks it.",
+    )
+    breaches: list[BreachOut] = Field(
+        default_factory=list,
+        description="Rules it breaks that it was saved before (ADR 0127).",
+    )
     can: EntityCan
+
+
+class HoldReviewIn(Schema):
+    reason: str = Field(
+        min_length=1, max_length=2000, description="Why the record may stand as it is."
+    )
 
 
 class CreatedOut(EntityOut):
@@ -494,6 +623,13 @@ class EntityIn(Schema):
     project: UUID = Field(description="The project it belongs to. It needs you as an Editor.")
     values: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    hold_reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Why to save it though it breaks rules that hold records for review, "
+        "such as a result outside its specification (ADR 0127): it's saved, and held. "
+        "Without it, such a save is refused with `hold_reason_required`.",
+    )
 
 
 class EntityPatch(Schema):
@@ -502,6 +638,11 @@ class EntityPatch(Schema):
         None, description="Archived entities can't change: restore one to change it."
     )
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    hold_reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="As for creating one: why to save values that break rules that hold.",
+    )
 
 
 class StateIn(Schema):
@@ -789,6 +930,33 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
+        "rules": [_rule_out(r) for r in checking.rules_of(name)],
+        "rule_variables": checking.record_variables(name) if checking.checks_of(name) else None,
+    }
+
+
+def _rule_out(rule: Rule) -> dict[str, Any]:
+    return {
+        "name": rule.key,
+        "plugin": rule.plugin,
+        "label": rule.label,
+        "description": rule.description,
+        "kind": rule.kind,
+        "check": rule.check,
+        "when": rule.when,
+        "message": rule.message,
+        "fields": list(rule.fields or rule.reads),
+        "reads": list(rule.reads),
+        "hold": {"reviewed_by": list(rule.hold)} if rule.hold else None,
+        "unique": list(rule.unique),
+        "no_overlap": {
+            "from": rule.no_overlap[0],
+            "to": rule.no_overlap[1],
+            "per": list(rule.per),
+        }
+        if rule.no_overlap
+        else None,
+        "while": {name: list(values) for name, values in rule.only_while},
     }
 
 
@@ -800,6 +968,16 @@ def _state_out(state: State) -> dict[str, Any]:
         "set_by": list(state.set_by),
         "locks": state.locks,
         "reason": state.reason,
+        "guards": [
+            {
+                "name": g.name,
+                "description": g.description,
+                "check": g.check,
+                "when": g.when,
+                "message": g.message,
+            }
+            for g in state.guards.values()
+        ],
         "signatures": [_wanted_out(state, w) for w in state.signatures],
     }
 
@@ -972,6 +1150,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
+    held, breaches = _holds_of(user, entities)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -1005,6 +1184,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 if entity.owner_project_id in readers
                 else [],
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "holds": held.get(entity.pk, []),
+                "breaches": breaches.get(entity.pk, []),
                 "can": {
                     "edit": entity.owner_project_id in editable
                     and entity.type not in frozen
@@ -1018,6 +1199,54 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     return out
 
 
+def _holds_of(
+    user: User, entities: list[Entity]
+) -> tuple[dict[Any, list[dict[str, Any]]], dict[Any, list[dict[str, Any]]]]:
+    """The open holds and the breaches of these records (ADR 0127), as ``HoldOut`` and
+    ``BreachOut``, by record."""
+    ids = [e.pk for e in entities if e.registry_id is None]
+    by_id = {e.pk: e for e in entities}
+    held: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    breaches: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    if not ids:
+        return held, breaches
+    rows = (
+        RuleHold.objects.filter(entity_id__in=ids, reviewed_at__isnull=True)
+        .select_related("held_by", "held_agent")
+        .order_by("held_at")
+    )
+    for row in rows:
+        entity = by_id[row.entity_id]
+        refusal = holds.why_not_review(user, entity, row)
+        held[row.entity_id].append(
+            {
+                "id": row.pk,
+                "rule": row.rule,
+                "label": row.label,
+                "message": row.message,
+                "reviewed_by": list(row.roles),
+                "held_by": row.held_by,
+                "agent": row.held_agent.client_name if row.held_agent is not None else None,
+                "held_at": row.held_at,
+                "reason": row.reason,
+                "revision": row.revision,
+                "last_revision": row.last_revision,
+                "can_review": refusal is None,
+                "why_not": refusal[0] if refusal is not None else None,
+            }
+        )
+    for breach in RuleBreach.objects.filter(entity_id__in=ids).order_by("found_at", "rule"):
+        breaches[breach.entity_id].append(
+            {
+                "rule": breach.rule,
+                "label": breach.label,
+                "message": breach.message,
+                "found_at": breach.found_at,
+            }
+        )
+    return held, breaches
+
+
 def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str, Any]:
     return {
         name: [
@@ -1029,6 +1258,7 @@ def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str,
                 "allowed": o.why_not is None,
                 "why_not": o.why_not,
                 "signed": o.signed,
+                "guard": o.guard,
             }
             for o in found
         ]
@@ -1063,7 +1293,7 @@ def _sign_can(
     out = []
     for change in sig_changes.signed(entity, values):
         slots = sig_services.slots(
-            user, entity, change, given=signing.given(entity), cant=signing.cant()
+            user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
         )
         allowed = any(s.why_not is None for s in slots)
         open_slots = [s for s in slots if s.signature is None]
@@ -1463,16 +1693,40 @@ def _etags(header: str) -> set[str]:
 
 
 def _invalid(error: Invalid) -> Problem:
-    return Problem(
-        422,
-        "Some values are invalid.",
-        errors=[
-            {"pointer": f"#/values/{name}", "detail": " ".join(messages)}
-            if name != "type"
-            else {"pointer": "#/type", "detail": " ".join(messages)}
-            for name, messages in error.errors.items()
-        ],
-    )
+    """A 422 for invalid values: each field's problems, and each broken rule's (ADR 0127)
+    on its own, naming the rule and whether a reason would save it anyway."""
+    from_rules: dict[str, list[str]] = defaultdict(list)
+    errors: list[dict[str, Any]] = []
+    for b in getattr(error, "broken", ()):
+        for name in b.fields or ("",):
+            from_rules[name].append(b.message)
+            errors.append(
+                {
+                    "pointer": f"#/values/{name}" if name else "#/values",
+                    "detail": b.message,
+                    "rule": b.rule.key,
+                    "hold": b.held,
+                }
+            )
+    plain = []
+    for name, messages in error.errors.items():
+        rest = list(messages)
+        for message in from_rules.get(name, ()):
+            if message in rest:
+                rest.remove(message)
+        if not rest:
+            continue
+        pointer = "#/type" if name == "type" else f"#/values/{name}" if name else "#/values"
+        plain.append({"pointer": pointer, "detail": " ".join(rest)})
+    if isinstance(error, checking.Held):
+        return Problem(
+            422,
+            "These values break rules that hold records for review. To save them anyway, say "
+            "why in `hold_reason`: the record is saved, and held until it's reviewed.",
+            code="hold_reason_required",
+            errors=plain + errors,
+        )
+    return Problem(422, "Some values are invalid.", errors=plain + errors)
 
 
 @router.post(
@@ -1489,7 +1743,14 @@ def create_entity(request: HttpRequest, payload: EntityIn, response: HttpRespons
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     try:
-        saved = services.create(me, payload.type, target, payload.values, reason=payload.reason)
+        saved = services.create(
+            me,
+            payload.type,
+            target,
+            payload.values,
+            reason=payload.reason,
+            hold_reason=payload.hold_reason or "",
+        )
     except Invalid as error:
         raise _invalid(error) from None
     return _created(me, saved, response)
@@ -1550,6 +1811,7 @@ def patch_entity(
                     payload.values,
                     expected_revision=_current(locked),
                     reason=payload.reason,
+                    hold_reason=payload.hold_reason or "",
                 )
             if payload.archived is True:
                 services.set_archived(me, locked, True, reason=payload.reason)
@@ -1602,6 +1864,10 @@ def set_entity_state(
         raise Problem(409, str(signed), code="signatures_required") from None
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
+    except states.GuardRefused as refused:
+        raise Problem(
+            409, str(refused), code="guard_refused", extensions={"guard": refused.guard}
+        ) from None
     except services.Stale as stale:
         raise Problem(
             412,
@@ -1614,6 +1880,44 @@ def set_entity_state(
         raise Problem(
             422,
             "Setting that state needs more.",
+            errors=[
+                {"pointer": f"#/{key}", "detail": " ".join(messages)}
+                for key, messages in error.errors.items()
+            ],
+        ) from None
+    return _one(me, _find(me, str(entity.pk)), response)
+
+
+@router.post(
+    "/entities/{ref}/holds/{hold_id}/review",
+    response=EntityOut,
+    summary="Review a hold",
+)
+def review_hold(
+    request: HttpRequest,
+    ref: str,
+    hold_id: UUID,
+    payload: HoldReviewIn,
+    response: HttpResponse,
+    project: UUID | None = None,
+) -> dict[str, Any]:
+    """Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
+    cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
+    an app or agent's token, with one of the rule's lab roles in the record's project, and
+    not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
+    record back within the rule doesn't clear a hold; only a review does."""
+    me = caller(request)
+    entity = _find(me, ref, project)
+    try:
+        holds.review(me, entity, hold_id, payload.reason)
+    except RuleHold.DoesNotExist:
+        raise Problem(404, "It has no such hold.") from None
+    except PermissionDenied as denied:
+        raise Problem(403, str(denied)) from None
+    except Invalid as error:
+        raise Problem(
+            422,
+            "Reviewing it needs a reason.",
             errors=[
                 {"pointer": f"#/{key}", "detail": " ".join(messages)}
                 for key, messages in error.errors.items()

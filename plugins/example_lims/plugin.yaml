@@ -9,8 +9,9 @@ description: >-
   nightly, updating those Iki already has, and writes Iki's IDs back. It
   tracks donors' samples, aliquots and results, and holds everything derived
   from a donor whose consent is withdrawn. It also books instruments, with a
-  calendar of their bookings. A starting point for a plugin that connects a
-  real LIMS or ELN.
+  calendar of their bookings, tests samples against their specifications, and
+  keeps tubes in boxes. A starting point for a plugin that connects a real
+  LIMS or ELN.
 license: Apache-2.0
 homepage: https://ikisci.org/plugins/example_lims
 dependencies:

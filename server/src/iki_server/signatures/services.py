@@ -21,7 +21,7 @@ import datetime as dt
 import hashlib
 import json
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -205,10 +205,11 @@ def slots(
     *,
     given: Sequence[Signature] = (),
     cant: str | None = None,
+    values: Mapping[str, Any] | None = None,
 ) -> list[Slot]:
     """The signatures ``change`` needs on the record now, each with whether ``user`` may
     give it. ``given``: the record's :func:`pending` signatures; ``cant``:
-    :func:`why_cant_sign`.
+    :func:`why_cant_sign`; ``values``: the record's, as stored, for its guards, if read.
 
     Core asks only that each is its signer's own act, by someone holding its role, on
     this revision: whether one person may give two, or in what order they're given, is
@@ -245,10 +246,38 @@ def slots(
             why = cant
         elif (base := states.refusal(user, entity, roles, change.to_label)) is not None:
             why = base[0]
-        else:
+        elif cant is not None:
             why = cant
+        else:
+            # The change's guards and holds (ADRs 0127, 0128), with this signer acting: at
+            # each signature, so nobody signs a change they'd refuse, and again at the
+            # last, which makes it.
+            why = _condition(user, entity, change, values, counted)
         out.append(Slot(index, wanted, roles, signature, why, lapsed.get(index)))
     return out
+
+
+def _condition(
+    user: User,
+    entity: Entity,
+    change: Change,
+    values: Mapping[str, Any] | None,
+    counted: Mapping[int, Signature],
+) -> str | None:
+    """Why its guards or holds refuse the change, with ``user`` signing for it and the
+    signatures that count for it so far, which its guards read as ``signatures``."""
+    assert change.how is not None  # noqa: S101 - changes.find made it
+    given = [
+        {
+            "index": s.index,
+            "meaning": s.meaning,
+            "by": str(s.signer_id),
+            "at": s.signed_at.isoformat().replace("+00:00", "Z"),
+        }
+        for _, s in sorted(counted.items())
+    ]
+    state = change.how.states[change.to]
+    return states.condition(user, entity, change.field, state, values, given)
 
 
 def _either(words: list[str]) -> str:

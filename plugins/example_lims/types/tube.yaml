@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Tube
+label: Tube
+label_plural: Tubes
+schema_version: 1
+description: >-
+  A tube of a sample, stored at a position in a box. No two stored tubes share
+  a position.
+hrid: { prefix: TUB }
+fields:
+  sample: { type: ref, to: Sample, description: What's in it. }
+  box: { type: ref, to: Box, required: true }
+  position:
+    type: string
+    required: true
+    max_length: 4
+    pattern: "^[A-Z][0-9]{1,2}$"
+    description: Where it is in its box, such as A1.
+  volume:
+    type: quantity
+    unit: uL
+    min: 0
+    description: How much is left.
+  stored:
+    type: bool
+    default: true
+    description: >-
+      It's in its box. A tube that's used up, or thrown away, is kept, and
+      frees its position.
+display:
+  title: "{{ position }}"
+rules:
+  one_per_position:
+    label: One tube per position
+    description: >-
+      The database refuses a second stored tube at a position in a box.
+    unique: [box, position]
+    while: { stored: [true] }
+    message: "{{ record.box.name }} has a tube at {{ record.position }} already."
+  stored_has_volume:
+    label: A stored tube isn't empty
+    check: "!record.stored || record.volume > 0.0"
+    message: A tube that's empty isn't stored.
+    fields: [volume]

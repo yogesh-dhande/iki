@@ -23,6 +23,11 @@ and runs alike:
   by whoever holds the entry. After that a fact changes only by its
   registry's registrars (:mod:`iki_server.entities.entries`), and a derived
   value not at all: it's its identity's.
+- **Plugins' rules** (ADR 0127). Every save is checked against its type's rules
+  (:mod:`iki_server.entities.checking`): one that breaks a rule is refused, or for a
+  rule that holds, kept only with a reason and held for review
+  (:mod:`iki_server.entities.holds`). The database holds ``unique`` and ``no_overlap``
+  rules itself (:mod:`iki_server.entities.constraints`).
 - **Archiving, not deleting** (ADR 0008). Archived entities keep their
   history, and can't change until restored.
 
@@ -50,6 +55,9 @@ from iki_server.audit.log import agent_data, current_agent, current_oauth_client
 from iki_server.entities import (
     access,
     assignments,
+    checking,
+    constraints,
+    holds,
     identity,
     registry,
     rules,
@@ -121,6 +129,9 @@ class Saved:
     registered: bool = False
     #: The revision the change made to its registry entry, if it made one.
     entry_revision: Revision | None = None
+    #: The rules it broke that hold it for review, with the reason it was saved anyway
+    #: (ADR 0127).
+    held: list[str] | None = None
 
 
 def specific(entity: Entity) -> Model:
@@ -217,38 +228,74 @@ def create(
     *,
     reason: str = "",
     by_run: bool = False,
+    hold_reason: str = "",
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
     project's record of its registry entry: a new one, or the one the project has, as it is.
 
     ``by_run``: an action run is writing its results (ADR 0044), for ``user``. It may set
-    computed fields, and its revision is marked ``via="run"``.
+    computed fields, and its revision is marked ``via="run"``. ``hold_reason``: why to save
+    it though it breaks rules that hold records for review (ADR 0127). Without one, such a
+    save is refused with :class:`checking.Held`.
     """
-    form, given = prepare(
-        user, type_name, project, values, access.refs_for(user, project), by_run=by_run
+    form, given, holding = prepare(
+        user,
+        type_name,
+        project,
+        values,
+        access.refs_for(user, project),
+        by_run=by_run,
+        hold_reason=hold_reason,
     )
     with transaction.atomic(), _unique_values():
-        if not form.has_entries:
-            return _new_record(user, form, project, given, reason, by_run)
-        entry = _find_entry(form, project, given)
-        if entry is not None:
-            existing = Entity.objects.filter(owner_project=project, entry=entry).first()
-            if existing is not None:
-                return Saved(_specific(existing), reused=True)
-            named = {n: given[n] for n in values if n in form.entry_fields()}
-            entry_revision = fill_entry(
-                user, form, entry, named, project=project, reason=reason, by_run=by_run
-            )
-            saved = _new_record(user, form, project, given, reason, by_run, entry=entry)
-            saved.entry_revision = entry_revision
-            return saved
-        entry, entry_revision = _new_entry(user, form, project, given, reason, by_run)
-        saved = _new_record(
-            user, form, project, given, reason, by_run, entry=entry, registered=entry_revision
+        saved = _create(user, form, project, values, given, reason, by_run)
+        if holding and not saved.reused and saved.revision is not None:
+            _hold(saved, holding, user, hold_reason, saved.revision.number)
+        return saved
+
+
+def _create(
+    user: User,
+    form: Shape,
+    project: Project,
+    values: Mapping[str, Any],
+    given: Mapping[str, Any],
+    reason: str,
+    by_run: bool,
+) -> Saved:
+    if not form.has_entries:
+        return _new_record(user, form, project, given, reason, by_run)
+    entry = _find_entry(form, project, given)
+    if entry is not None:
+        existing = Entity.objects.filter(owner_project=project, entry=entry).first()
+        if existing is not None:
+            return Saved(_specific(existing), reused=True)
+        named = {n: given[n] for n in values if n in form.entry_fields()}
+        entry_revision = fill_entry(
+            user, form, entry, named, project=project, reason=reason, by_run=by_run
         )
-        saved.registered = True
+        saved = _new_record(user, form, project, given, reason, by_run, entry=entry)
         saved.entry_revision = entry_revision
         return saved
+    entry, entry_revision = _new_entry(user, form, project, given, reason, by_run)
+    saved = _new_record(
+        user, form, project, given, reason, by_run, entry=entry, registered=entry_revision
+    )
+    saved.registered = True
+    saved.entry_revision = entry_revision
+    return saved
+
+
+def _hold(
+    saved: Saved,
+    holding: Sequence[checking.Broken],
+    user: User,
+    reason: str,
+    revision: int,
+) -> None:
+    entity = Entity.objects.select_related("owner_project").get(pk=saved.entity.pk)
+    holds.hold(entity, holding, user=user, reason=reason, revision=revision)
+    saved.held = [b.rule.key for b in holding]
 
 
 def _new_record(
@@ -503,6 +550,16 @@ def _unique_values() -> Iterator[None]:
     try:
         yield
     except IntegrityError as error:
+        found, is_rule = constraints.clash(error)
+        if is_rule:
+            # A plugin's `unique` or `no_overlap` rule (ADR 0127), as two saves at once
+            # broke it.
+            label = found.rule.label if found is not None else "a rule"
+            names = found.rule.fields or found.rule.reads if found is not None else ()
+            message = (
+                f"Another record has just been saved that this one would break “{label}” with."
+            )
+            raise Invalid({n: [message] for n in names or ("",)}) from None
         if not unique.is_clash(error):
             raise
         raise Invalid(
@@ -518,11 +575,17 @@ def prepare(
     refs: Refs,
     *,
     by_run: bool = False,
-) -> tuple[Shape, dict[str, Any]]:
+    hold_reason: str = "",
+    check_rules: bool = True,
+) -> tuple[Shape, dict[str, Any], list[checking.Broken]]:
     """A new entity's values as the database stores them, defaults filled in, checked
-    against its type's fields and rules. Raises :class:`Invalid` with what's wrong.
+    against its type's fields and rules, with the plugins' rules it breaks that hold it
+    for review (ADR 0127), saved anyway for ``hold_reason``. Raises :class:`Invalid` with
+    what's wrong, or :class:`checking.Held` when it breaks rules that hold and there's no
+    reason.
 
-    Bulk imports (ADR 0056) check each record with this, as :func:`create` does.
+    Bulk imports (ADR 0056) check each record with this, as :func:`create` does, but
+    without the plugins' rules (``check_rules=False``): they check a chunk's at once.
     """
     if type_name not in registry.types() or type_name == "iki/core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
@@ -565,7 +628,15 @@ def prepare(
         errors = rules.check(user, entity_type, project, given.get)
     if errors:
         raise Invalid(errors)
-    return form, given
+    if not check_rules:
+        return form, given, []
+    own = {n: v for n, v in given.items() if not form.part_of(n).entry}
+    found = [
+        *checking.broken(type_name, [checking.Saving(given.get)])[0],
+        *checking.apart(project.pk, form, own),
+    ]
+    holding = checking.raise_broken(found, hold_reason=hold_reason)
+    return form, given, holding
 
 
 def identity_lock(entity_type: EntityType, registry_id: Any, *, shared: bool) -> None:  # noqa: ANN401 - a UUID
@@ -595,12 +666,14 @@ def update(
     reason: str = "",
     by_run: bool = False,
     group: str = "",
+    hold_reason: str = "",
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
 
-    ``by_run``: as for :func:`create`. ``group``: a bulk change it's part of, which the audit
-    records of its assignments name (ADR 0122).
+    ``by_run`` and ``hold_reason``: as for :func:`create`. ``group``: a bulk change it's
+    part of, which the audit records of its assignments name (ADR 0122). The plugins'
+    rules checked are those reading a field it changes (ADR 0127).
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -697,6 +770,27 @@ def update(
             )
         if errors:
             raise Invalid(errors)
+        holding: list[checking.Broken] = []
+        found: list[checking.Broken] = []
+        changed: frozenset[str] = frozenset()
+        if new or for_entry:
+            changing = {**new, **for_entry}
+            current = lambda n: changing[n] if n in changing else rows.get(n)  # noqa: E731
+            changed = frozenset(changing)
+            found = [
+                *checking.broken(
+                    locked.type,
+                    [checking.Saving(current, changed, id=locked.pk, hrid=locked.hrid)],
+                )[0],
+                *checking.apart(
+                    project.pk,
+                    form,
+                    {n: current(n) for n in fields if not form.part_of(n).entry},
+                    entity=locked.pk,
+                    changed=changed,
+                ),
+            ]
+            holding = checking.raise_broken(found, hold_reason=hold_reason)
         entry_revision = None
         if for_entry:
             assert rows.entry is not None  # noqa: S101 - entry fields are an entry's
@@ -711,7 +805,12 @@ def update(
                 explicit=not by_run,
             )
         if not new:
-            return Saved(_specific(locked), entry_revision=entry_revision)
+            saved = Saved(_specific(locked), entry_revision=entry_revision)
+            checking.kept(locked, changed, found)
+            if holding:
+                # Its registry entry's values held it: by the record as it is.
+                _hold(saved, holding, user, hold_reason, locked.revision)
+            return saved
         before = {n: rows.get(n) for n in new if names_people(fields[n])}
         touched = _write(form, rows, new, instance.pk)
         revision = _revise(
@@ -722,7 +821,11 @@ def update(
         assignments.changed(
             locked, revision, assignments.diff(locked.type, before, new), user, group=group
         )
-    return Saved(_specific(locked), revision, entry_revision=entry_revision)
+        saved = Saved(_specific(locked), revision, entry_revision=entry_revision)
+        checking.kept(locked, changed, found)
+        if holding:
+            _hold(saved, holding, user, hold_reason, revision.number)
+    return saved
 
 
 def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value

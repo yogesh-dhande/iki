@@ -18,11 +18,16 @@ their roles, which is how it's unlocked. The services refuse with
 :func:`locked_why`, and the database refuses too: ``iki_entity.locked_by``
 names the state fields locking it, and triggers on the tables holding a
 record's values refuse changes while it names any (:func:`install_guards`).
+
+A state's ``guards`` (ADR 0128, :mod:`iki_server.entities.guards`) say when it may be
+set: which state it follows, who mustn't set it after setting another (four eyes), what
+else must be true of the record. And a record held for review by a rule (ADR 0127) can't
+be set to a state that locks it until its holds are reviewed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +46,7 @@ from iki_server.org.services import Refused
 from iki_spec.model import Field, State
 
 __all__ = [
+    "GuardRefused",
     "NeedsSignatures",
     "Option",
     "install_guards",
@@ -145,6 +151,14 @@ def _and(words: list[str]) -> str:
 # --- Setting a state ----------------------------------------------------------------------------
 
 
+class GuardRefused(Refused):
+    """A state's guard refuses setting it now (ADR 0128): its message says why."""
+
+    def __init__(self, message: str, guard: str) -> None:
+        super().__init__(message)
+        self.guard = guard
+
+
 @dataclass(frozen=True)
 class Option:
     """A state a record's state field could be set to, and why this person may not."""
@@ -152,6 +166,8 @@ class Option:
     field: Field
     state: State
     why_not: str | None
+    #: The guard refusing it, if one does (ADR 0128).
+    guard: str | None = None
 
     @property
     def signed(self) -> bool:
@@ -161,27 +177,92 @@ class Option:
 
 def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, list[Option]]:
     """For each of a record's state fields, the states it could be set to (every one but
-    the one it's in), each with why ``user`` may not set it. ``values``: the record's."""
+    the one it's in), each with why ``user`` may not set it. ``values``: the record's,
+    as the database stores them: its guards read them."""
     if entity.registry_id is not None:
         return {}
     out: dict[str, list[Option]] = {}
     for name, f in state_fields(entity.type).items():
         current = values.get(name)
-        out[name] = [
-            Option(f, st, why_not(user, entity, f, st))
-            for st in f.states.values()
-            if not st.removed and st.name != current
-        ]
+        candidates = [st for st in f.states.values() if not st.removed and st.name != current]
+        whys = {st.name: _why_not_who(user, entity, st) for st in candidates}
+        conditions = _conditions(
+            user, entity, name, [st for st in candidates if whys[st.name] is None], values
+        )
+        found = []
+        for st in candidates:
+            refusal = whys[st.name]
+            if refusal is not None:
+                found.append(Option(f, st, refusal[0]))
+            else:
+                why, guard = conditions.get(st.name, (None, None))
+                found.append(Option(f, st, why, guard))
+        out[name] = found
     return out
 
 
-def why_not(user: User, entity: Entity, f: Field, state: State) -> str | None:
+def why_not(
+    user: User, entity: Entity, f: Field, state: State, values: Mapping[str, Any] | None = None
+) -> str | None:
     """Why ``user`` may not set ``f`` to ``state`` on the record now, or None if they may.
     Its current state isn't checked here: :func:`set_state` does that, under its lock."""
+    found = _why_not_who(user, entity, state)
+    if found is not None:
+        return found[0]
+    return condition(user, entity, f.name, state, values)
+
+
+def condition(
+    user: User,
+    entity: Entity,
+    field: str,
+    state: State,
+    values: Mapping[str, Any] | None = None,
+    signatures: Sequence[Mapping[str, Any]] = (),
+) -> str | None:
+    """Why the record can't be set to ``state`` now, as it is, with ``user`` acting, if it
+    can't: a hold, for a state that locks it (ADR 0127), or a guard (ADR 0128). A signed
+    state is checked so at each of its signatures, with its signer acting and the
+    ``signatures`` given for it so far, as its guards read them."""
+    if values is None:
+        from iki_server.entities import services
+
+        values = services.current_values(services.specific(entity))
+    found = _conditions(user, entity, field, [state], values, signatures)
+    return found.get(state.name, (None, None))[0]
+
+
+def _conditions(
+    user: User,
+    entity: Entity,
+    field: str,
+    candidates: list[State],
+    values: Mapping[str, Any],
+    signatures: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, tuple[str, str | None]]:
+    """Why the record can't be set to each of ``candidates`` now, as the record is, by
+    state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
+    the guard's name."""
+    from iki_server.entities import guards, holds
+
+    if not candidates:
+        return {}
+    out: dict[str, tuple[str, str | None]] = {}
+    if any(st.locks for st in candidates):
+        held = holds.blocks_locking(entity)
+        if held:
+            out.update({st.name: (held, None) for st in candidates if st.locks})
+    rest = [st for st in candidates if st.name not in out]
+    for name, refusal in guards.refusals(user, entity, field, rest, values, signatures).items():
+        out[name] = (refusal.message, refusal.guard.name)
+    return out
+
+
+def _why_not_who(user: User, entity: Entity, state: State) -> tuple[str, bool] | None:
+    """Why not, before the record's conditions: it's signed for, or ``user`` may not."""
     if state.signatures:
-        return "It’s set by signing for it: see its signatures."
-    found = refusal(user, entity, state.set_by, state.label)
-    return found[0] if found is not None else None
+        return "It’s set by signing for it: see its signatures.", False
+    return refusal(user, entity, state.set_by, state.label)
 
 
 def refusal(
@@ -273,6 +354,11 @@ def set_state(
         if found is not None:
             why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
+        record = services.current_values(services.specific(locked))
+        condition = _conditions(user, locked, field, [target], record).get(state)
+        if condition is not None:
+            why, guard = condition
+            raise GuardRefused(why, guard) if guard is not None else Refused(why)
         reason = reason.strip()
         if target.reason == "required" and not reason:
             raise Invalid(

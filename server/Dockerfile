@@ -20,9 +20,13 @@ FROM ${RUST_IMAGE} AS wasm
 WORKDIR /src/worker
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
+# Its build settings: rules' CEL keeps only UTC's time zone (ADR 0127).
+COPY worker/.cargo .cargo
 # rustup checks the target against the release's manifest as it installs it.
+# A module with every time zone missed .cargo's filter: it fails here, not in browsers.
 RUN rustup target add wasm32-unknown-unknown \
- && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
+ && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
+ && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm
 
 # --- Web app: the React app the server serves (web/app) ----------------------
 FROM ${NODE_IMAGE} AS web
@@ -72,10 +76,12 @@ COPY server/src server/src
 COPY spec/src spec/src
 COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
 COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_server/web/static/viewers
-# The server checks apps' expressions with the module browsers run them with (ADR 0090).
-COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm server/src/iki_server/expressions/
+# The server checks apps' expressions, and plugins' rules, with the module browsers run
+# them with (ADR 0090, ADR 0127), through iki-spec.
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm spec/src/iki_spec/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --package iki-server --extra c --no-editable
+    uv sync --locked --no-dev --package iki-server --extra c --no-editable \
+ && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM"
 # Deployments add their plugins at /opt/iki/plugins (deploy/plugins.Dockerfile),
 # which this puts on the server's import path.
 RUN /opt/iki/venv/bin/python -c "import pathlib, sysconfig; pathlib.Path(sysconfig.get_path('purelib'), 'iki-plugins.pth').write_text('/opt/iki/plugins\n')"

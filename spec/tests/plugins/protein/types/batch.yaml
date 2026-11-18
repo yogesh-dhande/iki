@@ -1,0 +1,111 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Batch
+label: Batch
+label_plural: Batches
+schema_version: 1
+hrid: { prefix: BAT }
+# Plugins' rules (ADR 0127) and guards (ADR 0128), on a type of their own so other
+# tests' samples aren't held to them.
+fields:
+  name: { type: string, required: true, max_length: 100 }
+  protein: { type: ref, to: Protein }
+  purity: { type: float, min: 0, max: 100 }
+  result: { type: enum, values: [pass, fail] }
+  analyst: { type: person, role: analyst }
+  reviewer: { type: person, role: reviewer }
+  plate: { type: string, max_length: 20 }
+  well: { type: string, max_length: 4 }
+  stored: { type: bool, default: true }
+  made_on: { type: date }
+  expires_on: { type: date }
+  starts_at: { type: datetime }
+  ends_at: { type: datetime }
+  status:
+    type: state
+    initial: in_testing
+    states:
+      in_testing: { label: In testing, set_by: [analyst, reviewer, qa] }
+      in_review: { label: In review, set_by: [analyst] }
+      approved:
+        label: Approved
+        set_by: [reviewer]
+        locks: true
+        guards:
+          reviewed:
+            check: state.from == "in_review"
+            message: A batch is approved from In review.
+          four_eyes:
+            check: last.status.in_review == null || last.status.in_review.by != actor.person
+            message: You submitted {{ record.name }} for review, so someone else approves it.
+          a_person:
+            check: actor.agent == null
+            message: A person approves it, not an agent.
+      released:
+        label: Released
+        set_by: [qa]
+        guards:
+          not_quarantined:
+            check: record.custody != "quarantined"
+            message: It's quarantined, so it isn't released.
+          passed:
+            check: record.result == "pass"
+            when: record.purity != null
+            message: Only a batch that passed is released.
+      # A state set by signing for it (ADR 0126), whose guards are checked at each signature.
+      certified:
+        label: Certified
+        set_by: [reviewer]
+        signatures:
+          - { meaning: review }
+          - { meaning: approval, role: qa }
+        guards:
+          passed:
+            check: record.result == "pass"
+            message: Only a batch that passed is certified.
+          two_people:
+            description: Its two signatures are two people's.
+            check: signatures.all(s, s.by != actor.person)
+            message: You gave one of its signatures, so someone else gives the other.
+  custody:
+    type: state
+    initial: in_lab
+    states:
+      in_lab: { label: In the lab, set_by: [analyst, qa] }
+      quarantined: { label: Quarantined, set_by: [qa] }
+rules:
+  purity_in_specification:
+    label: Purity in specification
+    check: record.purity >= 90.0
+    message: Purity {{ record.purity }}% is below its specification, 90%.
+    hold: { reviewed_by: [qa] }
+  pass_in_specification:
+    label: A pass is in specification
+    check: record.result != "pass" || record.purity >= 90.0
+    message: It can't pass with purity {{ record.purity }}%.
+    fields: [result]
+  reviewer_isnt_analyst:
+    label: Its reviewer isn't its analyst
+    check: record.reviewer != record.analyst
+    when: record.reviewer != null && record.analyst != null
+    message: Someone other than its analyst reviews it.
+    fields: [reviewer]
+  expires_after_made:
+    label: Expires after it's made
+    check: record.expires_on > record.made_on
+    message: It expires on {{ record.expires_on }}, before it's made.
+    fields: [expires_on]
+  protein_not_bsl3:
+    label: Its protein isn't BSL-3
+    check: record.protein.hazard != "bsl3"
+    message: "{{ record.protein.hrid }} is BSL-3: batches aren't made of it here."
+    fields: [protein]
+  one_per_well:
+    label: One batch per well
+    unique: [plate, well]
+    while: { stored: [true] }
+    message: Well {{ record.well }} of {{ record.plate }} has a batch already.
+  one_at_a_time:
+    label: One at a time
+    no_overlap: { from: starts_at, to: ends_at, per: [plate] }
+    message: "{{ record.plate }} is in use then."

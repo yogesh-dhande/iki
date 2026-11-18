@@ -87,6 +87,18 @@ Reason = Annotated[
         description="Why, in a sentence, for its history: people will read it.",
     ),
 ]
+#: Why to save values that break rules that hold records for review (ADR 0127). Only an
+#: agent's person can review the hold, in Iki: no tool does.
+HoldReason = Annotated[
+    str,
+    Field(
+        max_length=2000,
+        description="Only when an error says `hold_reason_required`: why to save values "
+        "outside a rule that holds records for review, such as a result outside its "
+        "specification. Say what was measured and why it stands; it's kept, the record is "
+        "held, and a person with the rule's lab role reviews it in Iki.",
+    ),
+]
 
 
 async def _walk(
@@ -529,17 +541,20 @@ def build() -> MCPServer:
             Field(description="Its fields' values, as describe_entity_type's values_schema says."),
         ],
         reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
+        hold_reason: HoldReason = "",
     ) -> CallToolResult:
         """A new entity in the project. For a type with an identity, it registers it: a
         new identity gets a registry ID (`registered`); one registered already gets the
         project a record of that entry; and one the project has a record of already comes
         back as it is (`reused`). Only the entry's existence and ID are told, never who
-        else has it."""
+        else has it. Values that break its type's rules (describe_entity_type's `rules`)
+        are refused, each error naming its rule; see hold_reason for rules that hold."""
         body = {
             "type": type,
             "project": str(project),
             "values": values,
             "reason": reason,
+            "hold_reason": hold_reason,
         }
         return answer(await call("POST", "/entities", body=body))
 
@@ -552,16 +567,18 @@ def build() -> MCPServer:
             Field(description="Only the fields to change, with their new values; null unsets."),
         ],
         reason: Reason,
+        hold_reason: HoldReason = "",
     ) -> CallToolResult:
         """Changes some of an entity's values, as one new revision. Its owning project
         decides who may: the person must be an Editor there. State fields aren't changed
         here: use set_entity_state. A record a state locks (locked: true) can't change until
-        set_entity_state sets that field to a state that doesn't lock."""
+        set_entity_state sets that field to a state that doesn't lock. Values that break
+        its type's rules are refused, as for create_entity."""
         return answer(
             await call(
                 "PATCH",
                 path("/entities/{ref}", ref=ref),
-                body={"values": values, "reason": reason},
+                body={"values": values, "reason": reason, "hold_reason": hold_reason},
                 if_match=f'"{revision}"',
             )
         )
@@ -601,10 +618,12 @@ def build() -> MCPServer:
         """Sets one of a record's state fields (ADR 0125) to one of its states, from any
         other: those get_entity lists in can.states, with whether the person may set each
         and why not. It takes one of the state's lab roles in the record's project. Some
-        states need a reason. A state may lock the record: then its other fields can't
-        change until the field is set to a state that doesn't lock. A state that needs
-        electronic signatures (ADR 0126, can.states marks it signed) can't be set here:
-        only people signing in again in Iki's web app set it, so this is refused."""
+        states need a reason. A state's guards may refuse it (`guard_refused`, its message
+        says why), and a record held for review can't be set to a state that locks it. A
+        state may lock the record: then its other fields can't change until the field is
+        set to a state that doesn't lock. A state that needs electronic signatures (ADR
+        0126, can.states marks it signed) can't be set here: only people signing in again
+        in Iki's web app set it, so this is refused."""
         return answer(
             await call(
                 "POST",

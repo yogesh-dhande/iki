@@ -30,6 +30,7 @@ NAMES = (
     "entity-type",
     "entity-type-extension",
     "field",
+    "rule",
     "settings",
     "unit",
     "plugin-lock",

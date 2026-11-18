@@ -12,6 +12,8 @@ description: >-
   11): each signer signs in again, and the signature shows with the sample.
   Its analyst, reviewer and QA are assigned it in turn, and each has it on My
   work while it's theirs.
+  A result outside its specification is recorded as measured, with why,
+  and held until QA reviews it.
 hrid: { prefix: SAM }
 fields:
   protein:
@@ -116,6 +118,14 @@ fields:
         signatures:
           - meaning: authorship
             statement: I performed these tests and recorded the results as observed.
+        guards:
+          tested:
+            description: It's submitted for review once it's been tested.
+            check: state.from == "in_testing"
+            message: A sample is submitted for review from In testing.
+          has_result:
+            check: record.result != null
+            message: Record its result, pass or fail, before submitting it for review.
       approved:
         label: Approved
         description: A reviewer checked its results; they can't change now.
@@ -123,6 +133,18 @@ fields:
         locks: true
         signatures:
           - meaning: review
+        guards:
+          reviewed:
+            description: Only a sample in review is approved.
+            check: state.from == "in_review"
+            message: A sample is approved from In review.
+          four_eyes:
+            description: >-
+              Whoever submitted it for review doesn't approve it: a second person
+              checks the first's work.
+            check: last.status.in_review == null || last.status.in_review.by != actor.person
+            message: >-
+              You submitted it for review, so someone else approves it.
       released:
         label: Released
         description: QA released it, so its results can be used.
@@ -133,6 +155,17 @@ fields:
           - meaning: approval
             label: QA release
             statement: I release this sample for use.
+        guards:
+          approved:
+            description: Only an approved sample is released.
+            check: state.from == "approved"
+            message: A sample is released once it's approved.
+          passed:
+            check: record.result == "pass"
+            message: Only a sample that passed is released; reject one that failed.
+          not_its_approver:
+            check: last.status.approved == null || last.status.approved.by != actor.person
+            message: You approved it, so someone else in QA releases it.
       rejected:
         label: Rejected
         description: QA rejected it; it's kept, with its results, but not used.
@@ -143,4 +176,40 @@ fields:
           - meaning: responsibility
             label: QA rejection
             statement: I reject this sample; it isn't to be used.
+        guards:
+          reviewed:
+            description: QA rejects a sample once it's been reviewed.
+            check: state.from == "approved" || state.from == "in_review"
+            message: A sample is rejected once it's in review or approved.
 due: due_on
+# Rules its records keep at every save (ADR 0127). Its specification's limits hold a
+# sample that's outside them: it's saved as measured, with why, and QA reviews it. While
+# it's held it can't be approved, released or rejected.
+rules:
+  purity_in_specification:
+    label: Purity in specification
+    description: At least 95%, by SEC or SDS-PAGE.
+    check: record.purity >= 95.0
+    message: >-
+      Purity {{ record.purity }}% is below its specification, at least 95%.
+    hold: { reviewed_by: [qa] }
+  concentration_in_specification:
+    label: Concentration in specification
+    description: From 0.5 to 10 mg/mL.
+    check: record.concentration >= 0.5 && record.concentration <= 10.0
+    message: >-
+      Concentration {{ record.concentration }} mg/mL is outside its
+      specification, 0.5 to 10 mg/mL.
+    hold: { reviewed_by: [qa] }
+  pass_in_specification:
+    label: A pass is in specification
+    description: A sample whose purity is below its specification doesn't pass.
+    check: record.result != "pass" || record.purity >= 95.0
+    message: It can't pass with purity {{ record.purity }}%, below its specification.
+    fields: [result]
+  reviewer_isnt_analyst:
+    label: Its reviewer isn't its analyst
+    check: record.reviewer != record.analyst
+    when: record.reviewer != null && record.analyst != null
+    message: Someone other than its analyst reviews it.
+    fields: [reviewer]

@@ -10,7 +10,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import connection, transaction
 
 from iki_server.audit import log as audit
-from iki_server.entities import unique
+from iki_server.entities import constraints, unique
 from iki_server.plugins import sync
 
 
@@ -33,7 +33,7 @@ class Command(BaseCommand):
         try:
             with audit.cli(), transaction.atomic():
                 report = sync.sync(analyst)
-        except unique.Clash as error:
+        except (unique.Clash, constraints.Clash) as error:
             raise CommandError(str(error)) from None
         for name in report.sequences:
             self.stdout.write(f"  HRID sequence {name}")
@@ -41,6 +41,15 @@ class Command(BaseCommand):
             self.stdout.write(f"  unique {key}")
         for table in report.graph:
             self.stdout.write(f"  references of {table}")
+        for key in report.rules:
+            self.stdout.write(f"  rule {key}")
+        for checked in report.checked:
+            found = [f"{n} break {rule}" for rule, n in sorted(checked.broken.items())]
+            found += [f"{n} held by {rule}" for rule, n in sorted(checked.held.items())]
+            self.stdout.write(
+                f"  checked {checked.records} {checked.type}"
+                + (": " + ", ".join(found) if found else "")
+            )
         for change in report.plugins:
             self.stdout.write(f"  plugin {change}")
         for name in report.views:

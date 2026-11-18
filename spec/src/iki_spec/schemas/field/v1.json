@@ -828,6 +828,9 @@
           "items": {
             "$ref": "#/$defs/signature"
           }
+        },
+        "guards": {
+          "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
         }
       }
     },

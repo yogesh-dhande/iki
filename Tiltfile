@@ -83,6 +83,9 @@ custom_build(
         'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE', 'spec/src',
         # The web app, built in the image's own stage.
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
+        # iki-wasm, built in the image's own stage, and for `iki deploy build` (ADR 0127).
+        'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
+        'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
@@ -95,6 +98,8 @@ custom_build(
         'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',
         # A local `make web` build; the image builds its own.
         'server/src/iki_server/web/static/app',
+        # What deploy/dev/build-wasm.sh writes.
+        'spec/src/iki_spec/iki_wasm*',
     ],
 )
 
@@ -104,13 +109,13 @@ custom_build(
     'deploy/dev/build-worker.sh $EXPECTED_REF',
     deps=[
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
-        'worker/crates', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
-        'deploy/dev/build-worker.sh',
+        'worker/crates', 'worker/.cargo', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
+        'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh',
         # What `iki deploy build --workers` reads and runs.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',
     ],
-    ignore=['**/__pycache__'],
+    ignore=['**/__pycache__', 'spec/src/iki_spec/iki_wasm*'],
 )
 
 k8s_yaml(helm(

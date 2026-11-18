@@ -1808,11 +1808,13 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
     dialog = page.get_by_role("dialog", name="Lab roles for Viewer")
     qa = dialog.get_by_role("checkbox", name="QA", exact=True)
     qa.wait_for()
-    dialog.get_by_text(
-        "Needed to approve “Weigh” in Release, then weigh; to set Status to Open or Released on "
-        "lots; to sign “QA approval” to set Status to Approved on lots; to sign “Responsibility” "
-        "to set Status to Released on lots; to set Status to In testing or Released on samples; "
-        "to set Custody to In the lab, Quarantined or Disposed on samples."
+    # What needs it, of each type that names it: here, the rules tests' batches, then these.
+    needs = dialog.get_by_text("Needed to approve “Weigh” in Release, then weigh; ")
+    needs.filter(
+        has_text="to set Status to Open or Released on lots; to sign “QA approval” to set Status "
+        "to Approved on lots; to sign “Responsibility” to set Status to Released on lots; to set "
+        "Status to In testing or Released on samples; to set Custody to In the lab, Quarantined "
+        "or Disposed on samples."
     ).wait_for()
     assert_clean(page)
     qa.check()

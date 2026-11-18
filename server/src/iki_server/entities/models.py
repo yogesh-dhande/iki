@@ -21,7 +21,13 @@ the plugin tables' history tables. Both are append-only.
 from typing import Any, ClassVar
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import (
+    ArrayField,
+    DateTimeRangeField,
+    DecimalRangeField,
+    RangeOperators,
+)
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Q
@@ -37,6 +43,10 @@ TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z]
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
 #: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
 UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
+#: The constraints two of a project's records break whose ranges a rule says mustn't
+#: overlap (ADR 0127): of dates and datetimes, and of numbers.
+RANGE_CONSTRAINT = "iki_range_value_apart"
+SPAN_CONSTRAINT = "iki_range_value_span_apart"
 #: ``PRT-000123``: a type's prefix and a number, zero-padded to the type's digits.
 HRID_PATTERN = r"^[A-Z0-9]{2,8}-[0-9]{3,}$"
 
@@ -465,3 +475,185 @@ class Tombstone(models.Model):
 
     def __str__(self) -> str:
         return f"Tombstone of {self.entity_id}"
+
+
+class RangeValue(models.Model):
+    """A record's range under a rule that no two of a project's records' ranges overlap
+    (ADR 0127), such as a booking's time on an instrument.
+
+    Triggers on the plugin tables keep these rows, as they keep unique values (ADR 0082),
+    so the database refuses an overlap whatever writes it: a person, a run, a bulk import
+    or SQL. ``iki-server sync_plugins`` installs the triggers and fills in ranges already
+    there.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    #: The record's owner project: ranges are apart within it.
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The rule, as ``table:rule``.
+    key = models.CharField(max_length=127)
+    #: What the ranges are compared per, as a JSON array of its fields' values: the same
+    #: instrument, say. ``[]`` when the rule compares all of a project's records.
+    scope = models.CharField(max_length=600)
+    #: A range of dates (from midnight UTC on the first to midnight after the last) or of
+    #: datetimes: from where it starts, up to where it ends.
+    during = DateTimeRangeField(null=True, blank=True)
+    #: A range of numbers: from where it starts, up to where it ends.
+    span = DecimalRangeField(null=True, blank=True)
+    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
+
+    class Meta:
+        db_table = "iki_range_value"
+        db_table_comment = (
+            "Each record's range under a rule that ranges mustn't overlap (ADR 0127). Kept by "
+            "triggers on the plugin tables."
+        )
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            ExclusionConstraint(
+                name=RANGE_CONSTRAINT,
+                expressions=[
+                    ("project", RangeOperators.EQUAL),
+                    ("key", RangeOperators.EQUAL),
+                    ("scope", RangeOperators.EQUAL),
+                    ("during", RangeOperators.OVERLAPS),
+                ],
+                condition=Q(during__isnull=False),
+            ),
+            ExclusionConstraint(
+                name=SPAN_CONSTRAINT,
+                expressions=[
+                    ("project", RangeOperators.EQUAL),
+                    ("key", RangeOperators.EQUAL),
+                    ("scope", RangeOperators.EQUAL),
+                    ("span", RangeOperators.OVERLAPS),
+                ],
+                condition=Q(span__isnull=False),
+            ),
+            models.UniqueConstraint(fields=["entity", "key"], name="iki_range_value_entity"),
+            models.CheckConstraint(
+                condition=Q(during__isnull=False) | Q(span__isnull=False),
+                name="iki_range_value_range",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.key} {self.scope}"
+
+
+class RuleHold(models.Model):
+    """A record held by a rule a save of it broke (ADR 0127): the save was kept, with
+    why, as a result out of its specification must be, and the record is held until
+    someone with one of the rule's lab roles, other than whoever held it, reviews it.
+    While it's held, it can't be set to a state that locks it.
+
+    The rule's label, message and roles are kept as they were, so a plugin that drops
+    the rule later doesn't leave a hold no one can review.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="holds")
+    #: The rule's key among its type's rules (``Rule.key``).
+    rule = models.CharField(max_length=160)
+    label = models.CharField(max_length=100)
+    #: What the save that held it was told.
+    message = models.TextField()
+    #: Qualified lab roles: someone with one of them, in the record's project, reviews it.
+    roles = ArrayField(models.CharField(max_length=112))
+    #: The revision that held it, and the latest that broke the rule while it was held.
+    revision = models.PositiveIntegerField()
+    last_revision = models.PositiveIntegerField()
+    #: Who saved it, or None for a deploy's check of records saved before the rule.
+    held_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The agent that saved it for ``held_by``, if one did (ADR 0072).
+    held_agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    held_at = models.DateTimeField(db_default=Now())
+    #: Why it was saved anyway, as whoever saved it said, or as a run's results say.
+    reason = models.TextField()
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "iki_rule_hold"
+        db_table_comment = (
+            "Records held by rules their saves broke (ADR 0127), and who reviewed each, when "
+            "and why."
+        )
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # One open hold of a rule on a record: breaking it again while it's held adds
+            # to that one.
+            models.UniqueConstraint(
+                fields=["entity", "rule"],
+                condition=Q(reviewed_at__isnull=True),
+                name="iki_rule_hold_open",
+            ),
+            models.CheckConstraint(
+                condition=Q(reviewed_at__isnull=True, reviewed_by__isnull=True)
+                | Q(reviewed_at__isnull=False, reviewed_by__isnull=False),
+                name="iki_rule_hold_review",
+            ),
+            models.CheckConstraint(condition=~Q(reason=""), name="iki_rule_hold_reason"),
+            models.CheckConstraint(
+                condition=Q(reviewed_at__isnull=True) | ~Q(review_reason=""),
+                name="iki_rule_hold_review_reason",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["entity"],
+                name="iki_rule_hold_held",
+                condition=Q(reviewed_at__isnull=True),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} held by {self.rule}"
+
+
+class RuleBreach(models.Model):
+    """A record that breaks a rule it was saved before (ADR 0127): one its plugin added
+    or changed later, or one a bundle brought from another deployment. It's reported, not
+    refused, until a save that checks the rule finds it kept."""
+
+    id = models.BigAutoField(primary_key=True)
+    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="breaches")
+    rule = models.CharField(max_length=160)
+    label = models.CharField(max_length=100)
+    message = models.TextField()
+    found_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_rule_breach"
+        db_table_comment = "Records that break a rule added or changed after they were saved."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["entity", "rule"], name="iki_rule_breach_once"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} breaks {self.rule}"
+
+
+class RulesChecked(models.Model):
+    """What a type's records were last checked against by a deploy (ADR 0127): a digest of
+    its rules and its plugins' versions. A deploy that changes it checks them again."""
+
+    type = models.CharField(max_length=160, primary_key=True)
+    digest = models.CharField(max_length=64)
+    checked_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_rules_checked"
+        db_table_comment = "What each type's records were last checked against (ADR 0127)."
+
+    def __str__(self) -> str:
+        return f"{self.type} {self.digest[:12]}"

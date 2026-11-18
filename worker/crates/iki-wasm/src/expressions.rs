@@ -145,7 +145,7 @@ pub fn uses(source: &str) -> Result<(Vec<String>, Vec<String>), String> {
 
 /// The parser's message, for a person: ANTLR's "mismatched input ')' expecting {…}"
 /// becomes "It doesn't expect ')' here".
-fn plainly(message: &str) -> String {
+pub(crate) fn plainly(message: &str) -> String {
     let message = message.strip_prefix("Syntax error: ").unwrap_or(message);
     if message.contains("'<EOF>'") {
         return "It ends too soon".to_owned();
@@ -213,7 +213,7 @@ pub enum Evaluated {
 /// JSON as CEL reads it. A whole number is an `int`, as JSON readers take it, so
 /// `row.length * 2` works (CEL won't multiply a `uint` by an `int`); one too large for
 /// that is a `uint`, and any other number a `double`.
-fn value(json: &serde_json::Value) -> cel::Value {
+pub(crate) fn value(json: &serde_json::Value) -> cel::Value {
     match json {
         serde_json::Value::Null => cel::Value::Null,
         serde_json::Value::Bool(b) => cel::Value::Bool(*b),
@@ -263,7 +263,7 @@ fn run(program: &cel::Program, context: &cel::Context<'_, '_>) -> Evaluated {
 }
 
 /// What kind of value it is, for a person, without what's in it.
-fn kind(value: &cel::Value) -> &'static str {
+pub(crate) fn kind(value: &cel::Value) -> &'static str {
     match value {
         cel::Value::List(_) => "a list",
         cel::Value::Map(_) => "a map",
@@ -279,7 +279,7 @@ fn kind(value: &cel::Value) -> &'static str {
 
 /// Why an expression failed, for a person. cel's own messages print values as Rust
 /// sees them (`Map({...})`), which would also put what a row holds in an error.
-fn failure(error: &cel::ExecutionError) -> String {
+pub(crate) fn failure(error: &cel::ExecutionError) -> String {
     use cel::ExecutionError as E;
     let name = |n: &str| n.chars().take(40).collect::<String>();
     let message = match error {

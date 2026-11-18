@@ -49,7 +49,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.entities import access, registry, unique
+from iki_server.entities import access, checking, constraints, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of
@@ -483,6 +483,8 @@ def _stage_rows(
     )
     _look_up_refs(refs, parsed)
     rows: list[tuple[Any, ...]] = []
+    #: Lines checked against their types' fields, for the plugins' rules all at once.
+    prepared: list[tuple[_Line, Any, Shape, dict[str, Any]]] = []
     for line in parsed:
         if len(errors) >= MAX_ERRORS:
             break
@@ -492,12 +494,36 @@ def _stage_rows(
             errors.extend(check.errors)
             continue
         try:
-            form, given = entities.prepare(
-                user, create.type, run.project, create.values, refs, by_run=True
+            form, given, _ = entities.prepare(
+                user, create.type, run.project, create.values, refs, by_run=True, check_rules=False
             )
         except Invalid as error:
             check.errors = []
             results.invalid(check, create.pointer, error)
+            errors.extend(check.errors)
+            continue
+        prepared.append((line, create, form, given))
+    by_type: dict[str, list[int]] = {}
+    for index, (_, create, _, _) in enumerate(prepared):
+        by_type.setdefault(create.type, []).append(index)
+    refused: dict[int, list[checking.Broken]] = {}
+    for type_name, indexes in by_type.items():
+        # A chunk's lines at once, as one evaluation (ADR 0127). Those breaking a rule
+        # that holds are kept, and held once written (holds.hold_imported).
+        found = checking.broken(type_name, [checking.Saving(prepared[i][3].get) for i in indexes])
+        for i, broken in zip(indexes, found, strict=True):
+            refusing = [b for b in broken if not b.held]
+            if refusing:
+                refused[i] = refusing
+    for index, (line, create, form, given) in enumerate(prepared):
+        if index in refused:
+            if len(errors) >= MAX_ERRORS:
+                break
+            check.errors = []
+            try:
+                checking.raise_broken(refused[index], hold_reason="")
+            except Invalid as error:
+                results.invalid(check, create.pointer, error)
             errors.extend(check.errors)
             continue
         rows.append(_row(line.number, form, given, create))
@@ -693,15 +719,28 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
             unchanged = _update_matches(imported, done.check)
             imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
             created, reused, registered = _insert(imported, run)
+            # Lines were checked as they were staged; those that break rules that hold
+            # are held now they're records (ADR 0127).
+            holds.hold_imported(run)
             counts = (created, reused + unchanged, registered)
     except (IntegrityError, DatabaseError) as error:
         if not isinstance(error, IntegrityError) and "violates" not in str(error):
             raise
-        detail = (
-            unique.clash_message(error)
-            if isinstance(error, IntegrityError) and unique.is_clash(error)
-            else _first_line(error)
+        rule, is_rule = (
+            constraints.clash(error) if isinstance(error, IntegrityError) else (None, False)
         )
+        if is_rule:
+            # A plugin's `unique` or `no_overlap` rule (ADR 0127), between two lines or a
+            # line and a record saved meanwhile.
+            label = rule.rule.label if rule is not None else "a plugin's rule"
+            detail = (
+                f"Its records break “{label}”: two of its lines, or a line and a record the "
+                "project has."
+            )
+        elif isinstance(error, IntegrityError) and unique.is_clash(error):
+            detail = unique.clash_message(error)
+        else:
+            detail = _first_line(error)
         raise results.InvalidOutput(
             [{"pointer": results.pointer("creates_file"), "detail": detail}]
         ) from error

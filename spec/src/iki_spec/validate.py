@@ -28,6 +28,7 @@ from iki_spec import (
     components,
     naming,
     releases,
+    rules,
     schemas,
     titles,
     triggers,
@@ -400,6 +401,7 @@ def _read(root: FilePath) -> _Loaded:
                     fields=_fields(body.get("fields", {}), name),
                     description=body.get("description"),
                     file=document.file,
+                    rules=rules.read(body.get("rules"), name, extension=True),
                 )
             )
             loaded.extension_sources.append(document)
@@ -689,6 +691,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         file=document.file,
         due=body.get("due"),
+        rules=rules.read(body.get("rules"), plugin),
     )
 
 
@@ -820,6 +823,11 @@ class _Semantics:
         ):
             self.extension(extension, document, seen)
         self.settings()
+        # With what each rule and guard reads, for the server to load and point at.
+        types, extensions = rules.check(self)
+        self.plugin = self.loaded.plugin = dataclasses.replace(
+            self.plugin, types=types, extensions=extensions
+        )
         actions.check(self)
         workflows.check(self)
         # With the input each gives its entity, where it was left out and only one fits.
