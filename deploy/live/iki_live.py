@@ -17,7 +17,8 @@ deployment's is left. This module is the part that isn't any one cloud's:
   built from, and diagnostics when standing up fails;
 - ``Iki``: HTTP to a web pod through ``kubectl port-forward``, and the checks themselves;
 - ``Live`` and ``lifecycle``: the module fixture's shape. It tears down, always, even when
-  standing up or a check failed, and prices the run.
+  standing up or a check failed, prices the run, and records a passing one in
+  deploy/live-runs.json (live_runs.py).
 """
 
 import datetime
@@ -42,6 +43,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import live_runs
 import pytest
 import requests
 import yaml
@@ -912,6 +914,8 @@ class Live:
     name: str
     workdir: Path
     tools: Tools
+    #: The suite's version, recorded with a passing run: bumped when what it checks changes.
+    suite_version: str
     before: Any = None
     after: Any = None
     torn_down: bool = False
@@ -967,11 +971,29 @@ class Live:
         return [*self.teardown_errors, *problems]
 
 
-def lifecycle[D: Live](d: D) -> Iterator[D]:
+#: Each live test's outcome, by its node ID: the module fixture reads them as it ends.
+OUTCOMES = pytest.StashKey[dict[str, str]]()
+
+
+def record_outcome(item: pytest.Item, report: pytest.TestReport) -> None:
+    """For a conftest's pytest_runtest_makereport: a test's call outcome, or its setup's
+    if that failed or skipped it."""
+    outcomes = item.session.stash.setdefault(OUTCOMES, {})
+    # A setup that failed or skipped, a call, or a teardown that failed after it.
+    if (report.when == "call" or report.outcome != "passed") and (
+        report.when != "setup" or item.nodeid not in outcomes
+    ):
+        outcomes[item.nodeid] = report.outcome
+
+
+def lifecycle[D: Live](d: D, request: pytest.FixtureRequest) -> Iterator[D]:
     """The module fixture's body: the first inventory and the preconditions, then standing
-    up (diagnosing first if it fails), the tests, and always tearing down, and the run's
-    summary and cost."""
+    up (diagnosing first if it fails), the tests, and always tearing down, the run's
+    summary and cost, and a record of the run in deploy/live-runs.json if every test of
+    the module passed, the teardown left nothing, and the tree was clean and unchanged
+    from start to end."""
     d.workdir.mkdir(parents=True, exist_ok=True)
+    tree = live_runs.clean_head(REPO)
     try:
         d.tools.token.start()
         d.before = d.inventory()
@@ -1002,3 +1024,45 @@ def lifecycle[D: Live](d: D) -> Iterator[D]:
         d.tools.stop()
         if problems and not d.torn_down_checked:
             pytest.fail("tearing down left:\n" + "\n".join(problems))
+        if not problems:
+            _record(d, request, tree, started, up)
+
+
+def _record(
+    d: Live,
+    request: pytest.FixtureRequest,
+    tree: str | None,
+    started: datetime.datetime,
+    up: datetime.timedelta,
+) -> None:
+    """Appends the run to deploy/live-runs.json if it passed whole, of a clean tree."""
+    module = request.node.obj
+    tests = [i for i in request.session.items if getattr(i, "module", None) is module]
+    defined = {n for n in dir(module) if n.startswith("test_")}
+    outcomes = request.session.stash.get(OUTCOMES, {})
+    passed = [i.name for i in tests if outcomes.get(i.nodeid) == "passed"]
+    why_not = None
+    if tree is None:
+        why_not = "the tree had changes when the run began"
+    elif live_runs.clean_head(REPO) != tree:
+        why_not = "the tree changed, or HEAD moved, during the run"
+    elif set(passed) != defined:
+        missing = sorted(defined - set(passed))
+        why_not = f"not every check ran and passed: {', '.join(missing)}"
+    if why_not:
+        sys.stdout.write(f"\nNot recorded in deploy/live-runs.json: {why_not}.\n")
+        return
+    entry = live_runs.Entry(
+        cloud=d.cloud,
+        commit=tree,  # type: ignore[arg-type]
+        started=started.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        duration_seconds=round(up.total_seconds()),
+        cost_usd=None if d.cost_usd is None else round(d.cost_usd, 2),
+        suite_version=d.suite_version,
+        checks=sorted(passed),
+    )
+    live_runs.append(entry, live_runs.RECORD)
+    sys.stdout.write(
+        f"\nRecorded in deploy/live-runs.json: {d.cloud} at {tree}. Commit it: it's what make "
+        "live-due and the release gate read.\n"
+    )

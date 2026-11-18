@@ -5,6 +5,8 @@ it down: an hour or more, billed to that project. So it needs all three of ``--g
 ``IKI_GCP_PROJECT``, and no ``CI`` variable (every CI service sets it).
 """
 
+from collections.abc import Generator
+
 import iki_live
 import pytest
 
@@ -30,3 +32,14 @@ def gcp_live_skip_reason(config: pytest.Config) -> str | None:
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     iki_live.skip_unless_asked(config, items, "gcp_live", gcp_live_skip_reason(config))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Each live test's outcome, for the record of a passing run (iki_live.lifecycle)."""
+    report = yield
+    if "gcp_live" in item.keywords:
+        iki_live.record_outcome(item, report)
+    return report

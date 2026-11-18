@@ -1,0 +1,292 @@
+"""Which commits the live cloud tests passed on, and whether a cloud is due to be tested again.
+
+The live tests (make check-gcp-live, make check-aws-live) deploy Iki to a real cloud, check
+it and tear it down: an hour or two, and a few dollars, each. So they don't run on every
+commit, or on CI at all. They run now and then, when something they cover has changed, and
+always before a release is tagged.
+
+Each passing run appends an entry to deploy/live-runs.json (the harness writes it; commit
+it): the cloud, the commit tested, with the tree clean, when it began, how long it took,
+its cost at list prices, the suite's version, and the checks that passed. Nothing about
+the account it ran in. A failed run, or one of a tree with changes, records nothing.
+
+RELEVANT lists, for each cloud, the paths a change to which the last passing run didn't
+test. Then:
+
+    python deploy/live/live_runs.py due [--strict]   # make live-due
+    python deploy/live/live_runs.py gate <ref> [--dry-run]
+
+``due`` says, for each cloud, its last passing run and what relevant paths changed since
+(exit 1 for any due only with --strict). ``gate`` is the release workflow's: for a tag,
+every cloud needs a passing run of an ancestor of it with no relevant change between them.
+
+Only the standard library and git: the release workflow runs it with the runner's Python.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+REPO = Path(__file__).resolve().parents[2]
+RECORD = REPO / "deploy" / "live-runs.json"
+
+#: What every cloud's run tests: the chart, the images it builds and their Dockerfiles, and
+#: the harness itself. Not deploy/live-runs.json: recording a run changes only that.
+SHARED = (
+    "deploy/helm/",
+    "deploy/live/iki_live.py",
+    "deploy/plugins.Dockerfile",
+    "deploy/worker.Dockerfile",
+    "server/Dockerfile",
+    "worker/Dockerfile",
+    # The VM tier's machines run it, on either cloud.
+    "worker/crates/iki-worker/src/host.rs",
+)
+
+#: For each cloud, what its run tests beyond SHARED: its deploy/<cloud>/ (modules, roots,
+#: scripts and its own live test), and the server's code for that cloud: the storage
+#: backend, the VM tier's provisioner and its fleets and volumes. test_live_runs.py fails if
+#: a module of the server that's one cloud's isn't listed for it.
+RELEVANT: dict[str, tuple[str, ...]] = {
+    "gcp": (
+        *SHARED,
+        "deploy/gcp/",
+        "server/src/iki_server/files/gcs.py",
+        "server/src/iki_server/runs/gce.py",
+        "server/src/iki_server/runs/gce_fleet.py",
+        "server/src/iki_server/runs/gce_volumes.py",
+    ),
+    "aws": (
+        *SHARED,
+        "deploy/aws/",
+        "server/src/iki_server/files/storage.py",
+        "server/src/iki_server/runs/ec2.py",
+        "server/src/iki_server/runs/ec2_fleet.py",
+        "server/src/iki_server/runs/ec2_volumes.py",
+    ),
+}
+CLOUDS = tuple(RELEVANT)
+#: What an entry holds, and nothing more: no account, project, email or token.
+FIELDS = ("cloud", "commit", "started", "duration_seconds", "cost_usd", "suite_version", "checks")
+
+
+@dataclass(frozen=True)
+class Entry:
+    cloud: str
+    commit: str
+    started: str
+    duration_seconds: int
+    cost_usd: float | None
+    suite_version: str
+    checks: list[str]
+
+    def problems(self) -> list[str]:
+        found = []
+        if self.cloud not in CLOUDS:
+            found.append(f"cloud {self.cloud!r} isn't one of {', '.join(CLOUDS)}")
+        if not re.fullmatch(r"[0-9a-f]{40}", self.commit):
+            found.append(f"commit {self.commit!r} isn't a full SHA")
+        if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", self.started):
+            found.append(f"started {self.started!r} isn't a UTC time such as 2026-11-17T10:00:00Z")
+        if self.duration_seconds <= 0:
+            found.append("duration_seconds isn't positive")
+        if self.cost_usd is not None and self.cost_usd < 0:
+            found.append("cost_usd is negative")
+        if not self.checks or not all(re.fullmatch(r"test_\w+", c) for c in self.checks):
+            found.append(f"checks {self.checks!r} aren't the tests' names")
+        return found
+
+
+def load(path: Path = RECORD) -> list[Entry]:
+    """The record's entries, oldest first. A missing file is no runs."""
+    if not path.exists():
+        return []
+    raw = json.loads(path.read_text())
+    if not isinstance(raw, list):
+        raise ValueError(f"{path} isn't a JSON list")
+    entries = []
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != set(FIELDS):
+            raise ValueError(f"{path}: an entry must have exactly {', '.join(FIELDS)}: {item!r}")
+        entries.append(Entry(**item))
+    return entries
+
+
+def append(entry: Entry, path: Path = RECORD) -> None:
+    problems = entry.problems()
+    if problems:
+        raise ValueError("; ".join(problems))
+    entries = [asdict(e) for e in load(path)] + [asdict(entry)]
+    path.write_text(pretty(entries) + "\n")
+
+
+def pretty(value: Any, indent: int = 0, lead: int = 0, trail: int = 0, width: int = 80) -> str:
+    """JSON as Prettier prints it: an object one member a line; a list of no objects or
+    lists on one line if that line fits in width, else one item a line. lead and trail are
+    the columns before the value on its line (its key) and after it (a comma)."""
+    pad = " " * indent
+    inner = " " * (indent + 2)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        last = len(value) - 1
+        members = []
+        for i, (k, v) in enumerate(value.items()):
+            key = f"{inner}{json.dumps(k)}: "
+            members.append(key + pretty(v, indent + 2, len(key), int(i < last), width))
+        return "{\n" + ",\n".join(members) + f"\n{pad}}}"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        flat = "[" + ", ".join(json.dumps(v) for v in value) + "]"
+        if not any(isinstance(v, dict | list) for v in value) and lead + len(flat) + trail <= width:
+            return flat
+        last = len(value) - 1
+        items = [
+            inner + pretty(v, indent + 2, len(inner), int(i < last), width)
+            for i, v in enumerate(value)
+        ]
+        return "[\n" + ",\n".join(items) + f"\n{pad}]"
+    return json.dumps(value)
+
+
+# --- git ---------------------------------------------------------------------------------
+
+
+def git(*args: str, repo: Path = REPO) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - argv built here
+        ["git", "-C", str(repo), *args],  # noqa: S607 - git from the PATH
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def clean_head(repo: Path = REPO) -> str | None:
+    """HEAD's full SHA if the tree has no changes (staged, unstaged or untracked, ignored
+    files aside), else None: a run of a tree with changes didn't test any commit."""
+    status = git("status", "--porcelain", repo=repo)
+    if status.returncode != 0 or status.stdout.strip():
+        return None
+    head = git("rev-parse", "HEAD", repo=repo)
+    return head.stdout.strip() if head.returncode == 0 else None
+
+
+def changed(tested: str, ref: str, cloud: str, repo: Path = REPO) -> list[str] | None:
+    """The relevant paths that differ between tested and ref, or None if tested isn't a
+    commit this repository has (a run of a commit since rebased away)."""
+    if git("cat-file", "-e", f"{tested}^{{commit}}", repo=repo).returncode != 0:
+        return None
+    diff = git("diff", "--name-only", tested, ref, "--", *RELEVANT[cloud], repo=repo)
+    if diff.returncode != 0:
+        raise RuntimeError(f"git diff {tested} {ref}: {diff.stderr.strip()}")
+    return [line for line in diff.stdout.splitlines() if line]
+
+
+def is_ancestor(commit: str, ref: str, repo: Path = REPO) -> bool:
+    return git("merge-base", "--is-ancestor", commit, ref, repo=repo).returncode == 0
+
+
+# --- What's due, and the release gate ---------------------------------------------------------
+
+
+@dataclass
+class Verdict:
+    cloud: str
+    entry: Entry | None
+    #: Relevant paths changed since entry's commit; None if there's no usable entry.
+    paths: list[str] | None
+
+    @property
+    def due(self) -> bool:
+        return self.paths is None or bool(self.paths)
+
+    def text(self) -> str:
+        if self.entry is None or self.paths is None:
+            return f"{self.cloud}: due: no passing run recorded of a commit this branch has"
+        run = (
+            f"last passed at {self.entry.commit[:12]} ({self.entry.started}, "
+            f"{_cost(self.entry.cost_usd)}, suite {self.entry.suite_version})"
+        )
+        if not self.paths:
+            return f"{self.cloud}: not due: {run}, and nothing it tests has changed since"
+        shown = "\n".join(f"    {p}" for p in self.paths[:40])
+        more = f"\n    ... and {len(self.paths) - 40} more" if len(self.paths) > 40 else ""
+        return f"{self.cloud}: due: {run}; since then, changed:\n{shown}{more}"
+
+
+def _cost(usd: float | None) -> str:
+    return "cost unknown" if usd is None else f"${usd:.2f} at list prices"
+
+
+def verdict(cloud: str, ref: str, entries: list[Entry], repo: Path = REPO) -> Verdict:
+    """The cloud's best passing run for ref: of an ancestor of ref (or ref itself), with
+    the fewest relevant changes since, the latest among those."""
+    best: Verdict | None = None
+    for entry in sorted(
+        (e for e in entries if e.cloud == cloud), key=lambda e: e.started, reverse=True
+    ):
+        if not is_ancestor(entry.commit, ref, repo):
+            continue
+        paths = changed(entry.commit, ref, cloud, repo)
+        if paths is None:
+            continue
+        if not paths:
+            return Verdict(cloud, entry, paths)
+        if best is None:
+            best = Verdict(cloud, entry, paths)
+    return best or Verdict(cloud, None, None)
+
+
+def due(ref: str = "HEAD", repo: Path | None = None, record: Path | None = None) -> list[Verdict]:
+    """Each cloud's verdict for ref: this repository and its record, unless given others."""
+    entries = load(record or RECORD)
+    return [verdict(cloud, ref, entries, repo or REPO) for cloud in CLOUDS]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    due_parser = commands.add_parser("due", help="which clouds' live tests are due, and why")
+    due_parser.add_argument("--strict", action="store_true", help="exit 1 if any is due")
+    gate_parser = commands.add_parser("gate", help="the release gate: every cloud passed for ref")
+    gate_parser.add_argument("ref", help="the commit or tag to be released")
+    gate_parser.add_argument("--dry-run", action="store_true", help="report, but never fail")
+    args = parser.parse_args(argv)
+
+    if args.command == "due":
+        verdicts = due()
+        for v in verdicts:
+            print(v.text())
+        late = [v.cloud for v in verdicts if v.due]
+        if late:
+            runs = " and ".join(f"make check-{cloud}-live" for cloud in late)
+            print(f"\nDue: {', '.join(late)}. Run {runs}: each bills its cloud.")
+        return 1 if late and args.strict else 0
+
+    verdicts = due(args.ref)
+    for v in verdicts:
+        print(v.text())
+    missing = [v for v in verdicts if v.due]
+    if not missing:
+        print(f"\nEvery cloud's live test passed for {args.ref}.")
+        return 0
+    names = ", ".join(v.cloud for v in missing)
+    print(
+        f"\nThe release needs a passing live run of each cloud, of a commit {args.ref} descends "
+        f"from with nothing they test changed since; missing: {names}. Run make "
+        "check-<cloud>-live on the release commit and commit deploy/live-runs.json."
+    )
+    if args.dry_run:
+        print("(A dry run: not failing.)")
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

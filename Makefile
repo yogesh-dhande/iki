@@ -144,6 +144,16 @@ check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets 
 check-scale-queue: ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
 
+# --- The live cloud tests (deploy/live) -------------------------------------------
+# Each deploys Iki to a real cloud, checks it and tears it all down, billing that cloud: run
+# them when make live-due says a cloud is due, and before tagging a release (release.yml
+# refuses a tag without them). A passing run of a clean tree appends to deploy/live-runs.json:
+# commit it.
+
+.PHONY: live-due
+live-due: ## Which clouds' live tests are due: each one's last passing run, and what it tests that changed since (STRICT=1: exit 1 if any is due)
+	python3 deploy/live/live_runs.py due $(if $(STRICT),--strict)
+
 .PHONY: check-gcp-live
 check-gcp-live: ## Deploy Iki to the Google Cloud project IKI_GCP_PROJECT for real, check it, tear it all down. Bills that project: a few US dollars a run. Never on CI.
 	@test -n "$(IKI_GCP_PROJECT)" || (echo "Set IKI_GCP_PROJECT: the project to deploy in, and bill." && false)

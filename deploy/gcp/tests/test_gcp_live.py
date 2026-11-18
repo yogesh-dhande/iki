@@ -11,7 +11,9 @@ Then it checks what a deployment must do, and always tears it down with
 deploy/gcp/scripts/teardown.sh, even when setting up or a check failed. Last, it lists
 the project again and fails if anything of the deployment's is left but what Google
 Cloud won't delete (key rings, keys with their versions scheduled for destruction, the
-log bucket and custom roles pending deletion) or an API it turned on.
+log bucket and custom roles pending deletion) or an API it turned on. A run that passes
+whole, of a clean tree, is recorded in deploy/live-runs.json (deploy/live/live_runs.py):
+commit it.
 
 It costs: a regional GKE cluster's fee and three or four small nodes, a highly
 available Cloud SQL Enterprise Plus instance (2 vCPUs), Cloud NAT, an internal load
@@ -64,6 +66,8 @@ from iki_live import REPO, Iki, until
 
 pytestmark = pytest.mark.gcp_live
 
+#: Bumped when what the suite checks changes: recorded with each passing run.
+SUITE_VERSION = "1"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -903,16 +907,17 @@ def stand_up(d: Deployment) -> None:
 
 
 @pytest.fixture(scope="module")
-def deployment() -> Iterator[Deployment]:
+def deployment(request: pytest.FixtureRequest) -> Iterator[Deployment]:
     s = Settings.from_env(new=True)
     d = Deployment(
         cloud="gcp",
         name=s.name,
         workdir=s.workdir,
         tools=Gcp(s),
+        suite_version=SUITE_VERSION,
         settings=s,
     )
-    yield from iki_live.lifecycle(d)
+    yield from iki_live.lifecycle(d, request)
 
 
 @pytest.fixture(scope="module")

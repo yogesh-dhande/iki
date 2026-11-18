@@ -8,7 +8,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import iki_live
 import live_cost
@@ -181,7 +181,7 @@ class Fake(iki_live.Live):
     """A deployment whose steps only say what was done."""
 
     def __init__(self, tmp_path: Path, tools: iki_live.Tools, fail: str = "") -> None:
-        super().__init__("x", "iki-test-x", tmp_path, tools)
+        super().__init__("x", "iki-test-x", tmp_path, tools, "1")
         self.done: list[str] = []
         self.fail = fail
 
@@ -225,9 +225,20 @@ def fake_tools(tmp_path: Path) -> iki_live.Tools:
     )
 
 
+class Request:
+    """What lifecycle reads of pytest's request: nothing ran, so nothing is recorded."""
+
+    class node:  # noqa: N801 - pytest's attribute
+        obj = sys.modules[__name__]
+
+    class session:  # noqa: N801
+        items: ClassVar[list[Any]] = []
+        stash: ClassVar[dict[Any, Any]] = {}
+
+
 def test_standing_up_fails_then_it_diagnoses_and_still_tears_down(tmp_path: Path) -> None:
     d = Fake(tmp_path, fake_tools(tmp_path), fail="stand up")
-    life = iki_live.lifecycle(d)
+    life = iki_live.lifecycle(d, Request)  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="stand up"):
         next(life)
     assert d.done == ["inventory", "preconditions", "stand up", "diagnose", "teardown", "inventory"]
@@ -236,7 +247,7 @@ def test_standing_up_fails_then_it_diagnoses_and_still_tears_down(tmp_path: Path
 
 def test_a_teardown_step_that_fails_doesnt_stop_the_rest(tmp_path: Path) -> None:
     d = Fake(tmp_path, fake_tools(tmp_path), fail="teardown")
-    life = iki_live.lifecycle(d)
+    life = iki_live.lifecycle(d, Request)  # type: ignore[arg-type]
     next(life)
     with pytest.raises(pytest.fail.Exception, match="teardown: teardown"):
         next(life, None)
@@ -246,7 +257,7 @@ def test_a_teardown_step_that_fails_doesnt_stop_the_rest(tmp_path: Path) -> None
 def test_preconditions_that_fail_make_nothing(tmp_path: Path) -> None:
     d = Fake(tmp_path, fake_tools(tmp_path), fail="preconditions")
     with pytest.raises(RuntimeError):
-        next(iki_live.lifecycle(d))
+        next(iki_live.lifecycle(d, Request))  # type: ignore[arg-type]
     assert "stand up" not in d.done and "teardown" not in d.done
 
 

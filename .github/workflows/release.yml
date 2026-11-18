@@ -10,6 +10,11 @@ name: Release
 #
 # Run it manually (workflow_dispatch) for a dry run: everything is built,
 # signed and verified, but nothing is published.
+#
+# Before anything builds, a tag must have passed the live cloud tests: a passing
+# run on each cloud, recorded in deploy/live-runs.json, of a commit the tag
+# descends from with nothing they test changed since (deploy/live/live_runs.py).
+# A dry run reports what's missing but goes on.
 
 on:
   push:
@@ -23,8 +28,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  live-tests:
+    name: Live cloud tests passed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # All of history: the gate asks git which tested commits this one descends from.
+          fetch-depth: 0
+      # CI never runs the live tests (they bill real clouds): it reads deploy/live-runs.json,
+      # which each passing make check-<cloud>-live appends to. A tag needs every cloud's
+      # passing run of a commit it descends from, with nothing they test changed since; any
+      # other ref only reports.
+      - name: Each cloud's live test passed for this commit
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            python3 deploy/live/live_runs.py gate HEAD
+          else
+            python3 deploy/live/live_runs.py gate HEAD --dry-run
+          fi
+
   version:
     name: Resolve version
+    needs: live-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

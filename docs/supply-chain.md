@@ -31,6 +31,25 @@ The `main` branch publishes each image as `:main` and `:sha-<commit>`. A
 version tag `vX.Y.Z` publishes the images as `:X.Y.Z` and `:X.Y`, the chart
 `X.Y.Z`, and a GitHub release.
 
+### Before a release
+
+A release is deployed for real on every cloud Iki has reference
+infrastructure for, first. The live tests (`make check-gcp-live`,
+`make check-aws-live`) stand each cloud's production root up in a real
+account, check Iki end to end and tear it all down. They bill that account,
+so they never run on CI, nor on every commit: run them when `make live-due`
+says a cloud is due, because something its test covers changed since its
+last passing run (`deploy/live/live_runs.py` lists what each covers), and
+always on the commit you mean to tag.
+
+Each passing run, of a clean tree, appends to `deploy/live-runs.json`: the
+cloud, the commit, when, how long, its cost at list prices, the suite's
+version and the checks that passed. Commit that. `release.yml` and
+`publish.yml` refuse a tag before they build anything unless each cloud has
+a passing run of a commit the tag descends from, with nothing that cloud's
+test covers changed since, and name what's missing. Run either by hand
+(workflow_dispatch) for the same report without failing.
+
 Every artifact comes with:
 
 - **A cosign signature**, made with Sigstore's keyless flow. There is no

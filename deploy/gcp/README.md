@@ -126,6 +126,14 @@ prices (`make gcp-live-cost` does again). Its settings, including
 `tests/test_gcp_live.py`; what it shares with the AWS one is in
 [`../live`](../live).
 
+It doesn't run on every commit. Run it when `make live-due` says Google
+Cloud is due: something it tests (`deploy/gcp/`, the chart, the images,
+the server's Google Cloud code, the harness; `live_runs.py` lists them)
+changed since its last passing run. A run that passes whole, of a clean
+tree, appends to `deploy/live-runs.json`: commit it. A release tag needs
+one, of a commit it descends from with nothing it tests changed since
+([the release gate](../../docs/supply-chain.md#before-a-release)).
+
 ## What to know before you rely on them
 
 - **Files go through Cloud Storage's own APIs** (ADR 0109), as the
