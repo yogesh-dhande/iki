@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "cloud": "aws",
+    "commit": "223c032adffa64bea2a85daf809b3e97af651322",
+    "started": "2026-11-18T07:42:27Z",
+    "duration_seconds": 4636,
+    "cost_usd": 0.56,
+    "suite_version": "1",
+    "checks": [
+      "test_a_backend_worker_computes_a_proteins_properties",
+      "test_a_file_goes_up_and_comes_down_through_urls_signed_with_short_lived_credentials",
+      "test_an_org_admin_creates_a_project_and_an_entity",
+      "test_setup_storage_finds_the_bucket_as_iki_needs_it",
+      "test_tearing_down_leaves_only_what_aws_keeps",
+      "test_the_alb_is_internal_and_named_only_inside_the_vpc",
+      "test_the_database_is_reached_privately_and_over_verified_tls",
+      "test_the_setup_link_opens_the_wizard",
+      "test_web_pods_are_ready_with_their_database"
+    ]
+  }
+]
