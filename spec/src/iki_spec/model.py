@@ -35,6 +35,7 @@ __all__ = [
     "Meaning",
     "Metric",
     "Plugin",
+    "Related",
     "Resources",
     "Signature",
     "State",
@@ -730,6 +731,24 @@ TRIGGER_EVENTS = (
 ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
 
 
+#: Which way a trigger's related entities are (ADR 0123): derived from the entity, or what
+#: it was derived from.
+RELATED_DIRECTIONS = ("downstream", "upstream")
+#: The kinds of edge a trigger's walk may be narrowed to.
+RELATED_EDGES = ("reference", "run", "file")
+
+
+@dataclass(frozen=True)
+class Related:
+    """What a trigger gives one of its action's inputs, besides the entity that fired it
+    (ADR 0123): the input's type's entities in the project ``direction`` of the entity,
+    up to ``depth`` edges, along ``edges`` (all, if empty)."""
+
+    direction: str = "downstream"
+    depth: int = 10
+    edges: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class Trigger:
     """Runs one of the plugin's actions by itself when an entity of a type is created or
@@ -758,6 +777,8 @@ class Trigger:
     input: str = ""
     params: dict[str, Any] = field(default_factory=dict)
     file: str | None = None
+    #: Inputs given the entities related to the one that fired it, by input (ADR 0123).
+    related: dict[str, Related] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -956,6 +977,7 @@ _DATACLASSES = (
     WorkflowStep,
     Condition,
     Approval,
+    Related,
     Trigger,
     Component,
     ComponentSlot,
@@ -1020,6 +1042,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": tuple(v["fields"]),
                         "state_field": v.get("state_field", ""),
                         "states": tuple(v.get("states", ())),
+                        # ...or related entities.
+                        "related": {
+                            n: Related(**{**r, "edges": tuple(r["edges"])})
+                            for n, r in (v.get("related") or {}).items()
+                        },
                     }
                 )
                 for k, v in (data.get("triggers") or {}).items()

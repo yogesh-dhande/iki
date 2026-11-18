@@ -9,7 +9,7 @@ import pytest
 from api_client import problem
 from django.utils import timezone
 from org_world import World
-from test_api_entities import api_as, patch
+from test_api_entities import api_as, create, patch
 from test_oauth import bearer, signed_in_token
 from test_runs import COMPUTE, launch, protein
 from test_workers import WorkerClient, keep_connection, worker, world
@@ -17,6 +17,8 @@ from test_workers import WorkerClient, keep_connection, worker, world
 from iki_server.accounts import service_accounts
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent, Via
+from iki_server.entities import search
+from iki_server.graph import queries
 from iki_server.notifications.models import Notification
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import approvals, triggers
@@ -39,6 +41,7 @@ NEW = "acme/protein.weigh_new_proteins"
 NIGHTLY = "acme/protein.fetch_hemoglobin_nightly"
 CHANGED = "acme/protein.weigh_changed_proteins"
 IN_TESTING = "acme/protein.measure_samples_in_testing"
+FLAG = "acme/protein.flag_samples_of_changed_proteins"
 
 
 @pytest.fixture(autouse=True)
@@ -88,10 +91,14 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 def test_lists_installed_triggers(world: World) -> None:
     found = api_as(world, "viewer").get("/triggers").json()
-    assert [t["name"] for t in found] == [NIGHTLY, IN_TESTING, CHANGED, NEW]
-    assert found[1]["on"] == "entity.state_changed"
-    assert (found[1]["field"], found[1]["states"]) == ("status", ["in_testing"])
-    assert found[3] == {
+    assert [t["name"] for t in found] == [NIGHTLY, FLAG, IN_TESTING, CHANGED, NEW]
+    assert found[2]["on"] == "entity.state_changed"
+    assert (found[2]["field"], found[2]["states"]) == ("status", ["in_testing"])
+    assert found[1]["related"] == {
+        "samples": {"direction": "downstream", "depth": 2, "edges": ["reference"]},
+        "structures": {"direction": "downstream", "depth": 10, "edges": []},
+    }
+    assert found[4] == {
         "name": NEW,
         "plugin": "acme/protein",
         "label": "Weigh new proteins",
@@ -106,6 +113,7 @@ def test_lists_installed_triggers(world: World) -> None:
         "action": COMPUTE,
         "action_label": "Compute properties",
         "input": "protein",
+        "related": {},
         "params": {},
         "tier": "backend",
     }
@@ -224,6 +232,114 @@ def test_a_new_entity_fires_a_run_as_the_admin(world: World) -> None:
     # A person's own runs say nothing of triggers.
     own = launch(api_as(world, "editor"), world.project, {"protein": kit["id"]})
     assert own.json()["trigger"] is None
+
+
+# --- Related entities (ADR 0123) ----------------------------------------------------------------
+
+
+def sample(world: World, project: Project, label: str, of: dict[str, Any], **values: Any) -> Any:
+    values = {"label": label, "protein": of["id"], **values}
+    made = create(api_as(world, "editor"), project, values, "acme/protein.Sample")
+    assert made.status_code == 201, made.content
+    return made.json()
+
+
+def summarise(world: World, kit: dict[str, Any]) -> TriggerFiring:
+    """Changes the protein's summary, which fires FLAG, and fires it."""
+    changed = patch(api_as(world, "editor"), kit["id"], {"values": {"summary": "New"}}, '"1"')
+    assert changed.status_code == 200, changed.content
+    run_tasks()
+    return TriggerFiring.objects.get()
+
+
+def test_a_trigger_gives_its_action_what_is_related(world: World) -> None:
+    """A protein's samples in the project, not archived, go to the action's ``samples``;
+    another project's record of the same protein, and its samples, don't."""
+    on(world, FLAG)
+    editor = api_as(world, "editor")
+    kit = protein(editor, world.project, "kit")
+    s1 = sample(world, world.project, "S-1", kit)
+    s2 = sample(world, world.project, "S-2", kit)
+    gone = sample(world, world.project, "S-3", kit)
+    assert patch(editor, gone["id"], {"archived": True}, '"1"').status_code == 200
+    elsewhere = Project.objects.create(team=world.team, name="Elsewhere")
+    for who in ("editor", "admin"):
+        ProjectMembership.objects.create(
+            project=elsewhere, user=world.users[who], role=ProjectRole.EDITOR
+        )
+    sample(world, elsewhere, "S-4", protein(editor, elsewhere, "kit"))
+
+    firing = summarise(world, kit)
+    assert firing.state == FiringState.LAUNCHED, firing.error
+    assert firing.related == {"samples": 2, "structures": 0}
+    run = firing.run
+    assert run is not None
+    given = {(i.name, str(i.entity_id)) for i in run.inputs.all()}
+    assert given == {("protein", kit["id"]), ("samples", s1["id"]), ("samples", s2["id"])}
+    assert run.reason == (
+        f"Trigger “Flag a changed protein's samples”: {kit['hrid']} changed. "
+        "With 2 related samples."
+    )
+    (listed_firing,) = firings(world)
+    assert listed_firing["related"] == {"samples": 2, "structures": 0}
+
+
+def test_with_nothing_related_it_runs_nothing(world: World) -> None:
+    on(world, FLAG)
+    kit = protein(api_as(world, "editor"), world.project, "kit")
+    firing = summarise(world, kit)
+    assert (firing.state, firing.run) == (FiringState.SKIPPED, None)
+    assert firing.error == {
+        "code": "nothing_related",
+        "message": f"Nothing is downstream of {kit['hrid']} for `samples`.",
+    }
+
+
+def test_all_that_is_related_or_none(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hold or a recall that reached only some would look done when it isn't."""
+    on(world, FLAG)
+    kit = protein(api_as(world, "editor"), world.project, "kit")
+    for n in range(3):
+        sample(world, world.project, f"S-{n}", kit)
+    monkeypatch.setattr(triggers, "MAX_RELATED", 2)
+    firing = summarise(world, kit)
+    assert (firing.state, firing.run) == (FiringState.FAILED, None)
+    assert firing.error == {
+        "code": "too_many",
+        "message": f"More than 2 entities are downstream of {kit['hrid']} for `samples`, the "
+        "most it takes, so no run started.",
+    }
+    assert listed(world)[FLAG]["enabled"] is True
+
+
+def test_a_walk_too_slow_fails_the_firing(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    on(world, FLAG)
+    kit = protein(api_as(world, "editor"), world.project, "kit")
+    sample(world, world.project, "S-1", kit)
+
+    def slow(*args: Any) -> Any:
+        raise search.TooSlow
+
+    monkeypatch.setattr(queries, "related", slow)
+    firing = summarise(world, kit)
+    assert firing.state == FiringState.FAILED
+    assert firing.error is not None and firing.error["code"] == "too_slow"
+
+
+def test_related_entities_are_what_the_admin_reads(world: World) -> None:
+    """The walk is the Admin's: an Admin who can no longer run it walks nothing, and the
+    trigger is turned off, as for any firing."""
+    on(world, FLAG)
+    kit = protein(api_as(world, "editor"), world.project, "kit")
+    sample(world, world.project, "S-1", kit)
+    ProjectMembership.objects.filter(project=world.project, user=world.users["admin"]).update(
+        role=ProjectRole.VIEWER
+    )
+    firing = summarise(world, kit)
+    assert firing.state == FiringState.FAILED
+    assert firing.error is not None and firing.error["code"] == "not_allowed"
+    assert firing.related is None
+    assert listed(world)[FLAG]["enabled"] is False
 
 
 def test_firing_twice_launches_once(world: World) -> None:

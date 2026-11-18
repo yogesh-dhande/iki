@@ -793,9 +793,36 @@ type: Protein
 fields: [sequence, organism]
 ```
 
+A trigger can give the action's other inputs what's related to the entity
+that fired it, across the graph of what depends on what
+([ADR 0123](../docs/adr/0123-queries-walk-the-graph-of-what-depends-on-what.md)):
+each named input gets every record of its type in the project that's
+`downstream` of the entity (derived from it) or `upstream` (what it was
+derived from), up to `depth` edges away (10 if left out, at most 30), through
+`edges` of those kinds (`reference`, `run`, `file`; all if left out). The
+walk is the Admin's who turned it on, reads only the project's records, and
+leaves out archived ones. It's all of them or none: past the most an input
+takes (its `max`, and never more than 1,000), or past search's time limit,
+the firing fails and says why, and an input that isn't optional with
+nothing related skips the run.
+
+```yaml
+on: entity.state_changed
+type: Donor
+field: consent
+states: [withdrawn]
+run: hold_withdrawn
+related:
+  aliquots: { direction: downstream }
+  results: { direction: downstream, depth: 5, edges: [reference, run] }
+```
+
+Each such input takes many (`trigger-related-one`), and isn't the one the
+entity goes to (`trigger-related-is-input`); a scheduled trigger has none.
+
 The build checks that the type exists and has the fields, that the action
-takes an entity of the type in one input and needs no other, that its params
-fit.
+takes an entity of the type in one input and needs no other, besides those
+given related entities, that its params fit.
 
 A trigger can run on a schedule instead, in cron's five fields (minute, hour,
 day of the month, month, day of the week) and a timezone, UTC if left out

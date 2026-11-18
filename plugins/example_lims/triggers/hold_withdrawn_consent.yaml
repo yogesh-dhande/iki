@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: hold_withdrawn_consent
+label: Hold what a withdrawn consent covers
+description: >-
+  When a donor's consent is withdrawn, puts every aliquot and result in the
+  project derived from them on hold: through their samples, and anything
+  runs made from those. All of them, or none and the firing says why.
+on: entity.state_changed
+type: Donor
+field: consent
+states: [withdrawn]
+run: hold_withdrawn
+related:
+  aliquots: { direction: downstream }
+  results: { direction: downstream }

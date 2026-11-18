@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: hold_withdrawn
+label: Hold what a withdrawn consent covers
+description: >-
+  Puts each aliquot and result it's given on hold, saying whose consent was
+  withdrawn and when: they mustn't be used. It takes nothing off hold; that's
+  for a person to decide. `hold_withdrawn_consent` runs it with everything
+  derived from a donor whose consent is withdrawn.
+inputs:
+  donor: { type: Donor }
+  aliquots: { type: Aliquot, cardinality: many, optional: true }
+  results: { type: Result, cardinality: many, optional: true }
+effects:
+  updates:
+    - { input: aliquots, fields: [on_hold, hold_reason] }
+    - { input: results, fields: [on_hold, hold_reason] }
+runs_on: { tier: backend, environment: lims-tools }
+command: [python, ./scripts/hold.py]
+# Holding again what's on hold changes nothing.
+retries: { max: 2, on: [worker_lost, interrupted] }
+timeout: 10m

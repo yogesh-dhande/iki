@@ -20,6 +20,13 @@ fields:
     required: true
     immutable: true
     description: The protein it's a sample of.
+  donor:
+    type: ref
+    to: Donor
+    immutable: true
+    description: >-
+      Who it was taken from, for a sample from a person: whose consent covers
+      it, and everything made from it.
   lot:
     type: string
     label: Lot

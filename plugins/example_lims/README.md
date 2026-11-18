@@ -67,6 +67,24 @@ It shows the parts of Iki such a plugin needs:
   reassigning: the project's Admins are told, and reassign it, or many at
   once from the grid.
 
+- **Donors, and what's derived from them**: a `Donor` (by the study's
+  pseudonymous code, never a name) gives `Sample`s, each sample `Aliquot`s,
+  and each aliquot `Result`s, each naming the one before. A donor's
+  `consent` is a state field: Given, or Withdrawn, which locks the donor;
+  Coordinators set it, saying why.
+- **`hold_withdrawn_consent`**, a trigger on a donor's consent set to
+  Withdrawn, runs **`hold_withdrawn`** with every aliquot and result in the
+  project derived from the donor, through their samples and anything runs
+  made from those, across the graph of what depends on what
+  ([ADR 0123](../../docs/adr/0123-queries-walk-the-graph-of-what-depends-on-what.md)).
+  It puts each on hold, saying whose consent was withdrawn; it takes
+  nothing off hold, which is for a person. It's all of them or none: past
+  1,000 of either, the firing fails and says so. The samples themselves
+  keep their status: one that's Approved or Released is locked, and QA
+  decides what happens to it. Everything derived from a donor is on the
+  donor's Lineage page, under "Used by", and `downstream:DNR-000001` in
+  search finds it too.
+
 Every trigger is off until a project's Admin turns it on there.
 
 It also books instruments, to show a component that shows many entities

@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Aliquot
+label: Aliquot
+schema_version: 1
+description: >-
+  A portion of a sample, in a tube or well of its own, which an assay uses.
+  One on hold mustn't be used, until someone takes it off hold, saying why.
+hrid: { prefix: ALQ }
+fields:
+  sample:
+    type: ref
+    to: Sample
+    required: true
+    immutable: true
+    description: The sample it was taken from.
+  volume:
+    type: quantity
+    unit: uL
+    min: 0
+    description: How much of it there is.
+  location:
+    type: string
+    max_length: 120
+    indexed: true
+    description: Where it's kept, such as a freezer, rack and position.
+  on_hold:
+    type: bool
+    label: On hold
+    indexed: true
+    description: It mustn't be used, as `hold_reason` says.
+  hold_reason:
+    type: text
+    label: Why it's on hold

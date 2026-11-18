@@ -6122,6 +6122,13 @@ export interface components {
             /** Label */
             label: string;
             /**
+             * Related
+             * @description For a trigger that gives inputs related entities (ADR 0123): how many each was given, by input, once found.
+             */
+            related: {
+                [key: string]: number;
+            } | null;
+            /**
              * Revision
              * @description The revision the change made; null on a schedule.
              */
@@ -6139,7 +6146,7 @@ export interface components {
             since: string | null;
             /**
              * State
-             * @description `pending` until its run is launched, just after the change or the time; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first, or, on a schedule, while its last run hadn't finished.
+             * @description `pending` until its run is launched, just after the change or the time; `failed` if it couldn't be, or its related entities were too many to give an input or took too long to find; `skipped` if the trigger was turned off or the entity archived first, if nothing was related for an input that needs some, or, on a schedule, while its last run hadn't finished.
              * @enum {string}
              */
             state: "pending" | "launched" | "failed" | "skipped";
@@ -8509,6 +8516,13 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Related
+             * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
+             */
+            related: {
+                [key: string]: components["schemas"]["RelatedOut"];
+            };
             /** @description On a schedule: the service account its runs are launched as. */
             run_as: components["schemas"]["PersonRef"] | null;
             /**
@@ -9006,6 +9020,25 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** RelatedOut */
+        RelatedOut: {
+            /**
+             * Depth
+             * @description How many edges away, at most.
+             */
+            depth: number;
+            /**
+             * Direction
+             * @description `downstream`: what was derived from it; `upstream`: what it was derived from.
+             * @enum {string}
+             */
+            direction: "downstream" | "upstream";
+            /**
+             * Edges
+             * @description The kinds of edge it walks; empty for all.
+             */
+            edges: ("reference" | "run" | "file")[];
         };
         /** ReproduceIn */
         ReproduceIn: {
@@ -11257,6 +11290,13 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Related
+             * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
+             */
+            related: {
+                [key: string]: components["schemas"]["RelatedOut"];
+            };
             /**
              * Schedule
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.

@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Donor
+label: Donor
+schema_version: 1
+description: >-
+  Someone samples were taken from, by the code the study gave them: never
+  their name. Whether they consent to their samples' use is kept with them,
+  and withdrawing it holds everything derived from them.
+hrid: { prefix: DNR }
+fields:
+  code:
+    type: string
+    label: Donor code
+    required: true
+    immutable: true
+    unique: true
+    indexed: true
+    max_length: 64
+    description: The study's pseudonymous code for them.
+  consent:
+    type: state
+    label: Consent
+    initial: given
+    description: >-
+      Whether their samples, and what was made from them, may be used.
+      Coordinators set it, saying why.
+    states:
+      given:
+        label: Given
+        description: Their samples may be used.
+        set_by: [coordinator]
+        reason: required
+      withdrawn:
+        label: Withdrawn
+        description: >-
+          They withdrew their consent: nothing of theirs may be used, and
+          their record can't change.
+        set_by: [coordinator]
+        reason: required
+        locks: true
+display:
+  title: "{{ code }}"

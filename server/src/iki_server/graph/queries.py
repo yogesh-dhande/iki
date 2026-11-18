@@ -59,6 +59,7 @@ __all__ = [
     "graph",
     "reach",
     "reader",
+    "related",
 ]
 
 DIRECTIONS = ("upstream", "downstream")
@@ -402,6 +403,33 @@ def reach(user: Any, q: Query) -> Reach:  # noqa: ANN401 - User
         cursor.execute("CREATE UNIQUE INDEX ON iki_reach (node)")
         cursor.execute("ANALYZE iki_reach")
     return Reach(q, r)
+
+
+def related(
+    user: Any,  # noqa: ANN401 - User
+    project: uuid.UUID,
+    q: Query,
+    at_most: int,
+) -> list[uuid.UUID]:
+    """What a trigger gives an input (ADR 0123): the records of ``q``'s types in
+    ``project``, not archived, that ``q`` reaches walking only ``project``'s records, as
+    ``user`` reads them; at most ``at_most`` + 1, so the caller can tell there are more.
+    Raises ``TooSlow`` past search's time limit."""
+    from iki_server.entities import search
+
+    r = reader(user)
+    if project not in r.projects:
+        return []
+    mine = Reader((project,), r.views, r.view_items)
+    wanted = Query(q.root, q.direction, q.depth, q.kinds, q.types, archived=False)
+    with search.time_limit(), connection.cursor() as cursor:
+        cursor.execute(
+            f"{walk(wanted, mine)} SELECT DISTINCT ON (w.node) w.node FROM walk w JOIN "
+            f"iki_entity e ON e.id = w.node WHERE w.open AND {_found(wanted)} "
+            "ORDER BY w.node LIMIT %s",
+            [at_most + 1],
+        )
+        return [row[0] for row in cursor.fetchall()]
 
 
 # --- Cursors -------------------------------------------------------------------------------------

@@ -28,6 +28,7 @@ import {
   SelectField,
   useMessages,
 } from "../ui";
+import { listed } from "../views";
 import { useProject } from "./project-overview";
 
 /** How often the firings are read again while some wait to be fired. */
@@ -82,6 +83,35 @@ function firedBy(trigger: ProjectTrigger, typeLabel: string, type: EntityType | 
       ? fields[0]
       : `${fields.slice(0, -1).join(", ")} or ${fields[fields.length - 1] ?? ""}`;
   return `A change to a ${typeLabel}’s ${list ?? ""}`;
+}
+
+const EDGE_WORDS: Record<string, string> = {
+  reference: "references",
+  run: "runs",
+  file: "files runs read",
+};
+
+/** What else each of its runs is given (ADR 0123): "samples, what was derived from it, up
+ * to 2 steps away, through references". Empty if nothing. */
+export function relatedText(trigger: ProjectTrigger): string {
+  const parts = Object.entries(trigger.related).map(([input, r]) => {
+    const which =
+      r.direction === "downstream" ? "what was derived from it" : "what it was derived from";
+    const far = `up to ${String(r.depth)} ${r.depth === 1 ? "step" : "steps"} away`;
+    const through = r.edges.length
+      ? `, through ${listed(r.edges.map((e) => EDGE_WORDS[e] ?? e))}`
+      : "";
+    return `${input.replaceAll("_", " ")}, ${which}, ${far}${through}`;
+  });
+  return parts.join("; ");
+}
+
+/** How many related entities each input of a firing's run was given: "2 samples and 0
+ * structures". */
+function givenText(related: Record<string, number>): string {
+  return listed(
+    Object.entries(related).map(([input, n]) => `${String(n)} ${input.replaceAll("_", " ")}`),
+  );
 }
 
 export function ProjectTriggers() {
@@ -217,6 +247,12 @@ function TriggerRow({
           {waits(trigger) ? `, on the ${trigger.tier ?? ""} tier: each waits for approval` : ""}.
           {trigger.description ? ` ${trigger.description}` : ""}
         </span>
+        {relatedText(trigger) ? (
+          <span className="row-meta">
+            Each run is also given, from {project.name}: {relatedText(trigger)}. All of them, or the
+            run doesn’t start.
+          </span>
+        ) : null}
         <span className="row-meta">{stateLine(trigger)}</span>
         {trigger.why_not_enable && !trigger.enabled ? (
           <span className="row-meta">You can’t turn it on: {trigger.why_not_enable}</span>
@@ -294,6 +330,9 @@ function TriggerRow({
             and recorded as started by this trigger.
             {onAsSomeoneElse && trigger.enabled_by
               ? ` It runs as ${trigger.enabled_by.name} now.`
+              : ""}
+            {relatedText(trigger)
+              ? ` Each run is also given what you can read in ${project.name} of: ${relatedText(trigger)}. If there are more than its action takes, or they take too long to find, the run doesn’t start, and the firing says why.`
               : ""}
           </p>
         )}
@@ -419,6 +458,7 @@ function Firings({ project, triggers }: { project: Project; triggers: ProjectTri
                       </Link>
                     </>
                   ) : null}
+                  {f.related ? ` · given ${givenText(f.related)}` : ""}
                   {f.error ? ` · ${f.error.message}` : ""}
                 </span>
               </div>

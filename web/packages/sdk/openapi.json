@@ -5071,6 +5071,21 @@
             "title": "Label",
             "type": "string"
           },
+          "related": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a trigger that gives inputs related entities (ADR 0123): how many each was given, by input, once found.",
+            "title": "Related"
+          },
           "revision": {
             "anyOf": [
               {
@@ -5120,7 +5135,7 @@
             "title": "Since"
           },
           "state": {
-            "description": "`pending` until its run is launched, just after the change or the time; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first, or, on a schedule, while its last run hadn't finished.",
+            "description": "`pending` until its run is launched, just after the change or the time; `failed` if it couldn't be, or its related entities were too many to give an input or took too long to find; `skipped` if the trigger was turned off or the entity archived first, if nothing was related for an input that needs some, or, on a schedule, while its last run hadn't finished.",
             "enum": [
               "pending",
               "launched",
@@ -5146,6 +5161,7 @@
           "scheduled_for",
           "since",
           "state",
+          "related",
           "run",
           "error",
           "created_at",
@@ -10376,6 +10392,14 @@
             "title": "Plugin",
             "type": "string"
           },
+          "related": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RelatedOut"
+            },
+            "description": "Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.",
+            "title": "Related",
+            "type": "object"
+          },
           "run_as": {
             "anyOf": [
               {
@@ -10464,6 +10488,7 @@
           "action",
           "action_label",
           "input",
+          "related",
           "params",
           "tier",
           "enabled",
@@ -11487,6 +11512,44 @@
           "slug"
         ],
         "title": "RegistryRef",
+        "type": "object"
+      },
+      "RelatedOut": {
+        "properties": {
+          "depth": {
+            "description": "How many edges away, at most.",
+            "title": "Depth",
+            "type": "integer"
+          },
+          "direction": {
+            "description": "`downstream`: what was derived from it; `upstream`: what it was derived from.",
+            "enum": [
+              "downstream",
+              "upstream"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "edges": {
+            "description": "The kinds of edge it walks; empty for all.",
+            "items": {
+              "enum": [
+                "reference",
+                "run",
+                "file"
+              ],
+              "type": "string"
+            },
+            "title": "Edges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "direction",
+          "depth",
+          "edges"
+        ],
+        "title": "RelatedOut",
         "type": "object"
       },
       "ReproduceIn": {
@@ -16199,6 +16262,14 @@
             "title": "Plugin",
             "type": "string"
           },
+          "related": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RelatedOut"
+            },
+            "description": "Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.",
+            "title": "Related",
+            "type": "object"
+          },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
             "title": "Schedule",
@@ -16256,6 +16327,7 @@
           "action",
           "action_label",
           "input",
+          "related",
           "params",
           "tier"
         ],

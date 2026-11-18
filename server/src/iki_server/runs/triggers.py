@@ -18,6 +18,7 @@ import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -28,9 +29,10 @@ from iki_server.accounts.models import Kind as UserKind
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
-from iki_server.entities import registry
+from iki_server.entities import registry, search
 from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.values import Invalid
+from iki_server.graph import queries
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org import permissions
@@ -67,6 +69,8 @@ __all__ = [
     "writing",
 ]
 
+#: The most related entities a trigger gives one input (ADR 0123), whatever its ``max``.
+MAX_RELATED = 1000
 #: How long a firing waits for its task before a sweep fires it.
 RECOVER_AFTER = timedelta(minutes=1)
 #: The most firings one housekeeping pass fires.
@@ -209,7 +213,17 @@ def _fire(firing: TriggerFiring) -> None:
         return
     project = row.project
     params = {name: literal(value) for name, value in spec.params.items()}
+    inputs: dict[str, list[UUID]] = {}
     try:
+        if firing.entity is not None:
+            inputs[spec.input] = [firing.entity.pk]
+            if spec.related:
+                # What they read is theirs to give it: first, that they still may.
+                services.may_launch(row.enabled_by, action, project)
+                found = _related(firing, spec, action)
+                if found is None:
+                    return
+                inputs.update(found)
         with (
             audit.using(audit.Context(via=Via.TRIGGER)),
             approvals.for_trigger(row),
@@ -237,13 +251,18 @@ def _fire(firing: TriggerFiring) -> None:
                     "entity.created": "was created",
                     "entity.registered": "was registered",
                 }.get(firing.event, "changed")
+                given = "".join(
+                    f" With {len(ids)} related {name}."
+                    for name, ids in inputs.items()
+                    if name != spec.input
+                )
                 run = services.launch(
                     user,
                     action,
                     project,
-                    {spec.input: [firing.entity.pk]},
+                    inputs,
                     params,
-                    reason=f"Trigger “{spec.label}”: {firing.entity.hrid} {did}.",
+                    reason=f"Trigger “{spec.label}”: {firing.entity.hrid} {did}.{given}",
                 )
     except PermissionDenied:
         message = _not_allowed(row, action, project)
@@ -263,6 +282,56 @@ def _fire(firing: TriggerFiring) -> None:
     _end(firing, FiringState.LAUNCHED)
 
 
+def _related(firing: TriggerFiring, spec: Trigger, action: Action) -> dict[str, list[UUID]] | None:
+    """The entities related to the firing's that its trigger gives inputs (ADR 0123): each
+    input's type's records in the project, not archived, that the Admin who turned it on
+    reads there, walking only that project's records. All of them or none: a hold or a
+    recall that reached only some would look done when it isn't. ``None`` once the firing
+    has ended, with why."""
+    assert firing.entity is not None  # noqa: S101 - only an entity's firing has related
+    row = firing.trigger
+    out: dict[str, list[UUID]] = {}
+    for name, how in sorted(spec.related.items()):
+        put = action.inputs[name]  # the spec's checks make sure
+        at_most = min(put.max or MAX_RELATED, MAX_RELATED)
+        types = () if put.type == "iki/core.Entity" else (put.type,)
+        q = queries.Query(
+            firing.entity.pk, how.direction, how.depth, queries.kinds_of(how.edges), types
+        )
+        try:
+            ids = queries.related(row.enabled_by, row.project_id, q, at_most)
+        except search.TooSlow:
+            _end(
+                firing,
+                FiringState.FAILED,
+                "too_slow",
+                f"Finding what's {how.direction} of {firing.entity.hrid} for `{name}` took "
+                "too long.",
+            )
+            return None
+        if len(ids) > at_most:
+            _end(
+                firing,
+                FiringState.FAILED,
+                "too_many",
+                f"More than {at_most} entities are {how.direction} of {firing.entity.hrid} "
+                f"for `{name}`, the most it takes, so no run started.",
+            )
+            return None
+        if ids:
+            out[name] = ids
+        elif not put.optional:
+            _end(
+                firing,
+                FiringState.SKIPPED,
+                "nothing_related",
+                f"Nothing is {how.direction} of {firing.entity.hrid} for `{name}`.",
+            )
+            return None
+    firing.related = {name: len(out.get(name, ())) for name in sorted(spec.related)}
+    return out
+
+
 def _not_allowed(row: ProjectTrigger, action: Action, project: Project) -> str:
     """Who can no longer run the trigger's action: the Admin, or its service account."""
     for who in (row.enabled_by, row.run_as):
@@ -277,7 +346,7 @@ def _end(firing: TriggerFiring, state: str, code: str = "", message: str = "") -
     firing.state = state
     firing.fired_at = timezone.now()
     firing.error = {"code": code, "message": message} if code else None
-    firing.save(update_fields=["state", "fired_at", "error", "run"])
+    firing.save(update_fields=["state", "fired_at", "error", "run", "related"])
 
 
 def _turn_off(row: ProjectTrigger, spec: Trigger, why: str) -> None:

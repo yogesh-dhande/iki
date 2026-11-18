@@ -80,6 +80,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "acme/protein.align_pair",
         COMPUTE,
         "acme/protein.fetch_proteins",
+        "acme/protein.flag_samples",
         "acme/protein.import_proteins",
         "acme/protein.import_samples",
         "acme/protein.measure_purity",
@@ -149,8 +150,9 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
         "acme/prediction.screen_with_colabfold",
         "acme/protein.align_pair",
         COMPUTE,
+        "acme/protein.flag_samples",
     ]
-    assert taking("acme/protein.ProteinStructure") == [RELAX]
+    assert taking("acme/protein.ProteinStructure") == ["acme/protein.flag_samples", RELAX]
     assert taking("acme/protein.Protein", "acme/protein.ProteinStructure") == []
     assert taking("acme/dna.DNASequence") == []
 

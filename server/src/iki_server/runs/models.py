@@ -666,6 +666,12 @@ class TriggerFiring(models.Model):
     )
     #: Why it failed or was skipped: ``code`` and ``message``.
     error = models.JSONField(null=True, blank=True)
+    #: For a trigger that gives inputs related entities (ADR 0123): how many each got.
+    related = models.JSONField(
+        null=True,
+        blank=True,
+        db_comment="How many related entities each input was given, by input (ADR 0123).",
+    )
     created_at = models.DateTimeField(db_default=Now())
     fired_at = models.DateTimeField(null=True, blank=True)
 

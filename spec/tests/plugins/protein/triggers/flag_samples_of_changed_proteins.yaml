@@ -1,0 +1,11 @@
+apiVersion: iki/v1
+kind: Trigger
+name: flag_samples_of_changed_proteins
+label: Flag a changed protein's samples
+on: entity.updated
+type: Protein
+fields: [summary]
+run: flag_samples
+related:
+  samples: { direction: downstream, depth: 2, edges: [reference] }
+  structures: { direction: downstream }

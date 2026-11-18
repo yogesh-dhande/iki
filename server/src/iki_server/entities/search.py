@@ -941,13 +941,23 @@ def _decode(cursor: str, key: tuple[str | None, bool]) -> tuple[Any, uuid.UUID]:
     return value, uuid.UUID(pk)
 
 
+#: What :func:`time_limit` sets, for the rest of its block.
+_LIMITED = ("statement_timeout", "join_collapse_limit", "from_collapse_limit", "enable_mergejoin")
+
+
 @contextmanager
 def time_limit(ms: int = TIME_LIMIT_MS) -> Iterator[None]:
     """Runs the block's queries in a transaction that cancels any taking longer than ``ms``.
-    Raises :class:`TooSlow` if one does."""
+    Raises :class:`TooSlow` if one does. Inside a transaction already (a trigger's firing,
+    say), what it set is put back after the block, so what the transaction does next isn't
+    limited."""
     try:
         with transaction.atomic():
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT " + ", ".join(f"current_setting('{name}')" for name in _LIMITED)
+                )
+                before = cursor.fetchone()
                 cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{ms}ms"])
                 # A page is at most a hundred rows, of a join of a type's tables (its own,
                 # its parents', Entity's), its projects' and its caller's (ADR 0103):
@@ -962,6 +972,13 @@ def time_limit(ms: int = TIME_LIMIT_MS) -> Iterator[None]:
                     "set_config('enable_mergejoin', 'off', true)"
                 )
             yield
+            if before is not None:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT "
+                        + ", ".join(f"set_config('{name}', %s, true)" for name in _LIMITED),
+                        list(before),
+                    )
     except OperationalError as error:
         if getattr(error.__cause__, "sqlstate", None) == "57014":  # query_canceled
             raise TooSlow from error

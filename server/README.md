@@ -381,6 +381,11 @@ it.
   condition: `downstream` `of` `DNR-000001`, or of
   `{"entity": …, "depth": …, "edges": […]}`; `is_set` for anything that
   way. Each walk runs within search's time limit.
+- A trigger's `related` gives its action's other inputs what's that way of
+  the entity that fired it, in its project, as the Admin who turned it on
+  reads it: all of it, or the firing fails (`too_many`, `too_slow`) or skips
+  (`nothing_related`) and says why. Each firing keeps how many each input
+  got.
 
 ## Web app
 

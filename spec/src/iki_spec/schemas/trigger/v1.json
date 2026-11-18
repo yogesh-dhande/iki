@@ -87,6 +87,41 @@
       "propertyNames": {
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       }
+    },
+    "related": {
+      "description": "Other inputs of the action, given the entities related to the one that fired it (ADR 0123): of the input's type, in the project, derived from it (`downstream`) or what it was derived from (`upstream`), through references, runs and the files runs read. Such as `aliquots: { direction: downstream }`, for everything a donor's withdrawn consent touches. Each input takes many; one left with none, when it isn't optional, skips the run.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 10,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["direction"],
+        "properties": {
+          "direction": {
+            "description": "`downstream`: what was derived from the entity. `upstream`: what it was derived from.",
+            "enum": ["downstream", "upstream"]
+          },
+          "depth": {
+            "description": "How many edges away, at most. 10 if left out.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "edges": {
+            "description": "Only through these: `reference` (a field names it), `run` (a run made it from it), `file` (a run made it from a file it held). All if left out.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["reference", "run", "file"]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

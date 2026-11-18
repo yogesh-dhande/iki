@@ -35,6 +35,16 @@ Event = Literal[
 ]
 
 
+class RelatedOut(Schema):
+    direction: Literal["downstream", "upstream"] = Field(
+        description="`downstream`: what was derived from it; `upstream`: what it was derived from."
+    )
+    depth: int = Field(description="How many edges away, at most.")
+    edges: list[Literal["reference", "run", "file"]] = Field(
+        description="The kinds of edge it walks; empty for all."
+    )
+
+
 class TriggerOut(Schema):
     name: str = Field(description="Its qualified name, such as `protein.weigh_new_proteins`.")
     plugin: str
@@ -66,6 +76,11 @@ class TriggerOut(Schema):
     action: str = Field(description="The qualified name of the action it runs.")
     action_label: str
     input: str = Field(description="The action's input that takes the entity; empty on a schedule.")
+    related: dict[str, RelatedOut] = Field(
+        description="Other inputs it gives the entities related to the one that fired it "
+        "(ADR 0123), by input: each, every one of the input's type in the project that way of "
+        "it. All of them or none: past the most an input takes, it fails."
+    )
     params: dict[str, Any]
     tier: Tier | None = Field(
         description="Where its runs run; on the container and VM tiers each waits for the "
@@ -90,6 +105,10 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
         "action": f"{spec.plugin}.{spec.run}",
         "action_label": action.label if action is not None else spec.run,
         "input": spec.input,
+        "related": {
+            name: {"direction": r.direction, "depth": r.depth, "edges": list(r.edges)}
+            for name, r in spec.related.items()
+        },
         "params": spec.params,
         "tier": action.tier if action is not None else None,
     }
@@ -321,8 +340,14 @@ class FiringOut(Schema):
     )
     state: Literal["pending", "launched", "failed", "skipped"] = Field(
         description="`pending` until its run is launched, just after the change or the time; "
-        "`failed` if it couldn't be; `skipped` if the trigger was turned off or the entity "
-        "archived first, or, on a schedule, while its last run hadn't finished."
+        "`failed` if it couldn't be, or its related entities were too many to give an input "
+        "or took too long to find; `skipped` if the trigger was turned off or the entity "
+        "archived first, if nothing was related for an input that needs some, or, on a "
+        "schedule, while its last run hadn't finished."
+    )
+    related: dict[str, int] | None = Field(
+        description="For a trigger that gives inputs related entities (ADR 0123): how many "
+        "each was given, by input, once found."
     )
     run: FiredRunOut | None
     error: FiringErrorOut | None

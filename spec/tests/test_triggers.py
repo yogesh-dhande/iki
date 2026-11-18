@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.model import Trigger, plugin_from_dict, plugin_to_dict
+from iki_spec.model import Related, Trigger, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -102,6 +102,18 @@ inputs:
   readout: { type: Readout }
 effects:
   updates: [{ input: readout, fields: [total] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+---
+apiVersion: iki/v1
+kind: Action
+name: review
+inputs:
+  assay: { type: Assay }
+  readouts: { type: Readout, cardinality: many }
+  other: { type: Readout, optional: true }
+effects:
+  updates: [{ input: readouts, fields: [total] }]
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -303,6 +315,98 @@ def test_optional_inputs_can_be_left(tmp_path: Path) -> None:
     # describe's note is optional.
     result = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: describe\n"))
     assert result.problems == []
+
+
+# --- Related entities (ADR 0123) ----------------------------------------------------------------
+
+REVIEW = """\
+on: entity.updated
+type: Assay
+fields: [plate]
+run: review
+related:
+  readouts: { direction: downstream, depth: 3, edges: [reference, run] }
+  other: { direction: upstream }
+"""
+
+
+def test_inputs_can_be_given_what_is_related(tmp_path: Path) -> None:
+    # `other` takes one, so it's in the next test; here, it's left out.
+    body = REVIEW.replace("  other: { direction: upstream }\n", "")
+    body = body.replace("run: review\n", "run: review\ninput: assay\n")
+    result = make(tmp_path, trigger(body))
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.triggers["on_assay"]
+    assert found.input == "assay"
+    assert found.related == {"readouts": Related("downstream", 3, ("reference", "run"))}
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+    # A walk's defaults: downstream, ten edges, along every kind.
+    plain = make(tmp_path, trigger(body.replace(", depth: 3, edges: [reference, run]", "")))
+    assert plain.plugin is not None
+    assert plain.plugin.triggers["on_assay"].related["readouts"] == Related("downstream", 10, ())
+
+
+def test_an_input_given_what_is_related_is_not_the_entitys(tmp_path: Path) -> None:
+    # Two take an Assay; one is given those upstream, so the entity goes to the other.
+    body = """\
+on: entity.created
+type: Assay
+run: compare_many
+related:
+  earlier: { direction: upstream }
+"""
+    global ACTIONS
+    saved = ACTIONS
+    ACTIONS = (
+        saved
+        + """\
+---
+apiVersion: iki/v1
+kind: Action
+name: compare_many
+inputs:
+  assay: { type: Assay }
+  earlier: { type: Assay, cardinality: many }
+effects:
+  updates: [{ input: assay, fields: [score] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+"""
+    )
+    try:
+        result = make(tmp_path, trigger(body))
+    finally:
+        ACTIONS = saved
+    assert result.problems == []
+    assert result.plugin is not None
+    assert result.plugin.triggers["on_assay"].input == "assay"
+
+
+def test_what_takes_one_is_not_given_what_is_related(tmp_path: Path) -> None:
+    message = only(make(tmp_path, trigger(REVIEW)), "trigger-related-one")
+    assert message == "`review`'s `other` takes one entity, and related ones can be any number."
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (("readouts:", "notes:"), "trigger-unknown-input"),
+        (("related:\n  readouts:", "input: assay\nrelated:\n  assay:"), "trigger-related-is-input"),
+        (("depth: 3", "depth: 31"), "schema"),
+        (("depth: 3", "depth: 0"), "schema"),
+        (("downstream", "sideways"), "schema"),
+        (("[reference, run]", "[record]"), "schema"),
+    ],
+)
+def test_related_inputs_are_checked(tmp_path: Path, change: tuple[str, str], code: str) -> None:
+    body = REVIEW.replace("  other: { direction: upstream }\n", "").replace(*change)
+    assert code in codes(make(tmp_path, trigger(body)))
+
+
+def test_a_schedule_has_nothing_related(tmp_path: Path) -> None:
+    body = "on: schedule\nschedule: 0 6 * * *\nrun: sync\nrelated: { x: { direction: upstream } }\n"
+    assert "trigger-schedule-entity" in codes(scheduled(tmp_path, body))
 
 
 @pytest.mark.parametrize(

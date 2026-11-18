@@ -25,6 +25,7 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   action: "iki/protein.compute_properties",
   action_label: "Compute properties",
   input: "protein",
+  related: {},
   params: {},
   tier: "backend",
   enabled: false,
@@ -88,10 +89,28 @@ const FIRING: Schemas["FiringOut"] = {
   scheduled_for: null,
   since: null,
   state: "launched",
+  related: null,
   run: { id: "00000000-0000-7000-8000-0000000000r9", hrid: "RUN-000009", status: "queued" },
   error: null,
   created_at: "2026-03-14T10:00:00Z",
   fired_at: "2026-03-14T10:00:01Z",
+};
+
+/** One that gives its runs what's related (ADR 0123): a donor's aliquots and results. */
+const HOLD: Schemas["ProjectTriggerOut"] = {
+  ...OFF,
+  name: "iki/example_lims.hold_withdrawn_consent",
+  label: "Hold what a withdrawn consent touches",
+  on: "entity.updated",
+  type: "iki/example_lims.Donor",
+  fields: ["consent"],
+  action: "iki/example_lims.hold_withdrawn",
+  action_label: "Hold withdrawn",
+  input: "donor",
+  related: {
+    aliquots: { direction: "downstream", depth: 2, edges: ["reference"] },
+    results: { direction: "downstream", depth: 10, edges: [] },
+  },
 };
 
 function must<T>(value: T | undefined): T {
@@ -147,6 +166,33 @@ describe("a project's triggers", () => {
     expect(
       await screen.findByText("“Compute each new protein's properties” is on, and runs as you."),
     ).toBeInTheDocument();
+  });
+
+  it("says what else a trigger gives its runs, and how many each got", async () => {
+    const held: Schemas["FiringOut"] = {
+      ...FIRING,
+      trigger: HOLD.name,
+      label: HOLD.label,
+      event: "entity.updated",
+      entity: { id: "00000000-0000-7000-8000-0000000000e2", hrid: "DNR-000001", type: HOLD.type },
+      related: { aliquots: 3, results: 0 },
+    };
+    onProject([HOLD], [held]);
+    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const rows = await screen.findByRole("list", { name: "Triggers" });
+    expect(rows).toHaveTextContent(
+      "Each run is also given, from Kinase Atlas: aliquots, what was derived from it, up to 2 " +
+        "steps away, through references; results, what was derived from it, up to 10 steps " +
+        "away. All of them, or the run doesn’t start.",
+    );
+    const fired = await screen.findByRole("list", { name: "Firings" });
+    expect(fired).toHaveTextContent("given 3 aliquots and 0 results");
+    await user.click(within(rows).getByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(
+      "Each run is also given what you can read in Kinase Atlas of: aliquots,",
+    );
+    expect(dialog).toHaveTextContent("If there are more than its action takes");
   });
 
   it("turns one off", async () => {

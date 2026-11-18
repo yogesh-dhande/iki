@@ -5,6 +5,10 @@ rules here check it against the plugin's types and actions: that the type exists
 fields it watches are the type's, that the action it runs takes an entity of that type and
 needs nothing else, and that its params fit. A scheduled trigger's schedule must read,
 come round, and run at most every five minutes, and its action must need no inputs.
+
+A trigger may give other inputs the entities related to the one that fired it (ADR 0123):
+``related: {aliquots: {direction: downstream}}`` gives ``aliquots`` every Aliquot in the
+project derived from it. Each such input takes many, and isn't the one the entity goes to.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from iki_spec import cron, schemas
 from iki_spec import validate as _validate
-from iki_spec.model import Action, Trigger, qualify
+from iki_spec.model import Action, Related, Trigger, qualify
 from iki_spec.problems import Path
 from iki_spec.workflows import literal
 
@@ -46,12 +50,25 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         input=body.get("input") or "",
         params=dict(body.get("params") or {}),
         file=document.file,
+        related={
+            name: Related(
+                direction=r["direction"],
+                depth=int(r.get("depth", 10)),
+                edges=tuple(r.get("edges") or ()),
+            )
+            for name, r in (body.get("related") or {}).items()
+        },
     )
 
 
 def taking(trigger: Trigger, action: Action, is_a: Any) -> list[str]:  # noqa: ANN401 - a predicate
-    """The action's inputs that can take an entity of the trigger's type."""
-    return [n for n, put in action.inputs.items() if is_a(trigger.type, put.type)]
+    """The action's inputs that can take an entity of the trigger's type, besides those it
+    gives related entities."""
+    return [
+        n
+        for n, put in action.inputs.items()
+        if n not in trigger.related and is_a(trigger.type, put.type)
+    ]
 
 
 def check(semantics: _validate._Semantics) -> dict[str, Trigger]:
@@ -142,9 +159,10 @@ class _Rules:
             given = ""
         else:
             given = self.given(trigger, action, source)
+        self.related(trigger, action, given, source)
         if given:
             for name, put in action.inputs.items():
-                if name != given and not put.optional:
+                if name != given and name not in trigger.related and not put.optional:
                     self.add(
                         "trigger-input-missing",
                         f"`{trigger.run}` also needs `{name}`, and a trigger gives it only the "
@@ -169,6 +187,42 @@ class _Rules:
             return Trigger(**{**trigger.__dict__, "input": given})
         return trigger
 
+    def related(self, trigger: Trigger, action: Action, given: str, source: Document) -> None:
+        """That each input given related entities is one, other than the entity's, that
+        takes many."""
+        for name in trigger.related:
+            path = ("related", name)
+            put = action.inputs.get(name)
+            if put is None:
+                self.add(
+                    "trigger-unknown-input",
+                    f"`{trigger.run}` has no input `{name}`.",
+                    source,
+                    path,
+                    key=True,
+                    hint=schemas._did_you_mean(name, list(action.inputs)),
+                )
+            elif name == given:
+                self.add(
+                    "trigger-related-is-input",
+                    f"`{name}` takes the entity that fired the trigger, so it can't take "
+                    "related ones too.",
+                    source,
+                    path,
+                    key=True,
+                    hint="Give related entities to another input.",
+                )
+            elif put.cardinality != "many":
+                self.add(
+                    "trigger-related-one",
+                    f"`{trigger.run}`'s `{name}` takes one entity, and related ones can be any "
+                    "number.",
+                    source,
+                    path,
+                    key=True,
+                    hint=f"Make `{name}` `cardinality: many`.",
+                )
+
     def scheduled(self, trigger: Trigger, source: Document) -> None:
         for name, attribute in (
             ("type", "type"),
@@ -176,6 +230,7 @@ class _Rules:
             ("field", "state_field"),
             ("states", "states"),
             ("input", "input"),
+            ("related", "related"),
         ):
             if getattr(trigger, attribute):
                 self.add(

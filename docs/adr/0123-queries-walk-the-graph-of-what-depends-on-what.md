@@ -124,6 +124,28 @@ nothing a caller sends is in it.
   list (the impact list, with why each is there, filters and export) or a
   graph.
 
+**Triggers walk it too.** A trigger can give its action's other inputs
+what's related to the entity that fired it (`related: {aliquots:
+{direction: downstream}}`), so "when a donor's consent is withdrawn, hold
+everything derived from them" is one trigger, as Benchling's and
+Dotmatics' lineage queries feed their workflows.
+
+- Each such input gets the records of its type in the trigger's project
+  that are that way of the entity, as far and through what the trigger
+  says, not archived. The walk runs as the Admin who turned the trigger on
+  (ADR 0080), whose authority the run has, and reads only the project's
+  records: a trigger turned on in one project never reaches another's,
+  even through an identity's entry.
+- All of them or none. A hold or a recall that reached only some would
+  look done when it isn't, so past the most an input takes (its `max`, and
+  never more than 1,000) or past search's time limit the firing fails,
+  saying which, and starts no run; the trigger stays on. A required input
+  with nothing related skips the run. The Admin is checked before the
+  walk, as before a launch, so one who can no longer run it walks nothing.
+- The firing keeps how many each input was given, the run's reason says
+  it, and the triggers page says what each trigger gives its runs before
+  it's turned on.
+
 ## Consequences
 
 - Every write of a reference pays for an edge row and its indexes; bulk
@@ -136,5 +158,8 @@ nothing a caller sends is in it.
   answers what depends on what now, and what runs read then.
 - What you can't read downstream of something isn't in your answer, so
   an impact list is as complete as what you can read. A recall or consent
-  withdrawal across every project is for someone who reads them all, or
-  for a trigger running as its admin.
+  withdrawal across every project is for someone who reads them all; a
+  trigger covers its own project, and is turned on in each.
+- A trigger's run is given a list of entities fixed when it fired. What's
+  derived later isn't in it; the trigger fires again only when the entity
+  changes again.

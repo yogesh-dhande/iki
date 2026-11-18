@@ -58,6 +58,28 @@ def test_the_plugin_is_valid() -> None:
         "released": [("approval", "QA release")],
         "rejected": [("responsibility", "QA rejection")],
     }
+    # A donor's withdrawn consent holds everything derived from them (ADR 0123).
+    hold = result.plugin.triggers["hold_withdrawn_consent"]
+    assert (hold.on, hold.state_field, hold.states, hold.input) == (
+        "entity.state_changed",
+        "consent",
+        ("withdrawn",),
+        "donor",
+    )
+    assert {name: r.direction for name, r in hold.related.items()} == {
+        "aliquots": "downstream",
+        "results": "downstream",
+    }
+    lineage = {
+        name.rsplit(".", 1)[1]: [f.to for f in t.fields.values() if f.type == "ref"]
+        for name, t in result.plugin.types.items()
+        if name.rsplit(".", 1)[1] in ("Sample", "Aliquot", "Result")
+    }
+    assert lineage == {
+        "Sample": ["iki/protein.Protein", "iki/example_lims.Donor"],
+        "Aliquot": ["iki/example_lims.Sample"],
+        "Result": ["iki/example_lims.Aliquot"],
+    }
 
 
 class FakeLims:
@@ -111,7 +133,7 @@ def lims(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Any]:
     import urllib.request
 
     monkeypatch.syspath_prepend(str(SCRIPTS))
-    names = ("lims", "sync", "send")
+    names = ("lims", "sync", "send", "hold")
     for name in names:
         sys.modules.pop(name, None)
     fake = FakeLims()
@@ -126,6 +148,7 @@ def lims(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Any]:
     yield SimpleNamespace(
         sync=importlib.import_module("sync"),
         send=importlib.import_module("send"),
+        hold=importlib.import_module("hold"),
         fake=fake,
         slept=slept,
         dir=tmp_path,
@@ -245,3 +268,32 @@ def test_sends_each_proteins_iki_id_and_name_to_its_record(lims: Any) -> None:
 def test_ids_are_quoted_in_paths(lims: Any) -> None:
     ran(lims, lims.send, {"inputs": {"proteins": [protein(1, lims_id="A/../B", name="X")]}})
     assert lims.fake.asked[0][1] == "/api/v1/proteins/A%2F..%2FB"
+
+
+def entity(hrid: str, **values: Any) -> dict[str, Any]:
+    return {"id": f"id-{hrid}", "hrid": hrid, "values": values}
+
+
+def test_holds_what_was_derived_from_a_donor_who_withdrew(lims: Any) -> None:
+    """What's on hold with a reason keeps it; nothing is taken off hold."""
+    run = {
+        "inputs": {
+            "donor": [entity("DNR-000001", code="D-17", consent="withdrawn")],
+            "aliquots": [
+                entity("ALQ-000001"),
+                entity("ALQ-000002", on_hold=True, hold_reason="Haemolysed."),
+            ],
+            "results": [entity("RES-000001", on_hold=True)],
+        }
+    }
+    output = ran(lims, lims.hold, run)
+    why = "D-17 withdrew their consent."
+    assert output["updates"] == {
+        "aliquots": [{"entity": "id-ALQ-000001", "values": {"on_hold": True, "hold_reason": why}}],
+        "results": [{"entity": "id-RES-000001", "values": {"on_hold": True, "hold_reason": why}}],
+    }
+
+
+def test_with_nothing_derived_it_holds_nothing(lims: Any) -> None:
+    output = ran(lims, lims.hold, {"inputs": {"donor": [entity("DNR-000002", code="D-18")]}})
+    assert output["updates"] == {}
