@@ -128,7 +128,9 @@ class Field:
     display_unit: str | None = None
     media_types: tuple[str, ...] = ()
     max_size: int | None = None  # bytes
-    to: str | None = None  # a qualified type name
+    #: A reference's targets, qualified: it refers to an entity of one of these types, or
+    #: of one of their subtypes. One for most references; ``iki/core.Entity`` for any.
+    to: tuple[str, ...] = ()
     #: For a field naming people: the lab role they must hold in the record's project, by
     #: its qualified name (ADR 0116). None names anyone who can read the project.
     role: str | None = None
@@ -192,7 +194,11 @@ class Field:
             display_unit=data.get("display_unit"),
             media_types=tuple(data.get("media_types", ())),
             max_size=parse_size(data["max_size"]) if "max_size" in data else None,
-            to=qualify(to, plugin) if isinstance(to, str) else None,
+            to=(qualify(to, plugin),)
+            if isinstance(to, str)
+            else tuple(qualify(t, plugin) for t in to if isinstance(t, str))
+            if isinstance(to, list)
+            else (),
             role=(role if "." in role else f"{plugin}.{role}") if isinstance(role, str) else None,
             assignment=bool(assignment),
             assignment_field=assignment.get("field") if isinstance(assignment, dict) else None,
@@ -1578,6 +1584,8 @@ def _field(data: dict[str, Any]) -> Field:
             **data,
             "values": tuple(data["values"]),
             "media_types": tuple(data["media_types"]),
+            # Plugins built before references to several types name one.
+            "to": (data["to"],) if isinstance(data.get("to"), str) else tuple(data.get("to") or ()),
             "items": _field(data["items"]) if data["items"] is not None else None,
             "assignment_states": tuple(data.get("assignment_states") or ()),
             # Plugins built before state fields have none.

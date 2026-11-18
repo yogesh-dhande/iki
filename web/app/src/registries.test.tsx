@@ -180,7 +180,7 @@ describe("a project's record of a registry entry", () => {
       name: "iki/protein.ProteinStructure",
       label: "Protein structure",
       identity: [],
-      fields: [field({ name: "chain", label: "Chain", type: "ref", to: "iki/protein.Protein" })],
+      fields: [field({ name: "chain", label: "Chain", type: "ref", to: ["iki/protein.Protein"] })],
     };
     signedIn();
     answer("GET /api/v1/entity-types", [PROTEIN_R, structure]);

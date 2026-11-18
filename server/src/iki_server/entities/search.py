@@ -177,6 +177,9 @@ class Search:
     descending: bool = False
     #: Only members of this collection: its ID or HRID.
     collection: str | None = None
+    #: Of any one of these types, or their subtypes: what a reference to several types may
+    #: name (ADR 0136). Conditions then name only the columns every entity has.
+    types: tuple[str, ...] = ()
 
 
 #: What a dynamic collection keeps as its ``search``: a search without paging,
@@ -795,11 +798,21 @@ def queryset(
     expressions are: their fields and operators are checked, not their values."""
     if search.type is not None and search.type not in registry.types():
         raise SearchError([("#/type", f"There’s no entity type {search.type}.")])
+    unknown = [t for t in search.types if t not in registry.types()]
+    if unknown:
+        raise SearchError([("#/types", f"There’s no entity type {unknown[0]}.")])
+    if search.types and search.type is not None:
+        raise SearchError([("#/types", "Give a `type` or `types`, not both.")])
     form = form_of(search.type)
     # A type's table holds its subtypes' rows too.
     found = access.visible_of(user, form.model if form else Entity)
     if search.type is not None and search.exact_type:
         found = found.filter(type=search.type)
+    any_of: set[str] = set()
+    for name in search.types:
+        any_of |= {name} if search.exact_type else subtypes(name)
+    if search.types and "iki/core.Entity" not in search.types:
+        found = found.filter(type__in=sorted(any_of))
 
     if search.project is not None:
         found = found.filter(links__project_id=search.project)
@@ -811,7 +824,7 @@ def queryset(
         names = (
             ({search.type} if search.exact_type else subtypes(search.type))
             if search.type
-            else set(registry.types())
+            else any_of or set(registry.types())
         )
         found = found.filter(matching(search.q.strip(), names))
     errors: list[tuple[str, str]] = []

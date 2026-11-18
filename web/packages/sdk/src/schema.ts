@@ -6078,6 +6078,11 @@ export interface components {
              * @description This type and its subtypes.
              */
             type?: string | null;
+            /**
+             * Types
+             * @description Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.
+             */
+            types?: string[] | null;
         };
         /** EntityIn */
         EntityIn: {
@@ -6733,9 +6738,9 @@ export interface components {
             states: components["schemas"]["StateOut"][];
             /**
              * To
-             * @description References: the type they refer to.
+             * @description References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
              */
-            to: string | null;
+            to: string[];
             /** Type */
             type: string;
             /**
@@ -9102,9 +9107,9 @@ export interface components {
             states: components["schemas"]["StateOut"][];
             /**
              * To
-             * @description References: the type they refer to.
+             * @description References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
              */
-            to: string | null;
+            to: string[];
             /** Type */
             type: string;
             /**
@@ -15306,6 +15311,8 @@ export interface operations {
                 limit?: number;
                 /** @description This type and its subtypes. */
                 type?: string | null;
+                /** @description Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`. */
+                types?: string[] | null;
                 /** @description Only the type itself, not its subtypes. */
                 exact_type?: boolean;
                 /** @description Entities that belong to this project. */

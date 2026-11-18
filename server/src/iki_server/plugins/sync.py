@@ -33,6 +33,9 @@ idempotent, and works from the manifests the build installed
   checks, or whose plugins' versions, changed has its records checked again: those
   breaking a rule are reported, or for a rule that holds, held for review
   (:mod:`iki_server.entities.breaches`).
+- **References' types** (ADR 0136): triggers on every table holding a reference to
+  an abstract type, or to several, refuse a write naming an entity of another type,
+  whatever makes it (:mod:`iki_server.entities.targets`).
 - **Locked records' guards** (ADR 0125): a trigger on every table holding
   the values of records with state fields refuses a change to a record a
   state locks, whatever writes it. Tables that no longer need one lose it.
@@ -56,7 +59,16 @@ from django.db.models.functions import Now
 from psycopg import sql
 
 from iki_server.audit import log as audit
-from iki_server.entities import breaches, constraints, hrids, registry, requests, states, unique
+from iki_server.entities import (
+    breaches,
+    constraints,
+    hrids,
+    registry,
+    requests,
+    states,
+    targets,
+    unique,
+)
 from iki_server.entities.values import shape
 from iki_server.graph import edges
 from iki_server.plugins.models import PluginState
@@ -87,6 +99,7 @@ class Report:
     plugins: list[str] = field(default_factory=list)
     unique: list[str] = field(default_factory=list)
     graph: list[str] = field(default_factory=list)
+    targets: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
     #: The rules the database holds, as ``table:rule``.
     rules: list[str] = field(default_factory=list)
@@ -123,6 +136,10 @@ def sync(analyst_role: str | None = None) -> Report:
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
         report.rules = constraints.install(cursor, constraints.wanted())
+        report.targets = targets.install(
+            cursor,
+            targets.tables((plugin, model, fields) for plugin, model, fields, _ in _tables()),
+        )
         report.guards = states.install_guards(cursor, states.guarded_tables())
         report.guards += requests.install_guards(cursor, requests.guarded_tables())
         report.views = _views(cursor)
@@ -148,6 +165,7 @@ def describe(report: Report) -> list[str]:
             f"  checked {checked.records} {checked.type}"
             + (": " + ", ".join(found) if found else "")
         )
+    lines += [f"  references' types in {table}" for table in report.targets]
     lines += [f"  plugin {change}" for change in report.plugins]
     lines += [f"  view {name}" for name in report.views]
     if report.analyst:
@@ -309,7 +327,7 @@ def field_comment(f: Field) -> str:
     """What a column holds: its label and description, its unit, what it refers to."""
     item = f.items if f.type == "list" and f.items is not None else f
     unit = f"In {item.unit} (UCUM)." if item.type == "quantity" else None
-    target = f"Refers to a {item.to}." if item.type == "ref" else None
+    target = f"Refers to a {' or a '.join(item.to)}." if item.type == "ref" else None
     blob = "Refers to a file (iki_file)." if item.type == "file" else None
     removed = "Removed: kept for history only." if f.removed else None
     return _sentence(f.label, f.description, unit, target, blob, removed)

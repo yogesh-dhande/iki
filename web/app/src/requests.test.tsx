@@ -71,7 +71,7 @@ const ASK: Schemas["EntityTypeOut"] = {
       label: "Samples",
       type: "list",
       items: "ref",
-      to: "acme/protein.Sample",
+      to: ["acme/protein.Sample"],
     }),
     field({ name: "instructions", label: "Instructions", type: "text" }),
     field({ name: "priority", label: "Priority", type: "enum", values: ["routine", "urgent"] }),
@@ -104,7 +104,7 @@ const RESULT: Schemas["EntityTypeOut"] = {
   hrid_prefix: "ARS",
   result: { of: "request", released_field: "review", released_states: ["released"] },
   fields: [
-    field({ name: "request", label: "Request", type: "ref", to: ASK.name, required: true }),
+    field({ name: "request", label: "Request", type: "ref", to: [ASK.name], required: true }),
     field({ name: "purity", label: "Purity", type: "float" }),
     field({
       name: "review",

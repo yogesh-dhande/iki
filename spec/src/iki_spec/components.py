@@ -414,8 +414,8 @@ class _Search:
             )
             return
         target = found.items if found is not None and kind == "list" else found
-        to = target.to if target is not None and target.type == "ref" else None
-        if to is None:
+        targets = target.to if target is not None and target.type == "ref" else ()
+        if not targets:
             self.add(
                 "context-misplaced",
                 f"`{{{{ entity }}}}` is an entity, so it's compared with a reference, not "
@@ -430,11 +430,11 @@ class _Search:
             if page is not None
             else set()
         )
-        if page is not None and to not in chain and to != "iki/core.Entity":
+        if page is not None and not (chain & set(targets)) and "iki/core.Entity" not in targets:
             self.add(
                 "context-misplaced",
-                f"`{node['field']}` refers to `{to}`, and this tab is on `{self.slot.type}`'s "
-                "pages.",
+                f"`{node['field']}` refers to `{'`, `'.join(targets)}`, and this tab is on "
+                f"`{self.slot.type}`'s pages.",
                 self.source,
                 at,
                 hint="Compare `{{ entity }}` with a reference to the tab's type.",

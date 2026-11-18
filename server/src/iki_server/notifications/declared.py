@@ -102,8 +102,8 @@ def _referring() -> dict[tuple[str, str], tuple[tuple[str, Declared], ...]]:
             if d.n.ref is None:
                 continue
             f = shape(name).fields().get(d.n.ref)
-            if f is not None and f.to is not None:
-                out[(f.to, d.n.target)].append((name, d))
+            for target in f.to if f is not None else ():
+                out[(target, d.n.target)].append((name, d))
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -569,7 +569,7 @@ def _when(n: TypeNotification, fields: Mapping[str, Field]) -> str:
         return "When one is made"
     if n.ref is not None:
         ref = fields.get(n.ref)
-        target_type = ref.to if ref is not None else None
+        target_type = ref.to[0] if ref is not None and len(ref.to) == 1 else None
         target = (
             shape(target_type).fields().get(n.target)
             if target_type and target_type in registry.types()

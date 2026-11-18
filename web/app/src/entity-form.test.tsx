@@ -78,7 +78,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
       ],
     }),
     field({ name: "kind", label: "Kind", type: "enum", values: ["blood", "tissue"] }),
-    field({ name: "source", label: "Source", type: "ref", to: "iki/protein.Protein" }),
+    field({ name: "source", label: "Source", type: "ref", to: ["iki/protein.Protein"] }),
     field({ name: "aliases", label: "Aliases", type: "list", items: "string" }),
     field({ name: "score", label: "Score", type: "float", computed: true }),
   ],

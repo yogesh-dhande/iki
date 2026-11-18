@@ -111,7 +111,7 @@ const ADD_FIELD: FieldDef = {
     "where they can be superposed.",
   type: "ref",
   items: null,
-  to: "iki/core.Entity",
+  to: ["iki/core.Entity"],
   plugin: "",
   required: false,
   immutable: false,

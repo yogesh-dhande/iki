@@ -127,7 +127,7 @@ describe("drafts from values", () => {
       name: "source",
       label: "Source",
       type: "ref",
-      to: "iki/protein.Protein",
+      to: ["iki/protein.Protein"],
     });
     const refs = {
       e1: {

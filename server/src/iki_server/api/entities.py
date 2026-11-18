@@ -236,7 +236,11 @@ class FieldOut(Schema):
         description="Quantities: common units values can be given in. Any convertible UCUM "
         "unit works."
     )
-    to: str | None = Field(description="References: the type they refer to.")
+    to: list[str] = Field(
+        description="References: the types they may refer to, any one of them or one of its "
+        "subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty "
+        "otherwise."
+    )
     values: list[str] = Field(description="Enums: the allowed values.")
     items: str | None = Field(description="Lists: the type of each item.")
     role: str | None = Field(
@@ -837,6 +841,12 @@ class EntityProjectOut(Schema):
 
 class EntityFilters(PageParams):
     type: str | None = Field(None, description="This type and its subtypes.")
+    types: list[str] | None = Field(
+        None,
+        max_length=20,
+        description="Any one of these types, and their subtypes, as a reference to several "
+        "types names them (ADR 0136). Not with `type`.",
+    )
     exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
     project: UUID | None = Field(None, description="Entities that belong to this project.")
     archived: bool | None = None
@@ -936,7 +946,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "display_unit_symbol": units.symbol(f.display_unit) if f.display_unit else None,
         **_display(f.unit, f.display_unit),
         "input_units": _input_units(f.unit, f.display_unit),
-        "to": f.to,
+        "to": list(f.items.to if f.type == "list" and f.items is not None else f.to),
         "values": list(f.values),
         "items": f.items.type if f.items is not None else None,
         "role": person_role(f),
@@ -1641,6 +1651,7 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
         project(me, filters.project)
     wanted = search.Search(
         type=filters.type,
+        types=tuple(filters.types or ()),
         exact_type=filters.exact_type,
         project=filters.project,
         archived=filters.archived,

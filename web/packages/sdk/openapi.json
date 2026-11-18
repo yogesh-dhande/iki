@@ -4097,6 +4097,22 @@
             ],
             "description": "This type and its subtypes.",
             "title": "Type"
+          },
+          "types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
+            "title": "Types"
           }
         },
         "title": "EntityFilters",
@@ -5433,16 +5449,12 @@
             "type": "array"
           },
           "to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "References: the type they refer to.",
-            "title": "To"
+            "description": "References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.",
+            "items": {
+              "type": "string"
+            },
+            "title": "To",
+            "type": "array"
           },
           "type": {
             "title": "Type",
@@ -10623,16 +10635,12 @@
             "type": "array"
           },
           "to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "References: the type they refer to.",
-            "title": "To"
+            "description": "References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.",
+            "items": {
+              "type": "string"
+            },
+            "title": "To",
+            "type": "array"
           },
           "type": {
             "title": "Type",
@@ -23998,6 +24006,28 @@
               ],
               "description": "This type and its subtypes.",
               "title": "Type"
+            }
+          },
+          {
+            "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
+              "title": "Types"
             }
           },
           {

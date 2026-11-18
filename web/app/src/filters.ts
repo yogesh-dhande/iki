@@ -74,7 +74,7 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     display_offset: null,
     input_units: [],
     items: null,
-    to: null,
+    to: [],
     values: [],
     role: null,
     role_label: null,
@@ -164,7 +164,7 @@ export function asksWhatRulesCaught(conditions: Filter[]): boolean {
  * one row of a filter, which the API has as `downstream` or `upstream` `of` an entity. */
 export const LINEAGE: FieldDef = {
   ...builtIn("lineage", "Lineage", "lineage"),
-  to: "iki/core.Entity",
+  to: ["iki/core.Entity"],
 };
 const LINEAGE_FIELDS = new Map<string, "derived_from" | "used_for">([
   ["downstream", "derived_from"],

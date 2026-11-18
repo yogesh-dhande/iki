@@ -10,7 +10,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
 from iki_server.audit import log as audit
-from iki_server.entities import constraints, unique
+from iki_server.entities import constraints, targets, unique
 from iki_server.plugins import sync
 
 
@@ -30,7 +30,7 @@ class Command(BaseCommand):
         try:
             with audit.cli(), transaction.atomic():
                 report = sync.sync(analyst)
-        except (unique.Clash, constraints.Clash) as error:
+        except (unique.Clash, constraints.Clash, targets.Mismatch) as error:
             raise CommandError(str(error)) from None
         for line in sync.describe(report):
             self.stdout.write(line)

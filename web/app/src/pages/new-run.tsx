@@ -131,7 +131,7 @@ export function inputField(input: Input): FieldDef {
     description: input.description,
     type: input.cardinality === "many" ? "list" : "ref",
     items: input.cardinality === "many" ? "ref" : null,
-    to: input.type,
+    to: [input.type],
     plugin: "",
     required: !input.optional,
     immutable: false,

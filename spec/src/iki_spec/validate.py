@@ -1404,10 +1404,11 @@ class _Semantics:
             )
         else:
             f = found[0]
-            target = self.types.get(f.to) if f.type == "ref" and f.to else None
-            if f.type == "ref" and f.to and target is None:
+            # Each of the types it may name is a request type (ADR 0136).
+            targets = [self.types.get(t) for t in f.to] if f.type == "ref" else []
+            if any(t is None for t in targets):
                 pass  # reported with the field
-            elif target is None or self.request_of(target) is None:
+            elif not targets or any(t is None or self.request_of(t) is None for t in targets):
                 self.add(
                     "result-of-not-a-request",
                     f"`{spec.of}` must refer to a request type, one with `request:`, as the "
@@ -1824,11 +1825,11 @@ class _Semantics:
                 "record of it (ADR 0122).",
             )
             return
-        targets = [f.to] if f.type == "ref" else []
+        targets = list(f.to) if f.type == "ref" else []
         if f.type == "list" and f.items is not None and f.items.type == "ref":
-            targets = [f.items.to]
+            targets = list(f.items.to)
         for target in targets:
-            found = self.types.get(target or "")
+            found = self.types.get(target)
             if found is None:
                 continue  # reported as an unknown reference
             if not any(t.identity for t in [found, *self.ancestors(found)]):
@@ -2244,8 +2245,8 @@ class _Semantics:
         self.options(f, source, path)
         if f.type == "quantity":
             self.quantity(f, source, path)
-        if f.type == "ref" and f.to is not None:
-            self.reference(f.to, source, (*path, "to"))
+        if f.type == "ref":
+            self.targets(f, source, (*path, "to"))
         if f.type == "person" and f.role is not None:
             self.lab_role(f.role, source, (*path, "role"))
         if f.type == "file" and f.max_size is not None and f.max_size > MAX_FILE_SIZE:
@@ -2277,6 +2278,48 @@ class _Semantics:
         if f.has_default:
             for message in value_problems(f, f.default):
                 self.add("invalid-default", f"The default {message}", source, (*path, "default"))
+
+    def targets(self, f: Field, source: Document, path: Path) -> None:
+        """A reference's types (ADR 0136): each one the plugin can name, and none of them
+        already among another's subtypes, or ``iki/core.Entity`` beside others."""
+        several = len(f.to) > 1
+        found: dict[str, EntityType] = {}
+        for index, target in enumerate(f.to):
+            at = (*path, index) if several else path
+            named = self.reference(target, source, at)
+            if named is not None:
+                found[target] = named
+        if not several:
+            return
+        if naming.ENTITY in f.to:
+            self.add(
+                "reference-to-any-and-more",
+                f"`{naming.ENTITY}` is any entity already, so it's the only type a reference "
+                "to it names.",
+                source,
+                path,
+                hint=f"Write `to: {naming.ENTITY}` alone, or list only the types it may refer to.",
+            )
+            return
+        for target, named in found.items():
+            above = next(
+                (
+                    other
+                    for other in found
+                    if other != target
+                    and other in {a.qualified_name for a in self.ancestors(named)}
+                ),
+                None,
+            )
+            if above is not None:
+                self.add(
+                    "reference-type-twice",
+                    f"`{target}` extends `{above}`, which the reference names already: a "
+                    "reference to a type refers to its subtypes too.",
+                    source,
+                    (*path, f.to.index(target)),
+                    hint=f"Leave `{target}` out.",
+                )
 
     def link(self, template: str, source: Document, path: Path) -> None:
         """A field's link: an https URL, with the value and the plugin's settings in it."""

@@ -645,23 +645,30 @@ A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
 
-| Type       | Options                                         | Notes                                                                         |
-| ---------- | ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600.    |
-| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.          |
-| `int`      | `min`, `max`                                    | 64-bit.                                                                       |
-| `float`    | `min`, `max`                                    | Double precision.                                                             |
-| `bool`     |                                                 |                                                                               |
-| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                                |
-| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                            |
-| `datetime` |                                                 | Always with a time zone. No default.                                          |
-| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                  |
-| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).             |
-| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any.      |
-| `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records). |
-| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.      |
-| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.        |
-| `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.             |
+| Type       | Options                                         | Notes                                                                                                         |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600.                                    |
+| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.                                          |
+| `int`      | `min`, `max`                                    | 64-bit.                                                                                                       |
+| `float`    | `min`, `max`                                    | Double precision.                                                                                             |
+| `bool`     |                                                 |                                                                                                               |
+| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                                                                |
+| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                                                            |
+| `datetime` |                                                 | Always with a time zone. No default.                                                                          |
+| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                                                  |
+| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
+| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
+| `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
+| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.                                      |
+| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.                                        |
+| `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.                                             |
+
+A reference's `to` may list several types, any one of which it may name,
+each with its subtypes (ADR 0136), such as a complex's part:
+`to: [iki/protein.Protein, Conjugate, iki/small_molecule.Compound]`. The
+list can't name `iki/core.Entity` beside others, nor a type beside one of
+its subtypes. The database holds every reference to its types, whatever
+writes it.
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,

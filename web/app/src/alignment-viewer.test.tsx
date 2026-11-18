@@ -41,13 +41,13 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
   identity: [],
   fields: [
     field({ name: "name", label: "Name", type: "string", required: true }),
-    field({ name: "reference", label: "Reference", type: "ref", to: "iki/core.Sequence" }),
+    field({ name: "reference", label: "Reference", type: "ref", to: ["iki/core.Sequence"] }),
     field({
       name: "members",
       label: "Members",
       type: "list",
       items: "ref",
-      to: "iki/core.Sequence",
+      to: ["iki/core.Sequence"],
     }),
     field({ name: "aligned", label: "Aligned", type: "file", required: true }),
   ],

@@ -984,6 +984,8 @@ class EntityFilters(TypedDict):
     q: NotRequired[str | None]
     #: This type and its subtypes.
     type: NotRequired[str | None]
+    #: Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.
+    types: NotRequired[list[str] | None]
 
 
 class EntityIn(TypedDict):
@@ -1277,8 +1279,8 @@ class FieldOut(TypedDict):
     role_label: str | None
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
     states: list[StateOut]
-    #: References: the type they refer to.
-    to: str | None
+    #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
+    to: list[str]
     type: str
     #: No two entities in a project have the same value, such as a LIMS record's ID.
     unique: bool
@@ -2441,8 +2443,8 @@ class ParamOut(TypedDict):
     role_label: str | None
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
     states: list[StateOut]
-    #: References: the type they refer to.
-    to: str | None
+    #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
+    to: list[str]
     type: str
     #: No two entities in a project have the same value, such as a LIMS record's ID.
     unique: bool

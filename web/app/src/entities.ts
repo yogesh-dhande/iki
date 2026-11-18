@@ -123,12 +123,14 @@ export function savedSearchesQuery(projectId: string) {
   });
 }
 
-/** Entities a reference can point at, for a picker: by HRID or the text in their title. No
- * placeholder: until the answer for `q` comes, a picker shows none, never another text's
- * answer, which would change under someone choosing from it. */
-export function pickerQuery(type: string | undefined, q: string) {
+/** Entities a reference may name, for a picker: by HRID or the text in their title, of any
+ * one of its types (ADR 0136), or any entity for none or `iki/core.Entity`. No placeholder:
+ * until the answer for `q` comes, a picker shows none, never another text's answer, which
+ * would change under someone choosing from it. */
+export function pickerQuery(types: readonly string[], q: string) {
+  const named = types.includes("iki/core.Entity") ? [] : [...types];
   return queryOptions({
-    queryKey: [...ENTITIES, "picker", type ?? "", q.trim()],
+    queryKey: [...ENTITIES, "picker", named.join(" "), q.trim()],
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/entities", {
@@ -136,7 +138,11 @@ export function pickerQuery(type: string | undefined, q: string) {
             query: {
               limit: 20,
               archived: false,
-              ...(type && type !== "iki/core.Entity" ? { type } : {}),
+              ...(named.length === 1 && named[0]
+                ? { type: named[0] }
+                : named.length
+                  ? { types: named }
+                  : {}),
               ...(q.trim() ? { q: q.trim() } : {}),
             },
           },

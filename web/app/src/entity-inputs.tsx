@@ -380,6 +380,11 @@ function pickedLabel(picked: Picked): string {
     : picked.hrid;
 }
 
+/** "a protein", "a protein or a DNA sequence", "a protein, a conjugate or a compound". */
+function orList(words: string[]): string {
+  return new Intl.ListFormat("en", { type: "disjunction" }).format(words);
+}
+
 /**
  * A picker's options: the chosen one first, where it stays as answers come, then those
  * found. Each answer's rows come after it, so none moves under someone choosing.
@@ -449,11 +454,11 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
   // What was typed, not the chosen entity's label.
   const typed = picked && text === pickedLabel(picked) ? "" : text;
   // Asked for as typed, not deferred, so no render lists the answer for older text.
-  const found = useQuery(pickerQuery(field.to ?? undefined, typed));
+  const found = useQuery(pickerQuery(field.to, typed));
   const target =
-    field.to === "iki/core.Entity"
+    !field.to.length || field.to.includes("iki/core.Entity")
       ? "any entity"
-      : inSentenceLabel(typeLabel(types, field.to ?? ""));
+      : orList(field.to.map((t) => inSentenceLabel(typeLabel(types, t))));
   const items = useMemo(
     () =>
       withChosen(

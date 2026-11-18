@@ -3,9 +3,7 @@
     "iki/antibody": [
       "6ee480206984fcd49a82c1c9773692dac2a1ad39",
       "3dbee03524c41bf3e92a2da23c18f7be13bea506",
-      "ebd509a4ea3a4374f6e942d71b7dde0aee150ff2",
       "bf536779e1fc985f8f9415c3ea4f726bc589f37f",
-      "a8475711fbf78f15cc69b9c8b9f9879cfb1ad483",
       "d3ee10f7a4e5bf0620512446a4bdeab0812cc5fb",
       "0f0ba4735f12086c602a747092f5eb1c5e5f542a",
       "6dcb198372938fbc47716bc8899c9806d41e0bf2",
@@ -22,24 +20,17 @@
     "iki/example_lims": [
       "51ee81013451aafb10f4a1f377049d01ba0ee19c",
       "9911eaab301520379f2467f31cfba445616f773a",
-      "925eb5bbae3a9d2c393f062760c529a2266c1b68",
       "9f0024cacb9a269456a219a3182f8b59d446e25e",
       "8c001aaa6bca938db59e54fd733469551bfa7f8b",
       "52a8ddaeee1eaf95416d1aa696d5fe4bcf4eea03",
       "b81d91fe5e7ce036f81e7a72af478df8da5d3d92",
-      "4b8fc6c260bba6d182390d8a83b20a1e22c29bd6",
       "2619b8a619dfa88fde21b8aa0ec88a44328bc3ee",
-      "6477b5fb915cb85478da6eb40ebf7e4c2eba93bf",
-      "e42b97f7ac0f2cbd802701193531c6ca7806cc83",
-      "4c88041f567e57c746212241f2b1beffe3328a57",
       "92d052f581a47e0ca0b054b815d92b552eb096dd",
       "20c96a987e60ba3f2d1b33d928ffa3e9a45ffb18",
       "ef40cb1c68837eb62b3e38778f98654a6efe1f59",
       "4ec10e9aa3beb725ce20ccc94904cc541b10f17d"
     ],
     "iki/example_models": [
-      "f231af7b9cea49b212a131f1595a7581e13d2d62",
-      "b4cccf78a5daeb1e0ac4fe19102b1ad79f2bc634",
       "3667e222ea15d2c33f34083206e6896ad8e78d36"
     ],
     "iki/protein": [

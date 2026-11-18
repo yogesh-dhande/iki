@@ -436,7 +436,7 @@ def _column(
             "models.ForeignKey", _raw("User"), _raw("models.PROTECT"), related_name="+", **options
         )
     if kind == "ref":
-        assert f.to is not None  # noqa: S101 - refs have a target
+        assert f.to  # noqa: S101 - refs have a target
         target = _ref_target(f.to, plugin, types)
         return _call(
             "models.ForeignKey", target, _raw("models.PROTECT"), related_name="+", **options
@@ -478,18 +478,22 @@ def _state_column(f: Field, fields: Mapping[str, Field]) -> str:
     )
 
 
-def _ref_target(to: str, plugin: str, types: Mapping[str, EntityType]) -> str:
+def _ref_target(to: tuple[str, ...], plugin: str, types: Mapping[str, EntityType]) -> str:
     """What a reference to ``to`` is a foreign key to: the entries of a type with an
     identity, ``iki_entity`` for an abstract type (whose subtypes may have entries or
-    records) or ``iki/core.Entity``, else the type's own table of records."""
-    target = types.get(to)
-    if to == naming.ENTITY or target is None or target.abstract:
+    records), ``iki/core.Entity`` or several types (ADR 0136), else the type's own table of
+    records. Where it's ``iki_entity``, ``sync_plugins`` puts a trigger on the table that
+    holds the reference to its types."""
+    if len(to) != 1:
         return _raw("Entity")
-    owner = identity_owner(to, types)
+    target = types.get(to[0])
+    if to[0] == naming.ENTITY or target is None or target.abstract:
+        return _raw("Entity")
+    owner = identity_owner(to[0], types)
     if owner is not None:
         name = naming.entry_model(owner.name)
         return name if owner.plugin == plugin else _entry_label(owner.qualified_name)
-    return _model_ref(to, plugin)
+    return _model_ref(to[0], plugin)
 
 
 def _indexes(table: str, f: Field) -> list[str]:

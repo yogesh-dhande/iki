@@ -314,10 +314,11 @@ def _empties_past_late_requests() -> Iterator[None]:
 def synced_objects() -> dict[str, list[str]]:
     """What ``sync_plugins`` made beyond migrations that a migration can take away: unique
     fields' triggers (ADR 0082), locked records' guards (ADR 0125), references' edges'
-    triggers (ADR 0123), requests' guards (ADR 0132) and analysts' views."""
+    triggers (ADR 0123), requests' guards (ADR 0132), references' types' triggers (ADR 0136)
+    and analysts' views."""
     from django.db import connection
 
-    from iki_server.entities import requests, states, unique
+    from iki_server.entities import requests, states, targets, unique
     from iki_server.graph import edges
     from iki_server.plugins import sync
 
@@ -326,7 +327,7 @@ def synced_objects() -> dict[str, list[str]]:
             "SELECT c.relname || ' ' || t.tgname FROM pg_trigger t "
             "JOIN pg_class c ON c.oid = t.tgrelid "
             "WHERE NOT t.tgisinternal AND (t.tgname LIKE %s OR t.tgname LIKE %s "
-            "OR t.tgname LIKE %s OR t.tgname LIKE %s) ORDER BY 1",
+            "OR t.tgname LIKE %s OR t.tgname LIKE %s OR t.tgname LIKE %s) ORDER BY 1",
             [
                 p.replace("_", r"\_") + "%"
                 for p in (
@@ -334,6 +335,7 @@ def synced_objects() -> dict[str, list[str]]:
                     states.TRIGGER_PREFIX,
                     edges.TRIGGER_PREFIX,
                     requests.TRIGGER_PREFIX,
+                    targets.TRIGGER_PREFIX,
                 )
             ],
         )

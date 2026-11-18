@@ -299,7 +299,9 @@ class _Check:
                     hint=_known("It includes", dict.fromkeys(given.include)),
                 )
                 continue
-            to = target_of(fields[reference]) if reference in fields else None
+            targets = targets_of(fields[reference]) if reference in fields else ()
+            # Without a type, an included entity is of the reference's only one.
+            to = targets[0] if len(targets) == 1 else None
             one = reference in fields and fields[reference].type == "ref"
             if one and len(named) > 1:
                 self.add(
@@ -310,10 +312,15 @@ class _Check:
             for index, other in enumerate(named):
                 type_name = other.get("type") or to
                 other_type = self.types.get(type_name or "")
-                if other_type is None or (to and not self._is_a(other_type, to)):
+                if other_type is None or (
+                    targets and not any(self._is_a(other_type, t) for t in targets)
+                ):
                     self.add(
                         "wrong-type",
-                        f"{type_name} isn't a {to}, which {reference} names.",
+                        f"{type_name} isn't a {_either(targets)}, which {reference} names."
+                        if type_name
+                        else f"{reference} refers to {_either(targets)}: say which `type` "
+                        "each entity is.",
                         (*at, reference, index, "type"),
                     )
                     continue
@@ -372,11 +379,17 @@ def fields_of(entity_type: EntityType, types: Mapping[str, EntityType]) -> dict[
     return out
 
 
-def target_of(f: Field) -> str | None:
-    """The type a reference, or a list of them, names."""
+def targets_of(f: Field) -> tuple[str, ...]:
+    """The types a reference, or a list of them, names (ADR 0136)."""
     if f.type == "list" and f.items is not None:
         return f.items.to
     return f.to
+
+
+def _either(names: tuple[str, ...]) -> str:
+    if len(names) <= 1:
+        return names[0] if names else "an entity"
+    return ", ".join(names[:-1]) + f" or {names[-1]}"
 
 
 def _file_names(values: Any, at: DocPath) -> Iterator[tuple[DocPath, str]]:  # noqa: ANN401 - YAML data
@@ -445,7 +458,8 @@ def run_input(
                 given = entity.get("included") or {}
                 included: dict[str, list[dict[str, Any]]] = {}
                 for reference in put.include:
-                    to = target_of(fields[reference]) or ""
+                    targets = targets_of(fields[reference])
+                    to = targets[0] if len(targets) == 1 else ""
                     named = given.get(reference) or []
                     included[reference] = [made(o, o.get("type") or to) for o in named]
                     if reference in given:

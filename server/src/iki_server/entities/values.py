@@ -170,6 +170,11 @@ def shape(qualified: str) -> Shape:
 FOREIGN_KEYS = ("ref", "file", "person")
 
 
+def list_model(plugin: str, owner: type[models.Model], name: str) -> type[models.Model]:
+    """The model of the items of ``owner``'s list ``name``, from ``plugin``'s app."""
+    return apps.get_model(naming.app_label(plugin), naming.list_model(owner.__name__, name))
+
+
 def is_list_table(f: Field) -> bool:
     return f.type == "list" and f.items is not None and f.items.type in FOREIGN_KEYS
 
@@ -429,7 +434,7 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         target = uuid.UUID(str(value))
     except ValueError:
         raise ValueError("must be an entity's ID.") from None
-    assert f.to is not None  # noqa: S101 - refs always name a type
+    assert f.to  # noqa: S101 - refs always name a type
     found = refs.look_up([target])[target]
     if isinstance(found, str):
         raise ValueError(found)
@@ -441,9 +446,23 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
                 "with other projects."
             )
         raise ValueError("refers to no entity you can read.")
-    if found.type not in subtypes(f.to):
-        raise ValueError(f"must refer to a {f.to}, not a {found.type}.")
+    if found.type not in referable(f):
+        raise ValueError(f"must refer to {_one_of(f.to)}, not a {found.type}.")
     return found.id
+
+
+def referable(f: Field) -> set[str]:
+    """The types a reference may refer to (ADR 0136): its types, and their subtypes."""
+    out: set[str] = set()
+    for target in f.to:
+        out |= subtypes(target)
+    return out
+
+
+def _one_of(targets: tuple[str, ...]) -> str:
+    """ "a iki/protein.Protein", or "a Protein or a Compound" for several."""
+    named = [f"a {t}" for t in targets]
+    return named[0] if len(named) == 1 else ", ".join(named[:-1]) + f" or {named[-1]}"
 
 
 def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON

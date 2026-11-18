@@ -7,6 +7,8 @@ hrid: { prefix: SMP }
 fields:
   label: { type: string, required: true, unique: true, indexed: true, max_length: 200 }
   protein: { type: ref, to: Protein }
+  # What it's of: a protein or a DNA sequence (ADR 0136).
+  material: { type: ref, to: [Protein, acme/dna.DNASequence] }
   purity: { type: float, min: 0, max: 100 }
   tags: { type: list, items: { type: string, max_length: 40 } }
   notes: { type: text }

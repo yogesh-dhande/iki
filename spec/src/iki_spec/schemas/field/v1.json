@@ -239,8 +239,21 @@
           "pattern": "^[1-9][0-9]*(B|KiB|MiB|GiB|TiB|kB|MB|GB|TB)$"
         },
         "to": {
-          "description": "The type of entity this refers to. `iki/core.Entity` accepts any entity.",
-          "$ref": "#/$defs/typeRef"
+          "description": "The type of entity this refers to, or a list of several, any one of which it may refer to (ADR 0136), such as `[iki/protein.Protein, Conjugate]`: each with its subtypes. `iki/core.Entity` accepts any entity.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/typeRef"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/typeRef"
+              }
+            }
+          ]
         },
         "role": {
           "description": "For a field naming people: only people who hold this lab role in the record's project can be named (ADR 0116), such as `analyst`, or `acme/qms.qa` from a dependency.",

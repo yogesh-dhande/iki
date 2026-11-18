@@ -110,13 +110,13 @@ def test_builds_the_model_codegen_reads() -> None:
     assert weight.type == "quantity"
     assert weight.unit == "u"
     assert weight.label == "Molecular weight"
-    assert protein.fields["encoded_by"].to == "acme/dna.DNASequence"
+    assert protein.fields["encoded_by"].to == ("acme/dna.DNASequence",)
     assert result.plugin.dependencies == {"acme/dna": {"Sequence": ">=1", "DNASequence": ">=2,<4"}}
     structure = result.plugin.types["acme/protein.ProteinStructure"]
     assert structure.fields["structure"].max_size == 2 * 1024**3
     chains = structure.fields["chains"]
     assert chains.items is not None
-    assert chains.items.to == "acme/protein.Protein"
+    assert chains.items.to == ("acme/protein.Protein",)
     assert result.plugin.types["acme/protein.ProteinStructure"].label == "Protein Structure"
 
     prediction = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA]).plugin
@@ -408,6 +408,48 @@ def test_ref_columns_dont_collide(tmp_path: Path) -> None:
         fields("parent: { type: ref, to: Assay }\nparent_id: { type: string }\n"),
     )
     assert "column named `parent_id`" in only(result, "column-conflict")
+
+
+def test_a_reference_can_name_several_types(tmp_path: Path) -> None:
+    """ADR 0136: one of several types, each with its subtypes."""
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    result = make(tmp_path, fields("part: { type: ref, to: [Assay, Batch] }\n") + "---\n" + batch)
+    assert codes(result) == []
+    assert result.plugin is not None
+    part = result.plugin.types["acme/lab.Assay"].fields["part"]
+    assert part.to == ("acme/lab.Assay", "acme/lab.Batch")
+    one = make(tmp_path, fields("part: { type: ref, to: Assay }\n"))
+    assert one.plugin is not None
+    assert one.plugin.types["acme/lab.Assay"].fields["part"].to == ("acme/lab.Assay",)
+
+
+def test_a_reference_to_several_types_names_each_once(tmp_path: Path) -> None:
+    base = TYPE.replace("Assay", "Thing").replace("hrid: { prefix: ASY }\n", "abstract: true\n")
+    sub = TYPE.replace("Assay", "Batch").replace("ASY", "BAT") + "extends: Thing\n"
+    result = make(
+        tmp_path,
+        fields("part: { type: ref, to: [Thing, Batch] }\n") + "---\n" + base + "---\n" + sub,
+    )
+    message = only(result, "reference-type-twice")
+    assert message.startswith("`acme/lab.Batch` extends `acme/lab.Thing`")
+    # At the type named again, the list's second.
+    assert result.problems[0].location is not None
+    assert result.problems[0].location.column == len("  part: { type: ref, to: [Thing, ") + 1
+    result = make(tmp_path, fields("part: { type: ref, to: [Assay, iki/core.Entity] }\n"))
+    assert codes(result) == ["reference-to-any-and-more"]
+    result = make(tmp_path, fields("part: { type: ref, to: [Assay, Asay] }\n"))
+    assert codes(result) == ["unknown-type"]
+    result = make(tmp_path, fields("part: { type: ref, to: [Assay, Assay] }\n"))
+    assert set(codes(result)) == {"schema"}
+
+
+def test_a_registry_field_refers_to_entries_whichever_type(tmp_path: Path) -> None:
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    result = make(
+        tmp_path,
+        IDENTIFIED + "  made_of: { type: ref, to: [Assay, Batch], registry: fact }\n---\n" + batch,
+    )
+    assert codes(result) == ["registry-refers-to-record"]
 
 
 def test_flags_that_contradict(tmp_path: Path) -> None:
@@ -956,8 +998,8 @@ def test_the_same_name_in_two_namespaces(tmp_path: Path) -> None:
     assert result.problems == []
     assert result.plugin is not None
     assay = result.plugin.types["acme/lab.Assay"]
-    assert assay.fields["ours"].to == "acme/dna.DNASequence"
-    assert assay.fields["theirs"].to == "globex/dna.DNASequence"
+    assert assay.fields["ours"].to == ("acme/dna.DNASequence",)
+    assert assay.fields["theirs"].to == ("globex/dna.DNASequence",)
     # Without the namespace, it could be either: the hint says to choose.
     vague = fields("which: { type: ref, to: dna.DNASequence }\n")
     result = make(tmp_path, vague, plugin, with_=(DNA, globex))

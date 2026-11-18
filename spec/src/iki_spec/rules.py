@@ -115,7 +115,10 @@ def field_schema(f: Field, refs: RefFields | None) -> dict[str, Any]:
         assert f.items is not None  # noqa: S101 - lists always have items
         return {"type": "list", "items": field_schema(f.items, refs)}
     if f.type == "ref":
-        target = refs(f.to) if refs is not None and f.to is not None else None
+        if len(f.to) > 1:
+            # A reference to one of several types (ADR 0136): what every one of them has.
+            return record_schema(f"{f.label} ({', '.join(f.to)})", {}, None)
+        target = refs(f.to[0]) if refs is not None and f.to else None
         if target is None:
             return dict(_STRING)
         label, fields = target

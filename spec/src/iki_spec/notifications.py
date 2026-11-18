@@ -205,7 +205,16 @@ class _Notification:
                 path,
             )
             return None
-        target = self.s.types.get(f.to or "")
+        if len(f.to) != 1:
+            # A reference to one of several types (ADR 0136) has no one set of fields.
+            self.add(
+                "notification-field",
+                f"`{ref}` refers to one of several types ({', '.join(f.to)}): `{ref}.{name}` "
+                f"needs `{ref}` to be a reference to one record of one type.",
+                path,
+            )
+            return None
+        target = self.s.types.get(f.to[0])
         if target is None:
             return None  # its `to` is reported where it's declared
         fields = {n: (g, o) for n, (g, o) in self.s.all_fields(target).items() if not g.removed}

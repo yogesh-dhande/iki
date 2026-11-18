@@ -341,7 +341,7 @@ def _results(me: User, entity: Entity) -> list[Entity]:
             continue
         form = shape(name)
         f = form.fields().get(spec.of)
-        if f is None or f.to is None or entity.type not in _subtypes_of(f.to):
+        if f is None or not any(entity.type in _subtypes_of(t) for t in f.to):
             continue
         rows = form.model._default_manager.filter(type=name, **{f"{spec.of}_id": entity.pk})
         found.extend(

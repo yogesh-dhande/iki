@@ -9,7 +9,8 @@ The schema describes the ``values`` object the API returns and accepts:
 - ``x-iki-immutable`` marks fields that can be set once.
 - Quantities are numbers in ``x-iki-unit`` (UCUM). An input may instead be
   ``{"value": …, "unit": …}`` in any convertible unit.
-- References are entity IDs, of ``x-iki-ref`` or one of its subtypes.
+- References are entity IDs, of one of the types ``x-iki-ref`` lists (ADR 0136) or
+  one of their subtypes.
 - People are user IDs (``x-iki-person``), and take an email address too; only
   someone in the record's project, holding ``x-iki-role`` if it's given, can be
   named (ADR 0122).
@@ -118,7 +119,8 @@ def _value(f: Field) -> dict[str, Any]:
     if kind == "datetime":
         return {"type": "string", "format": "date-time"}
     if kind == "ref":
-        return {"type": "string", "format": "uuid", "x-iki-ref": f.to}
+        # Any one of its types, or their subtypes (ADR 0136).
+        return {"type": "string", "format": "uuid", "x-iki-ref": list(f.to)}
     if kind == "person":
         person: dict[str, Any] = {"type": "string", "x-iki-person": True}
         if f.role is not None:

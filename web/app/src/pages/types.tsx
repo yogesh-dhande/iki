@@ -127,7 +127,11 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
       case "datetime":
         return "Date and time";
       case "ref":
-        return `Reference to ${field.to === "iki/core.Entity" ? "any entity" : label(field.to ?? "")}`;
+        return `Reference to ${
+          !field.to.length || field.to.includes("iki/core.Entity")
+            ? "any entity"
+            : new Intl.ListFormat("en", { type: "disjunction" }).format(field.to.map(label))
+        }`;
       case "file":
         return "File";
       case "json":
