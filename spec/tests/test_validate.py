@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 
 from iki_spec import naming, schemas
-from iki_spec.model import FORMATS, Field, matches_format, parse_size
+from iki_spec.model import (
+    FORMATS,
+    Field,
+    matches_format,
+    parse_size,
+    plugin_from_dict,
+    plugin_to_dict,
+)
 from iki_spec.problems import Location, Severity
 from iki_spec.validate import (
     Result,
@@ -1286,3 +1293,47 @@ def test_the_manifest_schema_dispatches_on_kind() -> None:
         "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`, "
         "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`."
     ]
+
+
+# --- Lab roles (ADR 0116) ----------------------------------------------------------------------
+
+ROLES = (
+    PLUGIN
+    + """\
+roles:
+  analyst: { label: Analyst, description: "  Tests samples.  " }
+  qa: { label: QA }
+"""
+)
+
+
+def test_a_plugin_declares_lab_roles(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE, ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    roles = result.plugin.roles
+    assert list(roles) == ["acme/lab.analyst", "acme/lab.qa"]
+    assert roles["acme/lab.analyst"].label == "Analyst"
+    assert roles["acme/lab.analyst"].description == "Tests samples."
+    assert roles["acme/lab.qa"].qualified_name == "acme/lab.qa"
+    assert roles["acme/lab.qa"].description is None
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [
+        "admin: { label: Admin }",  # a project role's name
+        "Qa: { label: QA }",
+        "qa: {}",  # no label
+        "qa: { label: QA, may: release }",
+        "qa: QA",
+    ],
+)
+def test_lab_roles_need_a_name_and_a_label(tmp_path: Path, roles: str) -> None:
+    assert codes(make(tmp_path, TYPE, PLUGIN + f"roles:\n  {roles}\n")) == ["schema"]
+
+
+def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:
+    plugin = PLUGIN + "roles:\n  qa: { label: QA }\n  quality: { label: qa }\n"
+    assert "both called" in only(make(tmp_path, TYPE, plugin), "duplicate-role-label")

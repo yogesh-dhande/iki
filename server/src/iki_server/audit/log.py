@@ -71,6 +71,8 @@ ACTIONS: dict[str, str] = {
     "project.sharing_restricted": "Restricted sharing a project's entities",
     "project.role_granted": "Granted a project role",
     "project.member_removed": "Removed a project member",
+    "project.lab_role_granted": "Gave someone a lab role",
+    "project.lab_role_revoked": "Took away someone's lab role",
     "plugin.installed": "Installed a plugin",
     "plugin.updated": "Updated a plugin",
     "plugin.detached": "Detached a plugin",

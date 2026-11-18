@@ -10,6 +10,8 @@ functions keep the invariants that hold no matter who asks:
   Admins can still recover a project whose Admins have all left.)
 - Inactive people can't be given new roles or memberships.
 - Service accounts can't be Org Admins or team members (ADR 0027).
+- A lab role (ADR 0116) is one an installed plugin declares, and goes with the
+  membership it was given with.
 
 Every change is recorded in the audit log, in the same transaction, and
 the people it's about are notified (ADR 0030).
@@ -26,6 +28,7 @@ from iki_server.audit import log as audit
 from iki_server.notifications import kinds as notification_kinds
 from iki_server.notifications.services import notify
 from iki_server.org.models import (
+    LabRoleGrant,
     OrgRole,
     OrgRoleAssignment,
     Project,
@@ -417,14 +420,19 @@ def remove_project_membership(membership: ProjectMembership, *, by: User) -> Non
         _lock(project)
         if membership.role == ProjectRole.ADMIN and not _other_admins(project, membership):
             raise Refused("A project needs at least one Admin. Make someone else Admin first.")
+        # Its lab roles go with it (ADR 0116), and the record says which.
+        held = sorted(membership.lab_roles.values_list("role", flat=True))
         membership.delete()
+        data: dict[str, Any] = {"role": ProjectRole(membership.role).label}
+        if held:
+            data["lab_roles"] = held
         audit.record(
             "project.member_removed",
             actor=by,
             target=membership.user or membership.team,
             project=project,
             team=membership.team,
-            data={"role": ProjectRole(membership.role).label},
+            data=data,
         )
         if membership.user is not None:
             notify(
@@ -435,3 +443,80 @@ def remove_project_membership(membership: ProjectMembership, *, by: User) -> Non
                 project=project,
                 actor=by,
             )
+
+
+def set_lab_roles(membership: ProjectMembership, roles: set[str], *, by: User) -> list[str]:
+    """Gives a membership exactly these lab roles (ADR 0116), adding and taking away what
+    differs, each change audited. Returns the roles it has now.
+
+    A role must be one an installed plugin declares, except one the membership has already:
+    a plugin that stopped declaring a role leaves its grants, which count for nothing, until
+    someone takes them away. Lab roles can change while the project is archived, as its
+    members can.
+    """
+    from iki_server.org import lab_roles
+
+    project = membership.project
+    with transaction.atomic():
+        _lock(project)
+        held = set(membership.lab_roles.values_list("role", flat=True))
+        declared = lab_roles.declared()
+        unknown = sorted(roles - held - declared.keys())
+        if unknown:
+            raise Refused(
+                f"`{unknown[0]}` isn't a lab role: no installed plugin declares it.", field="roles"
+            )
+        added, removed = sorted(roles - held), sorted(held - roles)
+        if added and membership.user is not None:
+            _require_active(membership.user)
+        if removed:
+            LabRoleGrant.objects.filter(membership=membership, role__in=removed).delete()
+        for role in added:
+            LabRoleGrant.objects.create(membership=membership, role=role, granted_by=by)
+        holder = membership.user or membership.team
+        for action, changed in (
+            ("project.lab_role_granted", added),
+            ("project.lab_role_revoked", removed),
+        ):
+            for role in changed:
+                data: dict[str, Any] = {"role": role, "label": lab_roles.label(role)}
+                if membership.user is not None and membership.user.pk == by.pk:
+                    data["self"] = True
+                audit.record(
+                    action,
+                    actor=by,
+                    target=holder,
+                    project=project,
+                    team=membership.team,
+                    data=data,
+                )
+        if membership.user is not None and (added or removed):
+            notify(
+                [membership.user],
+                notification_kinds.LAB_ROLES_CHANGED,
+                title=_lab_roles_title(by, project, added, removed),
+                path=f"/projects/{project.slug}/members/",
+                project=project,
+                actor=by,
+            )
+    return sorted(roles)
+
+
+def _lab_roles_title(by: User, project: Project, added: list[str], removed: list[str]) -> str:
+    """ "Ada Lovelace made you QA and Reviewer in Atlas", or took them away."""
+    from iki_server.org import lab_roles
+
+    def listed(roles: list[str]) -> str:
+        names = [lab_roles.label(r) for r in roles]
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+    who = by.get_full_name()
+    if added and removed:
+        return (
+            f"{who} made you {listed(added)} in {project.name}, "
+            f"and you're no longer {listed(removed)}"
+        )
+    if added:
+        return f"{who} made you {listed(added)} in {project.name}"
+    roles = "roles" if len(removed) > 1 else "role"
+    return f"{who} took away your {listed(removed)} {roles} in {project.name}"

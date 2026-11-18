@@ -80,6 +80,19 @@ _register(
         project=True,
         org=True,
     ),
+    EventType(
+        "project.lab_role_granted",
+        "Someone gives a member of the project, a person or a team, a lab role such as QA.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "project.lab_role_revoked",
+        "Someone takes a lab role away from a member of the project. Removing a member takes "
+        "theirs away too, told as project.member_removed with their lab_roles.",
+        project=True,
+        org=True,
+    ),
     EventType("entity.created", "Someone, or a run, creates an entity.", project=True, org=True),
     EventType("entity.updated", "Someone, or a run, changes an entity.", project=True, org=True),
     EventType(
@@ -269,12 +282,21 @@ def _membership(event: AuditEvent, target: models.Model | None) -> tuple[str, di
         "role": _ROLE_NAMES.get(str(event.data.get("role"))),
     }
     if event.action == "project.member_removed":
+        data["lab_roles"] = list(event.data.get("lab_roles", []))
         return "project.member_removed", data
     previous = event.data.get("previous_role")
     if previous is None:
         return "project.member_added", data
     data["previous_role"] = _ROLE_NAMES.get(str(previous))
     return "project.member_role_changed", data
+
+
+def _lab_role(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]]:
+    return event.action, {
+        "project": project_data(event.project) if event.project else None,
+        "member": _member(target),
+        "lab_role": {"name": event.data.get("role"), "label": event.data.get("label")},
+    }
 
 
 def _team(key: str) -> Builder:
@@ -347,6 +369,8 @@ FROM_AUDIT: dict[str, Builder] = {
     "project.sharing_restricted": _project("project.sharing_restricted"),
     "project.role_granted": _membership,
     "project.member_removed": _membership,
+    "project.lab_role_granted": _lab_role,
+    "project.lab_role_revoked": _lab_role,
     "team.created": _team("team.created"),
     "team.updated": _team("team.updated"),
     "team.archived": _team("team.archived"),

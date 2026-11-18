@@ -7,3 +7,7 @@ dependencies:
     types:
       Sequence: ">=1"
       DNASequence: ">=2,<4"
+roles:
+  analyst: { label: Analyst, description: Measures proteins and records the results. }
+  reviewer: { label: Reviewer, description: Checks another analyst's results. }
+  qa: { label: QA, description: Releases what was reviewed. }

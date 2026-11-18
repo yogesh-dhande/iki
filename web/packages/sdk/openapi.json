@@ -640,25 +640,25 @@
       },
       "ApprovalOut": {
         "properties": {
+          "approver": {
+            "description": "Who that is, as people read it: “an Editor or above”, or “someone with the QA role”.",
+            "title": "Approver",
+            "type": "string"
+          },
           "instructions": {
             "description": "What the approver checks; empty if nothing's said.",
             "title": "Instructions",
             "type": "string"
           },
           "role": {
-            "description": "The project role an approver needs.",
-            "enum": [
-              "viewer",
-              "editor",
-              "runner",
-              "admin"
-            ],
+            "description": "The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).",
             "title": "Role",
             "type": "string"
           }
         },
         "required": [
           "role",
+          "approver",
           "instructions"
         ],
         "title": "ApprovalOut",
@@ -5585,6 +5585,146 @@
         "title": "JobState",
         "type": "string"
       },
+      "LabRoleGrantOut": {
+        "properties": {
+          "declared": {
+            "description": "Whether an installed plugin declares it. One that stopped declaring it leaves its grants, which count for nothing until someone takes them away.",
+            "title": "Declared",
+            "type": "boolean"
+          },
+          "granted_at": {
+            "format": "date-time",
+            "title": "Granted At",
+            "type": "string"
+          },
+          "granted_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "description": "What people call it, such as QA.",
+            "title": "Label",
+            "type": "string"
+          },
+          "role": {
+            "description": "The lab role, by name, such as iki/example_lims.qa.",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "label",
+          "declared",
+          "granted_by",
+          "granted_at"
+        ],
+        "title": "LabRoleGrantOut",
+        "type": "object"
+      },
+      "LabRoleOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, such as iki/example_lims.qa.",
+            "title": "Name",
+            "type": "string"
+          },
+          "plugin": {
+            "description": "The plugin that declares it.",
+            "title": "Plugin",
+            "type": "string"
+          },
+          "uses": {
+            "description": "What it lets its holders do.",
+            "items": {
+              "$ref": "#/components/schemas/LabRoleUseOut"
+            },
+            "title": "Uses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "plugin",
+          "uses"
+        ],
+        "title": "LabRoleOut",
+        "type": "object"
+      },
+      "LabRoleUseOut": {
+        "properties": {
+          "description": {
+            "description": "What it lets them do: approve “Weigh” in Review, …",
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "const": "approval",
+            "description": "approval: a workflow step's, which someone with the role approves.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The step.",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The workflow it's in, by name.",
+            "title": "Owner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "owner",
+          "name",
+          "description"
+        ],
+        "title": "LabRoleUseOut",
+        "type": "object"
+      },
+      "LabRolesIn": {
+        "properties": {
+          "roles": {
+            "description": "Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "roles"
+        ],
+        "title": "LabRolesIn",
+        "type": "object"
+      },
       "LastDelivery": {
         "properties": {
           "created_at": {
@@ -8561,6 +8701,14 @@
             "title": "Id",
             "type": "string"
           },
+          "lab_roles": {
+            "description": "The lab roles this grant carries beside its role (ADR 0116): its person's, or everyone's in its team.",
+            "items": {
+              "$ref": "#/components/schemas/LabRoleGrantOut"
+            },
+            "title": "Lab Roles",
+            "type": "array"
+          },
           "role": {
             "enum": [
               "viewer",
@@ -8610,7 +8758,8 @@
           "user",
           "team",
           "team_size",
-          "added_at"
+          "added_at",
+          "lab_roles"
         ],
         "title": "ProjectMemberOut",
         "type": "object"
@@ -8643,6 +8792,14 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "my_lab_roles": {
+            "description": "The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.",
+            "items": {
+              "type": "string"
+            },
+            "title": "My Lab Roles",
+            "type": "array"
           },
           "my_role": {
             "anyOf": [
@@ -8689,6 +8846,7 @@
           "registry",
           "created_at",
           "my_role",
+          "my_lab_roles",
           "can"
         ],
         "title": "ProjectOut",
@@ -20195,6 +20353,41 @@
         ]
       }
     },
+    "/api/v1/lab-roles": {
+      "get": {
+        "description": "Named roles such as QA (ADR 0116), which a project's Admins give its members beside\ntheir project role, and what each lets its holders do. A lab role grants nothing by\nitself.",
+        "operationId": "iki_server_api_projects_list_lab_roles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LabRoleOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The lab roles plugins declare",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "iki_server_api_me_me",
@@ -21681,6 +21874,68 @@
           }
         ],
         "summary": "Remove a grant",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/members/{membership_id}/lab-roles": {
+      "put": {
+        "description": "Gives the person or team exactly these lab roles here, beside their role (ADR 0116):\nroles it has that aren't listed are taken away. Each change is audited, and a person is\ntold.",
+        "operationId": "iki_server_api_projects_set_lab_roles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "membership_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Membership Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabRolesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set a grant's lab roles",
         "tags": [
           "projects"
         ]

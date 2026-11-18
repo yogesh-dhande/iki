@@ -610,8 +610,55 @@ def test_a_step_can_wait_for_approval(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "approval", ["{ role: owner }", "{ instructions: '' }", "{ by: me }", "yes"]
+    "approval", ["{ role: Owner }", "{ instructions: '' }", "{ by: me }", "yes"]
 )
-def test_an_approval_names_a_project_role(tmp_path: Path, approval: str) -> None:
+def test_an_approval_names_a_role(tmp_path: Path, approval: str) -> None:
     steps = f"d: {{ action: describe, inputs: {{ thing: $inputs.assay }}, approval: {approval} }}\n"
     assert codes(make(tmp_path, flow(steps))) == ["schema"]
+
+
+def _with_roles(tmp_path: Path, role: str, plugin_extra: str = "") -> Result:
+    """The pipeline with an approval needing `role`, in a plugin with lab roles."""
+    steps = (
+        "d: { action: describe, inputs: { thing: $inputs.assay }, "
+        f"approval: {{ role: {role} }} }}\n"
+    )
+    make(tmp_path, flow(steps))
+    root = tmp_path / "acme"
+    (root / "plugin.yaml").write_text(PLUGIN + "roles:\n  qa: { label: QA }\n" + plugin_extra)
+    qms = tmp_path / "qms"
+    qms.mkdir(exist_ok=True)
+    (qms / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/qms\nversion: 1.0.0\n"
+        "roles:\n  release_officer: { label: Release officer }\n"
+    )
+    return load_plugin(root, dependencies=[qms])
+
+
+def test_an_approval_can_need_a_lab_role(tmp_path: Path) -> None:
+    result = _with_roles(tmp_path, "qa")
+    assert result.problems == []
+    assert result.plugin is not None
+    approval = result.plugin.workflows["pipeline"].steps["d"].approval
+    assert approval == Approval(role="acme/lab.qa")
+    # Another plugin's, which it depends on.
+    result = _with_roles(tmp_path, "acme/qms.release_officer", "dependencies:\n  acme/qms: {}\n")
+    assert result.problems == []
+    assert result.plugin is not None
+    approval = result.plugin.workflows["pipeline"].steps["d"].approval
+    assert approval == Approval(role="acme/qms.release_officer")
+
+
+def test_an_approvals_lab_role_must_be_declared(tmp_path: Path) -> None:
+    result = _with_roles(tmp_path, "owner")
+    assert codes(result) == ["unknown-role"]
+    assert result.problems[0].message == "This plugin has no lab role `owner`."
+    result = _with_roles(tmp_path, "q")
+    assert codes(result) == ["unknown-role"]
+    assert result.problems[0].hint == "Did you mean `qa`?"
+    result = _with_roles(tmp_path, "acme/qms.qa", "dependencies:\n  acme/qms: {}\n")
+    assert [(p.code, p.message) for p in result.problems] == [
+        ("unknown-role", "The acme/qms plugin has no lab role `qa`.")
+    ]
+    # A role of a plugin it doesn't depend on.
+    assert codes(_with_roles(tmp_path, "acme/qms.release_officer")) == ["undeclared-dependency"]

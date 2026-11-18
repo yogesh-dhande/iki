@@ -26,6 +26,8 @@ export type Member = Schemas["ProjectMemberOut"];
 export type TeamRef = Schemas["TeamRef"];
 export type Role = Schemas["ProjectRoleOut"];
 export type RoleName = Role["name"];
+export type LabRole = Schemas["LabRoleOut"];
+export type LabRoleGrant = Schemas["LabRoleGrantOut"];
 export type Notification = Schemas["NotificationOut"];
 export type Webhook = Schemas["WebhookOut"];
 export type WebhookCreated = Schemas["WebhookCreated"];
@@ -137,6 +139,13 @@ export const meQuery = queryOptions({
 export const rolesQuery = queryOptions({
   queryKey: ["project-roles"],
   queryFn: async () => unwrap(await iki.GET("/api/v1/project-roles")),
+  staleTime: Infinity,
+});
+
+/** The lab roles installed plugins declare (ADR 0116); none unless a plugin declares some. */
+export const labRolesQuery = queryOptions({
+  queryKey: ["lab-roles"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/lab-roles")),
   staleTime: Infinity,
 });
 

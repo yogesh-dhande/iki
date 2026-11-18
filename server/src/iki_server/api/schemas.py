@@ -7,7 +7,14 @@ from uuid import UUID
 from ninja import Field, Schema
 
 from iki_server.accounts.models import User
-from iki_server.org.models import OrgRole, Project, ProjectMembership, ProjectRole, Team
+from iki_server.org.models import (
+    LabRoleGrant,
+    OrgRole,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    Team,
+)
 
 ProjectRoleName = Literal["viewer", "editor", "runner", "admin"]
 OrgRoleName = Literal["org_admin", "compute_admin", "auditor"]
@@ -241,11 +248,21 @@ class ProjectOut(Schema):
     my_role: ProjectRoleName | None = Field(
         description="Your role, from your own grant or your teams'; null if you have none."
     )
+    my_lab_roles: list[str] = Field(
+        description="The lab roles you hold here (ADR 0116), from your own grant or your "
+        "teams', by name, such as iki/example_lims.qa: what /lab-roles describes."
+    )
     can: ProjectCan = Field(description="What you may do with it.")
 
     @staticmethod
     def resolve_my_role(project: object) -> ProjectRoleName | None:
         return role_name(getattr(project, "my_role", None))
+
+    @staticmethod
+    def resolve_my_lab_roles(project: Project, context: dict[str, Any]) -> list[str]:
+        from iki_server.org import permissions
+
+        return sorted(permissions.lab_roles(context["request"].auth, project))
 
     @staticmethod
     def resolve_can(project: Project, context: dict[str, Any]) -> dict[str, Any]:
@@ -303,6 +320,29 @@ class ProjectPatch(Schema):
     )
 
 
+class LabRoleGrantOut(Schema):
+    role: str = Field(description="The lab role, by name, such as iki/example_lims.qa.")
+    label: str = Field(description="What people call it, such as QA.")
+    declared: bool = Field(
+        description="Whether an installed plugin declares it. One that stopped declaring it "
+        "leaves its grants, which count for nothing until someone takes them away."
+    )
+    granted_by: UserOut | None
+    granted_at: datetime
+
+    @staticmethod
+    def resolve_label(grant: LabRoleGrant) -> str:
+        from iki_server.org import lab_roles
+
+        return lab_roles.label(grant.role)
+
+    @staticmethod
+    def resolve_declared(grant: LabRoleGrant) -> bool:
+        from iki_server.org import lab_roles
+
+        return grant.role in lab_roles.declared()
+
+
 class ProjectMemberOut(Schema):
     id: UUID
     role: ProjectRoleName
@@ -310,6 +350,14 @@ class ProjectMemberOut(Schema):
     team: TeamRef | None
     team_size: int | None = Field(description="For a team's grant, how many people it covers.")
     added_at: datetime
+    lab_roles: list[LabRoleGrantOut] = Field(
+        description="The lab roles this grant carries beside its role (ADR 0116): its person's, "
+        "or everyone's in its team."
+    )
+
+    @staticmethod
+    def resolve_lab_roles(membership: ProjectMembership) -> list[LabRoleGrant]:
+        return list(membership.lab_roles.all())
 
     @staticmethod
     def resolve_team_size(membership: ProjectMembership) -> int | None:
@@ -332,6 +380,31 @@ class ProjectRoleOut(Schema):
 
 class RoleIn(Schema):
     role: ProjectRoleName
+
+
+class LabRolesIn(Schema):
+    roles: list[str] = Field(
+        max_length=50,
+        description="Every lab role the grant should carry, by name (such as "
+        "iki/example_lims.qa): those it has and aren't listed are taken away.",
+    )
+
+
+class LabRoleUseOut(Schema):
+    kind: Literal["approval"] = Field(
+        description="approval: a workflow step's, which someone with the role approves."
+    )
+    owner: str = Field(description="The workflow it's in, by name.")
+    name: str = Field(description="The step.")
+    description: str = Field(description="What it lets them do: approve “Weigh” in Review, …")
+
+
+class LabRoleOut(Schema):
+    name: str = Field(description="Its name, such as iki/example_lims.qa.")
+    label: str
+    description: str | None
+    plugin: str = Field(description="The plugin that declares it.")
+    uses: list[LabRoleUseOut] = Field(description="What it lets its holders do.")
 
 
 class ServiceAccountOut(UserOut):

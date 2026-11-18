@@ -413,6 +413,7 @@ describe("members", () => {
       team: null,
       team_size: null,
       added_at: "2026-03-14T09:00:00Z",
+      lab_roles: [],
     },
     {
       id: "m2",
@@ -421,6 +422,7 @@ describe("members", () => {
       team: null,
       team_size: null,
       added_at: "2026-03-14T09:00:00Z",
+      lab_roles: [],
     },
     {
       id: "m3",
@@ -429,8 +431,37 @@ describe("members", () => {
       team: { id: "t2", name: "Chemistry", slug: "chemistry" },
       team_size: 1,
       added_at: "2026-03-14T09:00:00Z",
+      lab_roles: [],
     },
   ];
+  const QA = {
+    name: "iki/example_lims.qa",
+    label: "QA",
+    description: "Releases reviewed samples.",
+    plugin: "iki/example_lims",
+    uses: [
+      {
+        kind: "approval",
+        owner: "iki/example_lims.release",
+        name: "release",
+        description: "approve “Release” in Release a batch",
+      },
+    ],
+  };
+  const REVIEWER = {
+    name: "iki/example_lims.reviewer",
+    label: "Reviewer",
+    description: "Checks another analyst’s results.",
+    plugin: "iki/example_lims",
+    uses: [],
+  };
+  const granted = (role: { name: string; label: string }, declared = true) => ({
+    role: role.name,
+    label: role.label,
+    declared,
+    granted_by: { id: ME.id, name: ME.name },
+    granted_at: "2026-03-14T09:00:00Z",
+  });
 
   it("shows people and teams, read-only to members", async () => {
     signedIn();
@@ -455,6 +486,83 @@ describe("members", () => {
     expect(within(list).getByText(/Everyone in the team · 1 member$/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
     expect(screen.getByText("What each role can do")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Lab roles" })).toBeNull();
+  });
+
+  it("shows lab roles beside roles, and what each is for", async () => {
+    signedIn();
+    answer("GET /api/v1/lab-roles", [QA, REVIEWER]);
+    onProjectPage({
+      my_role: "viewer",
+      can: { ...project().can, manage: false, manage_members: false },
+    });
+    const ada = {
+      ...people[1],
+      lab_roles: [granted(QA), granted({ name: "x.y", label: "y" }, false)],
+    };
+    answer(`GET ${MEMBERS}`, page([people[0], ada, people[2]]));
+    const { user } = await renderApp("/projects/kinase-atlas/members/");
+    const row = (await screen.findByText("Ada Lovelace")).closest("li");
+    if (!row) throw new Error("no row");
+    expect(within(row).getByText("Lab roles: QA, y (no longer declared)")).toBeVisible();
+    await user.click(screen.getByText("What each role can do"));
+    expect(screen.getByRole("heading", { name: "Lab roles" })).toBeVisible();
+    expect(
+      screen.getByText(
+        "Releases reviewed samples. Needed to approve “Release” in Release a batch.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Lab roles/ })).toBeNull();
+  });
+
+  it("gives a member lab roles", async () => {
+    signedIn();
+    answer("GET /api/v1/lab-roles", [QA, REVIEWER]);
+    onProjectPage();
+    const ada = { ...people[1], lab_roles: [granted(REVIEWER)] };
+    answer(`GET ${MEMBERS}`, page([people[0], ada, people[2]]));
+    answer(`GET /api/v1/projects/${PROJECT.id}/grantable-teams`, page([]));
+    answer(`PUT ${MEMBERS}/m2/lab-roles`, { ...ada, lab_roles: [granted(QA), granted(REVIEWER)] });
+    const { user } = await renderApp("/projects/kinase-atlas/members/");
+    await user.click(await screen.findByRole("button", { name: "Lab roles for Ada Lovelace" }));
+    const dialog = screen.getByRole("dialog", { name: "Lab roles for Ada Lovelace" });
+    const qa = within(dialog).getByRole("checkbox", { name: "QA" });
+    expect(qa).not.toBeChecked();
+    expect(qa).toHaveAccessibleDescription(/Needed to approve “Release” in Release a batch/);
+    expect(within(dialog).getByRole("checkbox", { name: "Reviewer" })).toBeChecked();
+    await user.click(qa);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Ada Lovelace’s lab roles are now QA, Reviewer.")).toBeVisible();
+    expect(calls("PUT")[0]?.body).toEqual({
+      roles: ["iki/example_lims.qa", "iki/example_lims.reviewer"],
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows why lab roles weren't given, in the dialog", async () => {
+    signedIn();
+    answer("GET /api/v1/lab-roles", [QA]);
+    onProjectPage();
+    answer(`GET ${MEMBERS}`, page(people));
+    answer(`GET /api/v1/projects/${PROJECT.id}/grantable-teams`, page([]));
+    const refusal = "That person’s account is deactivated.";
+    answer(`PUT ${MEMBERS}/m2/lab-roles`, problem(409, "refused", refusal));
+    const { user } = await renderApp("/projects/kinase-atlas/members/");
+    await user.click(await screen.findByRole("button", { name: "Lab roles for Ada Lovelace" }));
+    const dialog = screen.getByRole("dialog", { name: "Lab roles for Ada Lovelace" });
+    await user.click(within(dialog).getByRole("checkbox", { name: "QA" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(refusal);
+  });
+
+  it("offers no lab roles when no plugin declares any", async () => {
+    signedIn();
+    onProjectPage();
+    answer(`GET ${MEMBERS}`, page(people));
+    answer(`GET /api/v1/projects/${PROJECT.id}/grantable-teams`, page([]));
+    await renderApp("/projects/kinase-atlas/members/");
+    await screen.findByText("Ada Lovelace");
+    expect(screen.queryByRole("button", { name: /^Lab roles/ })).toBeNull();
   });
 
   it("says why someone can't be added, without calling the API to add them", async () => {

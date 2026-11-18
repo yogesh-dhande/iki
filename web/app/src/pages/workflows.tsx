@@ -45,7 +45,7 @@ import {
 import { inputField, listed, NO_RULES } from "./new-run";
 import { useProject } from "./project-overview";
 import { StepGraph } from "./step-graph";
-import { APPROVER, When, WORKFLOW_STATUS } from "./workflow-runs";
+import { When, WORKFLOW_STATUS } from "./workflow-runs";
 
 /** How often a list with workflow runs still going is read again. */
 const LIST_REFRESH_MS = 5_000;
@@ -297,7 +297,7 @@ function Steps({ workflow, actions }: { workflow: Workflow; actions: Action[] })
             {step.when.length ? <When conditions={step.when} /> : null}
             {step.approval ? (
               <span className="row-meta">
-                Waits for approval by {APPROVER[step.approval.role]} or above, other than you
+                Waits for approval by {step.approval.approver}, other than you
               </span>
             ) : null}
           </div>

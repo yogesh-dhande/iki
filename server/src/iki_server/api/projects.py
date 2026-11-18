@@ -12,6 +12,8 @@ from iki_server.api.common import caller, person, project, require, team
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
+    LabRoleOut,
+    LabRolesIn,
     Page,
     ProjectIn,
     ProjectMemberOut,
@@ -22,7 +24,7 @@ from iki_server.api.schemas import (
     TeamRef,
     parse_role,
 )
-from iki_server.org import permissions, registries, services
+from iki_server.org import lab_roles, permissions, registries, services
 from iki_server.org.models import (
     PROJECT_ROLE_DESCRIPTIONS,
     Project,
@@ -63,6 +65,24 @@ def project_roles(request: HttpRequest) -> list[dict[str, str]]:
             "description": PROJECT_ROLE_DESCRIPTIONS[role],
         }
         for role in ProjectRole
+    ]
+
+
+@router.get("/lab-roles", response=list[LabRoleOut], summary="The lab roles plugins declare")
+def list_lab_roles(request: HttpRequest) -> list[dict[str, Any]]:
+    """Named roles such as QA (ADR 0116), which a project's Admins give its members beside
+    their project role, and what each lets its holders do. A lab role grants nothing by
+    itself."""
+    caller(request)
+    return [
+        {
+            "name": name,
+            "label": role.label,
+            "description": role.description,
+            "plugin": role.plugin,
+            "uses": lab_roles.uses(name),
+        }
+        for name, role in sorted(lab_roles.declared().items())
     ]
 
 
@@ -153,8 +173,10 @@ def patch_project(request: HttpRequest, project_id: UUID, payload: ProjectPatch)
 
 
 def _memberships(found: Project) -> QuerySet[ProjectMembership]:
-    return found.memberships.select_related("user", "team").annotate(
-        team_size=Count("team__memberships")
+    return (
+        found.memberships.select_related("user", "team")
+        .prefetch_related("lab_roles__granted_by")
+        .annotate(team_size=Count("team__memberships"))
     )
 
 
@@ -224,6 +246,36 @@ def _team_for_grant(team_id: UUID) -> Team:
     if grantee.is_archived:
         raise services.Refused(f"{grantee.name} is archived.")
     return grantee
+
+
+@router.put(
+    "/projects/{project_id}/members/{membership_id}/lab-roles",
+    response=ProjectMemberOut,
+    summary="Set a grant's lab roles",
+)
+def set_lab_roles(
+    request: HttpRequest, project_id: UUID, membership_id: UUID, payload: LabRolesIn
+) -> ProjectMembership:
+    """Gives the person or team exactly these lab roles here, beside their role (ADR 0116):
+    roles it has that aren't listed are taken away. Each change is audited, and a person is
+    told."""
+    me = caller(request)
+    found = project(me, project_id, Action.PROJECT_MEMBERS_MANAGE)
+    membership = _memberships(found).filter(pk=membership_id).first()
+    if membership is None:
+        raise Problem(404, "No such grant in this project.")
+    held = set(membership.lab_roles.values_list("role", flat=True))
+    declared = lab_roles.declared()
+    errors = [
+        {"pointer": f"#/roles/{i}", "detail": "isn't a lab role any installed plugin declares."}
+        for i, role in enumerate(payload.roles)
+        if role not in declared and role not in held
+    ]
+    if errors:
+        raise Problem(422, "Those aren't all lab roles.", code="validation_failed", errors=errors)
+    services.set_lab_roles(membership, set(payload.roles), by=me)
+    permissions.forget(me)
+    return _memberships(found).get(pk=membership.pk)
 
 
 @router.delete(

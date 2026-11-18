@@ -30,6 +30,7 @@ __all__ = [
     "Extension",
     "Field",
     "Input",
+    "LabRole",
     "Metric",
     "Plugin",
     "Resources",
@@ -437,8 +438,29 @@ class Condition:
         return parts[1] if parts[0] == "$steps" and len(parts) == 4 else None
 
 
-#: The project roles a workflow step's approval may need, lowest first.
+#: The project roles a workflow step's approval may need, lowest first. It may need a lab
+#: role instead (ADR 0116), named in full: `acme/qms.qa`.
 APPROVAL_ROLES = ("viewer", "editor", "runner", "admin")
+
+
+@dataclass(frozen=True)
+class LabRole:
+    """A named role a plugin declares, such as QA (ADR 0116). A project's Admins give it to
+    members beside their project role, and transitions and approvals can require it."""
+
+    plugin: str
+    name: str
+    label: str
+    description: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+
+def is_lab_role(role: str) -> bool:
+    """Whether an approval's role is a lab role (``acme/qms.qa``) rather than a project role."""
+    return "." in role
 
 
 @dataclass(frozen=True)
@@ -606,6 +628,8 @@ class Plugin:
     workflows: dict[str, Workflow] = field(default_factory=dict)
     triggers: dict[str, Trigger] = field(default_factory=dict)
     components: dict[str, Component] = field(default_factory=dict)
+    #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
+    roles: dict[str, LabRole] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -709,6 +733,7 @@ _DATACLASSES = (
     ComponentSlot,
     Viewer,
     Track,
+    LabRole,
 )
 
 
@@ -767,6 +792,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                 k: Component(**{**v, "slots": tuple(ComponentSlot(**x) for x in v["slots"])})
                 for k, v in (data.get("components") or {}).items()
             },
+            # ...or lab roles.
+            "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
         }
     )
 

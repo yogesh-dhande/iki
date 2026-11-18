@@ -54,10 +54,32 @@
         "additionalProperties": false
       }
     },
-    "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" }
+    "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" },
+    "roles": {
+      "description": "The lab roles this plugin declares, such as `analyst`, `reviewer` and `qa`, by name (ADR 0116). A project's Admins give them to its members, people or teams, beside their project role, and a type's transitions and a workflow step's approval can require one. Elsewhere a role is `namespace/plugin.role`, such as `acme/assays.qa`.",
+      "type": "object",
+      "maxProperties": 50,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
+      "additionalProperties": { "$ref": "#/$defs/role" }
+    }
   },
   "additionalProperties": false,
   "$defs": {
+    "role": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label": {
+          "description": "What people see, such as `QA` or `Reviewer`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "description": {
+          "description": "What someone with the role does, shown where Admins give it, such as `Releases reviewed samples`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+        }
+      },
+      "additionalProperties": false
+    },
     "versionConstraint": {
       "description": "Comparisons with whole schema versions, separated by commas, such as `>=2` or `>=2,<4`.",
       "type": "string",

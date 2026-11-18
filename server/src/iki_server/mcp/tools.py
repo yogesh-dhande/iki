@@ -212,10 +212,18 @@ def build() -> MCPServer:
         limit: Limit = DEFAULT_LIMIT,
         cursor: Cursor = None,
     ) -> CallToolResult:
-        """Projects the person can see, with their role and what they can do in each
-        (`can`). Entities and runs belong to projects; tools take a project's ID."""
+        """Projects the person can see, with their role, the lab roles they hold there
+        (`my_lab_roles`) and what they can do in each (`can`). Entities and runs belong to
+        projects; tools take a project's ID."""
         query = {"member": member, "archived": archived, "limit": limit, "cursor": cursor}
         return answer(await call("GET", "/projects", query=query))
+
+    @server.tool(annotations=READ, title="List lab roles")
+    async def list_lab_roles() -> CallToolResult:
+        """The lab roles the installed plugins declare, such as QA, and what each lets its
+        holders do. A project's Admins give them to its members beside their project role;
+        list_projects says which the person holds where. Only people give them, in Iki."""
+        return answer(await call("GET", "/lab-roles"))
 
     @server.tool(annotations=READ, title="List entity types")
     async def list_entity_types() -> CallToolResult:

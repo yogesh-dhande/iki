@@ -59,6 +59,20 @@
       "maxLength": 50,
       "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
     },
+    "roleName": {
+      "description": "A lab role's name: lower-case letters, digits and single underscores, starting with a letter, such as `qa`. Not a project role's (`viewer`, `editor`, `runner`, `admin`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+      "not": { "enum": ["viewer", "editor", "runner", "admin"] }
+    },
+    "roleRef": {
+      "description": "A lab role: `qa` for this plugin's own, or `namespace/plugin.role` (such as `acme/qms.qa`) for one a dependency declares.",
+      "type": "string",
+      "maxLength": 112,
+      "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    },
     "typeName": {
       "description": "A type's name in PascalCase, such as `Protein` or `ProteinStructure`.",
       "type": "string",

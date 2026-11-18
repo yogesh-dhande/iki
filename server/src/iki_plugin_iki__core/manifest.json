@@ -1659,6 +1659,7 @@
     "environments": {},
     "workflows": {},
     "triggers": {},
-    "components": {}
+    "components": {},
+    "roles": {}
   }
 }

@@ -145,6 +145,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
     assert [t["name"] for t in listed] == [
         "whoami",
         "list_projects",
+        "list_lab_roles",
         "list_entity_types",
         "describe_entity_type",
         "search_entities",

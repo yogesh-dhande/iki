@@ -2,16 +2,20 @@ import { ApiError, unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
+import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import {
   findPerson,
   grantableTeamsQuery,
   iki,
+  labRolesQuery,
   meQuery,
   membersQuery,
   problemOf,
   rolesQuery,
   useApiMutation,
+  type LabRole,
+  type LabRoleGrant,
   type Member,
   type Project,
   type Role,
@@ -22,6 +26,7 @@ import { usePageTitle } from "../layout";
 import {
   Badge,
   Button,
+  CheckboxesField,
   ConfirmDialog,
   Loading,
   ProblemAlert,
@@ -46,6 +51,7 @@ export function ProjectMembers() {
   usePageTitle(`Members · ${project.name}`);
   const me = useSuspenseQuery(meQuery).data;
   const roles = useSuspenseQuery(rolesQuery).data;
+  const labRoles = useSuspenseQuery(labRolesQuery).data;
   const members = useQuery(membersQuery(project.id));
   const canManage = project.can.manage_members;
   const canJoin = project.can.manage_members && project.my_role !== "admin";
@@ -64,6 +70,7 @@ export function ProjectMembers() {
               member={member}
               project={project}
               roles={roles}
+              labRoles={labRoles}
               isMe={member.user?.id === me.id}
               canManage={canManage}
             />
@@ -91,13 +98,30 @@ export function ProjectMembers() {
               <RoleTerm key={role.name} role={role} />
             ))}
           </dl>
+          {labRoles.length ? (
+            <>
+              <h2 className="section-title">Lab roles</h2>
+              <p className="muted">
+                Given beside a role, they say who may approve, review or release. They add no access
+                of their own.
+              </p>
+              <dl className="summary">
+                {labRoles.map((role) => (
+                  <RoleTerm
+                    key={role.name}
+                    role={{ label: role.label, description: labRoleDescription(role) }}
+                  />
+                ))}
+              </dl>
+            </>
+          ) : null}
         </details>
       )}
     </>
   );
 }
 
-function RoleTerm({ role }: { role: Role }) {
+function RoleTerm({ role }: { role: Pick<Role, "label" | "description"> }) {
   return (
     <>
       <dt>{role.label}</dt>
@@ -131,16 +155,32 @@ function grantPath(project: Project, member: Member) {
       });
 }
 
+/** What a lab role is for, as its plugin says, and what in Iki needs it. */
+function labRoleDescription(role: LabRole): string {
+  const uses = role.uses.map((use) => use.description);
+  const needed = uses.length ? `Needed to ${uses.join("; to ")}.` : "";
+  return [role.description, needed].filter(Boolean).join(" ");
+}
+
+/** "QA, Reviewer", with a role no plugin declares any more said to be so. */
+function grantedText(granted: LabRoleGrant[]): string {
+  return granted
+    .map((grant) => (grant.declared ? grant.label : `${grant.label} (no longer declared)`))
+    .join(", ");
+}
+
 function MemberRow({
   member,
   project,
   roles,
+  labRoles,
   isMe,
   canManage,
 }: {
   member: Member;
   project: Project;
   roles: Role[];
+  labRoles: LabRole[];
   isMe: boolean;
   canManage: boolean;
 }) {
@@ -148,6 +188,7 @@ function MemberRow({
   const navigate = useNavigate();
   const [role, setRole] = useState<RoleName>(member.role);
   const [confirming, setConfirming] = useState(false);
+  const [choosingLabRoles, setChoosingLabRoles] = useState(false);
   const label = (name: RoleName) => roles.find((r) => r.name === name)?.label ?? name;
   const name = who(member);
   const invalidate = [["projects"], ["me"]] as const;
@@ -200,6 +241,9 @@ function MemberRow({
             </span>
           </>
         )}
+        {member.lab_roles.length ? (
+          <span className="row-meta">Lab roles: {grantedText(member.lab_roles)}</span>
+        ) : null}
       </div>
       {canManage ? (
         <div className="row-actions">
@@ -225,6 +269,28 @@ function MemberRow({
           >
             Change
           </Button>
+          {labRoles.length || member.lab_roles.length ? (
+            <Button
+              variant="quiet"
+              label={`Lab roles for ${name}`}
+              onClick={() => {
+                setChoosingLabRoles(true);
+              }}
+            >
+              Lab roles
+            </Button>
+          ) : null}
+          {choosingLabRoles ? (
+            <LabRolesDialog
+              member={member}
+              name={name}
+              project={project}
+              labRoles={labRoles}
+              onClose={() => {
+                setChoosingLabRoles(false);
+              }}
+            />
+          ) : null}
           <Button
             variant="danger"
             onClick={() => {
@@ -265,6 +331,12 @@ function MemberRow({
                   : `${name} will lose the access their ${label(member.role)} role gives them to ${project.name}.`
                 : `Everyone in ${name} will lose the access this grant gives them, unless they have a role of their own.`}
             </p>
+            {member.lab_roles.length ? (
+              <p>
+                {member.user ? (isMe ? "Your" : "Their") : "The team’s"} lab roles go with it:{" "}
+                {grantedText(member.lab_roles)}.
+              </p>
+            ) : null}
           </ConfirmDialog>
         </div>
       ) : (
@@ -278,6 +350,104 @@ function MemberRow({
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** Chooses a member's lab roles: those plugins declare, and any they hold that none does. */
+function LabRolesDialog({
+  member,
+  name,
+  project,
+  labRoles,
+  onClose,
+}: {
+  member: Member;
+  name: string;
+  project: Project;
+  labRoles: LabRole[];
+  onClose: () => void;
+}) {
+  const { say } = useMessages();
+  const [chosen, setChosen] = useState<string[]>(member.lab_roles.map((grant) => grant.role));
+  const save = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.PUT("/api/v1/projects/{project_id}/members/{membership_id}/lab-roles", {
+          params: { path: { project_id: project.id, membership_id: member.id } },
+          body: { roles: chosen },
+        }),
+      ),
+    [["projects"], ["me"]],
+  );
+  const undeclared = member.lab_roles.filter((grant) => !grant.declared);
+  const options = [
+    ...labRoles.map((role) => ({
+      value: role.name,
+      label: role.label,
+      description: labRoleDescription(role),
+    })),
+    ...undeclared.map((grant) => ({
+      value: grant.role,
+      label: `${grant.label} (no longer declared)`,
+      description:
+        "No installed plugin declares it any more, so it counts for nothing. Clear it to take it away.",
+    })),
+  ];
+
+  function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    save.mutate(undefined, {
+      onSuccess: (saved) => {
+        say(
+          saved.lab_roles.length
+            ? `${name}’s lab roles are now ${grantedText(saved.lab_roles)}.`
+            : `${name} has no lab roles now.`,
+        );
+        onClose();
+      },
+    });
+  }
+
+  return (
+    <ModalOverlay
+      className="dialog-overlay"
+      isOpen
+      isDismissable={!save.isPending}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Modal className="dialog">
+        <Dialog className="dialog-body">
+          <Heading slot="title" className="section-title">
+            Lab roles for {name}
+          </Heading>
+          <form onSubmit={submit} noValidate>
+            <ProblemAlert problem={save.error ? problemOf(save.error) : undefined} />
+            <CheckboxesField
+              label="Lab roles"
+              literal={false}
+              value={chosen}
+              onChange={setChosen}
+              options={options}
+              help={
+                member.user
+                  ? "They say who may approve, review or release, beside the project role, and add no access of their own."
+                  : "Everyone in the team holds these, including people who join it later. They add no access of their own."
+              }
+            />
+            <div className="actions">
+              <Button variant="primary" type="submit" busy={save.isPending} busyText="Saving…">
+                Save
+              </Button>
+              <Button variant="quiet" onClick={onClose} disabled={save.isPending}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }
 

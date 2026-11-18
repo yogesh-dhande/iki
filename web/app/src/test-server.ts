@@ -137,6 +137,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
     registry: MAIN_REGISTRY,
     created_at: "2026-03-14T09:00:00Z",
     my_role: "admin",
+    my_lab_roles: [],
     can: {
       read: true,
       edit: true,
@@ -160,6 +161,7 @@ export function page<T>(items: T[]): { items: T[]; next_cursor: null } {
 export function signedIn(me: Partial<Schemas["MeOut"]> = {}): void {
   answer("GET /api/v1/me", { ...ME, ...me });
   answer("GET /api/v1/project-roles", ROLES);
+  answer("GET /api/v1/lab-roles", []);
   answer("GET /api/v1/notifications/summary", { unread: 0 });
 }
 

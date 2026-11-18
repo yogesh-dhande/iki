@@ -98,10 +98,17 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 def test_lists_installed_workflows(world: World) -> None:
     viewer = api_as(world, "viewer")
     listed = viewer.get("/workflows").json()
-    names = [ALIGN_THEN_WEIGH, IMPORT_AND_WEIGH, RELAX_TWICE, REVIEW_THEN_WEIGH, WEIGH_AND_ALIGN]
+    names = [
+        ALIGN_THEN_WEIGH,
+        IMPORT_AND_WEIGH,
+        RELAX_TWICE,
+        "acme/protein.release_then_weigh",
+        REVIEW_THEN_WEIGH,
+        WEIGH_AND_ALIGN,
+    ]
     assert [w["name"] for w in listed] == names
     found = viewer.get(f"/workflows/{WEIGH_AND_ALIGN}").json()
-    assert found == listed[4]
+    assert found == listed[5]
     assert (found["label"], found["plugin"]) == ("Weigh and align", "acme/protein")
     assert [i["name"] for i in found["inputs"]] == ["query", "target"]
     assert found["params"][0]["name"] == "mode"
@@ -136,9 +143,15 @@ def test_lists_installed_workflows(world: World) -> None:
     problem(viewer.get("/workflows/acme/protein.nope"), 404, "not_found")
     conditional = listed[0]["steps"][1]
     assert (conditional["id"], conditional["after"]) == ("weigh", ["align"])
-    assert listed[3]["steps"][1]["approval"] == {
+    assert listed[4]["steps"][1]["approval"] == {
         "role": "runner",
+        "approver": "a Runner or above",
         "instructions": "Check the alignment before the target is weighed.",
+    }
+    assert listed[3]["steps"][1]["approval"] == {
+        "role": "acme/protein.qa",
+        "approver": "someone with the QA role",
+        "instructions": "Release the alignment before the target is weighed.",
     }
     assert conditional["when"] == [
         {

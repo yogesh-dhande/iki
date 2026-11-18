@@ -22,3 +22,17 @@ settings:
     description: >-
       The LIMS's host name, such as lims.example.org. Runs reach it, and only
       it, over HTTPS, and each protein's LIMS ID links to its page there.
+roles:
+  analyst:
+    label: Analyst
+    description: >-
+      Tests samples and records their results, then submits them for review.
+  reviewer:
+    label: Reviewer
+    description: >-
+      Checks another analyst's results, and approves them or sends them back.
+  qa:
+    label: QA
+    description: >-
+      Releases reviewed samples, and reopens released ones when they need
+      correcting.

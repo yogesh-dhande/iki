@@ -58,8 +58,13 @@ class ConditionOut(Schema):
 
 
 class ApprovalOut(Schema):
-    role: Literal["viewer", "editor", "runner", "admin"] = Field(
-        description="The project role an approver needs."
+    role: str = Field(
+        description="The role an approver needs: a project role (viewer, editor, runner or "
+        "admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116)."
+    )
+    approver: str = Field(
+        description="Who that is, as people read it: “an Editor or above”, or “someone with "
+        "the QA role”."
     )
     instructions: str = Field(description="What the approver checks; empty if nothing's said.")
 
@@ -171,7 +176,11 @@ def _step_out(of: Workflow, step_id: str) -> dict[str, Any]:
         ],
         "approval": None
         if step.approval is None
-        else {"role": step.approval.role, "instructions": step.approval.instructions},
+        else {
+            "role": step.approval.role,
+            "approver": workflows.approver(step.approval.role),
+            "instructions": step.approval.instructions,
+        },
     }
 
 

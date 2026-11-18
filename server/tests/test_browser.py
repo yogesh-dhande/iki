@@ -1615,6 +1615,33 @@ def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(
     assert Project.objects.get(slug="client-a-screen").registry.name == "Client A"
 
 
+def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
+    """Lab roles beside a member's role (ADR 0116), chosen in a dialog that says what each
+    is for. By role, never by label (Firefox; see above)."""
+    from iki_server.org import permissions
+
+    page = open_as("admin", "/projects/kinase-atlas/members/")
+    row = page.get_by_role("listitem").filter(has_text="viewer@example.com")
+    row.get_by_role("button", name="Lab roles for Viewer").click()
+    dialog = page.get_by_role("dialog", name="Lab roles for Viewer")
+    qa = dialog.get_by_role("checkbox", name="QA", exact=True)
+    qa.wait_for()
+    dialog.get_by_text("Needed to approve “Weigh” in Release, then weigh.").wait_for()
+    assert_clean(page)
+    qa.check()
+    dialog.get_by_role("checkbox", name="Reviewer", exact=True).check()
+    dialog.get_by_role("button", name="Save").click()
+    page.get_by_text("Viewer’s lab roles are now QA, Reviewer.").wait_for()
+    row.get_by_text("Lab roles: QA, Reviewer").wait_for()
+    viewer = world.users["viewer"]
+    assert permissions.lab_roles(viewer, world.project) == {
+        "acme/protein.qa",
+        "acme/protein.reviewer",
+    }
+    assert_clean(page)
+    page.context.close()
+
+
 def test_dialogs_hold_focus_and_give_it_back(open_as: Any) -> None:
     page = open_as("admin", "/projects/kinase-atlas/members/")
     row = page.get_by_role("listitem").filter(has_text="viewer@example.com")

@@ -78,6 +78,33 @@ with a letter. The namespace is your lab's or company's.
   package `iki_plugin_iki__protein`, its code's directory in a worker's
   bundle, and its secrets' keys (`iki__dna.NCBI_API_KEY`).
 
+### Lab roles
+
+A plugin can declare lab roles: who may decide something in a lab, such as
+reviewing an analyst's results or releasing a sample
+([ADR 0116](../docs/adr/0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)).
+A project's Admins give them to its members, people or teams, beside their
+project role. A lab role grants no access of its own: it's what a workflow
+approval, a record's transition or a signature can require.
+
+```yaml
+roles:
+  reviewer:
+    label: Reviewer
+    description: Checks another analyst's results, and approves them or sends them back.
+  qa:
+    label: QA
+    description: Releases reviewed samples, and reopens released ones when they need correcting.
+```
+
+Names are lower-case letters, digits and single underscores; `viewer`,
+`editor`, `runner` and `admin` are the project roles'. A role is known in
+full as `namespace/plugin.name` (`iki/example_lims.qa`). A plugin names its
+own by the short name, and another plugin's in full, which needs that plugin
+under `dependencies` (`undeclared-dependency`), so several plugins can share
+one QA role. Naming a role nobody declares is `unknown-role`; two roles with
+the same label are a warning, `duplicate-role-label`.
+
 ## Entity types
 
 ```yaml
@@ -556,9 +583,11 @@ steps:
 ```
 
 A step with `approval:` waits, once its turn comes and its conditions hold,
-for a person to approve it: someone with `role` (`viewer`, `editor` by
-default, `runner` or `admin`) in the project, other than whoever started the
-workflow, in the web app. They're told, and see the `instructions`. Approving
+for a person to approve it: someone with `role` in the project, other than
+whoever started the workflow, in the web app. The role is a project role
+(`viewer`, `editor` by default, `runner` or `admin`), meaning that or above,
+or a [lab role](#lab-roles) (`qa`, or another plugin's in full), meaning
+someone who holds it; being an Admin doesn't. They're told, and see the `instructions`. Approving
 starts the step as whoever started the workflow; declining it, with a reason,
 fails the workflow, as does nobody deciding within 30 days.
 
@@ -1408,6 +1437,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                             | A manifest's header             |
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                          | Names                           |
+| `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                             | Lab roles                       |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                    | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                  | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                     | Identities                      |

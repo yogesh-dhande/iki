@@ -1489,6 +1489,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lab-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The lab roles plugins declare
+         * @description Named roles such as QA (ADR 0116), which a project's Admins give its members beside
+         *     their project role, and what each lets its holders do. A lab role grants nothing by
+         *     itself.
+         */
+        get: operations["iki_server_api_projects_list_lab_roles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -1897,6 +1919,28 @@ export interface paths {
         post?: never;
         /** Remove a grant */
         delete: operations["iki_server_api_projects_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members/{membership_id}/lab-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a grant's lab roles
+         * @description Gives the person or team exactly these lab roles here, beside their role (ADR 0116):
+         *     roles it has that aren't listed are taken away. Each change is audited, and a person is
+         *     told.
+         */
+        put: operations["iki_server_api_projects_set_lab_roles"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3496,16 +3540,20 @@ export interface components {
         /** ApprovalOut */
         ApprovalOut: {
             /**
+             * Approver
+             * @description Who that is, as people read it: “an Editor or above”, or “someone with the QA role”.
+             */
+            approver: string;
+            /**
              * Instructions
              * @description What the approver checks; empty if nothing's said.
              */
             instructions: string;
             /**
              * Role
-             * @description The project role an approver needs.
-             * @enum {string}
+             * @description The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).
              */
-            role: "viewer" | "editor" | "runner" | "admin";
+            role: string;
         };
         /** ApprovalRunOut */
         ApprovalRunOut: {
@@ -5878,6 +5926,84 @@ export interface components {
          * @enum {string}
          */
         JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
+        /** LabRoleGrantOut */
+        LabRoleGrantOut: {
+            /**
+             * Declared
+             * @description Whether an installed plugin declares it. One that stopped declaring it leaves its grants, which count for nothing until someone takes them away.
+             */
+            declared: boolean;
+            /**
+             * Granted At
+             * Format: date-time
+             */
+            granted_at: string;
+            granted_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Label
+             * @description What people call it, such as QA.
+             */
+            label: string;
+            /**
+             * Role
+             * @description The lab role, by name, such as iki/example_lims.qa.
+             */
+            role: string;
+        };
+        /** LabRoleOut */
+        LabRoleOut: {
+            /** Description */
+            description: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Its name, such as iki/example_lims.qa.
+             */
+            name: string;
+            /**
+             * Plugin
+             * @description The plugin that declares it.
+             */
+            plugin: string;
+            /**
+             * Uses
+             * @description What it lets its holders do.
+             */
+            uses: components["schemas"]["LabRoleUseOut"][];
+        };
+        /** LabRoleUseOut */
+        LabRoleUseOut: {
+            /**
+             * Description
+             * @description What it lets them do: approve “Weigh” in Review, …
+             */
+            description: string;
+            /**
+             * Kind
+             * @description approval: a workflow step's, which someone with the role approves.
+             * @constant
+             */
+            kind: "approval";
+            /**
+             * Name
+             * @description The step.
+             */
+            name: string;
+            /**
+             * Owner
+             * @description The workflow it's in, by name.
+             */
+            owner: string;
+        };
+        /** LabRolesIn */
+        LabRolesIn: {
+            /**
+             * Roles
+             * @description Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.
+             */
+            roles: string[];
+        };
         /** LastDelivery */
         LastDelivery: {
             /**
@@ -7189,6 +7315,11 @@ export interface components {
              */
             id: string;
             /**
+             * Lab Roles
+             * @description The lab roles this grant carries beside its role (ADR 0116): its person's, or everyone's in its team.
+             */
+            lab_roles: components["schemas"]["LabRoleGrantOut"][];
+            /**
              * Role
              * @enum {string}
              */
@@ -7224,6 +7355,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * My Lab Roles
+             * @description The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.
+             */
+            my_lab_roles: string[];
             /**
              * My Role
              * @description Your role, from your own grant or your teams'; null if you have none.
@@ -12450,6 +12586,26 @@ export interface operations {
             };
         };
     };
+    iki_server_api_projects_list_lab_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabRoleOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_me_me: {
         parameters: {
             query?: never;
@@ -13109,6 +13265,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_projects_set_lab_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                membership_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabRolesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberOut"];
+                };
             };
         };
     };

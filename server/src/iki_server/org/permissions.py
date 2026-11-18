@@ -21,6 +21,12 @@ Views, the API, MCP tools and the event stream ask :func:`can` or
   one's registrars. A registrar curates their registry: sees its entries
   (never projects' records of them), changes their facts, and supersedes
   mistaken ones. Being an Org Admin doesn't make someone a registrar.
+- **Lab roles** (ADR 0116), such as QA, are declared by plugins and given by a
+  project's Admins with a membership, beside its project role: someone holds
+  the lab roles of their own membership and their teams'. A lab role grants
+  nothing by itself. What needs one (a workflow step's approval, a record's
+  transition) asks :func:`lab_roles`, and counts it only while the person can
+  read the project. Being an Admin or an Org Admin holds none.
 
 Decisions are cached on the user object, which lives for one request. Call
 :func:`forget` after changing someone's roles within the same request.
@@ -40,6 +46,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Exists, Max, OuterRef, Q, QuerySet, Subquery
 
 from iki_server.org.models import (
+    LabRoleGrant,
     OrgRole,
     OrgRoleAssignment,
     Project,
@@ -301,6 +308,42 @@ def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
     return cache[registry.pk]
 
 
+def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
+    """The lab roles an active user holds in the project (ADR 0116), by qualified name: their
+    own membership's and their teams', while they have a role there to read it with. Only
+    roles an installed plugin declares count."""
+    if not _active(user) or project_role(user, project) is None:
+        return frozenset()
+    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_lab_roles", {})
+    if project.pk not in cache:
+        from iki_server.org import lab_roles as catalog
+
+        held = (
+            LabRoleGrant.objects.filter(membership__project=project)
+            .filter(Q(membership__user=user) | Q(membership__team__memberships__user=user))
+            .values_list("role", flat=True)
+        )
+        cache[project.pk] = frozenset(held) & catalog.declared().keys()
+    return cache[project.pk]
+
+
+def holders_of(project: Project, role: str) -> QuerySet[Any]:
+    """Active people who hold a lab role in the project: by their own membership, or a
+    team's they belong to (ADR 0116)."""
+    from iki_server.accounts.models import User
+
+    grants = LabRoleGrant.objects.filter(membership__project=project, role=role)
+    return User.objects.filter(
+        Q(pk__in=grants.filter(membership__user__isnull=False).values("membership__user"))
+        | Q(
+            team_memberships__team__in=grants.filter(membership__team__isnull=False).values(
+                "membership__team"
+            )
+        ),
+        is_active=True,
+    ).distinct()
+
+
 def forget(user: Any) -> None:  # noqa: ANN401
     """Drops cached decisions after the user's roles changed in this request."""
     for attr in (
@@ -308,6 +351,7 @@ def forget(user: Any) -> None:  # noqa: ANN401
         "_iki_project_roles",
         "_iki_team_memberships",
         "_iki_registrars",
+        "_iki_lab_roles",
     ):
         user.__dict__.pop(attr, None)
 

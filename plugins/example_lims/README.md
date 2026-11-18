@@ -26,6 +26,10 @@ It shows the parts of Iki such a plugin needs:
   proxy. The deployment names the host in the `lims_host` setting, which
   `network: ["{settings.lims_host}"]` refers to
   ([ADR 0083](../../docs/adr/0083-a-setting-can-name-a-host-an-action-reaches.md)).
+- **Lab roles**: Analyst, Reviewer and QA, which a project's Admins give
+  its members on the Members page, beside their project role
+  ([ADR 0116](../../docs/adr/0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)).
+  They grant no access by themselves; what needs each is listed with it.
 
 Every trigger is off until a project's Admin turns it on there.
 

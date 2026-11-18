@@ -75,6 +75,14 @@ PROJECT_REMOVED = register(
         group="Projects",
     )
 )
+LAB_ROLES_CHANGED = register(
+    Kind(
+        "project.lab_roles_changed",
+        "Your lab roles in a project changed",
+        "Someone gives you a lab role in a project, such as QA, or takes one away.",
+        group="Projects",
+    )
+)
 TEAM_ADDED = register(
     Kind("team.added", "Added to a team", "Someone adds you to a team.", group="Teams")
 )
@@ -104,7 +112,7 @@ WORKFLOW_APPROVAL_REQUESTED = register(
         "workflow.approval_requested",
         "A workflow step waits for approval",
         "A step of a workflow someone else started waits for a person with your role in its "
-        "project to approve it.",
+        "project, or your lab role, to approve it.",
         group="Runs",
     )
 )

@@ -43,6 +43,7 @@ from iki_spec.model import (
     Environment,
     Extension,
     Field,
+    LabRole,
     Plugin,
     Track,
     Trigger,
@@ -444,6 +445,15 @@ def _read(root: FilePath) -> _Loaded:
         ):
             shown[component.name] = component
 
+    roles = {
+        f"{name}.{role}": LabRole(
+            plugin=name,
+            name=role,
+            label=spec["label"].strip() or role,
+            description=(spec.get("description") or "").strip() or None,
+        )
+        for role, spec in (data.get("roles") or {}).items()
+    }
     loaded.plugin = Plugin(
         name=name,
         version=data["version"],
@@ -464,6 +474,7 @@ def _read(root: FilePath) -> _Loaded:
         workflows=flows,
         triggers=fires,
         components=shown,
+        roles=roles,
     )
     return loaded
 
@@ -770,11 +781,18 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
         self.types.update(self.plugin.types)
+        #: Lab roles it can require: its own, and its dependencies' (ADR 0116).
+        self.roles: dict[str, LabRole] = {}
+        for other in others.values():
+            assert other.plugin is not None  # noqa: S101 - an invariant, not a check
+            self.roles.update(other.plugin.roles)
+        self.roles.update(self.plugin.roles)
         self.unavailable: set[str] = set()
         self.used: set[str] = set()
 
     def run(self) -> None:
         self.plugin_manifest()
+        self.lab_roles()
         for qualified, entity_type in self.plugin.types.items():
             self.entity_type(entity_type, self.loaded.type_sources[qualified])
         self.hrid_prefixes()
@@ -878,6 +896,70 @@ class _Semantics:
                         (*path, "types", type_name),
                         hint="Update the constraint once this plugin works with that version.",
                     )
+
+    def lab_roles(self) -> None:
+        """Its own lab roles: two with one label couldn't be told apart where they're given."""
+        seen: dict[str, str] = {}
+        for role in self.plugin.roles.values():
+            key = role.label.casefold()
+            if key in seen:
+                self.add(
+                    "duplicate-role-label",
+                    f"`{role.name}` and `{seen[key]}` are both called “{role.label}”.",
+                    self.source,
+                    ("roles", role.name, "label"),
+                    hint="Give each lab role a label of its own: Admins choose them by it.",
+                )
+                continue
+            seen[key] = role.name
+
+    def lab_role(self, ref: str, source: Document, path: Path) -> LabRole | None:
+        """The lab role `ref` names, qualified (``acme/qms.qa``), or None after reporting why
+        it can't be used: its plugin's own, or a dependency's (ADR 0116)."""
+        plugin, _, name = ref.rpartition(".")
+        if ref in self.roles:
+            if plugin != self.plugin.name and plugin not in self.plugin.dependencies:
+                self.add(
+                    "undeclared-dependency",
+                    f"`{ref}` belongs to the {plugin} plugin, which plugin.yaml doesn't list "
+                    "under `dependencies`.",
+                    source,
+                    path,
+                    hint=f"Add `{plugin}: {{}}` under `dependencies`.",
+                )
+                return None
+            return self.roles[ref]
+        if plugin != self.plugin.name and plugin not in self.plugin.dependencies:
+            self.add(
+                "undeclared-dependency",
+                f"`{ref}` belongs to the {plugin} plugin, which plugin.yaml doesn't list under "
+                "`dependencies`.",
+                source,
+                path,
+                hint=f"Add `{plugin}: {{}}` under `dependencies`, and pass its directory with "
+                "`--with`.",
+            )
+            return None
+        if plugin in self.unavailable:
+            return None  # reported once, on the dependency
+        other = self.others.get(plugin)
+        owner = self.plugin if plugin == self.plugin.name else (other.plugin if other else None)
+        if owner is None:
+            self.add("unknown-role", f"The {plugin} plugin has no lab roles.", source, path)
+            return None
+        whose = "This plugin has" if owner is self.plugin else f"The {plugin} plugin has"
+        self.add(
+            "unknown-role",
+            f"{whose} no lab role `{name}`.",
+            source,
+            path,
+            hint=schemas._did_you_mean(name, [r.name for r in owner.roles.values()])
+            or (
+                f"Declare it under `roles` in {'plugin.yaml' if owner is self.plugin else plugin}"
+                ", with a label."
+            ),
+        )
+        return None
 
     def _qualified(self, plugin: str) -> str:
         """What to write for a plugin named without its namespace: the one plugin of that

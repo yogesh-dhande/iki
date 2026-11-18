@@ -66,14 +66,6 @@ export function StepBadge({ state }: { state: StepState }) {
 type Step = WorkflowRun["steps"][number];
 type StepBatch = NonNullable<Step["batch"]>;
 
-/** Who approves a step, as "an Editor". */
-export const APPROVER: Record<NonNullable<Step["approval"]>["role"], string> = {
-  viewer: "a Viewer",
-  editor: "an Editor",
-  runner: "a Runner",
-  admin: "an Admin",
-};
-
 /** A step waiting for a person to approve it: theirs to decide, if they may. */
 function StepApproval({ run, step }: { run: WorkflowRun; step: Step }) {
   const [asking, setAsking] = useState<"approve" | "decline" | null>(null);
@@ -99,7 +91,7 @@ function StepApproval({ run, step }: { run: WorkflowRun; step: Step }) {
     setNote("");
     decide.reset();
   };
-  const approver = step.approval ? APPROVER[step.approval.role] : "";
+  const approver = step.approval?.approver ?? "";
   const titleId = `approval-${step.id}`;
   return (
     <section className="alert alert-warning" aria-labelledby={titleId}>
@@ -114,7 +106,7 @@ function StepApproval({ run, step }: { run: WorkflowRun; step: Step }) {
       <p>
         {step.can.decide
           ? `It starts once you approve it, as ${run.requested_by.name}, who started the workflow.`
-          : `It needs ${approver} or above in the project, other than ${run.requested_by.name}, who started the workflow.`}{" "}
+          : `It needs ${approver} in the project, other than ${run.requested_by.name}, who started the workflow.`}{" "}
         Declining it fails the workflow.
         {step.approval_expires_at ? (
           <>
@@ -629,9 +621,7 @@ export function WorkflowRunPage() {
                 </span>
                 {step.when.length ? <When conditions={step.when} /> : null}
                 {step.approval && !step.decision ? (
-                  <span className="row-meta">
-                    Needs approval by {APPROVER[step.approval.role]} or above
-                  </span>
+                  <span className="row-meta">Needs approval by {step.approval.approver}</span>
                 ) : null}
                 {step.decision ? <Decision decision={step.decision} /> : null}
                 {step.error ? <p className="row-reason">{step.error.message}</p> : null}

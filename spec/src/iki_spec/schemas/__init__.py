@@ -328,6 +328,10 @@ IKI_RELEASES = (
 )
 
 _PATTERN_MESSAGES = {
+    "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(_[a-z0-9]+)*$": (
+        "Roles are written `qa` for this plugin's own, or `namespace/plugin.role` (such as "
+        "`acme/qms.qa`) for another's."
+    ),
     "^[A-Z][A-Z0-9]{1,7}$": "HRID prefixes are 2 to 8 capital letters or digits, starting with a "
     "letter (such as `PRT`).",
     "^[a-z][a-z0-9]*(_[a-z0-9]+)*$": "Names use lower-case letters, digits and single "

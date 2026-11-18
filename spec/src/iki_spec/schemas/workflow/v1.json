@@ -119,8 +119,8 @@
           "type": "object",
           "properties": {
             "role": {
-              "description": "The project role an approver needs: viewer, editor (the default), runner or admin.",
-              "enum": ["viewer", "editor", "runner", "admin"]
+              "description": "The role an approver needs: a project role (viewer, editor, the default, runner or admin), or a lab role, such as `qa` or `acme/qms.qa`, which they need beside a role that reads the project (ADR 0116).",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
             },
             "instructions": {
               "description": "What the approver checks, shown where they decide.",

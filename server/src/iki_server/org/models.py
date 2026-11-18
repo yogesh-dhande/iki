@@ -3,7 +3,9 @@
 One Iki installation serves one organization (ADR 0002). People belong to
 teams; every project belongs to one team, which sets its compute limits and
 pays for its costs. Access to a project's data comes only from project
-memberships, granted to a person directly or to a whole team (ADR 0024).
+memberships, granted to a person directly or to a whole team (ADR 0024). A
+membership can carry lab roles beside its project role, such as QA, which
+plugins declare (ADR 0116).
 
 Every authorization decision goes through :mod:`iki_server.org.permissions`.
 Nothing else reads these tables to decide what someone may do.
@@ -384,3 +386,43 @@ class ProjectMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user or self.team} is {self.get_role_display()} of {self.project}"
+
+
+#: A lab role's qualified name, as its plugin declares it: ``acme/qms.qa`` (ADR 0116).
+LAB_ROLE_PATTERN = (
+    r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+)
+
+
+class LabRoleGrant(models.Model):
+    """A lab role given with a project membership (ADR 0116): to the person or the team the
+    membership is for, beside its project role. Someone holds a lab role in a project if
+    their own membership or one of their teams' carries it. A membership's lab roles go when
+    it does."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    membership = models.ForeignKey(
+        ProjectMembership, on_delete=models.CASCADE, related_name="lab_roles"
+    )
+    role = models.CharField(
+        max_length=112,
+        db_comment="The lab role, as its plugin declares it, such as acme/qms.qa (ADR 0116).",
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "iki_lab_role_grant"
+        db_table_comment = "The lab roles each project membership carries (ADR 0116)."
+        ordering = ("role",)
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["membership", "role"], name="iki_lab_role_once"),
+            models.CheckConstraint(
+                condition=Q(role__regex=LAB_ROLE_PATTERN), name="iki_lab_role_name"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.membership} holds {self.role}"

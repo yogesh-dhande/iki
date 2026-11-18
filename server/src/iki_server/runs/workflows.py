@@ -33,7 +33,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
-from iki_server.org import permissions
+from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, included, live, services
@@ -53,7 +53,14 @@ from iki_server.runs.models import (
     WorkflowStatus,
     WorkflowStep,
 )
-from iki_spec.model import Action, Condition, Workflow, plugin_to_dict, workflow_from_dict
+from iki_spec.model import (
+    Action,
+    Condition,
+    Workflow,
+    is_lab_role,
+    plugin_to_dict,
+    workflow_from_dict,
+)
 from iki_spec.workflows import literal
 
 __all__ = [
@@ -675,7 +682,7 @@ def _ask(run: WorkflowRun, spec: Workflow, step: WorkflowStep, now: Any) -> None
         project=run.project,
         data={"step": step.step, "role": approval.role},
     )
-    approvers = permissions.members_with(run.project, _role(approval.role))
+    approvers = _approvers(run.project, approval.role)
     label = spec.steps[step.step].label
     notify(
         approvers.exclude(pk=run.requested_by_id),
@@ -691,6 +698,23 @@ def _ask(run: WorkflowRun, spec: Workflow, step: WorkflowStep, now: Any) -> None
 
 def _role(name: str) -> ProjectRole:
     return ProjectRole[name.upper()]
+
+
+def _approvers(project: Any, role: str) -> Any:  # noqa: ANN401 - a Project; a QuerySet of users
+    """Who may approve a step needing `role`: a project role or above, or a lab role's
+    holders (ADR 0116)."""
+    if is_lab_role(role):
+        return permissions.holders_of(project, role)
+    return permissions.members_with(project, _role(role))
+
+
+def approver(role: str) -> str:
+    """Who approves a step needing `role`, as people read it: "an Editor or above", or
+    "someone with the QA role" for a lab role (ADR 0116)."""
+    if is_lab_role(role):
+        return f"someone with the {lab_roles.label(role)} role"
+    label = _role(role).label
+    return f"{'an' if label[0] in 'AEIOU' else 'a'} {label} or above"
 
 
 def _expired(step: WorkflowStep, now: Any) -> bool:  # noqa: ANN401 - a datetime
@@ -746,6 +770,10 @@ def why_not_decide(
     if user.pk == run.requested_by_id:
         return "Someone else approves it: whoever started a workflow can't approve its steps."
     role = permissions.project_role(user, run.project)
+    if is_lab_role(approval.role):
+        if approval.role not in permissions.lab_roles(user, run.project):
+            return f"It needs {approver(approval.role)} in the project."
+        return None
     if role is None or role < _role(approval.role):
         return f"It needs someone who is {_role(approval.role).label} or above in the project."
     return None

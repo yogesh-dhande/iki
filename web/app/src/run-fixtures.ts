@@ -236,7 +236,7 @@ export const WORKFLOW = {
       after: ["first"],
       each: null,
       when: [],
-      approval: { role: "runner", instructions: "" },
+      approval: { role: "runner", approver: "a Runner or above", instructions: "" },
     },
   ],
   tiers: ["backend"],

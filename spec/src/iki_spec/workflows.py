@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from iki_spec import actions, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import (
+    APPROVAL_ROLES,
     CONDITION_OPERATORS,
     NUMERIC_OPERATORS,
     Action,
@@ -69,7 +70,7 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
                 needs=tuple(step.get("needs") or ()),
                 each=step.get("each"),
                 when=tuple(_condition(c) for c in step.get("when") or ()),
-                approval=_approval(step.get("approval")),
+                approval=_approval(step.get("approval"), plugin),
             )
             for i, step in body["steps"].items()
         },
@@ -190,6 +191,8 @@ class _Rules:
 
     def step(self, workflow: Workflow, step: WorkflowStep, source: Document) -> None:
         path: Path = ("steps", step.id)
+        if step.approval is not None and step.approval.role not in APPROVAL_ROLES:
+            self.s.lab_role(step.approval.role, source, (*path, "approval", "role"))
         action = self.plugin.actions.get(step.action)
         if action is None:
             self.add(
@@ -471,11 +474,14 @@ def _loose(f: Field) -> Field:
     return Field(name=f.name, type="float" if f.type == "quantity" else f.type, values=f.values)
 
 
-def _approval(given: dict[str, Any] | None) -> Approval | None:
+def _approval(given: dict[str, Any] | None, plugin: str) -> Approval | None:
     if given is None:
         return None
+    role = given.get("role", "editor")
     return Approval(
-        role=given.get("role", "editor"), instructions=(given.get("instructions") or "").strip()
+        # A lab role, named in full (ADR 0116): the plugin's own `qa` is `acme/qms.qa`.
+        role=role if role in APPROVAL_ROLES or "." in role else f"{plugin}.{role}",
+        instructions=(given.get("instructions") or "").strip(),
     )
 
 

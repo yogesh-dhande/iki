@@ -76,6 +76,12 @@ def viewer_grant(w: World) -> tuple[str, Any]:
     return f"/projects/{w.project.pk}/members/{membership.pk}", None
 
 
+def viewer_lab_roles(w: World) -> tuple[str, Any]:
+    membership = w.project.memberships.get(user=w.users["viewer"])
+    path = f"/projects/{w.project.pk}/members/{membership.pk}/lab-roles"
+    return path, {"roles": ["acme/protein.qa"]}
+
+
 def _webhook(w: World, *, org: bool = False) -> Any:
     from iki_server.webhooks import services as webhooks
 
@@ -628,6 +634,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/projects/{project_id}/members/{membership_id}",
         viewer_grant,
         visible(403, org_admin=204, admin=204),
+    ),
+    # Lab roles (ADR 0116): given with a membership, as members are.
+    ("GET", "/lab-roles", fixed("/lab-roles"), row(200)),
+    (
+        "PUT",
+        "/projects/{project_id}/members/{membership_id}/lab-roles",
+        viewer_lab_roles,
+        PROJECT_MEMBERS,
     ),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
