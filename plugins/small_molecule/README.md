@@ -212,7 +212,10 @@ formula weight for each parent must be what the drawing weighs; when it isn't
 From the compound's SMILES, as RDKit 2026.09.2 computes them:
 
 - **Molecular weight**: from IUPAC's standard atomic weights
-  (`Descriptors.MolWt`); **exact mass**, monoisotopic (`ExactMolWt`).
+  (`Descriptors.MolWt`); **exact mass**, monoisotopic (`ExactMolWt`). An atom
+  drawn as a particular isotope counts at that isotope's mass in both, and the
+  **formula** writes it so (`CalcMolFormula` with separate isotopes): heavy
+  water is D2O, and carbon-13 methanol [13C]H4O.
 - **Crippen logP**: Wildman and Crippen's atom contributions (1999).
 - **TPSA**: Ertl's topological polar surface area (2000), of its nitrogens and
   oxygens, in Å².
@@ -221,8 +224,13 @@ From the compound's SMILES, as RDKit 2026.09.2 computes them:
 - **Lipinski violations**: of the rule of five, with its original counts:
   molecular weight over 500, logP over 5, more than 5 NH and OH, more than 10
   N and O.
-- **Rotatable bonds**: RDKit's default (strict) definition; **rings**, the
-  smallest set of smallest rings.
+- **Rotatable bonds**: RDKit's default (strict) definition, which leaves out
+  the partly double bonds of amides, esters and their kin, bonds to
+  triple-bonded atoms, and bonds to CF3, CCl3, CBr3 and tert-butyl groups (so
+  N-methylacetamide has none). **Rings**: RDKit's count (`CalcNumRings`), of
+  its symmetrised smallest set of smallest rings, which for a symmetric cage
+  counts each ring it could have chosen: 6 for cubane, whose smallest set (its
+  independent cycles) has 5.
 - **Stereocentres**: tetrahedral centres, by RDKit's current stereo
   perception, and how many the structure leaves undefined.
 - **QED**: Bickerton's quantitative estimate of drug-likeness (2012), with its

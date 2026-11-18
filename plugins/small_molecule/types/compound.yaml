@@ -58,7 +58,10 @@ fields:
     max_length: 200
     computed: true
     indexed: true
-    description: Its formula in Hill order, with its charge if it has one, such as C9H8O4.
+    description: >-
+      Its formula in Hill order, with its charge if it has one, such as C9H8O4. An
+      atom drawn as a particular isotope is written as it, as RDKit writes it: D2O
+      for heavy water, [13C]H4O for carbon-13 methanol.
   molecular_weight:
     type: quantity
     registry: derived
@@ -66,14 +69,18 @@ fields:
     computed: true
     indexed: true
     min: 0
-    description: Its average molecular weight, from IUPAC's standard atomic weights.
+    description: >-
+      Its average molecular weight, from IUPAC's standard atomic weights, and an
+      atom drawn as a particular isotope at that isotope's mass.
   exact_mass:
     type: quantity
     registry: derived
     unit: u
     computed: true
     min: 0
-    description: Its monoisotopic mass, from each element's most abundant isotope.
+    description: >-
+      Its monoisotopic mass, from each element's most abundant isotope, or the
+      isotope an atom is drawn as.
   formal_charge:
     { registry: derived, type: int, computed: true, indexed: true, description: Its net charge. }
   heavy_atoms:
@@ -125,15 +132,20 @@ fields:
     computed: true
     indexed: true
     min: 0
-    description: Its rotatable bonds, single bonds between two non-terminal heavy atoms outside rings.
+    description: >-
+      Its rotatable bonds, by RDKit's strict definition: single bonds outside rings
+      between two heavy atoms that aren't terminal, leaving out the partly double
+      C–N, C–O and C–S bonds of amides, esters and their kin, bonds to triple-bonded
+      atoms, and bonds to CF3, CCl3, CBr3 and tert-butyl groups.
   rings:
-    {
-      registry: derived,
-      type: int,
-      computed: true,
-      min: 0,
-      description: Its rings (the smallest set).,
-    }
+    type: int
+    registry: derived
+    computed: true
+    min: 0
+    description: >-
+      Its rings, as RDKit counts them: its symmetrised smallest set of smallest
+      rings, which counts each ring a symmetric cage could have chosen, so 6 for
+      cubane, whose smallest set has 5.
   aromatic_rings: { registry: derived, type: int, computed: true, indexed: true, min: 0 }
   fraction_csp3:
     type: float

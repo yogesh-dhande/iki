@@ -456,7 +456,11 @@ def descriptors(mol: Chem.Mol) -> dict[str, Any]:
     except Exception:  # QED fails on what it has no properties for, such as a lone ion
         qed = None
     values: dict[str, Any] = {
-        "molecular_formula": Calc.CalcMolFormula(mol),
+        # An atom drawn as an isotope is written as it ([13C], D for 2H), as its masses
+        # count it: heavy water is D2O, not H2O.
+        "molecular_formula": Calc.CalcMolFormula(
+            mol, separateIsotopes=True, abbreviateHIsotopes=True
+        ),
         "molecular_weight": round(weight, 3),
         "exact_mass": round(Descriptors.ExactMolWt(mol), 5),
         "formal_charge": Chem.GetFormalCharge(mol),

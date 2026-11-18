@@ -321,6 +321,30 @@ def test_descriptors_are_rdkits(tmp_path: Path) -> None:
     assert output["messages"] == []
 
 
+def test_labelled_atoms_show_in_the_formula_as_in_the_masses(tmp_path: Path) -> None:
+    structures = {
+        "[2H]O[2H]": "XLYOFNOQVPJJNP-ZSJDYOACSA-N",  # heavy water (PubChem CID 24602)
+        "[13CH3]O": "OKKJLVBELUTLKV-OUBTZVSYSA-N",
+        "C12C3C4C1C5C2C3C45": "TXWRERCHRDBNLG-UHFFFAOYSA-N",  # cubane
+        "CNC(C)=O": "OHLUUHNLEMFGTQ-UHFFFAOYSA-N",  # N-methylacetamide
+    }
+    output = described(
+        tmp_path,
+        *(entity(i, smiles=s, inchikey=k) for i, (s, k) in enumerate(structures.items())),
+    )
+    water, methanol, cubane, amide = (u["values"] for u in output["updates"]["compound"])
+    # Monoisotopic masses from IUPAC's isotope masses: ²H 2.014 101 78, ¹H 1.007 825 03,
+    # ¹²C 12, ¹³C 13.003 354 84, ¹⁶O 15.994 914 62.
+    assert (water["molecular_formula"], water["exact_mass"]) == ("D2O", 20.02312)
+    assert (methanol["molecular_formula"], methanol["exact_mass"]) == ("[13C]H4O", 33.02957)
+    # Cubane's 8 atoms and 12 bonds make 12 - 8 + 1 = 5 independent rings; RDKit's
+    # symmetrised set, which the field counts, has all 6 faces.
+    assert cubane["rings"] == 6
+    # N-methylacetamide's one non-terminal single bond is its amide C-N, which RDKit's
+    # strict count leaves out.
+    assert amide["rotatable_bonds"] == 0
+
+
 def test_stereocentres_and_lipinskis_rule_of_five(tmp_path: Path) -> None:
     # Ibuprofen with its stereocentre undefined, (S)-ibuprofen, and ciclosporin.
     # PubChem CID 5284373.
