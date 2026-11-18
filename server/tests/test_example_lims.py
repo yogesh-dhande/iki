@@ -71,7 +71,7 @@ def test_the_plugin_is_valid() -> None:
         "results": "downstream",
     }
     lineage = {
-        name.rsplit(".", 1)[1]: [f.to for f in t.fields.values() if f.type == "ref"]
+        name.rsplit(".", 1)[1]: [to for f in t.fields.values() if f.type == "ref" for to in f.to]
         for name, t in result.plugin.types.items()
         if name.rsplit(".", 1)[1] in ("Sample", "Aliquot", "Result")
     }
