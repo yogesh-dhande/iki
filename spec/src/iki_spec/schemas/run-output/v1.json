@@ -5,7 +5,6 @@
   "description": "What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.",
   "type": "object",
   "required": ["apiVersion", "kind"],
-  "not": { "required": ["creates", "creates_file"] },
   "allOf": [
     {
       "if": { "required": ["park"] },
@@ -138,11 +137,18 @@
         "key": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
-          "description": "A name for it, unique in `creates`, that a later create's ref fields can give as `{\"$create\": \"<key>\"}` to refer to it, such as a structure to the chains made with it. Not in a `creates_file`."
+          "description": "A name for it, unique in `creates`, that a later create's ref fields can give as `{\"$create\": \"<key>\"}` to refer to it, such as a structure to the chains made with it, or a `creates_file`'s lines to the organisms they're from. Not in a `creates_file`'s lines themselves."
         },
         "values": {
           "type": "object",
           "description": "Its fields' values. A ref field (or an item of a list of refs) may be `{\"$create\": \"<key>\"}`: the entity an earlier create with that key made or reused."
+        },
+        "fills": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 100,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "description": "Fields of `values`, its registry entry's, that only fill an entry registered already where it has none: one it has is kept and the create goes ahead, where a fact that differs is otherwise refused. For what sources spell otherwise, such as an organism's scientific name from an old file (ADR 0140). Not in a `creates_file`'s lines."
         },
         "derived_from": {
           "type": "array",
@@ -198,7 +204,7 @@
       "items": { "$ref": "#/$defs/create" }
     },
     "creates_file": {
-      "description": "Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. Give `creates` or this, not both.",
+      "description": "Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. A line's ref fields can name a keyed create in `creates`, written first, as `{\"$create\": \"<key>\"}`, but not another line or, in its identity, any create.",
       "anyOf": [
         {
           "type": "object",

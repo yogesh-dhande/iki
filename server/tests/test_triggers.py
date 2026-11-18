@@ -381,7 +381,7 @@ def test_a_change_by_a_person_fires_an_update_trigger(world: World) -> None:
     on(world, CHANGED)
     editor = api_as(world, "editor")
     kit = protein(editor, world.project, "kit")
-    changed = patch(editor, kit["id"], {"values": {"organism": "Homo sapiens"}}, '"1"')
+    changed = patch(editor, kit["id"], {"values": {"host": "Homo sapiens"}}, '"1"')
     assert changed.status_code == 200, changed.content
     (firing,) = TriggerFiring.objects.all()
     assert (firing.event, firing.revision) == ("entity.updated", 2)
@@ -397,14 +397,14 @@ def test_watched_fields_narrow_what_fires() -> None:
         name="t",
         on="entity.updated",
         type="acme/protein.Protein",
-        fields=("organism",),
+        fields=("host",),
         run="compute_properties",
         input="protein",
     )
-    assert triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["organism", "summary"])
+    assert triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["host", "summary"])
     assert not triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["summary"])
     assert not triggers._fires(spec, "entity.created", "acme/protein.Protein", [])
-    assert not triggers._fires(spec, "entity.updated", "acme/dna.DNASequence", ["organism"])
+    assert not triggers._fires(spec, "entity.updated", "acme/dna.DNASequence", ["host"])
 
 
 def test_entities_of_other_projects_fire_nothing(world: World) -> None:
@@ -493,7 +493,7 @@ def test_firings_can_be_narrowed_to_a_trigger(world: World) -> None:
     on(world, CHANGED)
     editor = api_as(world, "editor")
     kit = protein(editor, world.project, "kit")
-    patch(editor, kit["id"], {"values": {"organism": "Mus musculus"}}, '"1"')
+    patch(editor, kit["id"], {"values": {"host": "Mus musculus"}}, '"1"')
     assert [f["trigger"] for f in firings(world)] == [CHANGED, NEW]  # newest first
     assert [f["trigger"] for f in firings(world, trigger=NEW)] == [NEW]
     outsider = api_as(world, "outsider")

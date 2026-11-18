@@ -353,14 +353,14 @@ def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
     assert answer["run_status"] == "succeeded", answer
     (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
 
-    again, answer = imported(world, lims("ABL1 kinase", organism="Homo sapiens"))
+    again, answer = imported(world, lims("ABL1 kinase", uniprot_ids=["P00519"]))
     assert answer["run_status"] == "succeeded", answer
     (effect,) = api_as(world).get(f"/runs/{again['id']}").json()["effects"]
     assert (effect["hrid"], effect["kind"], effect["revision"]) == (made["hrid"], "updated", 2)
     entity = api_as(world).get(f"/entities/{made['hrid']}").json()
-    assert (entity["values"]["name"], entity["values"]["organism"]) == (
+    assert (entity["values"]["name"], entity["values"]["uniprot_ids"]) == (
         "ABL1 kinase",
-        "Homo sapiens",
+        ["P00519"],
     )
     assert (
         Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 1
@@ -371,9 +371,77 @@ def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
     assert (later["revision"], later["run"]["id"], first["revision"]) == (2, again["id"], 1)
 
     # Unchanged, it's found again, as a reused duplicate is: no new revision.
-    third, answer = imported(world, lims("ABL1 kinase", organism="Homo sapiens"))
+    third, answer = imported(world, lims("ABL1 kinase", uniprot_ids=["P00519"]))
     (effect,) = api_as(world).get(f"/runs/{third['id']}").json()["effects"]
     assert (effect["kind"], effect["revision"]) == ("reused", None)
+
+
+def casei(name: str, **more: Any) -> dict[str, Any]:
+    """Taxon 1582, which NCBI renamed in 2020: old files give its old name."""
+    return {
+        "type": "iki/core.Organism",
+        "key": "taxon:1582",
+        "values": {"taxon_id": 1582, "scientific_name": name},
+        **more,
+    }
+
+
+def test_an_organism_named_otherwise_keeps_its_entrys_name(world: World) -> None:
+    """ADR 0140: a run's `fills` only fill an entry's empty fields."""
+    other = Project.objects.create(team=world.team, name="Lactobacilli")
+    services.create(
+        world.users["admin"],
+        "iki/core.Organism",
+        other,
+        {"taxon_id": 1582, "scientific_name": "Lacticaseibacillus casei"},
+    )
+    # Without `fills`, a fact that differs from the entry's is refused (ADR 0115).
+    _, answer = imported(world, casei("Lactobacillus casei"))
+    assert answer["run_status"] == "failed"
+    assert [e["pointer"] for e in answer["errors"]] == ["#/creates/0/values/scientific_name"]
+    # With it, the entry keeps its name, and the protein refers to it.
+    run, answer = imported(
+        world,
+        casei("Lactobacillus casei", fills=["scientific_name"]),
+        lims("P", organism={"$create": "taxon:1582"}),
+    )
+    assert answer["run_status"] == "succeeded", answer
+    organism, made = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    found = api_as(world).get(f"/entities/{organism['hrid']}").json()
+    assert found["values"] == {
+        "taxon_id": 1582,
+        "scientific_name": "Lacticaseibacillus casei",
+        "rank": None,
+        "parent": None,
+    }
+    protein = api_as(world).get(f"/entities/{made['hrid']}").json()
+    assert protein["values"]["organism"] == found["entry"]["id"]
+
+
+@pytest.mark.parametrize(
+    ("fills", "detail"),
+    [
+        (["rank"], "It gives no value for `rank`."),
+        (["taxon_id"], "`taxon_id` is its identity, which an entry registered already has."),
+    ],
+)
+def test_fills_names_values_it_gives_of_its_entrys_facts(
+    world: World, fills: list[str], detail: str
+) -> None:
+    _, answer = imported(world, casei("Lactobacillus casei", fills=fills))
+    assert answer["run_status"] == "failed"
+    assert answer["errors"] == [{"pointer": "#/creates/0/fills/0", "detail": detail}]
+
+
+def test_fills_are_only_of_an_entrys_fields(world: World) -> None:
+    _, answer = imported(world, {**lims("P"), "fills": ["lims_id"]})
+    assert answer["run_status"] == "failed"
+    assert answer["errors"] == [
+        {
+            "pointer": "#/creates/0/fills/0",
+            "detail": "`lims_id` isn't its registry entry's, so there's nothing to fill.",
+        }
+    ]
 
 
 def test_only_the_runs_projects_own_entity_is_matched(world: World) -> None:

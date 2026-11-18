@@ -556,7 +556,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
             {
                 "sequence": sequence,
                 "name": name,
-                "organism": organism,
+                "host": organism,
                 "temperature_optimum": temperature,
             },
         )
@@ -571,7 +571,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     page.get_by_role("button", name="Filters").click()
     panel = page.get_by_role("region", name="Filters")
     panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_label("Filter 1: field").select_option(label="Organism")
+    panel.get_by_label("Filter 1: field").select_option(label="Host")
     panel.get_by_label("Filter 1: condition").select_option(label="is")
     panel.get_by_label("Filter 1: value").fill("Homo sapiens")
     panel.get_by_role("button", name="Add a filter").click()
@@ -2630,7 +2630,7 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
             admin,
             "acme/protein.Protein",
             world.project,
-            {"sequence": sequence, "name": name, "organism": organism},
+            {"sequence": sequence, "name": name, "host": organism},
         )
         made[name] = Entity.objects.get(pk=found.entity.pk).hrid
     spec = {
@@ -2647,7 +2647,7 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
             },
             {
                 "id": "kin",
-                "title": "From the same organism",
+                "title": "From the same host",
                 "component": "iki.entities",
                 "props": {
                     "type": "acme/protein.Protein",
@@ -2655,9 +2655,9 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
                     "where": {
                         "all": [
                             {
-                                "field": "organism",
+                                "field": "host",
                                 "op": "eq",
-                                "value": "{{ entity.values.organism }}",
+                                "value": "{{ entity.values.host }}",
                             },
                             {"field": "name", "op": "ne", "value": "{{ entity.values.name }}"},
                         ]
@@ -2672,7 +2672,7 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
     # By CSS and text, not role, until axe has run (Firefox; see above).
     page.locator(".tabs a", has_text="Relatives").click()
     page.get_by_text("ABL1 has 10 residues.").wait_for()
-    grid = page.locator(".app-panel", has_text="From the same organism")
+    grid = page.locator(".app-panel", has_text="From the same host")
     grid.get_by_text(made["ABL2"]).wait_for()
     assert grid.get_by_text(made["Abl"]).count() == 0
     assert_clean(page)

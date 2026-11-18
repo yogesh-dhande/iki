@@ -40,20 +40,20 @@ def lab(world: World) -> dict[str, dict[str, Any]]:
     for name, values in {
         "abl1": {
             "sequence": "MKVL",
-            "organism": "Homo sapiens",
+            "host": "Homo sapiens",
             "temperature_optimum": 37,
             "uniprot_ids": ["P00519"],
             "summary": "A tyrosine kinase; the active site binds ATP.",
         },
         "src": {
             "sequence": "MSTL",
-            "organism": "Homo sapiens",
+            "host": "Homo sapiens",
             "temperature_optimum": 30,
             "encoded_by": out["puc19"]["id"],
         },
         "lacz": {
             "sequence": "MTMI",
-            "organism": "Escherichia coli",
+            "host": "Escherichia coli",
             "temperature_optimum": 25,
             "summary": "A galactosidase fragment.",
         },
@@ -97,7 +97,7 @@ def test_a_parents_fields_find_its_subtypes(world: World, lab: dict[str, Any]) -
 
 
 def test_conditions_combine(world: World, lab: dict[str, Any]) -> None:
-    human = {"field": "organism", "op": "eq", "value": "Homo sapiens"}
+    human = {"field": "host", "op": "eq", "value": "Homo sapiens"}
     warm = {"field": "temperature_optimum", "op": "gt", "value": 35}
     body = {"type": "acme/protein.Protein"}
     assert find(world, {**body, "where": {"all": [human, warm]}}) == ["abl1"]
@@ -107,11 +107,11 @@ def test_conditions_combine(world: World, lab: dict[str, Any]) -> None:
     # `ne` and `not` include entities without a value.
     assert find(world, {**body, "where": {"not": human}}) == ["lacz", "mystery"]
     assert find(
-        world, {**body, "where": {"field": "organism", "op": "ne", "value": "Homo sapiens"}}
+        world, {**body, "where": {"field": "host", "op": "ne", "value": "Homo sapiens"}}
     ) == ["lacz", "mystery"]
-    assert find(
-        world, {**body, "where": {"field": "organism", "op": "is_set", "value": False}}
-    ) == ["mystery"]
+    assert find(world, {**body, "where": {"field": "host", "op": "is_set", "value": False}}) == [
+        "mystery"
+    ]
 
 
 def test_quantities_compare_in_any_unit_of_their_kind(world: World, lab: dict[str, Any]) -> None:
@@ -126,7 +126,7 @@ def test_quantities_compare_in_any_unit_of_their_kind(world: World, lab: dict[st
 def test_text_and_strings(world: World, lab: dict[str, Any]) -> None:
     body = {"type": "acme/protein.Protein"}
     assert find(
-        world, {**body, "where": {"field": "organism", "op": "starts_with", "value": "homo"}}
+        world, {**body, "where": {"field": "host", "op": "starts_with", "value": "homo"}}
     ) == ["abl1", "src"]
     # Words, as people type them into a search engine.
     assert find(
@@ -249,7 +249,7 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
                 "type": "acme/protein.Protein",
                 "where": {
                     "all": [
-                        {"field": "organism", "op": "gt", "value": "x"},
+                        {"field": "host", "op": "gt", "value": "x"},
                         {"field": "temperature_optimum", "op": "lt", "value": "warm"},
                         {
                             "field": "temperature_optimum",
@@ -262,7 +262,7 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
             [
                 {
                     "pointer": "#/where/all/0/op",
-                    "detail": "`organism` takes `is_set`, `eq`, `ne`, `in`, `contains` or "
+                    "detail": "`host` takes `is_set`, `eq`, `ne`, `in`, `contains` or "
                     "`starts_with`, not `gt`.",
                 },
                 {
@@ -365,7 +365,7 @@ def test_the_api_says_when_a_search_ran_too_long(
 
 
 def test_sorted_by_a_field_with_unset_values_last(world: World, lab: dict[str, Any]) -> None:
-    body: dict[str, Any] = {"type": "acme/protein.Protein", "sort": {"field": "organism"}}
+    body: dict[str, Any] = {"type": "acme/protein.Protein", "sort": {"field": "host"}}
     # Ties (the two human proteins) keep the order they were made in, across pages.
     assert find(world, body) == ["lacz", "abl1", "src", "mystery"]
     # Descending reverses it, ties too, as an index reads backwards; unset values stay last.
@@ -403,7 +403,7 @@ def test_a_sort_too_long_for_a_page_is_refused_at_once(
 
 def test_cursors_belong_to_their_search(world: World, lab: dict[str, Any]) -> None:
     api = api_as(world, "viewer")
-    body = {"type": "acme/protein.Protein", "sort": {"field": "organism"}, "limit": 1}
+    body = {"type": "acme/protein.Protein", "sort": {"field": "host"}, "limit": 1}
     cursor = api.post("/entities/search", body).json()["next_cursor"]
     other = {**body, "sort": {"field": "name"}, "cursor": cursor}
     assert problem(api.post("/entities/search", other), 422, "validation_failed")["errors"] == [
@@ -425,9 +425,9 @@ def test_cursors_belong_to_their_search(world: World, lab: dict[str, Any]) -> No
         (
             search.Search(
                 type="acme/protein.Protein",
-                where={"field": "organism", "op": "contains", "value": "sapi"},
+                where={"field": "host", "op": "contains", "value": "sapi"},
             ),
-            "organism_trgm_",
+            "host_trgm_",
         ),
         (
             search.Search(

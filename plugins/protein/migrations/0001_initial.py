@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('iki__core', '0002_registries'),
+        ('iki__core', '0001_initial'),
         ('iki__dna', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_entities', '0004_search'),

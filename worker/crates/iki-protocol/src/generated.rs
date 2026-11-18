@@ -376,11 +376,14 @@ pub struct RunOutputMadeSoftwareItem {
 pub struct RunOutputCreate {
     /// Its type, by its qualified name, such as `iki/protein.Protein`.
     pub r#type: String,
-    /// A name for it, unique in `creates`, that a later create's ref fields can give as `{"$create": "<key>"}` to refer to it, such as a structure to the chains made with it. Not in a `creates_file`.
+    /// A name for it, unique in `creates`, that a later create's ref fields can give as `{"$create": "<key>"}` to refer to it, such as a structure to the chains made with it, or a `creates_file`'s lines to the organisms they're from. Not in a `creates_file`'s lines themselves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// Its fields' values. A ref field (or an item of a list of refs) may be `{"$create": "<key>"}`: the entity an earlier create with that key made or reused.
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// Fields of `values`, its registry entry's, that only fill an entry registered already where it has none: one it has is kept and the create goes ahead, where a fact that differs is otherwise refused. For what sources spell otherwise, such as an organism's scientific name from an old file (ADR 0140). Not in a `creates_file`'s lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fills: Option<Vec<String>>,
     /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<Vec<String>>,
@@ -403,7 +406,7 @@ pub struct RunOutput {
     /// New entities, of types the action declares it creates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creates: Option<Vec<RunOutputCreate>>,
-    /// Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. Give `creates` or this, not both.
+    /// Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. A line's ref fields can name a keyed create in `creates`, written first, as `{"$create": "<key>"}`, but not another line or, in its identity, any create.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creates_file: Option<serde_json::Value>,
     /// Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.

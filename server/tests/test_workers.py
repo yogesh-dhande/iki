@@ -369,13 +369,13 @@ def test_the_command_reads_the_revision_the_run_was_launched_on(world: World) ->
     entity = editor.get(f"/entities/{run['inputs'][0]['entity']}")
     changed = editor.patch(
         f"/entities/{run['inputs'][0]['entity']}",
-        {"values": {"organism": "Homo sapiens"}},
+        {"values": {"host": "Homo sapiens"}},
         headers={"If-Match": entity["ETag"]},
     )
     assert changed.status_code == 200, changed.content
     (entity_in,) = pod.lease().json()["inputs"]["protein"]
     assert entity_in["revision"] == 1
-    assert entity_in["values"]["organism"] is None
+    assert entity_in["values"]["host"] is None
 
 
 def test_workers_lease_only_what_fits_on_their_tier(world: World) -> None:

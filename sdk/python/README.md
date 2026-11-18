@@ -63,7 +63,7 @@ found = iki.entities.search(
     where={
         "all": [
             {"field": "length", "op": "gte", "value": 300},
-            {"field": "organism", "op": "eq", "value": "Homo sapiens"},
+            {"field": "organism", "op": "eq", "value": "TAX-000001"},  # Homo sapiens
         ]
     },
     sort="-created_at",  # newest first

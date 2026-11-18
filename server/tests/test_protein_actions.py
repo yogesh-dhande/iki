@@ -111,7 +111,7 @@ def test_aligns_two_proteins_as_needle_and_keeps_the_alignment(tmp_path: Path) -
     assert len(rows[0]) == len(rows[1]) == 149
     # The FASTA is an alignment of the two in Iki, each row headed by its HRID.
     assert [record.split("\n", 1)[0] for record in fasta] == ["X-1", "X-2"]
-    (alignment,) = output["creates"]
+    (alignment,) = made(output)
     assert alignment == {
         "type": "iki/core.Alignment",
         "values": {
@@ -190,7 +190,7 @@ def test_a_local_alignment_with_nothing_above_zero_is_none(tmp_path: Path) -> No
     result, output = aligned(tmp_path, "AAAA", "WWWW", mode="local")
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert output["creates"] == []
+    assert made(output) == []
     assert output["metrics"]["identity_percent"] == 0
     assert [m["text"] for m in output["messages"]] == [
         "X-1 and X-2 have no local alignment: no part of one scores above zero against the other."
@@ -350,7 +350,7 @@ def test_translates_into_a_protein_linked_to_its_dna(tmp_path: Path) -> None:
     result, output = translated(tmp_path, [dna])
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert output["creates"] == [
+    assert made(output) == [
         {
             "type": "iki/protein.Protein",
             "values": {
@@ -380,7 +380,7 @@ def test_translates_into_a_protein_linked_to_its_dna(tmp_path: Path) -> None:
 def test_frames_strands_and_codes(tmp_path: Path, params: dict[str, Any], sequence: str) -> None:
     _, output = translated(tmp_path, [entity(1, bases="ATGGCCAAGTAAGGG")], **params)
     assert output is not None
-    assert output["creates"][0]["values"]["sequence"] == sequence
+    assert made(output)[0]["values"]["sequence"] == sequence
 
 
 def test_genetic_codes_differ_where_ncbi_says(tmp_path: Path) -> None:
@@ -391,7 +391,7 @@ def test_genetic_codes_differ_where_ncbi_says(tmp_path: Path) -> None:
     for table in (1, 2):
         _, output = translated(tmp_path, [entity(1, bases=bases)], table=table, to_stop=False)
         assert output is not None
-        found[table] = output["creates"][0]["values"]["sequence"]
+        found[table] = made(output)[0]["values"]["sequence"]
     assert found == {1: "M*R", 2: "MW*"}
 
 
@@ -399,7 +399,7 @@ def test_ambiguous_codons_give_what_every_reading_agrees_on(tmp_path: Path) -> N
     # GAY is D either way; NNN could be anything.
     _, output = translated(tmp_path, [entity(1, bases="ATGGAYNNN")])
     assert output is not None
-    assert output["creates"][0]["values"]["sequence"] == "MDX"
+    assert made(output)[0]["values"]["sequence"] == "MDX"
 
 
 def test_a_sequence_that_gives_no_residues_fails_its_own_run(tmp_path: Path) -> None:
@@ -408,7 +408,7 @@ def test_a_sequence_that_gives_no_residues_fails_its_own_run(tmp_path: Path) -> 
     result, output = translated(tmp_path, [good, stop, short])
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert [c["derived_from"] for c in output["creates"]] == [[good["id"]]]
+    assert [c["derived_from"] for c in made(output)] == [[good["id"]]]
     assert output["messages"] == [
         {
             "level": "error",
@@ -428,7 +428,7 @@ def test_stop_codons_alone_are_no_protein(tmp_path: Path) -> None:
     result, output = translated(tmp_path, [stops], to_stop=False)
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert output["creates"] == []
+    assert made(output) == []
     assert [m["text"] for m in output["messages"]] == [
         "pStops gives no residues in frame +1: it has only stop codons."
     ]
@@ -460,7 +460,7 @@ def test_what_isnt_a_complete_coding_sequence_fails_its_own_run(tmp_path: Path) 
     result, output = translated(tmp_path, [good, no_start, no_stop, inner], complete_cds=True)
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert [c["values"]["sequence"] for c in output["creates"]] == ["MK"]
+    assert [c["values"]["sequence"] for c in made(output)] == ["MK"]
     assert [m["text"] for m in output["messages"]] == [
         "pNoStart isn't a complete coding sequence in frame +1: First codon 'AAA' is not a "
         "start codon.",
@@ -531,16 +531,28 @@ def imported(
     return script(tmp_path, "imports.py", run_input)
 
 
+def made(output: dict[str, Any]) -> list[dict[str, Any]]:
+    """What a run creates, but the organisms its records are from (ADR 0140)."""
+    return [c for c in output["creates"] if c["type"] != "iki/core.Organism"]
+
+
 def test_uniprot_headers_give_the_entry_accession_organism_and_gene(tmp_path: Path) -> None:
     result, output = imported(tmp_path, UNIPROT_FASTA)
     assert result.returncode == 0, result.stderr
     assert output is not None
-    (create,) = output["creates"]
+    # Its organism, by UniProt's OX=, made the first time it's met (ADR 0140).
+    organism, create = output["creates"]
+    assert organism == {
+        "type": "iki/core.Organism",
+        "key": "taxon:9606",
+        "values": {"taxon_id": 9606, "scientific_name": "Homo sapiens"},
+        "fills": ["scientific_name"],
+    }
     assert create["values"] == {
         "name": "HBA_HUMAN",
         "description": "Hemoglobin subunit alpha",
         "uniprot_accession": "P69905",
-        "organism": "Homo sapiens",
+        "organism": {"$create": "taxon:9606"},
         "gene": "HBA1",
         "sequence": HBA,
     }
@@ -564,18 +576,24 @@ def test_other_headers_give_a_name_a_description_and_an_organism_in_brackets(
     result, output = imported(tmp_path, text)
     assert result.returncode == 0, result.stderr
     assert output is not None
+    # An organism named without its taxon ID is left out, saying so: a name can't say
+    # which taxon it is (ADR 0140).
     assert [c["values"] for c in output["creates"]] == [
         {
             "name": "NP_000549.1",
             "description": "hemoglobin subunit alpha",
-            "organism": "Homo sapiens",
             "sequence": "MVLSPADKTN",
         },
         # Not an accession UniProt would give, so only its entry name is kept.
-        {"name": "X_Y", "description": "A protein", "organism": "Mus musculus", "sequence": "MKWV"},
+        {"name": "X_Y", "description": "A protein", "sequence": "MKWV"},
         {"sequence": "MKV"},
     ]
     assert output["creates"][2]["origin"]["id"] == "Record 3"
+    assert [m["text"] for m in output["messages"]] == [
+        "Record 1 (NP_000549.1): its organism, Homo sapiens, has no NCBI Taxonomy ID, so "
+        "it's left out.",
+        "Record 2 (X_Y): its organism, Mus musculus, has no NCBI Taxonomy ID, so it's left out.",
+    ]
 
 
 def test_a_large_file_goes_in_a_creates_file(tmp_path: Path) -> None:
@@ -683,7 +701,7 @@ def test_fetches_entries_from_uniprot_in_the_order_asked(tmp_path: Path, uniprot
     output = fetched(tmp_path, uniprot, "p69905, P68871\nP69905")
     assert [a["accessions"] for a in uniprot.fake.asked] == [["P69905,P68871"]]
     assert [a["format"] for a in uniprot.fake.asked] == [["fasta"]]
-    hba, hbb = output["creates"]
+    hba, hbb = made(output)
     assert (hba["values"]["name"], hbb["values"]["name"]) == ("HBA_HUMAN", "HBB_HUMAN")
     assert hbb["values"]["sequence"] == HBB
     origin = hba["origin"]
@@ -712,7 +730,7 @@ def test_waits_and_asks_again_when_uniprot_says_to_slow_down(tmp_path: Path, uni
     output = fetched(tmp_path, uniprot, "P69905")
     assert len(uniprot.fake.asked) == 3
     assert uniprot.slept == [2, 4]
-    assert output["creates"][0]["values"]["uniprot_accession"] == "P69905"
+    assert made(output)[0]["values"]["uniprot_accession"] == "P69905"
 
 
 @pytest.mark.parametrize(

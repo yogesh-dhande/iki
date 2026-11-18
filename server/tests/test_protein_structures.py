@@ -48,8 +48,9 @@ HEAY
 loop_
 _entity_src_gen.entity_id
 _entity_src_gen.pdbx_gene_src_scientific_name
+_entity_src_gen.pdbx_gene_src_ncbi_taxonomy_id
 _entity_src_gen.pdbx_gene_src_gene
-1 'Homo sapiens' 'ABL1, ABL'
+1 'Homo sapiens' 9606 'ABL1, ABL'
 loop_
 _struct_ref.id
 _struct_ref.entity_id
@@ -132,7 +133,14 @@ def run(tmp_path: Path, text: str, name: str) -> tuple[subprocess.CompletedProce
 def test_an_mmcif_file_gives_a_structure_linked_to_its_proteins(tmp_path: Path) -> None:
     result, output = run(tmp_path, MMCIF, "kinase.cif")
     assert result.returncode == 0, result.stderr
-    protein, structure = output["creates"]
+    # Its organism by its NCBI Taxonomy ID, first (ADR 0140), then the protein from it.
+    organism, protein, structure = output["creates"]
+    assert organism == {
+        "type": "iki/core.Organism",
+        "key": "taxon:9606",
+        "values": {"taxon_id": 9606, "scientific_name": "Homo sapiens"},
+        "fills": ["scientific_name"],
+    }
     origin = {
         "source": "mmCIF file",
         "id": "kinase.cif",
@@ -146,7 +154,7 @@ def test_an_mmcif_file_gives_a_structure_linked_to_its_proteins(tmp_path: Path) 
             "name": "Tyrosine-protein kinase ABL1",
             "description": "Chains A, B of 1ABC.",
             "sequence": "MKVWHEAY",
-            "organism": "Homo sapiens",
+            "organism": {"$create": "taxon:9606"},
             "gene": "ABL1",
             "uniprot_accession": "P00519",
         },
@@ -248,13 +256,17 @@ def test_a_modelcif_file_says_what_made_the_model_and_how_sure_it_is(tmp_path: P
     text = ALPHAFOLD.read_text(encoding="utf-8")
     result, output = run(tmp_path, text, "AF-P01542-F1-model_v6.cif")
     assert result.returncode == 0, result.stderr
-    protein, structure = output["creates"]
+    organism, protein, structure = output["creates"]
+    assert organism["values"] == {
+        "taxon_id": 3721,
+        "scientific_name": "Crambe hispanica subsp. abyssinica",
+    }
     assert protein["values"] == {
         "name": "Crambin",
         "description": "Chain A of AF-P01542-F1-model_v6.",
         "sequence": "TTCCPSIVARSNFNVCRLPGTPEALCATYTGCIIIPGATCPGDYAN",
         # From ModelCIF's target: the UniProt entry it modelled.
-        "organism": "Crambe hispanica subsp. abyssinica",
+        "organism": {"$create": "taxon:3721"},
         "gene": "THI2",
         "uniprot_accession": "P01542",
     }
@@ -353,12 +365,24 @@ def test_a_chimeric_chain_is_none_of_its_parts_and_says_which_residues_are_which
 
 
 def test_one_entry_in_several_segments_is_that_entry(tmp_path: Path) -> None:
-    text = CHIMERA.replace("P00720", "P07550").replace("Enterobacteria phage T4", "Homo sapiens")
+    text = (
+        CHIMERA.replace("P00720", "P07550")
+        .replace("Enterobacteria phage T4", "Homo sapiens")
+        .replace(
+            "_entity_src_gen.pdbx_gene_src_scientific_name\n",
+            "_entity_src_gen.pdbx_gene_src_scientific_name\n"
+            "_entity_src_gen.pdbx_gene_src_ncbi_taxonomy_id\n",
+        )
+        .replace("'Homo sapiens'\n", "'Homo sapiens' 9606\n")
+    )
     _, output = run(tmp_path, text, "2rh1.cif")
-    protein = output["creates"][0]["values"]
+    organism, made = output["creates"][:2]
+    # Its organism, by its NCBI Taxonomy ID (ADR 0140).
+    assert organism["values"] == {"taxon_id": 9606, "scientific_name": "Homo sapiens"}
+    protein = made["values"]
     assert (protein["uniprot_accession"], protein["organism"], protein["gene"]) == (
         "P07550",
-        "Homo sapiens",
+        {"$create": "taxon:9606"},
         "ADRB2",
     )
     assert protein["description"] == "Chain A of 2RH1."
@@ -486,13 +510,15 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
         "https://files.rcsb.org/download/2XYZ.cif.gz",
     ]
     assert rcsb.slept == [0.2]
+    # Both are from one organism, made once, where it's first needed (ADR 0140).
     assert [(c["type"], c.get("key")) for c in output["creates"]] == [
+        ("iki/core.Organism", "taxon:9606"),
         ("iki/protein.Protein", "1ABC-1"),
         ("iki/protein.ProteinStructure", None),
         ("iki/protein.Protein", "2XYZ-1"),
         ("iki/protein.ProteinStructure", None),
     ]
-    structure = output["creates"][1]
+    structure = output["creates"][2]
     assert structure["values"]["structure"] == {
         "$file": "1ABC.cif",
         "media_type": "chemical/x-mmcif",
@@ -509,7 +535,7 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
     }
     assert origin["retrieved_at"].endswith("+00:00")
     assert origin["made"] == X_RAY
-    assert output["creates"][0]["origin"] == {k: v for k, v in origin.items() if k != "made"}
+    assert output["creates"][1]["origin"] == {k: v for k, v in origin.items() if k != "made"}
     assert output["metrics"] == {"structures": 2}
 
 
@@ -634,7 +660,7 @@ def test_fetches_alphafold_dbs_model_saying_what_made_it(tmp_path: Path, alphafo
     output = predicted(tmp_path, alphafold, "p01542, P01542")
     assert alphafold.fake.asked == [f"{API}P01542", f"{FILES}AF-P01542-F1-model_v6.cif"]
     assert alphafold.slept == [0.2]
-    protein, structure = output["creates"]
+    _, protein, structure = output["creates"]
     assert protein["key"] == "AF-P01542-F1-1"
     assert protein["values"]["uniprot_accession"] == "P01542"
     values = structure["values"]

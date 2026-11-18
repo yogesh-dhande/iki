@@ -281,8 +281,118 @@ class Collection_members(models.Model):
         ]
 
 
+class Organism(Entity):
+    """Organism (iki/core.Organism), schema version 1. A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a sequence, a strain or a sample is from."""
+
+    IKI_TYPE = 'iki/core.Organism'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'iki__core_organism'
+
+
+class Organism_History(models.Model):
+    """The history of iki__core_organism: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Organism'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'iki__core_organism__history'
+
+
+class Organism_Entry(Entity):
+    """Registry entries of Organism (iki/core.Organism), ADR 0115."""
+
+    IKI_TYPE = 'iki/core.Organism'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    taxon_id = models.BigIntegerField(db_index=True)
+    scientific_name = models.CharField(max_length=255, null=True, db_index=True)
+    rank = models.CharField(max_length=64, null=True)
+    parent = models.ForeignKey('Organism_Entry', models.PROTECT, related_name='+', null=True)
+
+    class Meta:
+        db_table = 'iki__core_organism__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(taxon_id__gte=1),
+                name='iki__core_organism__entry__taxon_id__min',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('scientific_name'), 1),
+                name='iki__core_organism__entry__scientific_name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(scientific_name__regex='[\\r\\n]'),
+                name='iki__core_organism__entry__scientific_name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(scientific_name__regex='^(?:^[A-Za-z0-9][^\\t\\r\\n]*$)$'),
+                name='iki__core_organism__entry__scientific_name__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('rank'), 1),
+                name='iki__core_organism__entry__rank__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(rank__regex='[\\r\\n]'),
+                name='iki__core_organism__entry__rank__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(rank__regex='^(?:^[a-z][a-z ]*$)$'),
+                name='iki__core_organism__entry__rank__pattern',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['scientific_name'],
+                opclasses=['gin_trgm_ops'],
+                name='scientific_trgm_2f0853a43b2b5c',
+            ),
+        ]
+
+
+class Organism_Entry_History(models.Model):
+    """The history of iki__core_organism__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Organism_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    taxon_id = models.BigIntegerField(null=True)
+    scientific_name = models.TextField(null=True)
+    rank = models.TextField(null=True)
+    parent = models.UUIDField(db_column='parent_id', null=True)
+
+    class Meta:
+        db_table = 'iki__core_organism__entry__history'
+
+
 class Sequence(Entity):
-    """Sequence (iki/core.Sequence), schema version 1. Anything with a sequence of residues, such as DNA or a protein."""
+    """Sequence (iki/core.Sequence), schema version 2. Anything with a sequence of residues, such as DNA or a protein."""
 
     IKI_TYPE = 'iki/core.Sequence'
 
@@ -296,7 +406,7 @@ class Sequence(Entity):
     )
     name = models.CharField(max_length=255, null=True, db_index=True)
     description = models.TextField(null=True)
-    organism = models.CharField(max_length=200, null=True, db_index=True)
+    organism = models.ForeignKey('Organism_Entry', models.PROTECT, related_name='+', null=True)
 
     class Meta:
         db_table = 'iki__core_sequence'
@@ -317,14 +427,6 @@ class Sequence(Entity):
                 condition=LessThanOrEqual(Length('description'), 10000),
                 name='iki__core_sequence__description__max_length',
             ),
-            models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('organism'), 1),
-                name='iki__core_sequence__organism__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(organism__regex='[\\r\\n]'),
-                name='iki__core_sequence__organism__one_line',
-            ),
         ]
         indexes = [
             GinIndex(
@@ -335,11 +437,6 @@ class Sequence(Entity):
             GinIndex(
                 SearchVector('description', config='simple'),
                 name='descriptio_fts_549c3fd437ccb77',
-            ),
-            GinIndex(
-                fields=['organism'],
-                opclasses=['gin_trgm_ops'],
-                name='organism_trgm_88711f1869bfa67b',
             ),
         ]
 
@@ -355,7 +452,7 @@ class Sequence_History(models.Model):
     revision = models.PositiveIntegerField()
     name = models.TextField(null=True)
     description = models.TextField(null=True)
-    organism = models.TextField(null=True)
+    organism = models.UUIDField(db_column='organism_id', null=True)
 
     class Meta:
         db_table = 'iki__core_sequence__history'

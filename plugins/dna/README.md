@@ -100,7 +100,11 @@ parts on both strands is `mixed`; one crosses a circle's origin only when
 that's the shorter way round its parts. Such locations, and fuzzy ends (`<1`,
 `>99`), keep GenBank's own text in a `location` qualifier too. Features on
 other records, or whose location isn't on the sequence, are left out, and
-the run says so. FASTA records give a name (the header's first word) and a
+the run says so. The organism is the taxon its source feature names
+(`/db_xref="taxon:9606"`), an `iki/core.Organism` the import makes the first
+time it meets it
+([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
+A record without one has no organism, and the run says so. FASTA records give a name (the header's first word) and a
 description (the rest), and an accession where the header has one
 (`L09137.2`, NCBI's `gb|L09137.2|`, or a RefSeq one such as
 `ref|NZ_CP009273.1|`). FASTA doesn't say whether a sequence is circular, so

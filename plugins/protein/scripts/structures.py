@@ -115,7 +115,7 @@ COMPUTED = "THEORETICAL MODEL"
 #: The most tools, and details, an origin's `made` holds.
 MAX_TOOLS = 20
 MAX_DETAILS = 20
-LIMITS = {"name": 255, "description": 10_000, "organism": 200, "gene": 100}
+LIMITS = {"name": 255, "description": 10_000, "gene": 100}
 
 
 class UnreadableError(Exception):
@@ -129,6 +129,8 @@ class Chains:
     key: str
     values: dict[str, Any]
     ids: list[str]
+    #: Its organism's NCBI Taxonomy ID and name, if the file says (ADR 0140).
+    organism: tuple[int, str] | None = None
 
 
 @dataclass
@@ -263,6 +265,14 @@ def strands(block: gemmi.cif.Block) -> dict[str, str]:
         for row in rows(block, "_struct_asym.", ["entity_id", "id"]):
             out.setdefault(row["entity_id"], {})[row["id"]] = None
     return {entity: ",".join(c for c in chains if c) for entity, chains in out.items()}
+
+
+def _organism(taxon: str, name: str) -> tuple[int, str] | None:
+    """An organism by its NCBI Taxonomy ID, the first if a file gives several."""
+    first = taxon.split(",")[0].strip()
+    if not first.isdigit() or not 0 < int(first) < 10**10:
+        return None
+    return int(first), " ".join(name.split(",")[0].split())
 
 
 def _by_entity(block: gemmi.cif.Block, category: str, tag: str) -> dict[str, str]:
@@ -490,6 +500,19 @@ def read(path: Path, label: str, prefix: str) -> Read:
         ["target_entity_id", "?db_name", "?db_accession", "?organism_scientific", "?gene_name"],
     )
     organisms = _organisms(block, targets)
+    # Each entity's NCBI Taxonomy ID, which names its organism (ADR 0140).
+    taxa = {
+        **{
+            r["target_entity_id"]: r["ncbi_taxonomy_id"]
+            for r in rows(
+                block, "_ma_target_ref_db_details.", ["target_entity_id", "?ncbi_taxonomy_id"]
+            )
+            if r["ncbi_taxonomy_id"]
+        },
+        **_by_entity(block, "_pdbx_entity_src_syn.", "?ncbi_taxonomy_id"),
+        **_by_entity(block, "_entity_src_nat.", "?pdbx_ncbi_taxonomy_id"),
+        **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_ncbi_taxonomy_id"),
+    }
     genes = {
         **{t["target_entity_id"]: t["gene_name"] for t in targets},
         **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene"),
@@ -543,12 +566,24 @@ def read(path: Path, label: str, prefix: str) -> Read:
             "name": names.get(entity, "") or f"{shown} chain {chains[0] if chains else entity}",
             "description": description,
             "sequence": sequence,
-            "organism": next(iter(organism), ""),
             "gene": gene,
             "uniprot_accession": next(iter(accession), ""),
         }
+        # Its organism is a record, by its NCBI Taxonomy ID (ADR 0140); a chimera's has none.
+        named = next(iter(organism), "")
+        source = _organism(taxa.get(entity, ""), named) if named else None
+        if named and source is None:
+            notes.append(
+                f"{shown} chain {listed}: its organism, {named[:200]}, has no NCBI "
+                "Taxonomy ID, so it's left out."
+            )
         proteins.append(
-            Chains(f"{prefix}{entity}", _fit(values, f"{shown} chain {listed}", notes), chains)
+            Chains(
+                f"{prefix}{entity}",
+                _fit(values, f"{shown} chain {listed}", notes),
+                chains,
+                source,
+            )
         )
     if not proteins:
         raise UnreadableError("It has no protein chains.")
@@ -592,10 +627,16 @@ def read(path: Path, label: str, prefix: str) -> Read:
 def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str, Any]]:  # noqa: ANN401 - a file ID or a $file
     """The proteins, then the structure that refers to them. The structure's origin says
     how the file says it was made; the proteins' don't, as their sequences weren't."""
-    out: list[dict[str, Any]] = [
-        {"type": "iki/protein.Protein", "key": p.key, "values": p.values, "origin": origin}
-        for p in structure.proteins
-    ]
+    out: list[dict[str, Any]] = []
+    for p in structure.proteins:
+        values = p.values
+        if p.organism is not None:
+            taxon, name = p.organism
+            out.append(organism_create(taxon, name))
+            values = {**values, "organism": {"$create": f"taxon:{taxon}"}}
+        out.append(
+            {"type": "iki/protein.Protein", "key": p.key, "values": values, "origin": origin}
+        )
     out.append(
         {
             "type": "iki/protein.ProteinStructure",
@@ -606,6 +647,34 @@ def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str
     return out
 
 
+def organism_create(taxon: int, name: str) -> dict[str, Any]:
+    """The organism's create (ADR 0140): its entry is found by its ID, or made with it."""
+    values: dict[str, Any] = {"taxon_id": taxon}
+    if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", name):
+        values["scientific_name"] = name
+    # A name only fills an entry that has none: an old file may give a taxon's old name.
+    fills = ["scientific_name"] if "scientific_name" in values else []
+    return {
+        "type": "iki/core.Organism",
+        "key": f"taxon:{taxon}",
+        "values": values,
+        **({"fills": fills} if fills else {}),
+    }
+
+
+def once(made: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each organism once, where it's first needed: several structures may share one."""
+    seen: set[str] = set()
+    out = []
+    for create in made:
+        if create["type"] == "iki/core.Organism":
+            if create["key"] in seen:
+                continue
+            seen.add(create["key"])
+        out.append(create)
+    return out
+
+
 def write(made: list[dict[str, Any]], notes: list[str], count: int) -> None:
     messages = [{"level": "info", "text": note[:2000]} for note in notes[:99]]
     if len(notes) > 99:
@@ -613,7 +682,7 @@ def write(made: list[dict[str, Any]], notes: list[str], count: int) -> None:
     output = {
         "apiVersion": "iki/v1",
         "kind": "RunOutput",
-        "creates": made,
+        "creates": once(made),
         "metrics": {"structures": count},
         "messages": messages,
     }

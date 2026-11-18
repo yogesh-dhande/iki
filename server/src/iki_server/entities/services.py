@@ -237,6 +237,7 @@ def create(
     by_run: bool = False,
     hold_reason: str = "",
     amount: Any = None,  # noqa: ANN401 - JSON: a quantity
+    fills: frozenset[str] = frozenset(),
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
     project's record of its registry entry: a new one, or the one the project has, as it is.
@@ -245,7 +246,9 @@ def create(
     computed fields, and its revision is marked ``via="run"``. ``hold_reason``: why to save
     it though it breaks rules that hold records for review (ADR 0127). Without one, such a
     save is refused with :class:`checking.Held`. ``amount``: how much there is of it, for a
-    type with one (ADR 0139).
+    type with one (ADR 0139). ``fills``: fields of ``values`` that only fill an
+    existing entry's empty ones: where it has a value, it keeps it and this isn't refused,
+    as a fact that differs otherwise is (ADR 0140).
     """
     from iki_server.amounts import services as amounts
 
@@ -262,7 +265,7 @@ def create(
         hold_reason=hold_reason,
     )
     with transaction.atomic(), _unique_values():
-        saved = _create(user, form, project, values, given, reason, by_run)
+        saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
             _hold(saved, holding, user, hold_reason, saved.revision.number)
         if given_amount is not None and not saved.reused:
@@ -279,6 +282,7 @@ def _create(
     given: Mapping[str, Any],
     reason: str,
     by_run: bool,
+    fills: frozenset[str] = frozenset(),
 ) -> Saved:
     if not form.has_entries:
         return _new_record(user, form, project, given, reason, by_run)
@@ -290,7 +294,14 @@ def _create(
         # is the entry's, however it's spelled (ADR 0138): what it gives along a sequence
         # spelled otherwise is placed along the entry's.
         own = identity.identity_of(form.entity_type)
-        named = {n: given[n] for n in values if n in form.entry_fields() and n not in own}
+        stored = Rows(form, None, _specific(entry))
+        kept = {n for n in fills if stored.get(n) is not None and stored.get(n) != []}
+        given = {n: v for n, v in given.items() if n not in kept}
+        named = {
+            n: given[n]
+            for n in values
+            if n in form.entry_fields() and n not in own and n not in kept
+        }
         entry_revision = fill_entry(
             user, form, entry, named, project=project, reason=reason, by_run=by_run
         )

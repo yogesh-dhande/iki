@@ -5,7 +5,8 @@ where it came from, to $IKI_OUTPUT, as every action's command does. A record tha
 can't be read fails the whole import with a `::error` line that says which and why,
 so nothing is half imported.
 
-GenBank records give their name, definition, accession and version, organism, topology,
+GenBank records give their name, definition, accession and version, organism (by the
+NCBI Taxonomy ID in its source feature: its entry is made the first time, ADR 0140), topology,
 strandedness (if LOCUS says ss-DNA or ds-DNA) and features. A feature's location is kept
 as its first and last base and its strand; locations with several parts (`join(...)`),
 fuzzy ends (`<1`, `>99`) or between two bases (`5^6`) keep GenBank's own text in the
@@ -57,7 +58,7 @@ MAX_FEATURES = 10_000
 MAX_QUALIFIERS = 50
 MAX_PARTS = 1_000
 MAX_QUALIFIER = 10_000
-LIMITS = {"name": 255, "description": 10_000, "organism": 200, "accession": 64}
+LIMITS = {"name": 255, "description": 10_000, "accession": 64}
 #: How NCBI's COMMENT starts for a RefSeq model, a record its annotation pipeline predicted.
 MODEL = "MODEL REFSEQ: This record is predicted by automated computational analysis"
 
@@ -75,6 +76,33 @@ class Record:
     warnings: list[str] = field(default_factory=list)
     #: How the record says its sequence was made, if it does (ADR 0106).
     made: dict[str, Any] | None = None
+    #: The organism it's from, by its NCBI Taxonomy ID and name, if the record says.
+    organism: Organism | None = None
+
+
+@dataclass(frozen=True)
+class Organism:
+    """A taxon, as a record names it: its entry in Iki is found, or made, by its ID."""
+
+    taxon_id: int
+    name: str
+
+    @property
+    def key(self) -> str:
+        return f"taxon:{self.taxon_id}"
+
+    def create(self) -> dict[str, Any]:
+        values: dict[str, Any] = {"taxon_id": self.taxon_id}
+        if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", self.name):
+            values["scientific_name"] = self.name
+        # A name only fills an entry that has none: an old file may give a taxon's old name.
+        fills = ["scientific_name"] if "scientific_name" in values else []
+        return {
+            "type": "iki/core.Organism",
+            "key": self.key,
+            "values": values,
+            **({"fills": fills} if fills else {}),
+        }
 
 
 # --- Bases ---------------------------------------------------------------------------------------
@@ -209,6 +237,7 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
         elif current:
             sections.setdefault(current, []).append(line.strip())
     organism = _organism(sections.get("SOURCE", []))
+    taxon = _taxon(features)
     # VERSION names the accession with its version (L09137.2); old files may lack it.
     named = " ".join(sections.get("VERSION", []) or sections.get("ACCESSION", [])).split()
     accession = named[0] if named else ""
@@ -217,7 +246,6 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
     values = {
         "name": name,
         "description": " ".join(sections.get("DEFINITION", [])).strip().removesuffix("."),
-        "organism": organism,
         "accession": accession if re.fullmatch(r"[A-Za-z0-9_.]+", accession) else "",
         "bases": bases,
         "topology": topology,
@@ -228,6 +256,13 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
         values["strandedness"] = stranded
     record.values = fit(values, record)
     record.made = made(sections.get("COMMENT", []))
+    if taxon is not None:
+        record.organism = Organism(taxon, organism)
+    elif organism:
+        record.warnings.append(
+            f"{label}: its organism, {organism[:200]}, has no NCBI Taxonomy ID "
+            "(its source feature's /db_xref=\"taxon:…\"), so it's left out."
+        )
     return record
 
 
@@ -306,6 +341,21 @@ def _organism(source: list[str]) -> str:
         if line.strip().startswith("ORGANISM"):
             return line.strip().removeprefix("ORGANISM").strip()
     return ""
+
+
+def _taxon(lines: list[str]) -> int | None:
+    """The NCBI Taxonomy ID in the source feature's ``/db_xref="taxon:9606"``."""
+    inside = False
+    for line in lines:
+        if len(line) > 5 and line[5] != " ":
+            if inside:
+                break
+            inside = line[5:].split(" ", 1)[0] == "source"
+        elif inside:
+            found = re.search(r'/db_xref="taxon:([0-9]{1,10})"', line)
+            if found and int(found[1]) > 0:
+                return int(found[1])
+    return None
 
 
 def _features(record: Record, lines: list[str], length: int, topology: str) -> list[dict[str, Any]]:
@@ -543,8 +593,13 @@ class _Creates:
         self.held: list[str] = []
         self.size = 0
         self.file: TextIO | None = None
+        #: The organisms the creates are from (ADR 0140), each created once, first.
+        self.organisms: dict[str, Organism] = {}
 
-    def add(self, create: dict[str, Any]) -> None:
+    def add(self, create: dict[str, Any], organism: Organism | None = None) -> None:
+        if organism is not None:
+            self.organisms.setdefault(organism.key, organism)
+            create["values"] = {**create["values"], "organism": {"$create": organism.key}}
         line = json.dumps(create, separators=(",", ":"))
         if self.file is None:
             self.held.append(line)
@@ -559,10 +614,14 @@ class _Creates:
         self.file.write(f"{line}\n")
 
     def output(self) -> dict[str, Any]:
+        organisms = [o.create() for o in self.organisms.values()]
         if self.file is None:
-            return {"creates": [json.loads(line) for line in self.held]}
+            return {"creates": [*organisms, *(json.loads(line) for line in self.held)]}
         self.file.close()
-        return {"creates_file": {"$file": CREATES_FILE}}
+        return {
+            **({"creates": organisms} if organisms else {}),
+            "creates_file": {"$file": CREATES_FILE},
+        }
 
 
 def finish(
@@ -584,7 +643,10 @@ def finish(
         found = origin(record)
         if record.made:
             found["made"] = record.made
-        creates.add({"type": "iki/dna.DNASequence", "values": record.values, "origin": found})
+        creates.add(
+            {"type": "iki/dna.DNASequence", "values": record.values, "origin": found},
+            record.organism,
+        )
         for warning in record.warnings:
             warned += 1
             if len(messages) < MAX_MESSAGES:

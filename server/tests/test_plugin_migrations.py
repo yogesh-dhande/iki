@@ -230,6 +230,13 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_sample",
         "acme__protein_sample__history",
         "acme__protein_sample__helpers",
+        # A list of rows (ADR 0137): its rows' table.
+        "acme__protein_sample__additions",
+        "acme__protein_bispecific",
+        "acme__protein_bispecific__history",
+        "acme__protein_bispecific__entry",
+        "acme__protein_bispecific__entry__history",
+        "acme__protein_bispecific__entry__components",
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_batch",
@@ -387,13 +394,13 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         "  HRID sequence iki_hrid_arq",
         "  HRID sequence iki_hrid_ars",
         "  HRID sequence iki_hrid_bat",
+        "  HRID sequence iki_hrid_bsp",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_lot",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",
         "  HRID sequence iki_hrid_smp",
-        "  HRID sequence iki_hrid_view",
     ]
     assert sync(out, database) == report  # idempotent
     result = orm(

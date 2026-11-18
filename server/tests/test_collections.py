@@ -13,7 +13,7 @@ pytestmark = pytest.mark.django_db
 
 HUMAN = {
     "type": "acme/protein.Protein",
-    "where": {"field": "organism", "op": "eq", "value": "Homo sapiens"},
+    "where": {"field": "host", "op": "eq", "value": "Homo sapiens"},
 }
 
 
@@ -25,7 +25,7 @@ def world() -> World:
 def protein(api: Api, project: Project, name: str, organism: str | None = None) -> Any:
     values = {"sequence": "MK" + "".join(chr(65 + (ord(c) % 20)) for c in name), "name": name}
     if organism:
-        values["organism"] = organism
+        values["host"] = organism
     made = create(api, project, values, "acme/protein.Protein")
     assert made.status_code == 201, made.content
     return made.json()

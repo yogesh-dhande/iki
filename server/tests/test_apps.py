@@ -339,13 +339,13 @@ def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None
 ABOUT = {"type": "acme/protein.Protein"}
 SAME_ORGANISM = {
     "id": "kin",
-    "title": "From the same organism",
+    "title": "From the same host",
     "component": "iki.entities",
     "props": {
         "type": "acme/protein.Protein",
         "where": {
             "all": [
-                {"field": "organism", "op": "eq", "value": "{{ entity.values.organism }}"},
+                {"field": "host", "op": "eq", "value": "{{ entity.values.host }}"},
                 {"not": {"field": "name", "op": "eq", "value": "{{ entity.values.name }}"}},
             ]
         },

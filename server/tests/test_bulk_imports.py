@@ -184,7 +184,7 @@ def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:
                 KINASES[0],
                 "ABL1",
                 f,
-                organism="Homo sapiens",
+                host="Homo sapiens",
                 source=source["id"],
                 temperature_optimum={"value": 310.15, "unit": "K"},
                 uniprot_ids=["P00519", "Q59FK4"],
@@ -196,7 +196,7 @@ def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:
     assert body["status"] == "succeeded", body
     (effect,) = body["effects"]
     values = editor.get(f"/entities/{effect['hrid']}").json()["values"]
-    assert values["organism"] == "Homo sapiens"
+    assert values["host"] == "Homo sapiens"
     assert values["source"] == source["entry"]["id"]  # its registry entry (ADR 0115)
     assert values["temperature_optimum"] == pytest.approx(37.0)
     assert values["uniprot_ids"] == ["P00519", "Q59FK4"]
@@ -335,7 +335,7 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
         ),
     )
     body = finished(world, second)
-    assert body["status"] == "succeeded", body.get("error")
+    assert body["status"] == "succeeded", body
     imported = RunImport.objects.get(run_id=second["id"])
     assert (imported.created, imported.updated, imported.reused) == (1, 1, 1)
     assert (
@@ -469,11 +469,70 @@ def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
     assert body["status"] == "failed"
     problems = {e["pointer"]: e["detail"] for e in body["error"]["errors"]}
     refused = (
-        "A creates file's lines can't refer to one another: give creates that do (with `key` "
-        "and `$create`) in `creates`."
+        "A creates file's lines can't refer to one another: give the creates they refer to in "
+        "`creates`, with a `key`, and refer to them with `$create`."
     )
-    assert problems["#/creates_file/1"] == refused
+    assert problems["#/creates_file/1/key"] == refused
     assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+
+
+HUMAN = {
+    "type": "iki/core.Organism",
+    "key": "taxon:9606",
+    "values": {"taxon_id": 9606, "scientific_name": "Homo sapiens"},
+    "fills": ["scientific_name"],
+}
+
+
+def test_a_creates_files_lines_refer_to_the_creates_written_before_them(world: World) -> None:
+    """A million sequences from a few organisms (ADR 0140): the organisms go in `creates`,
+    and each line refers to its own by key."""
+    mouse = {"type": "iki/core.Organism", "key": "taxon:10090", "values": {"taxon_id": 10090}}
+    run, _ = started(
+        world,
+        lambda f: lines(
+            *(
+                protein(s, f"K{n}", f, organism={"$create": "taxon:9606"})
+                for n, s in enumerate(KINASES[:3])
+            ),
+            protein(KINASES[3], "K3", f, organism={"$create": "taxon:10090"}),
+        ),
+        creates=[HUMAN, mouse],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body.get("error")
+    editor = api_as(world, "editor")
+    organisms = editor.get("/entities", type="iki/core.Organism").json()["items"]
+    entries = {o["values"]["taxon_id"]: o["entry"]["id"] for o in organisms}
+    assert sorted(entries) == [9606, 10090]
+    found = {
+        e["values"]["name"]: e["values"]["organism"]
+        for e in editor.get("/entities", type="acme/protein.Protein").json()["items"]
+    }
+    # A reference to an organism holds its registry entry (ADR 0115).
+    assert found == {
+        "K0": entries[9606],
+        "K1": entries[9606],
+        "K2": entries[9606],
+        "K3": entries[10090],
+    }
+    assert not _staged_tables()
+
+
+def test_a_line_refers_only_to_a_keyed_create(world: World) -> None:
+    run, _ = started(
+        world,
+        lambda f: lines(protein(KINASES[0], "A", f, organism={"$create": "taxon:1"})),
+        creates=[HUMAN],
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed"
+    problems = {e["pointer"]: e["detail"] for e in body["error"]["errors"]}
+    assert set(problems) == {"#/creates_file/1/values/organism"}, problems
+    # Nothing was written: not even the organism the lines could have referred to.
+    assert not Entity.objects.filter(
+        type__in=["acme/protein.Protein", "iki/core.Organism"]
+    ).exists()
 
 
 def _staged_tables() -> list[Any]:

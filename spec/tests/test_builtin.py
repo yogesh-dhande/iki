@@ -17,6 +17,7 @@ def test_its_types_are_the_builtin_ones() -> None:
         "iki/core.App",
         "iki/core.Collection",
         "iki/core.Entity",
+        "iki/core.Organism",
         "iki/core.Sequence",
         "iki/core.View",
     ]
@@ -30,6 +31,16 @@ def test_its_types_are_the_builtin_ones() -> None:
     sequence = BUILTIN_TYPES["iki/core.Sequence"]
     assert sequence.abstract
     assert set(sequence.fields) == {"name", "description", "organism"}
+    assert sequence.fields["organism"].to == ("iki/core.Organism",)
+    # An organism is a taxon, by its NCBI Taxonomy ID (ADR 0140).
+    organism = BUILTIN_TYPES["iki/core.Organism"]
+    assert (organism.identity, organism.hrid_prefix) == (("taxon_id",), "TAX")
+    assert {n: f.registry for n, f in organism.fields.items()} == {
+        "taxon_id": None,
+        "scientific_name": "fact",
+        "rank": "fact",
+        "parent": "fact",
+    }
     app = BUILTIN_TYPES["iki/core.App"]
     assert not app.abstract
     assert set(app.fields) == {"name", "description", "spec"}

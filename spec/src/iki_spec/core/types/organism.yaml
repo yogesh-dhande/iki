@@ -1,0 +1,46 @@
+# A taxon: a species, a strain, a genus, by its NCBI Taxonomy ID (ADR 0140). One
+# entry per taxon in each registry, so every sequence, strain or sample from it
+# names the same record, however its name was spelled where it came from. Imports
+# make a taxon's entry the first time they meet it, from its ID and name.
+apiVersion: iki/v1
+kind: EntityType
+name: Organism
+label: Organism
+label_plural: Organisms
+schema_version: 1
+description: >-
+  A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a
+  sequence, a strain or a sample is from.
+hrid: { prefix: TAX }
+identity: [taxon_id]
+fields:
+  taxon_id:
+    type: int
+    label: NCBI Taxonomy ID
+    required: true
+    immutable: true
+    min: 1
+    indexed: true
+    description: Its ID in the NCBI Taxonomy, such as 9606 for Homo sapiens.
+  scientific_name:
+    type: string
+    registry: fact
+    max_length: 255
+    # NCBI's scientific name: one line, starting with a letter or digit
+    # (Homo sapiens, Escherichia coli K-12, synthetic construct).
+    pattern: "^[A-Za-z0-9][^\\t\\r\\n]*$"
+    indexed: true
+    description: Its scientific name in the NCBI Taxonomy.
+  rank:
+    type: string
+    registry: fact
+    max_length: 64
+    pattern: "^[a-z][a-z ]*$"
+    description: Its rank in the NCBI Taxonomy, such as species, strain or genus.
+  parent:
+    type: ref
+    to: Organism
+    registry: fact
+    description: The taxon it's in, such as a species' genus, when that's known.
+display:
+  title: "{{ scientific_name or hrid }}"

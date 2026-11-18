@@ -30,7 +30,7 @@ from django.db import transaction
 
 from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
-from iki_server.entities.identity import hash_of
+from iki_server.entities.identity import hash_of, identity_of
 from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
@@ -170,9 +170,10 @@ def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     write(checked(run, document))
 
 
-def write(done: Checked) -> None:
+def write(done: Checked) -> dict[str, UUID]:
     """Writes what :func:`checked` checked. Raises :class:`InvalidOutput` (writing nothing)
-    for values that don't fit the entities' types as installed now."""
+    for values that don't fit the entities' types as installed now. Returns what each
+    keyed create made or found, by its key, for a creates file's lines (ADR 0140)."""
     from iki_server.runs import triggers
 
     check = done.check
@@ -183,9 +184,10 @@ def write(done: Checked) -> None:
         assignments.batch(check.run.requested_by),
     ):
         _write_updates(check, done.updates)
-        _write_creates(check, done.creates)
+        made = _write_creates(check, done.creates)
         if check.errors:
             raise InvalidOutput(check.errors)  # rolls back what was written
+    return made
 
 
 def checked(run: ActionRun, document: Mapping[str, Any]) -> Checked:
@@ -310,6 +312,8 @@ class _Create:
     match_on: str | None = None
     #: The action's software that made it (ADR 0106): what Iki records it was made with.
     made_with: tuple[Software, ...] = ()
+    #: Its values that only fill an entry's empty fields (ADR 0140).
+    fills: frozenset[str] = frozenset()
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -433,10 +437,21 @@ def _is_created_ref(value: object) -> bool:
     )
 
 
-def check_line(check: Check, item: Mapping[str, Any], line: int) -> _Create | None:
+def check_line(
+    check: Check, item: Mapping[str, Any], line: int, keys: frozenset[str] = frozenset()
+) -> _Create | None:
     """One line of a ``creates_file``, as an item of ``creates`` is checked; its problems
-    point at ``#/creates_file/<line>``. Its values are checked as it's written."""
-    return _create(check, item, ("creates_file", line), None)
+    point at ``#/creates_file/<line>``. Its values are checked as it's written. ``keys``:
+    the keys of the output's ``creates``, which a line may refer to (ADR 0140)."""
+    at = ("creates_file", line)
+    for name, key, where in created_refs(item):
+        if key not in keys:
+            check.error(
+                _pointer(*at, "values", name, *where),
+                f"No create in `creates` has the key {key!r}: a line can refer only to those.",
+            )
+            return None
+    return _create(check, item, at, None)
 
 
 def _create(
@@ -470,16 +485,23 @@ def _create(
             check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
             return None
     if counts is None:
-        if "key" in item or created_refs(item):
+        if "key" in item:
             check.error(
-                _pointer(*at),
-                "A creates file's lines can't refer to one another: give creates that do "
-                "(with `key` and `$create`) in `creates`.",
+                _pointer(*at, "key"),
+                "A creates file's lines can't refer to one another: give the creates they "
+                "refer to in `creates`, with a `key`, and refer to them with `$create`.",
+            )
+            return None
+        if "fills" in item:
+            check.error(
+                _pointer(*at, "fills"),
+                "A creates file's lines can't fill entries: give the creates that do in `creates`.",
             )
             return None
         _no_files(check, _pointer(*at), item["type"], item["values"])
     else:
         _check_files(check, _pointer(*at), item["type"], item["values"])
+    fills = _fills(check, at, item)
     parents = _parents(check, effect, item.get("derived_from"), at)
     origin = _origin(check, at, item["origin"]) if "origin" in item else None
     made_with = _made_with(check, at, item.get("made_with"))
@@ -494,7 +516,32 @@ def _create(
         item.get("key"),
         effect.match_on,
         made_with,
+        fills,
     )
+
+
+def _fills(check: Check, at: tuple[object, ...], item: Mapping[str, Any]) -> frozenset[str]:
+    """The fields a create's ``fills`` names: each one of its values, and its entry's."""
+    names = frozenset(item.get("fills", ()))
+    if not names or item["type"] not in registry.types():
+        return names
+    form = shape(item["type"])
+    entry = form.entry_fields()
+    own = identity_of(form.entity_type)
+    for number, name in enumerate(item.get("fills", ())):
+        if name not in item["values"]:
+            check.error(_pointer(*at, "fills", number), f"It gives no value for `{name}`.")
+        elif name in own:
+            check.error(
+                _pointer(*at, "fills", number),
+                f"`{name}` is its identity, which an entry registered already has.",
+            )
+        elif name not in entry:
+            check.error(
+                _pointer(*at, "fills", number),
+                f"`{name}` isn't its registry entry's, so there's nothing to fill.",
+            )
+    return names
 
 
 def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
@@ -710,7 +757,7 @@ def update_match(
     return None
 
 
-def _write_creates(check: Check, creates: list[_Create]) -> None:
+def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
     run = check.run
     #: key → the entity its create made or reused
     made: dict[str, UUID] = {}
@@ -737,6 +784,7 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
                     values,
                     by_run=True,
                     hold_reason=holds.run_reason(run),
+                    fills=create.fills,
                 )
             except Invalid as error:
                 invalid(check, create.pointer, error)
@@ -771,3 +819,4 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
             )
             for parent, (name, revision) in create.parents.items()
         )
+    return made

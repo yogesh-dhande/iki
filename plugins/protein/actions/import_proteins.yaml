@@ -16,7 +16,7 @@ params:
     media_types: [chemical/seq-aa-fasta, text/plain]
     max_size: 1GiB
 effects:
-  creates: [{ type: Protein, cardinality: many }]
+  creates: [{ type: Protein, cardinality: many }, { type: iki/core.Organism, cardinality: many }]
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/imports.py]
 deterministic: true

@@ -52,7 +52,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, checking, constraints, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.hrids import sequence_name
-from iki_server.entities.identity import hash_of
+from iki_server.entities.identity import hash_of, identity_of
 from iki_server.entities.models import Entity
 from iki_server.entities.people import Namer
 from iki_server.entities.values import (
@@ -410,7 +410,9 @@ def _check_chunk(imported: RunImport, run: ActionRun, reader: _Reader) -> None:
     document = RunOutput.objects.filter(job_id=imported.job_id).values_list("document", flat=True)[
         0
     ]
-    check = results.checked(run, document).check
+    done = results.checked(run, document)
+    check = done.check
+    keyed = {c.key: c.type for c in done.creates if c.key is not None}
     errors: list[dict[str, str]] = list(imported.errors)
     number = imported.lines
     parsed: list[_Line] = []
@@ -444,7 +446,7 @@ def _check_chunk(imported: RunImport, run: ActionRun, reader: _Reader) -> None:
         if len(parsed) >= CHUNK_LINES or size >= CHUNK_BYTES or len(errors) >= MAX_ERRORS:
             break
     lines.close()
-    rows = _stage_rows(check, run, parsed, errors)
+    rows = _stage_rows(check, run, parsed, errors, keyed, imported)
     if rows and not errors:
         _copy(imported, rows)
     imported.offset = reader.offset
@@ -477,7 +479,12 @@ def _parse(raw: bytes, number: int, errors: list[dict[str, str]]) -> dict[str, A
 
 
 def _stage_rows(
-    check: results.Check, run: ActionRun, parsed: list[_Line], errors: list[dict[str, str]]
+    check: results.Check,
+    run: ActionRun,
+    parsed: list[_Line],
+    errors: list[dict[str, str]],
+    keyed: dict[str, str],
+    imported: RunImport,
 ) -> list[tuple[Any, ...]]:
     user = run.requested_by
     # Like a create in the run's project: references to what it may use (ADR 0067).
@@ -491,6 +498,10 @@ def _stage_rows(
         namer=Namer(run.project),
     )
     _look_up_refs(refs, parsed)
+    # A line's `$create` names one of the output's creates (ADR 0140), written first: it's
+    # staged as a stand-in, which writing replaces with what that create made.
+    for key, type_name in keyed.items():
+        refs.expect(stand_in(imported, key), type_name)
     rows: list[tuple[Any, ...]] = []
     #: Lines checked against their types' fields, for the plugins' rules all at once.
     prepared: list[tuple[_Line, Any, Shape, dict[str, Any]]] = []
@@ -498,13 +509,17 @@ def _stage_rows(
         if len(errors) >= MAX_ERRORS:
             break
         check.errors = []
-        create = results.check_line(check, line.item, line.number)
+        create = results.check_line(check, line.item, line.number, frozenset(keyed))
         if create is None or check.errors:
+            errors.extend(check.errors)
+            continue
+        values = _standing_in(check, imported, create)
+        if values is None:
             errors.extend(check.errors)
             continue
         try:
             form, given, _ = entities.prepare(
-                user, create.type, run.project, create.values, refs, by_run=True, check_rules=False
+                user, create.type, run.project, values, refs, by_run=True, check_rules=False
             )
         except Invalid as error:
             check.errors = []
@@ -537,6 +552,35 @@ def _stage_rows(
             continue
         rows.append(_row(line.number, form, given, create))
     return rows
+
+
+def stand_in(imported: RunImport, key: str) -> uuid.UUID:
+    """What a line's ``{"$create": key}`` is staged as: the same in every chunk."""
+    return uuid.uuid5(uuid.UUID(str(imported.pk)), key)
+
+
+def _standing_in(
+    check: results.Check,
+    imported: RunImport,
+    create: Any,  # noqa: ANN401 - results' create
+) -> dict[str, Any] | None:
+    """The line's values with each ``$create`` staged as its stand-in; None (noting why)
+    if one is in its type's identity, whose hash is staged with the line."""
+    values = dict(create.values)
+    identity = set(identity_of(shape(create.type).entity_type))
+    for name, key, where in results.created_refs({"type": create.type, "values": values}):
+        if name in identity:
+            check.error(
+                "/".join((create.pointer, "values", name, *map(str, where))),
+                "A line's identity can't refer to a create: give this one in `creates` too.",
+            )
+            return None
+        if where:
+            values[name] = list(values[name])
+            values[name][where[0]] = str(stand_in(imported, key))
+        else:
+            values[name] = str(stand_in(imported, key))
+    return values
 
 
 def _look_up_refs(refs: Refs, parsed: list[_Line]) -> None:
@@ -730,7 +774,8 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     done = results.checked(run, document)
     try:
         with transaction.atomic():
-            results.write(done)
+            made = results.write(done)
+            _replace_stand_ins(imported, made)
             unchanged = _update_matches(imported, done.check)
             imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
             created, reused, registered = _insert(imported, run)
@@ -771,6 +816,33 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
         "agent": audit.agent_data(run.agent),
     }
     emit("entity.imported", data, project=run.project)
+
+
+def _replace_stand_ins(imported: RunImport, made: dict[str, uuid.UUID]) -> None:
+    """Puts what each keyed create made (its registry entry, for a type with an identity)
+    where the staged lines refer to it, a few statements for the whole file."""
+    if not made:
+        return
+    targets = dict(Entity.objects.filter(pk__in=made.values()).values_list("pk", "entry_id"))
+    pairs = [(str(stand_in(imported, key)), str(targets.get(pk) or pk)) for key, pk in made.items()]
+    table = "iki_import_line"
+    with connection.cursor() as cursor:
+        # A line may refer to several creates: each pass replaces one of them in each line.
+        while True:
+            cursor.execute(
+                f"UPDATE {table} l SET parts = replace(l.parts::text, m.stand_in, m.target)::jsonb"  # noqa: S608 - ours; values are parameters
+                " FROM unnest(%(stand_ins)s::text[], %(targets)s::text[]) AS m(stand_in, target)"
+                " WHERE l.bulk_import_id = %(import)s AND l.round = %(round)s"
+                " AND strpos(l.parts::text, m.stand_in) > 0",
+                {
+                    "stand_ins": [a for a, _ in pairs],
+                    "targets": [b for _, b in pairs],
+                    "import": imported.pk,
+                    "round": imported.round,
+                },
+            )
+            if cursor.rowcount == 0:
+                break
 
 
 def _update_matches(imported: RunImport, check: results.Check) -> int:

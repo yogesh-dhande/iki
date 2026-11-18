@@ -465,7 +465,9 @@ def test_an_input_includes_the_entities_its_references_name(tmp_path: Path) -> N
     assert made.inputs["protein"].include == ("encoded_by", "source")
     message = only(check("[nope]"), "include-unknown-field")
     assert message == "`acme/protein.Protein` has no field `nope`."
-    assert check("[nope]").problems[0].hint == "Name one of its references: `encoded_by`, `source`."
+    assert check("[nope]").problems[0].hint == (
+        "Name one of its references: `encoded_by`, `organism`, `source`."
+    )
     assert only(check("[sequence]"), "include-not-reference").startswith(
         "`sequence` isn't a reference"
     )

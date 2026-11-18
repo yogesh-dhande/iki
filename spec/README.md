@@ -120,7 +120,7 @@ fields:
   molecular_weight:
     { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true, registry: derived }
   uniprot_accession: { type: string, pattern: "^[A-Z0-9]{6,10}$", registry: fact }
-  organism: { type: string, max_length: 200, indexed: true } # each project's own
+  gene: { type: string, max_length: 100, indexed: true } # each project's own
   source: { type: ref, to: iki/core.Entity } # any entity
 display:
   title: "{{ name or hrid }}"
@@ -169,8 +169,10 @@ A field marked `registry` is the entry's, the same for every project:
   reason, audited and told to every project with a record of it.
 
 Only the type that declares the identity, or an extension of it, has registry
-fields, and they refer only to other entries. Everything else (an organism, a
-project's notes, a LIMS ID) is each project's own.
+fields, and they refer only to other entries. Everything else (a
+project's notes, a LIMS ID) is each project's own. An organism is an entry
+of its own, `iki/core.Organism`, by its NCBI Taxonomy ID
+([ADR 0140](../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
 
 Iki stores a hash of each entry's identity values, to find it again.
 Subtypes share the identity of the type that declares it, and its entries. The hash is the
@@ -1996,23 +1998,44 @@ found; a reference to a type with an identity holds its registry entry. A
 create can refer only to those before it, and, in a job that runs several
 runs at once, only to its own run's.
 
+A create of an entry registered already fills the entry's empty fields, and a
+fact that differs is refused (ADR 0115). `fills` names fields that only fill:
+where the entry has a value, it keeps it and the create goes ahead. The imports
+give organisms this way, by their NCBI Taxonomy ID, so a file with a taxon's
+old name still imports
+([ADR 0140](../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)):
+
+```json
+{
+  "type": "iki/core.Organism",
+  "key": "taxon:9606",
+  "values": { "taxon_id": 9606, "scientific_name": "Homo sapiens" },
+  "fills": ["scientific_name"]
+}
+```
+
 ### Creates in a file
 
 `creates` holds at most 10,000, and `output.json` at most 2.5 MB. A command
 that makes more (an import of a million sequences, say) writes them to a file
 in `IKI_OUT_DIR`, one create per line as an item of `creates` is (JSON
-Lines), and names it instead of giving `creates`
+Lines), and names it in `creates_file`
 ([ADR 0056](../docs/adr/0056-bulk-imports.md)):
 
 ```json
 { "apiVersion": "iki/v1", "kind": "RunOutput", "creates_file": { "$file": "creates.ndjson" } }
 ```
 
+`creates` can come with it, for the few the lines refer to, such as the
+organisms a million sequences are from. Iki writes those first, and a line's
+ref field gives one as `{"$create": "<key>"}`.
+
 The worker uploads it with the run's other files. Iki then checks every line,
 a chunk at a time, going on from where it was if it's interrupted, and writes
 them all in one transaction, or none: nobody sees half an import. A line's
 problems point at `#/creates_file/<line>`, counting from 1. Lines can't
-attach files or refer to one another (give those in `creates`), and a job that runs several runs at
+attach files, refer to one another, give `fills`, or refer to a create in their
+identity fields (give those in `creates`), and a job that runs several runs at
 once can't give a creates file. Webhooks hear of an import once, as
 `entity.imported`, not `entity.created` for each entity. A file holds at most
 100 million lines, each at most 256 MiB.

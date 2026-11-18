@@ -15,7 +15,7 @@ pytestmark = pytest.mark.django_db
 HUMAN = {
     "type": "acme/protein.Protein",
     "archived": False,
-    "where": {"field": "organism", "op": "eq", "value": "Homo sapiens"},
+    "where": {"field": "host", "op": "eq", "value": "Homo sapiens"},
     "sort": {"field": "name", "descending": True},
 }
 
@@ -41,7 +41,7 @@ def test_saving_a_search_and_running_it(world: World) -> None:
     create(
         editor,
         world.project,
-        {"sequence": "MKVL", "name": "abl1", "organism": "Homo sapiens"},
+        {"sequence": "MKVL", "name": "abl1", "host": "Homo sapiens"},
         "acme/protein.Protein",
     )
     create(editor, world.project, {"sequence": "MTMI", "name": "lacz"}, "acme/protein.Protein")

@@ -52,7 +52,7 @@ INLINE_RECORDS = 1_000
 INLINE_BYTES = 1_000_000
 CREATES_FILE = "creates.ndjson"
 MAX_MESSAGES = 99
-LIMITS = {"name": 255, "description": 10_000, "organism": 200, "gene": 100}
+LIMITS = {"name": 255, "description": 10_000, "gene": 100}
 
 
 class UnreadableError(Exception):
@@ -68,6 +68,34 @@ class Record:
     warnings: list[str] = field(default_factory=list)
     #: UniProt's sequence version (SV=2), where the header gives it.
     version: str = ""
+    #: The organism it's from, by its NCBI Taxonomy ID and name, if the record says.
+    organism: Organism | None = None
+
+
+@dataclass(frozen=True)
+class Organism:
+    """A taxon, as a record names it: its entry in Iki is found, or made, by its ID (ADR
+    0140)."""
+
+    taxon_id: int
+    name: str
+
+    @property
+    def key(self) -> str:
+        return f"taxon:{self.taxon_id}"
+
+    def create(self) -> dict[str, Any]:
+        values: dict[str, Any] = {"taxon_id": self.taxon_id}
+        if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", self.name):
+            values["scientific_name"] = self.name
+        # A name only fills an entry that has none: an old file may give a taxon's old name.
+        fills = ["scientific_name"] if "scientific_name" in values else []
+        return {
+            "type": "iki/core.Organism",
+            "key": self.key,
+            "values": values,
+            **({"fills": fills} if fills else {}),
+        }
 
 
 # --- Residues ------------------------------------------------------------------------------------
@@ -110,7 +138,8 @@ def fit(values: dict[str, Any], record: Record) -> dict[str, Any]:
 
 
 def header_values(header: str) -> tuple[dict[str, str], str]:
-    """The values a FASTA header gives, and UniProt's sequence version if it's UniProt's."""
+    """The values a FASTA header gives, and UniProt's sequence version if it's UniProt's.
+    ``organism`` is its name, and ``taxon_id`` its NCBI Taxonomy ID (UniProt's ``OX=``)."""
     uniprot = UNIPROT.match(header)
     if uniprot is not None:
         rest = uniprot["rest"] or ""
@@ -124,6 +153,7 @@ def header_values(header: str) -> tuple[dict[str, str], str]:
             if ACCESSION.match(uniprot["accession"])
             else "",
             "organism": fields.get("OS", ""),
+            "taxon_id": fields.get("OX", ""),
             "gene": fields.get("GN", ""),
         }
         return values, fields.get("SV", "")
@@ -135,6 +165,20 @@ def header_values(header: str) -> tuple[dict[str, str], str]:
     if bracketed is not None:
         description, organism = bracketed["description"], bracketed["organism"].strip()
     return {"name": name, "description": description, "organism": organism}, ""
+
+
+def organism_of(record: Record, name: str, taxon: str | int | None) -> Organism | None:
+    """The organism a record names, by its NCBI Taxonomy ID; None, saying so, if it names
+    one without its ID (as NCBI's FASTA headers do), which can't be told from its name."""
+    text = str(taxon or "").strip()
+    if text.isdigit() and 0 < int(text) < 10**10:
+        return Organism(int(text), name.strip())
+    if name.strip():
+        record.warnings.append(
+            f"{record.label}: its organism, {name.strip()[:200]}, has no NCBI Taxonomy ID, "
+            "so it's left out."
+        )
+    return None
 
 
 # --- FASTA ---------------------------------------------------------------------------------------
@@ -153,6 +197,7 @@ def fasta(lines: Iterable[str]) -> Iterator[Record]:
         name = values.get("uniprot_accession") or values["name"]
         label = f"Record {count}" + (f" ({name})" if name else "")
         found = Record(label, {}, "".join(raw), version=version)
+        found.organism = organism_of(found, values.pop("organism", ""), values.pop("taxon_id", ""))
         values["sequence"] = clean_residues(label, "".join(residues))
         found.values = fit(values, found)
         return found
@@ -243,8 +288,13 @@ class _Creates:
         self.held: list[str] = []
         self.size = 0
         self.file: TextIO | None = None
+        #: The organisms the creates are from (ADR 0140), each created once, first.
+        self.organisms: dict[str, Organism] = {}
 
-    def add(self, create: dict[str, Any]) -> None:
+    def add(self, create: dict[str, Any], organism: Organism | None = None) -> None:
+        if organism is not None:
+            self.organisms.setdefault(organism.key, organism)
+            create["values"] = {**create["values"], "organism": {"$create": organism.key}}
         line = json.dumps(create, separators=(",", ":"))
         if self.file is None:
             self.held.append(line)
@@ -259,10 +309,14 @@ class _Creates:
         self.file.write(f"{line}\n")
 
     def output(self) -> dict[str, Any]:
+        organisms = [o.create() for o in self.organisms.values()]
         if self.file is None:
-            return {"creates": [json.loads(line) for line in self.held]}
+            return {"creates": [*organisms, *(json.loads(line) for line in self.held)]}
         self.file.close()
-        return {"creates_file": {"$file": CREATES_FILE}}
+        return {
+            **({"creates": organisms} if organisms else {}),
+            "creates_file": {"$file": CREATES_FILE},
+        }
 
 
 def finish(
@@ -282,7 +336,8 @@ def finish(
                 f"It holds more than the {MAX_RECORDS:,} records one run imports: split it."
             )
         creates.add(
-            {"type": "iki/protein.Protein", "values": record.values, "origin": origin(record)}
+            {"type": "iki/protein.Protein", "values": record.values, "origin": origin(record)},
+            record.organism,
         )
         for warning in record.warnings:
             warned += 1

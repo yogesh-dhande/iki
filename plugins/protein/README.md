@@ -195,8 +195,12 @@ and the rest go on.
 FASTA headers give a name (the first word) and a description (the rest).
 UniProt's (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens
 OX=9606 GN=HBA1 PE=1 SV=2`) give the entry name, the protein's name, its
-accession, organism and gene. NCBI's (`>NP_000549.1 hemoglobin subunit alpha
-[Homo sapiens]`) give the organism in brackets. A record with a stop inside
+accession, organism (by its NCBI Taxonomy ID, `OX=`) and gene. Each organism is
+an `iki/core.Organism`, made the first time an import meets it
+([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
+NCBI's (`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) name the
+organism in brackets without its ID, which a name can't be told by, so it's left
+out and the run says so. A record with a stop inside
 it, a gap, or a letter that isn't an amino acid's code fails the whole import,
 and the run says which record and why, so nothing is half imported.
 
@@ -209,9 +213,9 @@ nothing, the structure referring to the proteins made with it
 ([ADR 0064](../../docs/adr/0064-a-runs-new-entities-can-refer-to-one-another.md)).
 Each protein (an mmCIF entity of type `polypeptide(L)`) takes its full
 sequence (SEQRES, or the residues it has where a file gives none, as
-predictions often do), and its name, organism, gene and UniProt accession
-where the file gives them. Chains of the same protein refer to the same
-`Protein`, the registry's entry for its sequence if it has one already. A
+predictions often do), and its name, organism (by its NCBI Taxonomy ID),
+gene and UniProt accession where the file gives them. Chains of the same
+protein refer to the same `Protein`, the registry's entry for its sequence if it has one already. A
 chimeric chain, whose segments wwPDB maps to different UniProt entries or
 organisms (2RH1's β2-adrenergic receptor with T4 lysozyme in its third loop:
 P07550 at residues 8–237 and 398–500, P00720 at 238–397), is none of them: its

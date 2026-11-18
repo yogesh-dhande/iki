@@ -20,7 +20,8 @@ params:
       NZ_CP009273.1.
       Without a version, NCBI's latest. Up to 500.
 effects:
-  creates: [{ type: DNASequence, cardinality: many }]
+  creates:
+    [{ type: DNASequence, cardinality: many }, { type: iki/core.Organism, cardinality: many }]
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/ncbi.py]
 network: [eutils.ncbi.nlm.nih.gov]

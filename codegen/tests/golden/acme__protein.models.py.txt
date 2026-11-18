@@ -553,6 +553,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    host = models.CharField(max_length=200, null=True, db_index=True)
     hydropathy = models.JSONField(null=True)
 
     class Meta:
@@ -597,6 +598,14 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
                 condition=GreaterThanOrEqual(Length('summary'), 1),
                 name='acme__protein_protein__summary__not_empty',
             ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('host'), 1),
+                name='acme__protein_protein__host__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(host__regex='[\\r\\n]'),
+                name='acme__protein_protein__host__one_line',
+            ),
         ]
         indexes = [
             GinIndex(
@@ -607,6 +616,11 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
             GinIndex(
                 SearchVector('summary', config='simple'),
                 name='summary_fts_44d975f33c3986725e',
+            ),
+            GinIndex(
+                fields=['host'],
+                opclasses=['gin_trgm_ops'],
+                name='host_trgm_cddab9a24b0992877899',
             ),
         ]
 
@@ -627,6 +641,7 @@ class Protein_History(models.Model):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    host = models.TextField(null=True)
     hydropathy = models.JSONField(null=True)
 
     class Meta:

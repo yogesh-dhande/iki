@@ -22,6 +22,7 @@ params:
 effects:
   creates:
     - { type: Protein, cardinality: many }
+    - { type: iki/core.Organism, cardinality: many }
     - { type: ProteinStructure, cardinality: many }
 runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi } }
 command: [python, ./scripts/structures.py, alphafold]

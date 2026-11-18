@@ -277,6 +277,11 @@ class Refs:
         #: nothing the caller can read.
         self._found: dict[uuid.UUID, Target | str | None] = {}
 
+    def expect(self, stand_in: uuid.UUID, type_name: str) -> None:
+        """Takes ``stand_in`` as an entity of ``type_name`` not written yet: a create a bulk
+        import's lines refer to (ADR 0140), which it replaces once that's written."""
+        self._found[stand_in] = Target(stand_in, type_name)
+
     def look_up(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, Target | str | None]:
         wanted = set(ids)
         unknown = [i for i in wanted if i not in self._found]

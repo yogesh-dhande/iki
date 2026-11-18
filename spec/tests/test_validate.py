@@ -980,7 +980,8 @@ def test_core_entity_needs_no_dependency(tmp_path: Path) -> None:
     result = make(tmp_path, fields("x: { type: ref, to: iki/core.Sample }\n"))
     provides = (
         "In this version, core provides `iki/core.Alignment`, `iki/core.App`, "
-        "`iki/core.Collection`, `iki/core.Entity`, `iki/core.Sequence`, `iki/core.View`."
+        "`iki/core.Collection`, `iki/core.Entity`, `iki/core.Organism`, `iki/core.Sequence`, "
+        "`iki/core.View`."
     )
     assert provides in only(result, "unknown-type")
 

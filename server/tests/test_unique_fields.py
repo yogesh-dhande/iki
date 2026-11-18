@@ -134,7 +134,7 @@ def test_types_say_which_fields_are_unique(world: World) -> None:
     found = api_as(world).get("/entity-types/acme/protein.Protein").json()
     fields = {f["name"]: f for f in found["fields"]}
     assert fields["lims_id"]["unique"] is True
-    assert fields["organism"]["unique"] is False
+    assert fields["host"]["unique"] is False
 
 
 def test_sync_fills_in_values_and_stops_at_entities_sharing_one(world: World) -> None:
@@ -209,7 +209,7 @@ def test_an_external_id_finds_its_entity_in_each_project_you_can_read(world: Wor
 
 def test_only_a_unique_field_looks_entities_up(world: World) -> None:
     api = api_as(world)
-    body = problem(lookup(api, "Homo sapiens", field="organism"), 422, "validation_failed")
+    body = problem(lookup(api, "Homo sapiens", field="host"), 422, "validation_failed")
     assert body["errors"] == [{"parameter": "field", "detail": "isn't a unique field of the type."}]
     problem(lookup(api, "X", type="acme/protein.Nope"), 404, "not_found")
 
@@ -219,7 +219,7 @@ def test_fields_link_to_the_record_in_the_other_system(world: World) -> None:
     found = api.get("/entity-types/acme/protein.Protein").json()
     proteins = {f["name"]: f for f in found["fields"]}
     assert proteins["lims_id"]["link"] == "https://lims.example.org/proteins/{value}"
-    assert proteins["organism"]["link"] is None
+    assert proteins["host"]["link"] is None
     found = api.get("/entity-types/acme/protein.ProteinStructure").json()
     structures = {f["name"]: f for f in found["fields"]}
     # From the plugin's setting, as the deployment set it.

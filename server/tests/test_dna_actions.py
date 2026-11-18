@@ -107,6 +107,11 @@ def imported(
     return result, output
 
 
+def made(output: dict[str, Any]) -> list[dict[str, Any]]:
+    """What a run creates, but the organisms its records are from (ADR 0140)."""
+    return [c for c in output["creates"] if c["type"] != "iki/core.Organism"]
+
+
 BASES = ("gattacagat" * 6).upper()
 GENBANK = f"""\
 LOCUS       pDemo                     60 bp    DNA     circular SYN 11-NOV-2026
@@ -122,6 +127,7 @@ FEATURES             Location/Qualifiers
      source          1..60
                      /organism="synthetic construct"
                      /mol_type="other DNA"
+                     /db_xref="taxon:32630"
      promoter        complement(5..20)
                      /label="lac promoter"
                      /note="a long note that wraps onto
@@ -145,13 +151,21 @@ def test_a_genbank_record_keeps_its_names_features_and_where_it_came_from(
     result, output = imported(tmp_path, GENBANK + "\n" + GENBANK.replace("pDemo", "pDemo2"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    first, second = output["creates"]
+    # Its organism, by the NCBI Taxonomy ID of its source feature, made once and first
+    # (ADR 0140), and both sequences from it.
+    organism, first, second = output["creates"]
+    assert organism == {
+        "type": "iki/core.Organism",
+        "key": "taxon:32630",
+        "values": {"taxon_id": 32630, "scientific_name": "synthetic construct"},
+        "fills": ["scientific_name"],
+    }
     assert first["type"] == "iki/dna.DNASequence"
     values = first["values"]
     assert values == {
         "name": "pDemo",
         "description": "A demonstration plasmid, cut down to a fragment",
-        "organism": "synthetic construct",
+        "organism": {"$create": "taxon:32630"},
         "accession": "L09137.2",
         "bases": BASES,
         "topology": "circular",
@@ -301,7 +315,7 @@ def test_a_features_parts_say_where_it_lies(
     result, output = imported(tmp_path, with_feature(location, topology=topology))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    (feature,) = output["creates"][0]["values"]["features"]
+    (feature,) = made(output)[0]["values"]["features"]
     feature.pop("qualifiers", None)
     assert feature == {"type": "misc_feature", **expected}
 
@@ -315,7 +329,7 @@ def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
     result, output = imported(tmp_path, with_feature(location, topology="linear"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    assert "features" not in output["creates"][0]["values"]
+    assert "features" not in made(output)[0]["values"]
     assert output["messages"][0]["text"] == (
         f"Record 1 (pLoc): a misc_feature at {location!r} was left out."
     )
@@ -342,7 +356,7 @@ def test_locus_says_how_many_strands_the_molecule_has(
     result, output = imported(tmp_path, text)
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    assert output["creates"][0]["values"].get("strandedness") == strandedness
+    assert made(output)[0]["values"].get("strandedness") == strandedness
 
 
 #: A RefSeq model's COMMENT, as NCBI writes it (XM_090324667.1, cut down).
@@ -380,7 +394,7 @@ def test_a_genbank_record_says_if_its_single_stranded(tmp_path: Path) -> None:
     result, output = imported(tmp_path, single + "\n" + GENBANK.replace("pDemo", "pDemo2"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    first, second = output["creates"]
+    first, second = made(output)
     assert first["values"]["strandedness"] == "single"
     assert "strandedness" not in second["values"]
 
@@ -389,7 +403,7 @@ def test_a_refseq_models_record_says_ncbi_predicted_it(tmp_path: Path) -> None:
     result, output = imported(tmp_path, MODEL + "\n" + GENBANK)
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    model, other = output["creates"]
+    model, other = made(output)
     assert model["origin"]["made"] == PREDICTED
     # A record that doesn't say how its sequence was made gets nothing.
     assert "made" not in other["origin"]
@@ -398,7 +412,7 @@ def test_a_refseq_models_record_says_ncbi_predicted_it(tmp_path: Path) -> None:
         tmp_path, GENBANK.replace("FEATURES ", "COMMENT     Sequenced by the lab.\nFEATURES ")
     )
     assert output is not None
-    assert "made" not in output["creates"][0]["origin"]
+    assert "made" not in made(output)[0]["origin"]
 
 
 def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -> None:
@@ -406,7 +420,7 @@ def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -
     result, output = imported(tmp_path, text, name="vectors.fa", topology="circular")
     assert result.returncode == 0, result.stderr
     assert output is not None
-    first, second = (c["values"] for c in output["creates"])
+    first, second = (c["values"] for c in made(output))
     assert first == {
         "name": "L09137.2",
         "description": "pUC19 cloning vector",
@@ -415,7 +429,7 @@ def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -
         "topology": "circular",
     }
     assert second == {"name": "seq2", "bases": "GGCC", "topology": "circular"}
-    origin = output["creates"][1]["origin"]
+    origin = made(output)[1]["origin"]
     assert (origin["source"], origin["id"]) == ("FASTA file", "seq2")
     assert origin["sha256"] == hashlib.sha256(b">seq2\nGGCC\n").hexdigest()
     # RefSeq's accessions, NZ_ ones too (NCBI's RefSeq accession formats).
@@ -426,7 +440,7 @@ def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -
     ]:
         _, output = imported(tmp_path, f">{header} a record\nACGT\n", name="vectors.fa")
         assert output is not None
-        assert output["creates"][0]["values"]["accession"] == accession
+        assert made(output)[0]["values"]["accession"] == accession
 
 
 NEITHER = "seqs.txt: It isn't FASTA (records start with '>') or GenBank (records start with LOCUS)."
@@ -457,7 +471,7 @@ def test_a_large_file_is_read_a_line_at_a_time_into_a_creates_file(tmp_path: Pat
 def test_a_few_records_go_in_output_json(tmp_path: Path) -> None:
     _, output = imported(tmp_path, ">a\nACGT\n>b\nGGCC\n")
     assert output is not None
-    assert [c["values"]["name"] for c in output["creates"]] == ["a", "b"]
+    assert [c["values"]["name"] for c in made(output)] == ["a", "b"]
     assert not (tmp_path / "out" / "creates.ndjson").exists()
 
 
@@ -580,7 +594,7 @@ def test_fetches_records_from_ncbi_and_says_which_version_and_when(
         "tool": ["iki-dna"],
         "email": ["lab@example.com"],
     }
-    tp53, demo = output["creates"]
+    tp53, demo = made(output)
     assert (tp53["values"]["name"], demo["values"]["name"]) == ("TP53", "pDemo")
     assert tp53["values"]["accession"] == "NM_000546.6"
     origin = tp53["origin"]
@@ -603,13 +617,13 @@ def test_fetches_refseq_accessions_of_every_form(tmp_path: Path, ncbi: Any) -> N
     )
     output = fetched(tmp_path, ncbi, "NZ_CP009273.1 nz_cp009273")
     assert ncbi.fake.asked[0]["id"] == ["NZ_CP009273.1,NZ_CP009273"]
-    assert output["creates"][0]["values"]["accession"] == "NZ_CP009273.1"
+    assert made(output)[0]["values"]["accession"] == "NZ_CP009273.1"
 
 
 def test_a_fetched_refseq_model_says_ncbi_predicted_it(tmp_path: Path, ncbi: Any) -> None:
     ncbi.fake.records["L09137.2"] = MODEL
     output = fetched(tmp_path, ncbi, "L09137.2")
-    assert output["creates"][0]["origin"]["made"] == PREDICTED
+    assert made(output)[0]["origin"]["made"] == PREDICTED
 
 
 def test_asks_ncbi_in_batches_no_faster_than_it_allows(
@@ -636,7 +650,7 @@ def test_waits_and_asks_again_when_ncbi_says_to_slow_down(tmp_path: Path, ncbi: 
     output = fetched(tmp_path, ncbi, "L09137")
     assert len(ncbi.fake.asked) == 3
     assert ncbi.slept == [2, 4]
-    assert output["creates"][0]["origin"]["version"] == "L09137.2"
+    assert made(output)[0]["origin"]["version"] == "L09137.2"
 
 
 @pytest.mark.parametrize(
