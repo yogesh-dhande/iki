@@ -5,7 +5,13 @@ import textwrap
 from pathlib import Path
 
 from iki_spec.components import MAX_MODULE_BYTES
-from iki_spec.model import ComponentSlot, plugin_from_dict, plugin_to_dict
+from iki_spec.model import (
+    ComponentEntities,
+    ComponentSearch,
+    ComponentSlot,
+    plugin_from_dict,
+    plugin_to_dict,
+)
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -27,6 +33,13 @@ kind: EntityType
 name: Readout
 schema_version: 1
 hrid: { prefix: RDO }
+fields:
+  assay: { type: ref, to: Assay }
+  assays: { type: list, items: { type: ref, to: Assay } }
+  well: { type: string, max_length: 4 }
+  signal: { type: float }
+  notes: { type: text }
+  read_at: { type: datetime }
 """
 
 MODULE = "customElements.define('acme-assay-plot', class extends HTMLElement {});\n"
@@ -134,3 +147,190 @@ def test_elements_are_custom_element_names_each_defined_once(tmp_path: Path) -> 
     other = component(name="other_plot")
     result = made(tmp_path, component(), **{"components/other.yaml": other})
     assert only(result, "element-twice") == "`assay_plot` defines `acme-assay-plot` too."
+
+
+# --- Many entities (ADR 0117) ---------------------------------------------------------------
+
+ENTITIES = "{ type: Readout, fields: [well, signal, assay] }"
+EVERYWHERE = """
+  - slot: entity.tab
+    type: Assay
+    label: Plate
+    search: { where: { field: assay, op: eq, value: "{{ entity }}" }, sort: well }
+  - { slot: search.results, label: Plate map }
+  - { slot: project.page, label: Readouts, search: { sort: read_at, descending: true } }
+  - slot: person.home
+    label: Your readouts
+    search:
+      where:
+        all:
+          - { field: created_by, op: eq, value: "{{ me }}" }
+          - { field: signal, op: gt, value: 0.5 }"""
+
+
+def many(slots: str = EVERYWHERE, entities: str = ENTITIES) -> str:
+    return component(entities=entities, slots=slots)
+
+
+def test_a_component_can_show_many_entities_in_every_place(tmp_path: Path) -> None:
+    result = made(tmp_path, many())
+    assert result.problems == []
+    assert result.plugin is not None
+    (found,) = result.plugin.components.values()
+    assert found.entities == ComponentEntities(
+        type="acme/lab.Readout", fields=("well", "signal", "assay"), limit=500
+    )
+    tab, grid, project, home = found.slots
+    assert tab == ComponentSlot(
+        slot="entity.tab",
+        type="acme/lab.Assay",
+        label="Plate",
+        search=ComponentSearch(
+            where={"field": "assay", "op": "eq", "value": "{{ entity }}"}, sort="well"
+        ),
+    )
+    # The other places show the component's own entities.
+    assert grid == ComponentSlot(slot="search.results", type="acme/lab.Readout", label="Plate map")
+    assert project.type == home.type == "acme/lab.Readout"
+    assert project.search == ComponentSearch(sort="read_at", descending=True)
+    assert result.plugin == plugin_from_dict(plugin_to_dict(result.plugin))
+
+
+def test_a_plugin_built_before_many_entities_reads_back(tmp_path: Path) -> None:
+    plugin = made(tmp_path, component()).plugin
+    assert plugin is not None
+    built = plugin_to_dict(plugin)
+    # What a build made before ADR 0117 wrote.
+    (old,) = built["components"].values()
+    del old["entities"]
+    for slot in old["slots"]:
+        del slot["search"]
+    assert plugin_from_dict(built) == plugin
+
+
+def test_the_places_that_show_many_need_entities(tmp_path: Path) -> None:
+    for slots in (
+        "[{ slot: search.results }]",
+        "[{ slot: project.page, search: {} }]",
+        "[{ slot: entity.tab, type: Assay, search: { sort: well } }]",
+    ):
+        assert codes(made(tmp_path, component(slots=slots))) == ["slot-needs-entities"]
+
+
+def test_each_place_has_its_own_shape(tmp_path: Path) -> None:
+    # A tab names its type; the others show the component's; sections say what they find.
+    for slots in (
+        "[{ slot: entity.tab }]",
+        "[{ slot: search.results, type: Readout }]",
+        "[{ slot: search.results, search: {} }]",
+        "[{ slot: project.page }]",
+        "[{ slot: person.home }]",
+        "[{ slot: elsewhere, type: Assay }]",
+    ):
+        assert set(codes(made(tmp_path, many(slots=slots)))) == {"schema"}, slots
+    for entities in (
+        "{ type: Readout }",
+        "{ type: Readout, fields: [] }",
+        "{ type: Readout, fields: [well], limit: 1001 }",
+    ):
+        assert codes(made(tmp_path, many(entities=entities))) == ["schema"], entities
+
+
+def test_its_fields_are_its_types(tmp_path: Path) -> None:
+    result = made(tmp_path, many(entities="{ type: Readout, fields: [well, colour] }"))
+    assert only(result, "unknown-field") == "`acme/lab.Readout` has no field `colour`."
+    assert codes(made(tmp_path, many(entities="{ type: Reading, fields: [well] }"))) == [
+        "unknown-type"
+    ]
+
+
+def test_each_place_is_given_once(tmp_path: Path) -> None:
+    twice = "[{ slot: search.results }, { slot: search.results, label: Again }]"
+    assert only(made(tmp_path, many(slots=twice)), "slot-twice") == (
+        "Slot 0 is `search.results` too."
+    )
+    tabs = "[{ slot: entity.tab, type: Assay }, { slot: entity.tab, type: Readout }]"
+    assert made(tmp_path, many(slots=tabs)).problems == []
+
+
+def search(where: str, slot: str = "project.page") -> str:
+    return many(slots=f"[{{ slot: {slot}, search: {{ where: {where} }} }}]")
+
+
+def test_a_search_names_the_types_fields_with_their_operators(tmp_path: Path) -> None:
+    assert made(tmp_path, search("{ field: notes, op: matches, value: edge }")).problems == []
+    assert made(tmp_path, search("{ field: hrid, op: starts_with, value: RDO }")).problems == []
+    wrong = made(tmp_path, search("{ field: notes, op: eq, value: edge }"))
+    assert only(wrong, "unknown-operator") == (
+        "`notes` takes `is_set`, `contains`, `matches`, not `eq`."
+    )
+    assert codes(made(tmp_path, search("{ field: colour, op: eq, value: red }"))) == [
+        "unknown-field"
+    ]
+    nested = (
+        "{ any: [{ not: { field: well, op: eq, value: A1 } }, "
+        "{ field: signal, op: lt, value: 2 }] }"
+    )
+    assert made(tmp_path, search(nested)).problems == []
+    # Every entity's columns, but not those a component has no business with.
+    assert codes(made(tmp_path, search("{ field: owner_project, op: eq, value: x }"))) == [
+        "unknown-field"
+    ]
+
+
+def test_a_search_leaves_room_for_a_refinement(tmp_path: Path) -> None:
+    leaf = "{ field: well, op: eq, value: A1 }"
+    deep = leaf
+    for _ in range(3):
+        deep = f"{{ not: {deep} }}"
+    assert made(tmp_path, search(deep)).problems == []
+    assert only(made(tmp_path, search(f"{{ not: {deep} }}")), "search-too-big") == (
+        "A component's search may have at most 20 conditions, 4 levels deep: this one has 1, "
+        "5 deep."
+    )
+    wide = f"{{ any: [{', '.join([leaf] * 10)}] }}"
+    assert made(tmp_path, search(f"{{ all: [{wide}, {wide}] }}")).problems == []
+    assert codes(made(tmp_path, search(f"{{ all: [{wide}, {wide}, {leaf}] }}"))) == [
+        "search-too-big"
+    ]
+
+
+def test_a_search_sorts_by_what_sorts(tmp_path: Path) -> None:
+    slots = "[{ slot: project.page, search: { sort: notes } }]"
+    assert only(made(tmp_path, many(slots=slots)), "unsortable-field") == (
+        "`notes` can't be sorted by."
+    )
+
+
+def test_the_entity_is_a_tabs_and_a_reference_to_its_type(tmp_path: Path) -> None:
+    tab = "entity.tab, type: Assay"
+    assert (
+        made(tmp_path, search('{ field: assays, op: has, value: "{{ entity }}" }', tab)).problems
+        == []
+    )
+    on_project = made(tmp_path, search('{ field: assay, op: eq, value: "{{ entity }}" }'))
+    assert "only a tab has one, not `project.page`" in only(on_project, "context-misplaced")
+    not_a_ref = made(tmp_path, search('{ field: well, op: eq, value: "{{ entity }}" }', tab))
+    assert "compared with a reference, not `well`" in only(not_a_ref, "context-misplaced")
+    other_type = made(
+        tmp_path,
+        search('{ field: assay, op: eq, value: "{{ entity }}" }', "entity.tab, type: Readout"),
+    )
+    assert "refers to `acme/lab.Assay`" in only(other_type, "context-misplaced")
+
+
+def test_me_is_a_person(tmp_path: Path) -> None:
+    mine = made(tmp_path, search('{ field: created_by, op: eq, value: "{{ me }}" }'))
+    assert mine.problems == []
+    wrong = made(tmp_path, search('{ field: well, op: eq, value: "{{ me }}" }'))
+    assert "compared with `created_by`, not `well`" in only(wrong, "context-misplaced")
+    for value in ('"{{ you }}"', '"{{ me }} and more"', '"{{ entity.hrid }}"'):
+        found = made(tmp_path, search(f"{{ field: well, op: eq, value: {value} }}"))
+        assert codes(found) == ["unknown-context"], value
+
+
+def test_a_persons_home_is_theirs(tmp_path: Path) -> None:
+    everything = "[{ slot: person.home, search: { sort: well } }]"
+    assert "its search names them" in only(
+        made(tmp_path, many(slots=everything)), "home-not-personal"
+    )

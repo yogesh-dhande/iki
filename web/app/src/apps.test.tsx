@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Offers, Rendered } from "./apps";
+import type { PluginComponent } from "./components";
 import { entity, field, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { connectFrame, lastEntities } from "./frame-fixtures";
 import { answer, calls, page, problem, project, respond } from "./test-server";
 
 vi.mock("./apps", async (original) => {
@@ -343,6 +345,112 @@ describe("an app's grid, when it can't search", () => {
     expect(alert).toHaveTextContent(
       "Some fields are invalid.where.all.0.value: must be some text.",
     );
+  });
+});
+
+describe("a plugin's component in an app", () => {
+  const MAP: PluginComponent = {
+    name: "iki/dna.map",
+    plugin: "iki/dna",
+    label: "Plasmid map",
+    description: null,
+    element: "dna-map",
+    slots: [{ slot: "entity.tab", type: "iki/dna.DNASequence", label: "Map", search: null }],
+    entities: { type: "iki/dna.DNASequence", fields: ["name"], limit: 50 },
+    selects: "iki/dna.DNASequence",
+    sha256: "ef".repeat(32),
+    frame: `/plugin-components/iki/dna.map/${"ef".repeat(32)}/`,
+  };
+  const MAP_PATH = "/api/v1/components/iki/dna.map/entities";
+  const MAPPED = {
+    id: "map",
+    title: "Plasmid map",
+    width: 6,
+    component: "iki/dna.map",
+    props: { type: "iki/dna.DNASequence", sort: "name" },
+  };
+  const PICKED = {
+    id: "summary",
+    component: "iki.text",
+    props: { text: "{{ size(map.selection) }} picked." },
+  };
+  const shown = {
+    id: PTEST.id,
+    hrid: PTEST.hrid,
+    title: "pTest",
+    type: PTEST.type,
+    revision: 1,
+    project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+    values: { name: "pTest" },
+    refs: {},
+  };
+
+  it("is given what its search finds, and offers what's picked in it", async () => {
+    onTypes();
+    answer("GET /api/v1/components", [MAP]);
+    answer("GET /api/v1/entities/APP-000001", app([MAPPED, PICKED]));
+    answer(`POST ${MAP_PATH}`, page([shown]));
+    answer("POST /api/v1/entities/search", page([PTEST]));
+    await renderApp("/entities/APP-000001/");
+    const panel = await screen.findByRole("region", { name: "Plasmid map" });
+    const frame = within(panel).getByTitle<HTMLIFrameElement>("Plasmid map");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    const { port, received } = connectFrame(frame);
+    await waitFor(() => {
+      expect(lastEntities(received)?.items).toEqual([shown]);
+    });
+    expect(received[0]).toEqual({
+      type: "place",
+      place: { slot: "app.panel", label: "Plasmid map" },
+    });
+    // The search the app says, in its project, as the server runs it for the person.
+    expect(calls("POST", MAP_PATH)[0]?.body).toEqual({
+      home: false,
+      search: {
+        type: "iki/dna.DNASequence",
+        exact_type: false,
+        archived: false,
+        project: app([]).owner_project?.id,
+        sort: { field: "name", descending: false },
+      },
+      limit: 50,
+    });
+    expect(await screen.findByText("0 picked.")).toBeInTheDocument();
+    // What's picked is read back as the person may read it, and offered as entities.
+    port.postMessage({ type: "select", entities: ["DNA-000001", "DNA-000009"] });
+    expect(await screen.findByText("1 picked.")).toBeInTheDocument();
+  });
+
+  it("is given one entity, as its tab is", async () => {
+    onTypes();
+    answer("GET /api/v1/components", [MAP]);
+    const one = { ...MAPPED, props: { entity: "DNA-000001" } };
+    answer("GET /api/v1/entities/APP-000001", app([one]));
+    answer("GET /api/v1/entities/DNA-000001", PTEST);
+    await renderApp("/entities/APP-000001/");
+    const frame = await screen.findByTitle<HTMLIFrameElement>("Plasmid map");
+    const { received } = connectFrame(frame);
+    await waitFor(() => {
+      expect(received.find((m) => m["type"] === "entity")).toEqual({
+        type: "entity",
+        entity: PTEST,
+      });
+    });
+    // Its tab declares no search, so it's given no others.
+    expect(calls("POST", MAP_PATH)).toEqual([]);
+  });
+
+  it("that isn't installed costs only its own panel", async () => {
+    onTypes();
+    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entities/APP-000001", app([MAPPED, PICKED]));
+    await renderApp("/entities/APP-000001/");
+    const panel = await screen.findByRole("region", { name: "Plasmid map" });
+    expect(await within(panel).findByText(/which isn’t installed here/)).toHaveTextContent(
+      "This panel shows iki/dna.map, which isn’t installed here.",
+    );
+    expect(await screen.findByText("0 picked.")).toBeInTheDocument();
+    expect(screen.queryByTitle("Plasmid map")).not.toBeInTheDocument();
   });
 });
 

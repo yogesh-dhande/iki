@@ -8,10 +8,13 @@ takes. This says the rest, run as the person saving, as they'd see the page:
   sort and columns are fields of that type.
 - A viewer shows an entity: an HRID the person can read, whose type has the viewer
   asked for, or one expression, whose value is the entity.
+- A plugin's component (ADR 0117) is installed, and is given what it shows: an entity
+  it's a tab of, or a search of the type it shows, which works as a grid's does.
 - Each expression reads (with iki-wasm, as browsers will), and reads only panels before
   its own, and only what they offer: a grid its ``rows`` and ``selection``, a viewer its
-  ``entity``. A grid's column also reads its ``row``, and an app about an entity reads
-  that one as ``entity``. A grid's condition may take its value from an expression.
+  ``entity``, a plugin's component that lets people pick its ``selection``. A grid's
+  column also reads its ``row``, and an app about an entity reads that one as
+  ``entity``. A grid's condition may take its value from an expression.
 - Its text and expressions are at most :data:`MAX_TEXT` characters in all, so checking
   them is quick however it's written.
 
@@ -32,8 +35,11 @@ from jsonschema import Draft202012Validator
 
 from iki_server import expressions
 from iki_server.accounts.models import User
+from iki_server.components import installed, places
 from iki_server.entities import access, registry, search
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.entities.values import subtypes
+from iki_spec.model import Component as PluginComponent
 
 #: What each component offers the panels after it.
 OFFERS: Mapping[str, tuple[str, ...]] = {
@@ -109,6 +115,17 @@ COMPONENTS: Mapping[str, Component] = {
     ),
 }
 
+PLUGIN_GUIDE = (
+    "A panel can also be a plugin's component, by its name, such as `acme/lab.box_map`: "
+    "one of `plugin_components`, which runs in a sandboxed frame. Its props are either "
+    "`entity`, an HRID or one expression whose value is an entity, of a type it's a tab "
+    "of (`tabs`), or a search of the type it shows (`shows`) or one extending it, with "
+    "an entities grid's `type`, `scope`, `where`, `q`, `sort` and `descending`. It's "
+    "given what that finds as the person viewing the app may read it, and only the "
+    "fields it reads. One whose `selects` names a type offers `selection`, the entities "
+    "people picked in it, each " + ENTITY_VALUE + "."
+)
+
 ABOUT_GUIDE = (
     'An app can be about one entity of a type: `"entity": {"type": '
     '"iki/protein.Protein"}` in its spec. Each such entity\'s page then shows the app as a tab '
@@ -144,6 +161,18 @@ def guide() -> dict[str, Any]:
             {"name": name, "description": c.description, "props": c.props, "offers": c.offers}
             for name, c in COMPONENTS.items()
         ],
+        "plugin_components": [
+            {
+                "name": c.qualified_name,
+                "label": c.label,
+                "description": c.description,
+                "tabs": [s.type for s in c.slots if s.slot == "entity.tab"],
+                "shows": c.entities.type if c.entities else None,
+                "selects": c.selects or None,
+            }
+            for c in installed.components().values()
+        ],
+        "plugins": PLUGIN_GUIDE,
         "expressions": EXPRESSIONS,
         "about": ABOUT_GUIDE,
         "example": {
@@ -190,6 +219,16 @@ MAX_QUOTED = 60
 def _schema_message(error: Any) -> str:  # noqa: ANN401 - a jsonschema ValidationError
     """What's wrong, quoting the value only if it's short: a spec's panels, say, aren't
     repeated back to whoever sent them."""
+    path = list(error.absolute_path)
+    if error.validator == "anyOf" and path and path[-1] == "component":
+        # Iki's own, or a plugin's: say which, not that it fits neither schema.
+        named = repr(error.instance) if len(repr(error.instance)) <= MAX_QUOTED else "It"
+        return (
+            f"{named} is neither one of Iki’s components ({', '.join(OFFERS)}) nor a "
+            "plugin’s, named like acme/lab.box_map"
+        )
+    if error.validator == "oneOf" and path and path[-1] == "props":
+        return "A plugin’s component takes `entity`, or a search’s props, and nothing else"
     if len(repr(error.instance)) <= MAX_QUOTED:
         return str(error.message)
     limit = error.validator_value
@@ -328,7 +367,15 @@ def problems(user: User, spec: Mapping[str, Any]) -> list[str]:
                 templates.append(_Template(f"{at}, `entity`", props["entity"], earlier, whole=True))
         elif component == "iki.text":
             templates.append(_Template(f"{at}, `text`", props["text"], earlier))
-        before.setdefault(name, OFFERS[component])
+        else:
+            plugin = installed.components().get(component)
+            out.extend(_plugin(user, at, component, plugin, props))
+            entity = props.get("entity")
+            if entity is not None and "{{" in entity:
+                templates.append(_Template(f"{at}, `entity`", entity, earlier, whole=True))
+            for where, text in _conditions(props.get("where"), "where"):
+                templates.append(_Template(f"{at}, `{where}`", text, earlier, whole=True))
+        before.setdefault(name, offers_of(component))
     total = sum(len(t.text) for t in templates)
     if total > MAX_TEXT:
         out.append(
@@ -339,17 +386,59 @@ def problems(user: User, spec: Mapping[str, Any]) -> list[str]:
     return out
 
 
-def _entities(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
-    type_name = props["type"]
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
-        return [f"{at}, `type`: there’s no entity type {type_name}."]
+def offers_of(component: str) -> tuple[str, ...]:
+    """What a panel of `component` offers the panels after it: a plugin's component that
+    lets people pick, its ``selection``."""
+    if component in OFFERS:
+        return OFFERS[component]
+    plugin = installed.components().get(component)
+    return ("selection",) if plugin is not None and plugin.selects else ()
+
+
+def _plugin(
+    user: User,
+    at: str,
+    name: str,
+    component: PluginComponent | None,
+    props: Mapping[str, Any],
+) -> list[str]:
+    """A plugin's component: installed, and given what it shows."""
+    if component is None:
+        return [f"{at}, `component`: no installed plugin has a component {name}."]
+    entity = props.get("entity")
+    if entity is not None:
+        tabs = [s.type for s in component.slots if s.slot == "entity.tab"]
+        if not tabs:
+            return [
+                f"{at}, `entity`: {name} isn’t a tab of any entity’s, so it can’t be given "
+                "one. Give it a search instead."
+            ]
+        if "{{" in entity:
+            return []  # An expression: checked with the others, and its type as it's shown.
+        found = _readable(user, entity)
+        if found is None:
+            return [f"{at}, `entity`: {entity} is no entity you can read."]
+        if places.tab_for(component, found.type) is None:
+            return [
+                f"{at}, `entity`: {name} isn’t a tab of {found.type}: it is of {', '.join(tabs)}."
+            ]
+        return []
+    if component.entities is None:
+        return [f"{at}, `type`: {name} shows one entity, not a search’s: give it `entity` instead."]
+    shows = component.entities.type
+    if props["type"] not in subtypes(shows):
+        return [f"{at}, `type`: {name} shows {shows}, or a type that extends it."]
+    return _search(user, at, props)
+
+
+def _search(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
+    """Whether a panel's search works: its conditions and sort are the type's."""
     out = []
     try:
         search.queryset(
             user,
             search.Search(
-                type=type_name,
+                type=props["type"],
                 where=props.get("where"),
                 q=props.get("q"),
                 sort=props.get("sort"),
@@ -361,6 +450,15 @@ def _entities(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
         for pointer, detail in error.errors:
             where = pointer.removeprefix("#/").replace("/", ".")
             out.append(f"{at}, `{where}`: {detail}" if where else f"{at}: {detail}")
+    return out
+
+
+def _entities(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
+    type_name = props["type"]
+    entity_type = registry.types().get(type_name)
+    if entity_type is None:
+        return [f"{at}, `type`: there’s no entity type {type_name}."]
+    out = _search(user, at, props)
     form = search.form_of(type_name)
     fields = set(form.fields()) if form is not None else set()
     for i, column in enumerate(props.get("columns", ())):
@@ -374,11 +472,7 @@ def _viewer(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
     entity = props["entity"]
     if "{{" in entity:
         return []  # An expression: checked with the others.
-    try:
-        lookup = Q(pk=uuid.UUID(entity))
-    except ValueError:
-        lookup = Q(hrid=entity)
-    found = access.visible(user).filter(lookup).first()
+    found = _readable(user, entity)
     if found is None:
         return [f"{at}, `entity`: {entity} is no entity you can read."]
     entity_type = registry.types().get(found.type)
@@ -389,6 +483,15 @@ def _viewer(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
     if viewer is not None and viewer not in shown:
         return [f"{at}, `viewer`: {found.hrid}’s type has no {viewer} viewer."]
     return []
+
+
+def _readable(user: User, ref: str) -> Entity | None:
+    """The entity an ID or HRID names, if the user can read it."""
+    try:
+        lookup = Q(pk=uuid.UUID(ref))
+    except ValueError:
+        lookup = Q(hrid=ref)
+    return access.visible(user).filter(lookup).first()
 
 
 def _expressions(templates: Sequence[_Template]) -> list[str]:

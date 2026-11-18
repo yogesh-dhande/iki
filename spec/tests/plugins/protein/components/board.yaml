@@ -1,0 +1,19 @@
+apiVersion: iki/v1
+kind: Component
+name: board
+label: Board
+description: Proteins as cards, a test of a component that shows many (ADR 0117).
+module: ./components/board.js
+element: protein-board
+entities: { type: Protein, fields: [name, sequence, encoded_by], limit: 300 }
+slots:
+  - slot: entity.tab
+    type: acme/dna.DNASequence
+    label: Proteins it encodes
+    search: { where: { field: encoded_by, op: eq, value: "{{ entity }}" }, sort: name }
+  - { slot: search.results, label: Board }
+  - { slot: project.page, label: Protein board, search: { sort: name } }
+  - slot: person.home
+    label: Proteins you added
+    search: { where: { field: created_by, op: eq, value: "{{ me }}" }, sort: name }
+events: { select: { type: Protein } }

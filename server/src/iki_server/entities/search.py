@@ -51,7 +51,7 @@ from django.db.models.functions import Lower
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Shape, is_list_table, shape, subtypes
-from iki_spec import naming, titles, units
+from iki_spec import conditions, naming, titles, units
 from iki_spec.model import Field
 
 #: Bounds on one search, so none is too costly to plan or run.
@@ -62,35 +62,12 @@ MAX_TEXT = 200
 #: How long a search may run, in milliseconds.
 TIME_LIMIT_MS = 15_000
 
-EQUALITY = ("eq", "ne", "in")
-ORDER = ("lt", "lte", "gt", "gte")
-
-#: The operators each kind of field takes, besides ``is_set``, which all do.
-OPERATORS: Mapping[str, tuple[str, ...]] = {
-    "string": (*EQUALITY, "contains", "starts_with"),
-    "text": ("contains", "matches"),
-    "enum": EQUALITY,
-    "int": (*EQUALITY, *ORDER),
-    "float": (*EQUALITY, *ORDER),
-    "quantity": (*EQUALITY, *ORDER),
-    "date": (*EQUALITY, *ORDER),
-    "datetime": (*EQUALITY, *ORDER),
-    "bool": ("eq",),
-    "ref": EQUALITY,
-    "file": ("eq", "ne"),
-    "json": (),
-    "list": ("has",),
-    # Columns every entity has.
-    "user": EQUALITY,
-    "project": EQUALITY,
-    "type": EQUALITY,
-    # How it was made (ADR 0106): one of its makings has every key the value gives.
-    "making": ("has",),
-}
-ALL_OPERATORS = ("is_set", *dict.fromkeys(op for ops in OPERATORS.values() for op in ops))
-
-#: Kinds a search can be sorted by.
-SORTABLE = frozenset({"string", "enum", "int", "float", "quantity", "date", "datetime", "bool"})
+# Each kind of field's operators, and what can be sorted by: the validator checks the
+# searches components declare with the same table (ADR 0117).
+EQUALITY, ORDER = conditions.EQUALITY, conditions.ORDER
+OPERATORS = conditions.OPERATORS
+ALL_OPERATORS = conditions.ALL_OPERATORS
+SORTABLE = conditions.SORTABLE
 
 
 class SearchError(Exception):

@@ -2,18 +2,21 @@
  * A plugin's component in a sandboxed frame of its own (ADR 0084). The frame's document
  * has an origin that's no one's, so it can't read Iki's cookies, storage or pages, or
  * call the API as the person. The page hands Iki's bridge in it one port, gives it the
- * entity, and checks every message it sends back.
+ * entity and the many entities its place shows (ADR 0117), and checks every message it
+ * sends back: more, a refinement and an entity to open only for what it was given.
  */
 
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 
+import type { PlaceEntities } from "./component-entities";
 import {
   MIN_FRAME_HEIGHT,
   readMessage,
   type FrameMessage,
+  type PlaceInfo,
   type PluginComponent,
+  type Refinement,
 } from "./components";
-import type { Entity } from "./entities";
 import { Loading } from "./ui";
 
 /** How long a component has to start before the page says it didn't. */
@@ -21,30 +24,49 @@ export const START_TIMEOUT_MS = 15_000;
 
 type State = "starting" | "ready" | "failed" | "left";
 
-export function ComponentFrame({
-  component,
-  label,
-  entity,
-  onSelect,
-}: {
+/** What the frame is given: the entity whose page it is, or that a panel names. */
+export interface GivenEntity {
+  hrid: string;
+}
+
+export interface FrameProps {
   component: PluginComponent;
   label: string;
-  entity: Entity;
-  onSelect?: (entities: string[]) => void;
-}) {
+  place: PlaceInfo;
+  entity?: GivenEntity | undefined;
+  entities?: PlaceEntities | undefined;
+  onSelect?: ((entities: string[]) => void) | undefined;
+  onMore?: (() => void) | undefined;
+  onRefine?: ((refinement: Refinement | null) => void) | undefined;
+  onOpen?: ((hrid: string) => void) | undefined;
+  /** It can't be shown: it didn't start, or opened another page. */
+  onFailed?: (() => void) | undefined;
+}
+
+export function ComponentFrame(props: FrameProps) {
+  const { component, label, place, entity, entities } = props;
   const port = useRef<MessagePort | null>(null);
   const loads = useRef(0);
-  const selected = useRef(onSelect);
+  const latest = useRef(props);
   const [state, setState] = useState<State>("starting");
   const [height, setHeight] = useState(MIN_FRAME_HEIGHT);
 
   useEffect(() => {
-    selected.current = onSelect;
-  }, [onSelect]);
+    latest.current = props;
+  });
   useEffect(() => () => port.current?.close(), []);
+  const placeKey = JSON.stringify(place);
   useEffect(() => {
-    if (state === "ready") port.current?.postMessage({ type: "entity", entity });
+    if (state === "ready") port.current?.postMessage({ type: "place", place });
+    // `placeKey` stands for the place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeKey, state]);
+  useEffect(() => {
+    if (state === "ready" && entity) port.current?.postMessage({ type: "entity", entity });
   }, [entity, state]);
+  useEffect(() => {
+    if (state === "ready" && entities) port.current?.postMessage({ type: "entities", entities });
+  }, [entities, state]);
   useEffect(() => {
     if (state !== "starting") return;
     const timer = setTimeout(() => {
@@ -54,11 +76,38 @@ export function ComponentFrame({
       clearTimeout(timer);
     };
   }, [state]);
+  useEffect(() => {
+    if (state === "failed" || state === "left") latest.current.onFailed?.();
+  }, [state]);
 
   function received(message: FrameMessage) {
-    if (message.type === "ready") setState((now) => (now === "left" ? now : "ready"));
-    else if (message.type === "resize") setHeight(message.height);
-    else selected.current?.(message.entities);
+    const now = latest.current;
+    switch (message.type) {
+      case "ready":
+        setState((current) => (current === "left" ? current : "ready"));
+        return;
+      case "resize":
+        setHeight(message.height);
+        return;
+      case "select":
+        now.onSelect?.(message.entities);
+        return;
+      case "more":
+        if (now.entities) now.onMore?.();
+        return;
+      case "refine":
+        if (now.entities) now.onRefine?.(message.refinement);
+        return;
+      case "open": {
+        // Only an entity it was given: Iki opens its page, as the person may read it.
+        const given = new Set([
+          ...(now.entity ? [now.entity.hrid.toUpperCase()] : []),
+          ...(now.entities?.items.map((e) => e.hrid.toUpperCase()) ?? []),
+        ]);
+        if (given.has(message.entity)) now.onOpen?.(message.entity);
+        return;
+      }
+    }
   }
 
   function loaded(event: SyntheticEvent<HTMLIFrameElement>) {

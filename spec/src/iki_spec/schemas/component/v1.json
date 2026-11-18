@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ikisci.org/schemas/component/v1",
   "title": "Iki component (iki/v1)",
-  "description": "A piece of UI the plugin adds to Iki's pages: a Web Component, in one JavaScript module, that Iki runs in a sandboxed frame with no network and no access to the person's session. Iki gives it the data it shows, with the viewer's permissions, and does anything it asks for itself (ADR 0084).",
+  "description": "A piece of UI the plugin adds to Iki's pages: a Web Component, in one JavaScript module, that Iki runs in a sandboxed frame with no network and no access to the person's session. Iki gives it the data it shows, with the viewer's permissions, and does anything it asks for itself (ADR 0084, ADR 0117).",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "module", "element", "slots"],
   "properties": {
@@ -36,15 +36,45 @@
       "maxLength": 100,
       "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)+$"
     },
+    "entities": {
+      "description": "The many entities it shows, in the places that give it them (every slot but a tab without a `search`): their type, with its subtypes, the fields it reads of each, and the most it holds at once. It gets only those fields, beside each entity's ID, HRID, type, title, revision and project (ADR 0117).",
+      "type": "object",
+      "required": ["type", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "The type of the entities it shows, with its subtypes.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+        },
+        "fields": {
+          "description": "The fields it reads of each: their values are all it's given, and a refinement it asks for can name only these (and `hrid`).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        },
+        "limit": {
+          "description": "The most it holds at once, as it asks for more a page at a time. 500 if left out.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
     "slots": {
-      "description": "Where it appears on Iki's pages.",
+      "description": "Where it appears on Iki's pages: at most one slot of each kind, and one tab for each type.",
       "type": "array",
       "minItems": 1,
       "maxItems": 20,
-      "items": { "$ref": "#/$defs/slot" }
+      "items": {
+        "$ref": "#/$defs/slot"
+      }
     },
     "events": {
-      "description": "What it tells the page, by name. `select`: entities a person picked in it, as an `iki-select` event whose `detail.entities` lists their HRIDs, so the page can act on them.",
+      "description": "What it tells the page, by name. `select`: entities a person picked in it, as an `iki-select` event whose `detail.entities` lists their HRIDs, so the page can act on them. Asking for more entities (`iki-more`), narrowing them (`iki-refine`) and opening one it was given (`iki-open`) need no declaration.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -69,22 +99,164 @@
   "$defs": {
     "slot": {
       "type": "object",
-      "required": ["slot", "type"],
+      "required": ["slot"],
       "additionalProperties": false,
       "properties": {
         "slot": {
-          "description": "`entity.tab`: a tab of its own on the page of each entity of `type`.",
-          "enum": ["entity.tab"]
+          "description": "`entity.tab`: a tab on the page of each entity of `type`. `search.results`: another way to see the grid's results, when it shows the component's `entities` type. `project.page`: a section on each project's page, of what its `search` finds there. `person.home`: a section on each person's home, of what its `search` finds in every project they read.",
+          "enum": ["entity.tab", "search.results", "project.page", "person.home"]
         },
         "type": {
-          "description": "The entities whose pages show it, with their subtypes.",
+          "description": "For `entity.tab`: the entities whose pages show it, with their subtypes. The other slots show the component's `entities` type.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
         "label": {
-          "description": "The tab's name. The component's label if left out.",
+          "description": "Its tab's, section's or view's name. The component's label if left out.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "search": {
+          "$ref": "#/$defs/search"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "slot": {
+                "const": "entity.tab"
+              }
+            }
+          },
+          "then": {
+            "required": ["type"]
+          },
+          "else": {
+            "not": {
+              "required": ["type"]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "slot": {
+                "enum": ["project.page", "person.home"]
+              }
+            }
+          },
+          "then": {
+            "required": ["search"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "slot": {
+                "const": "search.results"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": ["search"]
+            }
+          }
+        }
+      ]
+    },
+    "search": {
+      "description": "The entities of the component's `entities` type that fill the slot, as the search API takes them: on a tab, those its conditions find (a box's tubes: `{ field: box, op: eq, value: \"{{ entity }}\" }`); on a project's page, those in the project; on a person's home, those in every project they read, which it must narrow to them with `{{ me }}`. A condition's value can be `{{ entity }}`, the entity whose page it is (on a tab), or `{{ me }}`, the person viewing it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "where": {
+          "$ref": "#/$defs/condition"
+        },
+        "sort": {
+          "description": "The field they're in order of: one of the type's, or `hrid`, `created_at` or `updated_at`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "descending": {
+          "description": "Whether in reverse order.",
+          "type": "boolean"
         }
       }
+    },
+    "condition": {
+      "description": "A condition on a field (`field`, `op`, `value`), or a group of them (`all`, `any` or `not`), as the search API takes it.",
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["field", "op", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "description": "A field of the type, or `hrid`, `created_by`, `created_at` or `updated_at`.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "op": {
+              "enum": [
+                "eq",
+                "ne",
+                "in",
+                "lt",
+                "lte",
+                "gt",
+                "gte",
+                "contains",
+                "starts_with",
+                "matches",
+                "has",
+                "is_set"
+              ]
+            },
+            "value": {
+              "description": "What to compare with, as the field takes it, or `{{ entity }}` or `{{ me }}`."
+            }
+          }
+        },
+        {
+          "required": ["all"],
+          "additionalProperties": false,
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/condition"
+              }
+            }
+          }
+        },
+        {
+          "required": ["any"],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/condition"
+              }
+            }
+          }
+        },
+        {
+          "required": ["not"],
+          "additionalProperties": false,
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/condition"
+            }
+          }
+        }
+      ]
     }
   }
 }

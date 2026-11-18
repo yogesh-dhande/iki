@@ -5,6 +5,7 @@ import { meQuery, projectsQuery } from "../api";
 import { usePageTitle } from "../layout";
 import { registriesQuery } from "../registries";
 import { buttonClass, Loading, PageHeader } from "../ui";
+import { PluginSections } from "./plugin-sections";
 import { ProjectRows, sortProjects } from "./project-rows";
 
 export function Home() {
@@ -72,6 +73,8 @@ export function Home() {
           )}
         </section>
       )}
+      {/* What plugins' components find of theirs, in every project they read (ADR 0117). */}
+      <PluginSections kind="person.home" />
       {curated.length ? (
         <section aria-labelledby="curated-title">
           <h2 id="curated-title">Registries you curate</h2>

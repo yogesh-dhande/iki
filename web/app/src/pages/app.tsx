@@ -8,7 +8,7 @@
 import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { iki, problemOf } from "../api";
 import {
@@ -21,12 +21,28 @@ import {
   type EntityValue,
   type Offers,
   type Panel,
+  type PluginProps,
   type Rendered,
 } from "../apps";
-import { HRID } from "../components";
-import { ENTITIES, entityQuery, valueText, type Entity, type EntityType } from "../entities";
+import { usePlaceEntities } from "../component-entities";
+import {
+  componentsQuery,
+  HRID,
+  tabFor,
+  type PlaceSearch,
+  type PluginComponent,
+} from "../components";
+import {
+  ENTITIES,
+  entityQuery,
+  inSentence,
+  valueText,
+  type Entity,
+  type EntityType,
+} from "../entities";
 import { Loading, ProblemAlert, RelativeTime } from "../ui";
 import { ViewerBody } from "./entity-viewer";
+import { PluginPlace } from "./plugin-place";
 
 /** What an app's panels need of it: its spec, the project its grids search, and an ID
  * to keep their searches apart. A saved app or a draft of one. */
@@ -147,6 +163,8 @@ function PanelBody(props: BodyProps) {
       return <ViewerPanel {...props} entity={panel.props.entity} viewer={panel.props.viewer} />;
     case "iki.text":
       return <TextPanel {...props} text={panel.props.text} />;
+    default:
+      return <PluginPanel {...props} name={panel.component} plugin={panel.props} />;
   }
 }
 
@@ -210,6 +228,32 @@ function TextPanel({ text, before, offer }: BodyProps & { text: string }) {
 
 type SearchBody = Schemas["SearchIn"];
 
+/** A search's conditions, each expression's value worked out first. One that can't be (a
+ * grid's pick not made yet, say) leaves the search with nothing to find: `unworked` says
+ * why. Conditions with no expressions are as they are. */
+function useConditions(
+  conditions: Record<string, unknown> | undefined,
+  before: Offers,
+): { where: SearchBody["where"] | undefined; unworked: string | undefined } {
+  const rendered = useRendered(conditionTemplates(conditions), before);
+  const values = rendered.values?.map((v) => v[0]);
+  const unworked =
+    rendered.error ??
+    values?.flatMap((v) => (v && "error" in v ? [v.error] : []))[0] ??
+    (values?.some((v) => !v || ("value" in v && (v.value === null || v.value === undefined)))
+      ? "a condition’s value is empty."
+      : undefined);
+  const where = (
+    values && unworked === undefined
+      ? fillConditions(
+          conditions,
+          values.map((v) => (v && "value" in v ? v.value : null)),
+        )
+      : undefined
+  ) as SearchBody["where"] | undefined;
+  return { where, unworked };
+}
+
 /** A grid's rows while its conditions can't be worked out: the same each render. */
 const NONE: Entity[] = [];
 
@@ -232,24 +276,7 @@ function EntitiesPanel({
 }: BodyProps & { entities: EntitiesProps }) {
   const type = types.find((t) => t.name === entities.type);
   const project = (entities.scope ?? "project") === "project" ? app.owner_project : null;
-  // Conditions whose values are expressions are worked out first; one that can't be (a
-  // grid's pick not made yet, say) leaves the grid with nothing to show.
-  const conditions = useRendered(conditionTemplates(entities.where), before);
-  const values = conditions.values?.map((v) => v[0]);
-  const unworked =
-    conditions.error ??
-    values?.flatMap((v) => (v && "error" in v ? [v.error] : []))[0] ??
-    (values?.some((v) => !v || ("value" in v && (v.value === null || v.value === undefined)))
-      ? "a condition’s value is empty."
-      : undefined);
-  const where = (
-    values && unworked === undefined
-      ? fillConditions(
-          entities.where,
-          values.map((v) => (v && "value" in v ? v.value : null)),
-        )
-      : undefined
-  ) as SearchBody["where"] | undefined;
+  const { where, unworked } = useConditions(entities.where, before);
   const body: SearchBody = {
     type: entities.type,
     exact_type: false,
@@ -461,5 +488,176 @@ function ViewerPanel({
       </p>
       <ViewerBody key={entity.id} source={entity} type={type} viewer={viewer} />
     </>
+  );
+}
+
+/** A plugin's component (ADR 0117), in its sandboxed frame: given one entity, as its tab
+ * on that entity's page is, or what a search finds, as the grid's results are. One that
+ * isn't installed costs only its own panel: it says so, and offers an empty `selection`,
+ * so the panels after it still show. */
+function PluginPanel(props: BodyProps & { name: string; plugin: PluginProps }) {
+  const { panel, name, plugin, offer } = props;
+  const components = useQuery(componentsQuery);
+  const component = components.data?.find((c) => c.name === name);
+  const latest = useRef(offer);
+  useEffect(() => {
+    latest.current = offer;
+  });
+  const settled = components.isSuccess || components.isError;
+  useEffect(() => {
+    if (settled) latest.current({ selection: [] });
+  }, [settled]);
+  const onPicked = useCallback((entities: Entity[]) => {
+    latest.current({ selection: entities.map(entityValue) });
+  }, []);
+  if (components.isError) return <ProblemAlert problem={problemOf(components.error)} />;
+  if (!components.data) return <Loading label="Starting it…" />;
+  if (!component) {
+    return (
+      <p className="muted">
+        This panel shows <code>{name}</code>, which isn’t installed here. Tell whoever looks after
+        the app.
+      </p>
+    );
+  }
+  const label = panel.title ?? component.label;
+  return "entity" in plugin ? (
+    <PluginEntityPanel
+      {...props}
+      component={component}
+      label={label}
+      template={plugin.entity}
+      onPicked={onPicked}
+    />
+  ) : (
+    <PluginSearchPanel
+      {...props}
+      component={component}
+      label={label}
+      search={plugin}
+      onPicked={onPicked}
+    />
+  );
+}
+
+interface PluginBodyProps extends BodyProps {
+  component: PluginComponent;
+  label: string;
+  onPicked: (entities: Entity[]) => void;
+}
+
+function PluginEntityPanel({
+  component,
+  label,
+  template,
+  before,
+  app,
+  types,
+  onPicked,
+}: PluginBodyProps & { template: string }) {
+  const literal = !template.includes("{{");
+  const rendered = useRendered(literal ? [] : [template], before);
+  const value = literal ? { value: template } : rendered.values?.[0]?.[0];
+  const hrid = value && "value" in value ? hridOf(value.value) : null;
+  const found = useQuery({ ...entityQuery(hrid ?? ""), enabled: Boolean(hrid) });
+  const entity = found.data;
+  if (rendered.error) return <p className="app-error">{rendered.error}</p>;
+  if (value && "error" in value) return <p className="app-error">{value.error}</p>;
+  if (!literal && !rendered.values) return <Loading label="Working it out…" />;
+  if (!hrid) return <p className="muted">Nothing to show yet.</p>;
+  if (found.isError) return <ProblemAlert problem={problemOf(found.error)} />;
+  if (!entity) return <Loading label={`Opening ${hrid}…`} />;
+  const tab = tabFor(component, entity.type, types);
+  if (!tab) {
+    const type = types.find((t) => t.name === entity.type);
+    return (
+      <p className="muted">
+        {label} doesn’t show {type ? inSentence(type.label_plural) : entity.type}.
+      </p>
+    );
+  }
+  return (
+    <PluginEntityPlace
+      key={entity.id}
+      component={component}
+      label={label}
+      entity={entity}
+      many={Boolean(tab.search && component.entities)}
+      project={app.owner_project ?? entity.owner_project}
+      types={types}
+      onPicked={onPicked}
+    />
+  );
+}
+
+/** The entity's place, kept apart for each entity, so what's narrowed and picked in one
+ * isn't carried to the next. */
+function PluginEntityPlace({
+  component,
+  label,
+  entity,
+  many,
+  project,
+  types,
+  onPicked,
+}: {
+  component: PluginComponent;
+  label: string;
+  entity: Entity;
+  many: boolean;
+  project: { slug: string } | null;
+  types: EntityType[];
+  onPicked: (entities: Entity[]) => void;
+}) {
+  const data = usePlaceEntities(component, many ? { entity: entity.id } : null);
+  return (
+    <PluginPlace
+      component={component}
+      label={label}
+      place={{ slot: "app.panel", label }}
+      entity={entity}
+      data={many ? data : undefined}
+      project={project}
+      types={types}
+      onPicked={onPicked}
+    />
+  );
+}
+
+function PluginSearchPanel({
+  component,
+  label,
+  search,
+  before,
+  app,
+  types,
+  onPicked,
+}: PluginBodyProps & { search: Exclude<PluginProps, { entity: string }> }) {
+  const project = (search.scope ?? "project") === "project" ? app.owner_project : null;
+  const { where, unworked } = useConditions(search.where, before);
+  const ready = unworked === undefined && (!search.where || where !== undefined);
+  const body = {
+    type: search.type,
+    exact_type: false,
+    archived: false,
+    ...(project ? { project: project.id } : {}),
+    ...(where ? { where } : {}),
+    ...(search.q ? { q: search.q } : {}),
+    ...(search.sort
+      ? { sort: { field: search.sort, descending: search.descending ?? false } }
+      : {}),
+  } as PlaceSearch;
+  const data = usePlaceEntities(component, ready ? { search: body } : null);
+  if (unworked !== undefined) return <p className="muted">Nothing to show yet: {unworked}</p>;
+  return (
+    <PluginPlace
+      component={component}
+      label={label}
+      place={{ slot: "app.panel", label }}
+      data={data}
+      project={project}
+      types={types}
+      onPicked={onPicked}
+    />
   );
 }

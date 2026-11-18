@@ -1,0 +1,23 @@
+{
+  "name": "@ikisci/component",
+  "version": "0.1.0-dev.0",
+  "description": "Types and helpers for plugins' components: what Iki gives a component's element, and what it may ask Iki for.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@ikisci/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  }
+}

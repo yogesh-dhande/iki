@@ -17,6 +17,7 @@ import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
+import { PluginSections } from "./plugin-sections";
 import { Badge, Button, Loading, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
@@ -176,6 +177,8 @@ export function ProjectOverview() {
       ) : (
         <NotAMember project={project} />
       )}
+      {/* What plugins' components find in the project (ADR 0117). */}
+      {project.can.read ? <PluginSections kind="project.page" project={project} /> : null}
       {project.can.read ? <ProjectCosts project={project} /> : null}
     </>
   );

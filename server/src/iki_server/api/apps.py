@@ -32,11 +32,32 @@ class AppComponentOut(Schema):
     offers: dict[str, str] = Field(description="What it offers later panels' expressions.")
 
 
+class AppPluginComponentOut(Schema):
+    name: str = Field(description="As a panel's `component` names it, such as acme/lab.box_map.")
+    label: str
+    description: str | None
+    tabs: list[str] = Field(
+        description="The types it's a tab of: an `entity` prop is one of these, or extends one."
+    )
+    shows: str | None = Field(
+        description="The type a search prop searches, or one extending it; null if it shows "
+        "only one entity."
+    )
+    selects: str | None = Field(
+        description="The type of what people pick in it, which it offers as `selection`; "
+        "null if they pick nothing."
+    )
+
+
 class AppGuideOut(Schema):
     type: str = Field(description="The entity type an app is: iki/core.App.")
     spec_schema: dict[str, Any] = Field(description="The JSON Schema its spec follows (app/v1).")
     grid: str
     components: list[AppComponentOut]
+    plugin_components: list[AppPluginComponentOut] = Field(
+        description="Installed plugins' components a panel can be (ADR 0117)."
+    )
+    plugins: str = Field(description="How a panel is a plugin's component, and its props.")
     expressions: str = Field(description="How expressions between {{ and }} work.")
     about: str = Field(description="How an app is about an entity, and shown on its page.")
     example: dict[str, Any] = Field(description="A spec that saves.")

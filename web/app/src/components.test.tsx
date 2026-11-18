@@ -25,7 +25,8 @@ const RESIDUES: PluginComponent = {
   label: "Residues",
   description: "How many residues a protein has.",
   element: "protein-residues",
-  slots: [{ slot: "entity.tab", type: "iki/protein.Protein", label: "Residues" }],
+  slots: [{ slot: "entity.tab", type: "iki/protein.Protein", label: "Residues", search: null }],
+  entities: null,
   selects: "iki/protein.Protein",
   sha256: "ab".repeat(32),
   frame: `/plugin-components/iki/protein.residues/${"ab".repeat(32)}/`,
@@ -68,7 +69,7 @@ describe("tabs", () => {
       "iki/protein.Protein",
     ]);
     expect(entityTabs("iki/protein.Mutant", types, [RESIDUES])).toEqual([
-      { component: RESIDUES, label: "Residues" },
+      { component: RESIDUES, label: "Residues", slot: RESIDUES.slots[0] },
     ]);
     expect(entityTabs("iki/protein.ProteinStructure", types, [RESIDUES])).toEqual([]);
   });
@@ -106,7 +107,10 @@ describe("the frame", () => {
     expect(origin).toBe("*");
     port.postMessage({ type: "ready" });
     await vi.waitFor(() => {
-      expect(received).toEqual([{ type: "entity", entity: entity() }]);
+      expect(received).toEqual([
+        { type: "place", place: { slot: "entity.tab", label: "Residues" } },
+        { type: "entity", entity: entity() },
+      ]);
     });
     expect(screen.queryByText("Starting Residues…")).not.toBeInTheDocument();
     port.postMessage({ type: "resize", height: 432.4 });

@@ -25,10 +25,13 @@ What's here:
 - `triggers/store_new_samples.yaml`: a trigger that assigns each new sample's
   storage by itself, in projects whose Admins turn it on.
 - `components/sample_label.yaml` and `components/sample-label.js`: a tab on
-  each sample's page showing its tube label, drawn by the plugin's own code.
+  each sample's page showing its tube label, drawn by the plugin's own code,
+  and a sheet of labels for what the grid of samples finds ("Show as").
   Iki runs it in a sandboxed frame with no network and no access to the
-  person's session, and gives it the sample. Use a component only for what
-  Iki's own pages can't show.
+  person's session, and gives it the sample, or the samples, with only the
+  fields it reads. A component can also be a section of a project's page or
+  a person's home, or a panel in an app; `@ikisci/component` describes what
+  it's given. Use a component only for what Iki's own pages can't show.
 - `tests/storage.yaml`: tests of the storage actions. `iki plugin test`
   runs each as a worker would and compares what it writes.
 - `migrations/`: the database migrations for those types, made by

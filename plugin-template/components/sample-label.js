@@ -1,7 +1,11 @@
-// A sample's tube label. Iki sets `entity` to the sample whose page it's on: its
-// `hrid`, `title` and `values`, as the person viewing it may read them.
+// Samples' tube labels. On a sample's page, Iki sets `entity` to that sample: its
+// `hrid`, `title` and `values`, as the person viewing it may read them. Shown as the
+// grid of samples, it sets `entities` to what the grid finds, a page at a time, with
+// only the fields the manifest's `entities` lists; the element asks for more with an
+// `iki-more` event. See @ikisci/component for everything Iki gives and takes.
 const STYLE = `
   :host { display: block; padding: 1rem; color: CanvasText; }
+  .sheet { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
   .label {
     display: inline-grid;
     gap: 0.25rem;
@@ -11,7 +15,26 @@ const STYLE = `
     font: 0.9rem ui-monospace, monospace;
   }
   .hrid { font-size: 1.25rem; font-weight: 700; }
+  button { font: inherit; margin-top: 0.75rem; }
 `;
+
+function label(sample) {
+  const out = document.createElement("div");
+  out.className = "label";
+  const lines = [
+    ["hrid", sample.hrid],
+    ["name", sample.values.name],
+    ["kind", sample.values.kind],
+    ["storage", sample.values.storage ?? "No storage yet"],
+  ];
+  for (const [name, text] of lines) {
+    const line = document.createElement("span");
+    line.className = name;
+    line.textContent = text ?? "";
+    out.append(line);
+  }
+  return out;
+}
 
 class SampleLabel extends HTMLElement {
   constructor() {
@@ -19,24 +42,38 @@ class SampleLabel extends HTMLElement {
     this.attachShadow({ mode: "open" });
   }
 
-  set entity(entity) {
+  #draw(...parts) {
     const style = document.createElement("style");
     style.textContent = STYLE;
-    const label = document.createElement("div");
-    label.className = "label";
-    const lines = [
-      ["hrid", entity.hrid],
-      ["name", entity.values.name],
-      ["kind", entity.values.kind],
-      ["storage", entity.values.storage ?? "No storage yet"],
-    ];
-    for (const [name, text] of lines) {
-      const line = document.createElement("span");
-      line.className = name;
-      line.textContent = text ?? "";
-      label.append(line);
+    this.shadowRoot.replaceChildren(style, ...parts);
+  }
+
+  set entity(entity) {
+    this.#draw(label(entity));
+  }
+
+  set entities({ items, more, error }) {
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    status.textContent = error ?? `${items.length} label${items.length === 1 ? "" : "s"}`;
+    const sheet = document.createElement("ul");
+    sheet.className = "sheet";
+    for (const sample of items) {
+      const item = document.createElement("li");
+      item.append(label(sample));
+      sheet.append(item);
     }
-    this.shadowRoot.replaceChildren(style, label);
+    const parts = [status, sheet];
+    if (more) {
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = "More labels";
+      next.addEventListener("click", () => {
+        this.dispatchEvent(new CustomEvent("iki-more", { bubbles: true }));
+      });
+      parts.push(next);
+    }
+    this.#draw(...parts);
   }
 }
 

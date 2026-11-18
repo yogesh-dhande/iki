@@ -1,7 +1,7 @@
 /**
- * Plugins' components (ADR 0084): which show where, and the messages their frames may
- * send. A component's code runs only in a sandboxed frame; the page checks everything
- * it says, because the frame is the plugin's, not Iki's.
+ * Plugins' components (ADR 0084, ADR 0117): which show where, what fills each place, and
+ * the messages their frames may send. A component's code runs only in a sandboxed frame;
+ * the page checks everything it says, because the frame is the plugin's, not Iki's.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -11,6 +11,24 @@ import { iki } from "./api";
 import type { EntityType } from "./entities";
 
 export type PluginComponent = Schemas["ComponentOut"];
+export type ComponentSlot = PluginComponent["slots"][number];
+export type SlotKind = ComponentSlot["slot"];
+/** An entity as a component that shows many gets it: only the fields it reads. */
+export type ComponentEntity = Schemas["ComponentEntityOut"];
+export type Condition = Schemas["Condition"];
+/** The grid's search, as a component's place gives it. */
+export type PlaceSearch = Schemas["PlaceSearchIn"];
+
+/** What fills a component's place: exactly one of these (ADR 0117). */
+export type PlaceRequest =
+  { entity: string } | { search: PlaceSearch } | { project: string } | { home: true };
+
+/** Where a component is, as its element is told: its slot (or an app's panel), and the
+ * name it's shown under there. */
+export interface PlaceInfo {
+  slot: SlotKind | "app.panel";
+  label: string;
+}
 
 /** The installed components: they change only when the deployment does. */
 export const componentsQuery = queryOptions({
@@ -34,6 +52,22 @@ export function lineageOf(name: string, types: EntityType[]): string[] {
 export interface EntityTab {
   component: PluginComponent;
   label: string;
+  slot: ComponentSlot;
+}
+
+/** The component's tab on pages of entities of `type`: the one for the nearest type it
+ * extends, as the server picks it. */
+export function tabFor(
+  component: PluginComponent,
+  type: string,
+  types: EntityType[],
+): ComponentSlot | undefined {
+  const tabs = component.slots.filter((s) => s.slot === "entity.tab");
+  for (const name of lineageOf(type, types)) {
+    const found = tabs.find((s) => s.type === name);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** The tabs plugins add to the pages of entities of `type`, its parents' included. */
@@ -42,12 +76,53 @@ export function entityTabs(
   types: EntityType[],
   components: PluginComponent[],
 ): EntityTab[] {
+  return components.flatMap((component) => {
+    const slot = tabFor(component, type, types);
+    return slot ? [{ component, label: slot.label, slot }] : [];
+  });
+}
+
+export interface GridView {
+  component: PluginComponent;
+  label: string;
+}
+
+/** The components that can show a grid's results of `type`: those that show it, or a type
+ * it extends. */
+export function gridViews(
+  type: string | undefined,
+  types: EntityType[],
+  components: PluginComponent[],
+): GridView[] {
+  if (!type) return [];
   const lineage = new Set(lineageOf(type, types));
   return components.flatMap((component) => {
-    // `entity.tab` is the only slot so far.
-    const slot = component.slots.find((s) => lineage.has(s.type));
-    return slot ? [{ component, label: slot.label }] : [];
+    const slot = component.slots.find((s) => s.slot === "search.results");
+    return slot && component.entities && lineage.has(component.entities.type)
+      ? [{ component, label: slot.label }]
+      : [];
   });
+}
+
+/** The most sections plugins' components add to a project's page or a person's home. */
+export const MAX_SECTIONS = 8;
+
+export interface Section {
+  component: PluginComponent;
+  label: string;
+}
+
+/** The sections plugins' components add to a project's page or a person's home. */
+export function sectionsFor(
+  kind: "project.page" | "person.home",
+  components: PluginComponent[],
+): Section[] {
+  return components
+    .flatMap((component) => {
+      const slot = component.slots.find((s) => s.slot === kind);
+      return slot && component.entities ? [{ component, label: slot.label }] : [];
+    })
+    .slice(0, MAX_SECTIONS);
 }
 
 /** The most a frame may grow to, and starts at. */
@@ -57,14 +132,113 @@ export const MIN_FRAME_HEIGHT = 160;
 export const MAX_SELECTED = 1000;
 /** What a selection names entities by: their HRIDs, such as `PRT-000001`. */
 export const HRID = /^[A-Za-z][A-Za-z0-9]{1,7}-[0-9]{1,20}$/;
+/** The most a refinement may say, as the server allows it (ADR 0117). */
+export const MAX_REFINE_CONDITIONS = 20;
+export const MAX_REFINE_DEPTH = 4;
+/** The most characters a refinement may have, as JSON. */
+export const MAX_REFINE_SIZE = 10_000;
+/** What a refinement can name besides the component's fields. */
+export const REFINABLE_COLUMNS = ["hrid"];
+
+/** What a component asks for: it can only narrow its place (ADR 0117). */
+export interface Refinement {
+  where?: Condition;
+  sort?: { field: string; descending: boolean };
+  q?: string;
+}
 
 export type FrameMessage =
-  { type: "ready" } | { type: "resize"; height: number } | { type: "select"; entities: string[] };
+  | { type: "ready" }
+  | { type: "resize"; height: number }
+  | { type: "select"; entities: string[] }
+  | { type: "more" }
+  | { type: "refine"; refinement: Refinement | null }
+  | { type: "open"; entity: string };
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A refinement's conditions, if each names a field the component reads and they're
+ * within bounds; null otherwise. */
+function readCondition(node: unknown, readable: ReadonlySet<string>): Condition | null {
+  let count = 0;
+  function walk(at: unknown, depth: number): Condition | null {
+    if (!isObject(at) || depth > MAX_REFINE_DEPTH) return null;
+    const keys = Object.keys(at);
+    for (const group of ["all", "any"] as const) {
+      if (group in at) {
+        const children = at[group];
+        if (keys.length !== 1 || !Array.isArray(children) || !children.length) return null;
+        const read = children.map((c: unknown) => walk(c, depth + 1));
+        return read.every((c) => c !== null) ? { [group]: read } : null;
+      }
+    }
+    if ("not" in at) {
+      if (keys.length !== 1) return null;
+      const inner = walk(at["not"], depth + 1);
+      return inner ? { not: inner } : null;
+    }
+    count += 1;
+    const { field, op, value } = at;
+    if (keys.some((k) => !["field", "op", "value"].includes(k))) return null;
+    if (typeof field !== "string" || !readable.has(field) || typeof op !== "string") return null;
+    return { field, op: op as NonNullable<Condition["op"]>, value };
+  }
+  const read = walk(node, 1);
+  return read && count <= MAX_REFINE_CONDITIONS ? read : null;
+}
+
+/** A refinement, if it's one the component may ask for: only its fields, within bounds.
+ * `null` clears it; `undefined` is a refinement refused. The server checks it again. */
+export function readRefinement(
+  component: PluginComponent,
+  value: unknown,
+): Refinement | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (!isObject(value) || !component.entities) return undefined;
+  if (Object.keys(value).some((k) => !["where", "sort", "q"].includes(k))) return undefined;
+  let size: number;
+  try {
+    size = JSON.stringify(value).length;
+  } catch {
+    return undefined;
+  }
+  if (size > MAX_REFINE_SIZE) return undefined;
+  const readable = new Set([...component.entities.fields, ...REFINABLE_COLUMNS]);
+  const out: Refinement = {};
+  if (value["where"] !== undefined && value["where"] !== null) {
+    const where = readCondition(value["where"], readable);
+    if (!where) return undefined;
+    out.where = where;
+  }
+  const sort = value["sort"];
+  if (sort !== undefined && sort !== null) {
+    if (!isObject(sort) || typeof sort["field"] !== "string" || !readable.has(sort["field"])) {
+      return undefined;
+    }
+    const descending = sort["descending"];
+    if (descending !== undefined && typeof descending !== "boolean") return undefined;
+    out.sort = { field: sort["field"], descending: descending ?? false };
+  }
+  const q = value["q"];
+  if (q !== undefined && q !== null) {
+    if (typeof q !== "string" || q.length > 200) return undefined;
+    if (q.trim()) out.q = q.trim();
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function readHrid(value: unknown): string | null {
+  return typeof value === "string" && value.length <= 100 && HRID.test(value)
+    ? value.toUpperCase()
+    : null;
+}
 
 /** A frame's message, if it's one the component may send; null otherwise. */
 export function readMessage(component: PluginComponent, data: unknown): FrameMessage | null {
-  if (typeof data !== "object" || data === null) return null;
-  const message = data as Record<string, unknown>;
+  if (!isObject(data)) return null;
+  const message = data;
   switch (message["type"]) {
     case "ready":
       return { type: "ready" };
@@ -78,11 +252,19 @@ export function readMessage(component: PluginComponent, data: unknown): FrameMes
       const entities = message["entities"];
       if (!component.selects || !Array.isArray(entities)) return null;
       if (entities.length > MAX_SELECTED) return null;
-      const hrids = entities.filter(
-        (e): e is string => typeof e === "string" && e.length <= 100 && HRID.test(e),
-      );
-      if (hrids.length !== entities.length) return null;
-      return { type: "select", entities: [...new Set(hrids.map((h) => h.toUpperCase()))] };
+      const hrids = entities.map(readHrid);
+      if (hrids.some((h) => h === null)) return null;
+      return { type: "select", entities: [...new Set(hrids as string[])] };
+    }
+    case "more":
+      return component.entities ? { type: "more" } : null;
+    case "refine": {
+      const refinement = readRefinement(component, message["refinement"]);
+      return refinement === undefined ? null : { type: "refine", refinement };
+    }
+    case "open": {
+      const hrid = readHrid(message["entity"]);
+      return hrid ? { type: "open", entity: hrid } : null;
     }
     default:
       return null;

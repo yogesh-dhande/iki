@@ -574,14 +574,47 @@ class Trigger:
         return f"{self.plugin}.{self.name}"
 
 
+#: Where a component can appear (ADR 0084, ADR 0117).
+SLOTS = ("entity.tab", "search.results", "project.page", "person.home")
+#: What a declared search's condition can compare with: the place's context.
+CONTEXT = ("entity", "me")
+
+
+@dataclass(frozen=True)
+class ComponentSearch:
+    """The entities a slot is filled with, as the search API takes them (ADR 0117).
+
+    A condition's value may be ``{{ entity }}``, the entity whose page it is, or
+    ``{{ me }}``, the person viewing it, worked out when it's shown."""
+
+    where: dict[str, Any] | None = None
+    #: A field, or empty for the order they were made in.
+    sort: str = ""
+    descending: bool = False
+
+
 @dataclass(frozen=True)
 class ComponentSlot:
-    """Where a component appears: ``entity.tab``, on the pages of entities of ``type``."""
+    """Where a component appears: ``entity.tab``, on the pages of entities of ``type``;
+    ``search.results``, the grid's results of ``type``; ``project.page`` and
+    ``person.home``, sections of what ``search`` finds there."""
 
     slot: str
-    #: Qualified; its subtypes' pages show it too.
+    #: Qualified. For a tab, the entities whose pages show it (their subtypes' too); for
+    #: the others, the component's ``entities`` type.
     type: str
     label: str = ""
+    search: ComponentSearch | None = None
+
+
+@dataclass(frozen=True)
+class ComponentEntities:
+    """The many entities a component shows: their type (with its subtypes), the fields it
+    reads of each, and the most it holds at once (ADR 0117)."""
+
+    type: str
+    fields: tuple[str, ...] = ()
+    limit: int = 500
 
 
 @dataclass(frozen=True)
@@ -597,6 +630,8 @@ class Component:
     #: The custom element the module defines.
     element: str = ""
     slots: tuple[ComponentSlot, ...] = ()
+    #: The many entities it shows, in the places that give it them; None if it shows one.
+    entities: ComponentEntities | None = None
     #: The type of the entities it can select (qualified), or empty if it selects none.
     selects: str = ""
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
@@ -731,6 +766,8 @@ _DATACLASSES = (
     Trigger,
     Component,
     ComponentSlot,
+    ComponentSearch,
+    ComponentEntities,
     Viewer,
     Track,
     LabRole,
@@ -788,12 +825,27 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                 for k, v in (data.get("triggers") or {}).items()
             },
             # ...or components.
-            "components": {
-                k: Component(**{**v, "slots": tuple(ComponentSlot(**x) for x in v["slots"])})
-                for k, v in (data.get("components") or {}).items()
-            },
+            "components": {k: _component(v) for k, v in (data.get("components") or {}).items()},
             # ...or lab roles.
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
+        }
+    )
+
+
+def _component(data: dict[str, Any]) -> Component:
+    def slot(x: dict[str, Any]) -> ComponentSlot:
+        search = x.get("search")
+        return ComponentSlot(**{**x, "search": ComponentSearch(**search) if search else None})
+
+    # Plugins built before ADR 0117 show only the entity whose page they're on.
+    entities = data.get("entities")
+    return Component(
+        **{
+            **data,
+            "slots": tuple(slot(x) for x in data["slots"]),
+            "entities": ComponentEntities(**{**entities, "fields": tuple(entities["fields"])})
+            if entities
+            else None,
         }
     )
 

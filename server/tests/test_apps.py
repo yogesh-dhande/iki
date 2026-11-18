@@ -173,6 +173,79 @@ def test_a_grid_searches_a_type_with_its_fields(world: World) -> None:
     )
 
 
+BOARD = {
+    "id": "board",
+    "title": "Kinases on the board",
+    "component": "acme/protein.board",
+    "props": {
+        "type": "acme/protein.Protein",
+        "where": {"field": "name", "op": "starts_with", "value": "ABL"},
+        "sort": "name",
+    },
+}
+RESIDUES = {
+    "id": "residues",
+    "component": "acme/protein.residues",
+    "props": {"entity": "{{ board.selection }}"},
+}
+
+
+def test_a_panel_can_be_a_plugins_component(world: World) -> None:
+    """A plugin's component, beside Iki's own (ADR 0117): given a search's results or one
+    entity, and offering what people pick in it to the panels after it."""
+    editor = api_as(world)
+    picked = {**TEXT, "props": {"text": "{{ size(board.selection) }} picked."}}
+    made = app(editor, world.project, BOARD, RESIDUES, picked)
+    assert made.status_code == 201, made.content
+    # One that offers nothing offers nothing.
+    reads = {**TEXT, "props": {"text": "{{ board.rows }}"}}
+    assert problems(app(editor, world.project, BOARD, reads)) == [
+        "Panel `summary`, `text`: `board` offers `selection`, not `rows`."
+    ]
+
+
+def test_a_plugins_component_is_installed_and_given_what_it_shows(world: World) -> None:
+    editor = api_as(world)
+    protein = create(
+        editor, world.project, {"sequence": "MKVL", "name": "ABL1"}, "acme/protein.Protein"
+    ).json()["hrid"]
+    gone = {**BOARD, "component": "acme/lab.box_map"}
+    assert problems(app(editor, world.project, gone)) == [
+        "Panel `board`, `component`: no installed plugin has a component acme/lab.box_map."
+    ]
+    # A search, of the type it shows, that works as a grid's does.
+    dna = with_props(BOARD, type="acme/dna.DNASequence", where={"field": "name", "op": "is_set"})
+    assert problems(app(editor, world.project, dna)) == [
+        "Panel `board`, `type`: acme/protein.board shows acme/protein.Protein, or a type that "
+        "extends it."
+    ]
+    unknown = with_props(BOARD, where={"field": "weight", "op": "eq", "value": 1})
+    assert problems(app(editor, world.project, unknown))[0].startswith(
+        "Panel `board`, `where.field`:"
+    )
+    one = {**RESIDUES, "props": {"type": "acme/protein.Protein"}}
+    assert problems(app(editor, world.project, one)) == [
+        "Panel `residues`, `type`: acme/protein.residues shows one entity, not a search’s: "
+        "give it `entity` instead."
+    ]
+    # An entity it's a tab of, that the person saving it can read.
+    assert app(editor, world.project, with_props(RESIDUES, entity=protein)).status_code == 201
+    assert problems(app(editor, world.project, {**BOARD, "props": {"entity": protein}})) == [
+        "Panel `board`, `entity`: acme/protein.board isn’t a tab of acme/protein.Protein: it "
+        "is of acme/dna.DNASequence."
+    ]
+    assert problems(app(editor, world.project, with_props(RESIDUES, entity="PRT-999999"))) == [
+        "Panel `residues`, `entity`: PRT-999999 is no entity you can read."
+    ]
+    # Either an entity or a search, never both.
+    both = {**RESIDUES, "props": {"entity": protein, "type": "acme/protein.Protein"}}
+    found = editor.post("/apps/check", {"spec": {"version": 1, "panels": [both]}}).json()
+    assert found["problems"] == [
+        "At `panels.0.props`: A plugin’s component takes `entity`, or a search’s props, and "
+        "nothing else."
+    ]
+
+
 def test_its_ids_are_unique(world: World) -> None:
     editor = api_as(world)
     plain = with_props(TEXT, text="Kinases we're working on.")
@@ -222,6 +295,17 @@ def test_how_to_write_one_and_its_example_saves(world: World) -> None:
         "iki.viewer": {"entity"},
         "iki.text": set(),
     }
+    # The plugins' components installed, and what each shows.
+    board = next(c for c in guide["plugin_components"] if c["name"] == "acme/protein.board")
+    assert board == {
+        "name": "acme/protein.board",
+        "label": "Board",
+        "description": "Proteins as cards, a test of a component that shows many (ADR 0117).",
+        "tabs": ["acme/dna.DNASequence"],
+        "shows": "acme/protein.Protein",
+        "selects": "acme/protein.Protein",
+    }
+    assert "acme/lab.box_map" in guide["plugins"]
     assert "{{" in guide["expressions"]
     # Its example searches Iki's iki/protein; here, the fixture plugin acme/protein stands in.
     panels = json.loads(
@@ -239,8 +323,8 @@ def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None
     }
     assert api.post("/apps/check", {"spec": spec}).json()["problems"] == [
         "At `panels.0.width`: 0 is less than the minimum of 1.",
-        "At `panels.1.component`: 'iki.script' is not one of "
-        "['iki.entities', 'iki.viewer', 'iki.text'].",
+        "At `panels.1.component`: 'iki.script' is neither one of Iki’s components "
+        "(iki.entities, iki.viewer, iki.text) nor a plugin’s, named like acme/lab.box_map.",
         "At `version`: 1 was expected.",
     ]
     spec = {"version": 1, "panels": [TEXT, GRID]}

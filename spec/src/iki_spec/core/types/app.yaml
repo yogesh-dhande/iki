@@ -1,8 +1,9 @@
-# An app (ADR 0090): a page of Iki's own components, laid out on a twelve-column grid,
-# each panel bound to those before it by CEL expressions between {{ and }}. It holds no
-# data and no credentials: it shows what the person viewing it may read. The server
-# checks, on every save, that each panel's props are its component's, that each
-# expression reads, and that it reads only panels before its own, and what they offer.
+# An app (ADR 0090): a page of Iki's own components, and plugins' (ADR 0117), laid out
+# on a twelve-column grid, each panel bound to those before it by CEL expressions
+# between {{ and }}. It holds no data and no credentials: it shows what the person
+# viewing it may read. The server checks, on every save, that each panel's props are
+# its component's, that each expression reads, and that it reads only panels before its
+# own, and what they offer.
 apiVersion: iki/v1
 kind: EntityType
 name: App
@@ -18,10 +19,12 @@ fields:
     type: json
     required: true
     description: >-
-      Its panels, in order (app/v1). Each is one of Iki's components, with its props
-      and its width on a twelve-column grid. A prop that takes text or an entity can
-      hold expressions between {{ and }}, which read the panels before it by their IDs:
-      an entities grid offers `rows` and `selection`, a viewer `entity`. An app about
+      Its panels, in order (app/v1). Each is one of Iki's components, or an installed
+      plugin's by its name (`acme/lab.box_map`), with its props and its width on a
+      twelve-column grid. A prop that takes text or an entity can hold expressions
+      between {{ and }}, which read the panels before it by their IDs: an entities grid
+      offers `rows` and `selection`, a viewer `entity`, a plugin's component that lets
+      people pick its `selection`. An app about
       an entity of a type (`entity.type`) is a tab on their pages in its project, and
       its expressions read that one as `entity`; a grid's conditions can then hold
       expressions too.
@@ -49,7 +52,13 @@ fields:
               id: { type: string, pattern: "^[a-z][a-z0-9_]{0,39}$" }
               title: { type: string, minLength: 1, maxLength: 200 }
               width: { type: integer, minimum: 1, maximum: 12 }
-              component: { enum: [iki.entities, iki.viewer, iki.text] }
+              component:
+                anyOf:
+                  - enum: [iki.entities, iki.viewer, iki.text]
+                  # A plugin's component (ADR 0117).
+                  - type: string
+                    maxLength: 200
+                    pattern: "^[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
               props: { type: object }
             allOf:
               - if: { properties: { component: { const: iki.entities } } }
@@ -58,6 +67,8 @@ fields:
                 then: { properties: { props: { $ref: "#/$defs/viewer" } } }
               - if: { properties: { component: { const: iki.text } } }
                 then: { properties: { props: { $ref: "#/$defs/text" } } }
+              - if: { properties: { component: { pattern: "/" } } }
+                then: { properties: { props: { $ref: "#/$defs/plugin" } } }
       $defs:
         entities:
           type: object
@@ -103,4 +114,23 @@ fields:
           additionalProperties: false
           properties:
             text: { type: string, minLength: 1, maxLength: 10000 }
+        # A plugin's component: given one entity, as its tab on that entity's page is, or
+        # what a search finds, as the grid's results are.
+        plugin:
+          oneOf:
+            - type: object
+              required: [entity]
+              additionalProperties: false
+              properties:
+                entity: { type: string, minLength: 1, maxLength: 1000 }
+            - type: object
+              required: [type]
+              additionalProperties: false
+              properties:
+                type: { type: string, minLength: 1, maxLength: 200 }
+                scope: { enum: [project, all] }
+                where: { type: object }
+                q: { type: string, maxLength: 200 }
+                sort: { type: string, minLength: 1, maxLength: 100 }
+                descending: { type: boolean }
 display: { title: "{{ name }}" }

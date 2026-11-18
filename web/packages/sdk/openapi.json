@@ -584,6 +584,19 @@
             "title": "Grid",
             "type": "string"
           },
+          "plugin_components": {
+            "description": "Installed plugins' components a panel can be (ADR 0117).",
+            "items": {
+              "$ref": "#/components/schemas/AppPluginComponentOut"
+            },
+            "title": "Plugin Components",
+            "type": "array"
+          },
+          "plugins": {
+            "description": "How a panel is a plugin's component, and its props.",
+            "title": "Plugins",
+            "type": "string"
+          },
           "spec_schema": {
             "additionalProperties": true,
             "description": "The JSON Schema its spec follows (app/v1).",
@@ -601,11 +614,79 @@
           "spec_schema",
           "grid",
           "components",
+          "plugin_components",
+          "plugins",
           "expressions",
           "about",
           "example"
         ],
         "title": "AppGuideOut",
+        "type": "object"
+      },
+      "AppPluginComponentOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "As a panel's `component` names it, such as acme/lab.box_map.",
+            "title": "Name",
+            "type": "string"
+          },
+          "selects": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type of what people pick in it, which it offers as `selection`; null if they pick nothing.",
+            "title": "Selects"
+          },
+          "shows": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type a search prop searches, or one extending it; null if it shows only one entity.",
+            "title": "Shows"
+          },
+          "tabs": {
+            "description": "The types it's a tab of: an `entity` prop is one of these, or extends one.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tabs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "tabs",
+          "shows",
+          "selects"
+        ],
+        "title": "AppPluginComponentOut",
         "type": "object"
       },
       "ApplyIn": {
@@ -1666,6 +1747,176 @@
         "title": "CollectionSearch",
         "type": "object"
       },
+      "ComponentEntitiesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An entity's tab: the record whose page it's on, by ID.",
+            "title": "Entity"
+          },
+          "home": {
+            "default": false,
+            "description": "The caller's home.",
+            "title": "Home",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project's page.",
+            "title": "Project"
+          },
+          "refine": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefineIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlaceSearchIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A search's results, as the grid's."
+          }
+        },
+        "title": "ComponentEntitiesIn",
+        "type": "object"
+      },
+      "ComponentEntitiesOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentEntityOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ComponentEntitiesOut",
+        "type": "object"
+      },
+      "ComponentEntityOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it belongs to, if you can see it."
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The entities those fields refer to that you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "The values of the fields the component reads.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "revision",
+          "project",
+          "values",
+          "refs"
+        ],
+        "title": "ComponentEntityOut",
+        "type": "object"
+      },
       "ComponentOut": {
         "properties": {
           "description": {
@@ -1683,6 +1934,17 @@
             "description": "The custom element its module defines.",
             "title": "Element",
             "type": "string"
+          },
+          "entities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntitiesOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The many entities it shows (ADR 0117), or null if it shows only the entity whose page it's on."
           },
           "frame": {
             "description": "The page to show it in, in `<iframe sandbox=\"allow-scripts\">`.",
@@ -1734,6 +1996,7 @@
           "description",
           "element",
           "slots",
+          "entities",
           "selects",
           "sha256",
           "frame"
@@ -2810,6 +3073,35 @@
           }
         },
         "title": "EnableIn",
+        "type": "object"
+      },
+      "EntitiesOut": {
+        "properties": {
+          "fields": {
+            "description": "The fields it reads of each: all it's given.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "limit": {
+            "description": "The most it holds at once.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "type": {
+            "description": "The type of the entities it shows, with its subtypes.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "fields",
+          "limit"
+        ],
+        "title": "EntitiesOut",
         "type": "object"
       },
       "EntityAppOut": {
@@ -8423,6 +8715,95 @@
         "title": "PersonRef",
         "type": "object"
       },
+      "PlaceSearchIn": {
+        "additionalProperties": false,
+        "description": "A search, as ``POST /entities/search`` takes it, without its paging.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "exact_type": {
+            "default": false,
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "description": "The component's type, or one that extends it.",
+            "title": "Type",
+            "type": "string"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "PlaceSearchIn",
+        "type": "object"
+      },
       "PolicyIn": {
         "properties": {
           "project_webhooks": {
@@ -9736,6 +10117,49 @@
           "purged"
         ],
         "title": "RefOut",
+        "type": "object"
+      },
+      "RefineIn": {
+        "additionalProperties": false,
+        "description": "What the component asked for: it can only narrow the place's search.",
+        "properties": {
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text in HRIDs and titles, if the place has none.",
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One of the fields it reads, or `hrid`."
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Conditions on the fields it reads (and `hrid`), added to the place's with `all`. At most 20, nested at most 4 deep."
+          }
+        },
+        "title": "RefineIn",
         "type": "object"
       },
       "RegistrarOut": {
@@ -13052,18 +13476,34 @@
       "SlotOut": {
         "properties": {
           "label": {
-            "description": "What the tab is called.",
+            "description": "What its tab, section or view is called.",
             "title": "Label",
             "type": "string"
           },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotSearchOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What fills it, of the component's `entities`; null for a tab that shows only its entity, and for search results, which are the grid's."
+          },
           "slot": {
-            "const": "entity.tab",
-            "description": "`entity.tab`: a tab of its own on the pages of entities of `type`.",
+            "description": "`entity.tab`: a tab of its own on the pages of entities of `type`. `search.results`: the grid's results of `type`, shown another way. `project.page`: a section on projects' pages, of what `search` finds in each. `person.home`: a section on people's homes, of what `search` finds in the projects they read.",
+            "enum": [
+              "entity.tab",
+              "search.results",
+              "project.page",
+              "person.home"
+            ],
             "title": "Slot",
             "type": "string"
           },
           "type": {
-            "description": "The entity type whose pages show it, with its subtypes.",
+            "description": "For a tab, the entity type whose pages show it, with its subtypes; otherwise the type it shows.",
             "title": "Type",
             "type": "string"
           }
@@ -13071,9 +13511,49 @@
         "required": [
           "slot",
           "type",
-          "label"
+          "label",
+          "search"
         ],
         "title": "SlotOut",
+        "type": "object"
+      },
+      "SlotSearchOut": {
+        "properties": {
+          "descending": {
+            "title": "Descending",
+            "type": "boolean"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its conditions, as the search API takes them. A value can be `{{ entity }}`, the entity whose page it is, or `{{ me }}`, the person viewing it.",
+            "title": "Where"
+          }
+        },
+        "required": [
+          "where",
+          "sort",
+          "descending"
+        ],
+        "title": "SlotSearchOut",
         "type": "object"
       },
       "SoftwareOut": {
@@ -16803,6 +17283,57 @@
           }
         ],
         "summary": "Installed components",
+        "tags": [
+          "components"
+        ]
+      }
+    },
+    "/api/v1/components/{name}/entities": {
+      "post": {
+        "description": "The entities that fill a component's place, a page at a time, as you may read them\n(ADR 0117): an entity's tab (the tab's search, about that entity, in its project), a\nsearch's results (as ``POST /entities/search`` finds them), a project's page or your\nhome (the slot's search there). ``refine`` narrows it as the component asked, naming\nonly the fields it reads. Each entity comes with only those fields' values.",
+        "operationId": "iki_server_api_components_component_entities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComponentEntitiesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComponentEntitiesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a component shows in a place",
         "tags": [
           "components"
         ]

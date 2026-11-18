@@ -63,6 +63,26 @@ export interface EntityFilter {
   collection?: string | undefined;
 }
 
+/** The search the grid runs, without its paging: a component that shows the grid's
+ * results is given the same (ADR 0117). */
+export function gridSearch(filter: EntityFilter) {
+  return {
+    exact_type: false,
+    ...(filter.collection
+      ? { collection: filter.collection }
+      : filter.project
+        ? { project: filter.project }
+        : {}),
+    ...(filter.type ? { type: filter.type } : {}),
+    ...(filter.archived === undefined ? {} : { archived: filter.archived }),
+    ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
+    ...(filter.filters?.length ? { where: { all: filter.filters as Schemas["Condition"][] } } : {}),
+    ...(filter.sort
+      ? { sort: { field: filter.sort, descending: filter.descending ?? false } }
+      : {}),
+  };
+}
+
 /** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
 export function entitiesQuery(filter: EntityFilter) {
   return infiniteQueryOptions({
@@ -71,25 +91,7 @@ export function entitiesQuery(filter: EntityFilter) {
     queryFn: async ({ pageParam }) =>
       unwrap(
         await iki.POST("/api/v1/entities/search", {
-          body: {
-            limit: 100,
-            exact_type: false,
-            ...(filter.collection
-              ? { collection: filter.collection }
-              : filter.project
-                ? { project: filter.project }
-                : {}),
-            ...(filter.type ? { type: filter.type } : {}),
-            ...(filter.archived === undefined ? {} : { archived: filter.archived }),
-            ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
-            ...(filter.filters?.length
-              ? { where: { all: filter.filters as Schemas["Condition"][] } }
-              : {}),
-            ...(filter.sort
-              ? { sort: { field: filter.sort, descending: filter.descending ?? false } }
-              : {}),
-            ...(pageParam ? { cursor: pageParam } : {}),
-          },
+          body: { limit: 100, ...gridSearch(filter), ...(pageParam ? { cursor: pageParam } : {}) },
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -307,7 +309,12 @@ export interface EntitySearch {
   desc?: boolean | undefined;
   /** A collection's members, by its HRID. */
   collection?: string | undefined;
+  /** A plugin's component to show them in, by its name, in place of the grid. */
+  view?: string | undefined;
 }
+
+/** A plugin's component's name: `acme/lab.box_map`. */
+export const COMPONENT_NAME = /^[a-z][a-z0-9_]*\/[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
 
 export function validateEntitySearch(search: Record<string, unknown>): EntitySearch {
   const out: EntitySearch = {};
@@ -321,6 +328,8 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   if (typeof search["collection"] === "string" && search["collection"]) {
     out.collection = search["collection"].slice(0, 100);
   }
+  const view = search["view"];
+  if (typeof view === "string" && view.length <= 200 && COMPONENT_NAME.test(view)) out.view = view;
   return out;
 }
 

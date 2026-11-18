@@ -5,13 +5,17 @@
  * scrolls like one of ten.
  */
 
-import { useInfiniteQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useId, useRef, useState } from "react";
 
+import type { Project } from "../api";
+import { usePlaceEntities } from "../component-entities";
+import { componentsQuery, gridViews, type GridView, type PlaceSearch } from "../components";
 import {
   entitiesQuery,
+  gridSearch,
   inSentence,
   recordSearch,
   typeLabel,
@@ -30,6 +34,7 @@ import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-fi
 import { MAX_BATCH } from "../runs";
 import { useProject } from "./project-overview";
 import { CollectionBanner, SaveAsCollection } from "./collections";
+import { PluginPlace } from "./plugin-place";
 import { SavedSearches } from "./saved-searches";
 
 const ROW_HEIGHT = 44;
@@ -153,18 +158,21 @@ export function ProjectEntities() {
   const narrowed = Boolean(search.q) || filters.length > 0;
   const [filtersOpen, setFiltersOpen] = useState(filters.length > 0);
   const panelId = useId();
-  const list = useInfiniteQuery(
-    entitiesQuery({
-      project: project.id,
-      type: type?.name,
-      archived: show === "all" ? undefined : show === "archived",
-      q: search.q,
-      filters,
-      sort,
-      descending: sort ? search.desc : undefined,
-      collection: search.collection,
-    }),
-  );
+  const filter = {
+    project: project.id,
+    type: type?.name,
+    archived: show === "all" ? undefined : show === "archived",
+    q: search.q,
+    filters,
+    sort,
+    descending: sort ? search.desc : undefined,
+    collection: search.collection,
+  };
+  // Plugins' components that show this type's results another way (ADR 0117).
+  const components = useQuery(componentsQuery).data ?? [];
+  const views = gridViews(type?.name, types, components);
+  const shownAs = views.find((v) => v.component.name === search.view);
+  const list = useInfiniteQuery({ ...entitiesQuery(filter), enabled: !shownAs });
   const applyFilters = (next: Filter[]) => {
     void navigate({
       search: (prev) => ({ ...prev, filters: next.length ? next : undefined }),
@@ -311,6 +319,19 @@ export function ProjectEntities() {
             void navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
           }}
         />
+        {views.length ? (
+          <SelectField
+            label="Show as"
+            value={shownAs?.component.name ?? ""}
+            options={[
+              { value: "", label: "Grid" },
+              ...views.map((v) => ({ value: v.component.name, label: v.label })),
+            ]}
+            onChange={(value) => {
+              void navigate({ search: (prev) => ({ ...prev, view: value || undefined }) });
+            }}
+          />
+        ) : null}
         <button
           type="button"
           className={buttonClass()}
@@ -360,9 +381,18 @@ export function ProjectEntities() {
           onApply={applyFilters}
         />
       ) : null}
-      {list.isError ? <ProblemAlert problem={problemOf(list.error)} /> : null}
-      {list.isPending ? <Loading label="Loading entities…" /> : null}
-      {list.isSuccess && rows.length === 0 ? (
+      {shownAs ? (
+        <ShownAs
+          key={shownAs.component.name}
+          view={shownAs}
+          search={gridSearch(filter) as PlaceSearch}
+          project={project}
+          types={types}
+        />
+      ) : null}
+      {!shownAs && list.isError ? <ProblemAlert problem={problemOf(list.error)} /> : null}
+      {!shownAs && list.isPending ? <Loading label="Loading entities…" /> : null}
+      {!shownAs && list.isSuccess && rows.length === 0 ? (
         <p className="empty">
           {search.collection
             ? `No members you can read${narrowed || type ? " match" : ""}.`
@@ -373,7 +403,7 @@ export function ProjectEntities() {
                 : "No entities in this project yet."}
         </p>
       ) : null}
-      {rows.length ? (
+      {!shownAs && rows.length ? (
         <>
           {/* The count stays in the page, so screen readers hear it change as rows are picked. */}
           {selectable ? (
@@ -494,5 +524,30 @@ export function ProjectEntities() {
         </>
       ) : null}
     </>
+  );
+}
+
+/** The grid's results in a plugin's component, given the same search as the grid. */
+function ShownAs({
+  view,
+  search,
+  project,
+  types,
+}: {
+  view: GridView;
+  search: PlaceSearch;
+  project: Project;
+  types: EntityType[];
+}) {
+  const data = usePlaceEntities(view.component, { search });
+  return (
+    <PluginPlace
+      component={view.component}
+      label={view.label}
+      place={{ slot: "search.results", label: view.label }}
+      data={data}
+      project={project}
+      types={types}
+    />
   );
 }

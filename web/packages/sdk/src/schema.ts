@@ -326,6 +326,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/components/{name}/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a component shows in a place
+         * @description The entities that fill a component's place, a page at a time, as you may read them
+         *     (ADR 0117): an entity's tab (the tab's search, about that entity, in its project), a
+         *     search's results (as ``POST /entities/search`` finds them), a project's page or your
+         *     home (the slot's search there). ``refine`` narrows it as the component asked, naming
+         *     only the fields it reads. Each entity comes with only those fields' values.
+         */
+        post: operations["iki_server_api_components_component_entities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/budgets": {
         parameters: {
             query?: never;
@@ -3509,6 +3533,16 @@ export interface components {
             /** Grid */
             grid: string;
             /**
+             * Plugin Components
+             * @description Installed plugins' components a panel can be (ADR 0117).
+             */
+            plugin_components: components["schemas"]["AppPluginComponentOut"][];
+            /**
+             * Plugins
+             * @description How a panel is a plugin's component, and its props.
+             */
+            plugins: string;
+            /**
              * Spec Schema
              * @description The JSON Schema its spec follows (app/v1).
              */
@@ -3520,6 +3554,33 @@ export interface components {
              * @description The entity type an app is: iki/core.App.
              */
             type: string;
+        };
+        /** AppPluginComponentOut */
+        AppPluginComponentOut: {
+            /** Description */
+            description: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description As a panel's `component` names it, such as acme/lab.box_map.
+             */
+            name: string;
+            /**
+             * Selects
+             * @description The type of what people pick in it, which it offers as `selection`; null if they pick nothing.
+             */
+            selects: string | null;
+            /**
+             * Shows
+             * @description The type a search prop searches, or one extending it; null if it shows only one entity.
+             */
+            shows: string | null;
+            /**
+             * Tabs
+             * @description The types it's a tab of: an `entity` prop is one of these, or extends one.
+             */
+            tabs: string[];
         };
         /** ApplyIn */
         ApplyIn: {
@@ -4085,6 +4146,78 @@ export interface components {
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
         };
+        /** ComponentEntitiesIn */
+        ComponentEntitiesIn: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Entity
+             * @description An entity's tab: the record whose page it's on, by ID.
+             */
+            entity?: string | null;
+            /**
+             * Home
+             * @description The caller's home.
+             * @default false
+             */
+            home: boolean;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 100
+             */
+            limit: number;
+            /**
+             * Project
+             * @description A project's page.
+             */
+            project?: string | null;
+            refine?: components["schemas"]["RefineIn"] | null;
+            /** @description A search's results, as the grid's. */
+            search?: components["schemas"]["PlaceSearchIn"] | null;
+        };
+        /** ComponentEntitiesOut */
+        ComponentEntitiesOut: {
+            /** Items */
+            items: components["schemas"]["ComponentEntityOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** ComponentEntityOut */
+        ComponentEntityOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** @description The project it belongs to, if you can see it. */
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Refs
+             * @description The entities those fields refer to that you can read, by ID.
+             */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
+            /** Revision */
+            revision: number;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+            /**
+             * Values
+             * @description The values of the fields the component reads.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
         /** ComponentOut */
         ComponentOut: {
             /** Description */
@@ -4094,6 +4227,8 @@ export interface components {
              * @description The custom element its module defines.
              */
             element: string;
+            /** @description The many entities it shows (ADR 0117), or null if it shows only the entity whose page it's on. */
+            entities: components["schemas"]["EntitiesOut"] | null;
             /**
              * Frame
              * @description The page to show it in, in `<iframe sandbox="allow-scripts">`.
@@ -4609,6 +4744,24 @@ export interface components {
              * @description For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
              */
             run_as?: string | null;
+        };
+        /** EntitiesOut */
+        EntitiesOut: {
+            /**
+             * Fields
+             * @description The fields it reads of each: all it's given.
+             */
+            fields: string[];
+            /**
+             * Limit
+             * @description The most it holds at once.
+             */
+            limit: number;
+            /**
+             * Type
+             * @description The type of the entities it shows, with its subtypes.
+             */
+            type: string;
         };
         /** EntityAppOut */
         EntityAppOut: {
@@ -7166,6 +7319,35 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * PlaceSearchIn
+         * @description A search, as ``POST /entities/search`` takes it, without its paging.
+         */
+        PlaceSearchIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Collection */
+            collection?: string | null;
+            /**
+             * Exact Type
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /** Q */
+            q?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Type
+             * @description The component's type, or one that extends it.
+             */
+            type: string;
+            where?: components["schemas"]["Condition"] | null;
+        };
         /** PolicyIn */
         PolicyIn: {
             /** Project Webhooks */
@@ -7726,6 +7908,21 @@ export interface components {
             title: string;
             /** Type */
             type: string;
+        };
+        /**
+         * RefineIn
+         * @description What the component asked for: it can only narrow the place's search.
+         */
+        RefineIn: {
+            /**
+             * Q
+             * @description Text in HRIDs and titles, if the place has none.
+             */
+            q?: string | null;
+            /** @description One of the fields it reads, or `hrid`. */
+            sort?: components["schemas"]["SortIn"] | null;
+            /** @description Conditions on the fields it reads (and `hrid`), added to the place's with `all`. At most 20, nested at most 4 deep. */
+            where?: components["schemas"]["Condition"] | null;
         };
         /** RegistrarOut */
         RegistrarOut: {
@@ -9262,20 +9459,36 @@ export interface components {
         SlotOut: {
             /**
              * Label
-             * @description What the tab is called.
+             * @description What its tab, section or view is called.
              */
             label: string;
+            /** @description What fills it, of the component's `entities`; null for a tab that shows only its entity, and for search results, which are the grid's. */
+            search: components["schemas"]["SlotSearchOut"] | null;
             /**
              * Slot
-             * @description `entity.tab`: a tab of its own on the pages of entities of `type`.
-             * @constant
+             * @description `entity.tab`: a tab of its own on the pages of entities of `type`. `search.results`: the grid's results of `type`, shown another way. `project.page`: a section on projects' pages, of what `search` finds in each. `person.home`: a section on people's homes, of what `search` finds in the projects they read.
+             * @enum {string}
              */
-            slot: "entity.tab";
+            slot: "entity.tab" | "search.results" | "project.page" | "person.home";
             /**
              * Type
-             * @description The entity type whose pages show it, with its subtypes.
+             * @description For a tab, the entity type whose pages show it, with its subtypes; otherwise the type it shows.
              */
             type: string;
+        };
+        /** SlotSearchOut */
+        SlotSearchOut: {
+            /** Descending */
+            descending: boolean;
+            /** Sort */
+            sort: string | null;
+            /**
+             * Where
+             * @description Its conditions, as the search API takes them. A value can be `{{ entity }}`, the entity whose page it is, or `{{ me }}`, the person viewing it.
+             */
+            where: {
+                [key: string]: unknown;
+            } | null;
         };
         /** SoftwareOut */
         SoftwareOut: {
@@ -10997,6 +11210,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ComponentOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_components_component_entities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComponentEntitiesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComponentEntitiesOut"];
                 };
             };
         };

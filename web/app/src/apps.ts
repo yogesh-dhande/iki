@@ -8,7 +8,7 @@ import { unwrap } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { ENTITIES, type Entity } from "./entities";
+import { COMPONENT_NAME, ENTITIES, type Entity } from "./entities";
 import { newWorker } from "./reading";
 import expressionsUrl from "./workers/expressions.ts?worker&url";
 
@@ -26,6 +26,11 @@ export interface EntitiesProps {
   columns?: ({ field: string; label?: string } | { label: string; value: string })[];
 }
 
+/** A plugin's component's props (ADR 0117): one entity, or a search as a grid's. */
+export type PluginProps =
+  | { entity: string }
+  | Pick<EntitiesProps, "type" | "scope" | "where" | "q" | "sort" | "descending">;
+
 export type Panel = { id: string; title?: string; width?: number } & (
   | { component: "iki.entities"; props: EntitiesProps }
   | {
@@ -33,6 +38,7 @@ export type Panel = { id: string; title?: string; width?: number } & (
       props: { entity: string; viewer?: "sequence" | "structure" | "alignment" };
     }
   | { component: "iki.text"; props: { text: string } }
+  | { component: `${string}/${string}`; props: PluginProps }
 );
 
 export interface AppSpec {
@@ -137,8 +143,11 @@ export function readSpec(value: unknown): AppSpec | null {
   if (typeof value !== "object" || value === null) return null;
   const spec = value as { version?: unknown; panels?: unknown };
   if (spec.version !== 1 || !Array.isArray(spec.panels)) return null;
+  // Iki's own components, or a plugin's by its name; whether it's installed, its panel says.
   const known = (spec.panels as { component?: unknown }[]).every(
-    (p) => typeof p.component === "string" && COMPONENTS.has(p.component),
+    (p) =>
+      typeof p.component === "string" &&
+      (COMPONENTS.has(p.component) || COMPONENT_NAME.test(p.component)),
   );
   return known ? (value as AppSpec) : null;
 }

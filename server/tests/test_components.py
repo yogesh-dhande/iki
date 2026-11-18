@@ -33,19 +33,61 @@ def test_components_are_listed_with_where_they_appear(world: World) -> None:
         "label": "Residues",
         "description": "How many residues a protein has.",
         "element": "protein-residues",
-        "slots": [{"slot": "entity.tab", "type": "acme/protein.Protein", "label": "Residues"}],
+        "slots": [
+            {
+                "slot": "entity.tab",
+                "type": "acme/protein.Protein",
+                "label": "Residues",
+                "search": None,
+            }
+        ],
+        "entities": None,
         "selects": "acme/protein.Protein",
         "sha256": hashlib.sha256(module).hexdigest(),
         "frame": f"/plugin-components/{RESIDUES}/{hashlib.sha256(module).hexdigest()}/",
     }
     assert b"customElements.define" in module
+    # One that shows many says which, what it reads of each, and what fills each place.
+    board = listed["acme/protein.board"]
+    assert board["entities"] == {
+        "type": "acme/protein.Protein",
+        "fields": ["name", "sequence", "encoded_by"],
+        "limit": 300,
+    }
+    assert [(s["slot"], s["type"], s["search"]) for s in board["slots"]] == [
+        (
+            "entity.tab",
+            "acme/dna.DNASequence",
+            {
+                "where": {"field": "encoded_by", "op": "eq", "value": "{{ entity }}"},
+                "sort": "name",
+                "descending": False,
+            },
+        ),
+        ("search.results", "acme/protein.Protein", None),
+        (
+            "project.page",
+            "acme/protein.Protein",
+            {"where": None, "sort": "name", "descending": False},
+        ),
+        (
+            "person.home",
+            "acme/protein.Protein",
+            {
+                "where": {"field": "created_by", "op": "eq", "value": "{{ me }}"},
+                "sort": "name",
+                "descending": False,
+            },
+        ),
+    ]
 
 
 def test_subtypes_pages_show_their_parents_components() -> None:
     assert [c.qualified_name for c in installed.for_type("acme/protein.Protein", "entity.tab")] == [
         RESIDUES
     ]
-    assert installed.for_type("acme/dna.DNASequence", "entity.tab") == []
+    assert [c.name for c in installed.for_type("acme/dna.DNASequence", "entity.tab")] == ["board"]
+    assert installed.for_type("acme/protein.ProteinStructure", "entity.tab") == []
 
 
 def test_a_module_that_changed_after_the_build_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

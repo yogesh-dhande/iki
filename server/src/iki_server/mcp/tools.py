@@ -456,9 +456,10 @@ def build() -> MCPServer:
     @server.tool(annotations=READ, title="How to write an app")
     async def describe_apps() -> CallToolResult:
         """How to write an app (iki/core.App): a page of Iki's own components, an entities
-        grid, a viewer and text, laid out on a grid and bound to each other by expressions.
-        Gives the spec's JSON Schema, each component's props and what it offers later
-        panels, how expressions work, and an example. Read it before check_app."""
+        grid, a viewer and text, and installed plugins' components, laid out on a grid and
+        bound to each other by expressions. Gives the spec's JSON Schema, each component's
+        props and what it offers later panels, how expressions work, and an example. Read
+        it before check_app."""
         return answer(await call("GET", "/apps/guide"))
 
     @server.tool(annotations=READ, title="Check an app")

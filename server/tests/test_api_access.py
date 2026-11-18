@@ -116,6 +116,10 @@ def _entity(w: World) -> Any:
     ).entity
 
 
+def project_board(w: World) -> tuple[Any, ...]:
+    return "/components/acme/protein.board/entities", {"project": str(w.project.pk)}
+
+
 def dashboard(w: World) -> tuple[Any, ...]:
     from iki_server.entities import services as entities
 
@@ -1032,6 +1036,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # only: test_triggers).
     ("GET", "/triggers", fixed("/triggers"), row(200)),
     ("GET", "/components", fixed("/components"), row(200)),
+    # What fills a component's place: what its caller reads (ADR 0117).
+    ("POST", "/components/{name}/entities", project_board, readers(200, org_admin=403)),
     ("GET", "/projects/{project_id}/triggers", project("/triggers"), readers(200, org_admin=403)),
     # A project's dashboard: read with the project; chosen by its Admins.
     (

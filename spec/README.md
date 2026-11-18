@@ -743,10 +743,56 @@ events, whose `detail.entities` lists the HRIDs of the entities picked, of
 the type `events.select` declares. The page shows what was picked, among
 what the person may read, and offers to run an action on them.
 
+### Components that show many entities
+
+A component can show many entities at once, such as a box map, a bookings
+calendar or a pedigree, by declaring which it reads in `entities`: a type,
+the fields it reads of each, and how many it may hold, at most 1000 (ADR
+0117). It then fills more places than a tab, each with a search of its own
+or one it's given:
+
+```yaml
+entities: { type: Booking, fields: [instrument, starts_at, ends_at], limit: 500 }
+slots:
+  - slot: entity.tab # an instrument's bookings, on its page
+    type: Instrument
+    search: { where: { field: instrument, op: eq, value: "{{ entity }}" }, sort: starts_at }
+  - slot: search.results # "Show as" in the grid of bookings: the grid's own search
+    label: Calendar
+  - slot: project.page # a section of the project's page
+    search: { sort: starts_at }
+  - slot: person.home # a section of each person's home
+    label: Your bookings
+    search: { where: { field: created_by, op: eq, value: "{{ me }}" } }
+```
+
+| Slot             | What it's given                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `entity.tab`     | the entity whose page it is; with a `search`, what that finds in the entity's project |
+| `search.results` | what the grid's search finds, as the person set it; it declares no search             |
+| `project.page`   | what its `search` finds in the project; the section shows once it finds something     |
+| `person.home`    | what its `search` finds in every project the person reads; it names `{{ me }}`        |
+
+A search is the API's, of `entities.type`: `where` conditions on its fields
+and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
+levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
+page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
+`created_by`. Iki's server runs it, as the person may read, and the element
+gets the results as its `entities` property: `items`, each with `id`,
+`hrid`, `title`, `type`, `revision`, `project`, the fields declared in
+`values` and the entities those fields name in `refs`, a page at a time.
+Its `place` property says which slot it's in. It may send `iki-more` for
+the next page, `iki-refine` to narrow what it shows, with conditions on
+only the fields it reads, and `iki-open` with an HRID it was given, which
+Iki opens. It can't widen what its place shows, and it writes nothing:
+picking entities offers Iki's run page, as on a tab.
+
 The validator checks that the module is a text file in the plugin, not a
 symbolic link and at most 10 MiB, that the types named exist, and that no
-two components define the same element. The build copies each module with
-the digest it had then, and the server checks it before serving it.
+two components define the same element. It checks each search's fields,
+operators, sort and context, and that a slot is declared once. The build
+copies each module with the digest it had then, and the server checks it
+before serving it.
 
 ## The Iki it works with
 
@@ -796,7 +842,12 @@ declaring a dependency. It's `iki/core`:
   bound to the panels before it by CEL expressions between `{{` and `}}`
   ([ADR 0090](../docs/adr/0090-apps-are-compositions-of-ikis-components.md)).
   An app about an entity type (`entity.type`) is a tab on their pages in its
-  projects, and reads the one it's on as `entity`.
+  projects, and reads the one it's on as `entity`. A panel can also be an
+  installed plugin's component, by its name (`acme/lab.box_map`), given
+  `entity` (one it's a tab of) or a search of the type it shows, as a grid's
+  props say; one that lets people pick offers its `selection`. If the
+  plugin is gone, its panel says so and the others still show
+  ([ADR 0117](../docs/adr/0117-components-show-many-entities-in-more-places.md)).
 
 The server ships the core plugin's app, generated like any plugin's. After
 changing these manifests, run `make core` to regenerate it and make its
@@ -1455,7 +1506,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                          | Reuse and retries               |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                     | Workflows                       |
 | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
-| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`                                                                                                                                                                                                                                                                                                                                                    | Components                      |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                        | Components                      |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                      | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                                                      | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                            | Volumes and setup               |

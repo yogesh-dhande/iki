@@ -247,10 +247,21 @@ def quiet(timeout: float = 10) -> None:
         time.sleep(0.05)
 
 
-def assert_clean(page: Page) -> None:
-    """No CSP violations, no errors, and nothing axe finds against WCAG 2.2 AA."""
+def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
+    """No CSP violations, no errors, and nothing axe finds against WCAG 2.2 AA.
+
+    `axe_in_firefox=False` leaves axe to Chromium and WebKit on that page: Playwright's
+    Firefox crashes its content process when axe works out names and roles on a page that
+    has both a plugin's component frame and an element named by `aria-labelledby`
+    (aria-allowed-attr, aria-conditional-attr, aria-prohibited-attr, nested-interactive,
+    label-content-name-mismatch and more each do). axe checks the DOM, which is the same
+    in every browser.
+    """
     assert page.evaluate("window.__cspViolations") == [], page.url
     assert PAGE_ERRORS[page] == [], page.url
+    browser = page.context.browser
+    if not axe_in_firefox and browser and browser.browser_type.name == "firefox":
+        return
     # Mid-fade text has less contrast than it ends up with: check the end state.
     page.wait_for_function(FADES_DONE)
     page.evaluate(AXE.read_text())
@@ -1467,6 +1478,141 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
     page.wait_for_url(re.compile(rf"/projects/kinase-atlas/runs/new/\?entities={hrid}$"))
 
 
+def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, world: World) -> None:
+    """A tab, the grid shown another way, a project's section and a person's home, each
+    given what its search finds as the person may read it, paged and narrowed only as the
+    page allows (ADR 0117)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    editor = world.users["editor"]
+    dna = entities.create(
+        editor, "acme/dna.DNASequence", world.project, {"bases": "ATGGCC", "name": "abl.dna"}
+    ).entity
+    dna_hrid, dna_entry = Entity.objects.values_list("hrid", "entry_id").get(pk=dna.pk)
+    made = [
+        entities.create(
+            editor,
+            "acme/protein.Protein",
+            world.project,
+            {
+                "sequence": sequence,
+                "name": name,
+                **({"encoded_by": dna_entry} if dna_of else {}),
+            },
+        ).entity
+        for sequence, name, dna_of in (
+            ("MKVL", "ABL1", True),
+            ("MKAAG", "ABL2", True),
+            ("MSTN", "SRC", False),
+        )
+    ]
+    abl1, abl2, src = (Entity.objects.get(pk=e.pk).hrid for e in made)
+
+    # An entity's tab: what its search finds about the DNA.
+    page = open_as("viewer", f"/entities/{dna_hrid}/")
+    page.get_by_role("link", name="Proteins it encodes").click()
+    tab = page.frame_locator('iframe[title="Proteins it encodes"]')
+    tab.get_by_text("Proteins it encodes: 2 shown").wait_for()
+    tab.get_by_text(f"{abl1} ABL1 (4 aa, {dna_hrid})").wait_for()
+    tab.get_by_text(f"{abl2} ABL2 (5 aa, {dna_hrid})").wait_for()
+    assert tab.get_by_text(src).count() == 0
+    assert_clean(page)
+
+    # Narrowed as it asks, on a field it reads; cleared, it's all it was given again.
+    tab.get_by_role("textbox", name="Name starts with").fill("ABL2")
+    tab.get_by_role("button", name="Filter").click()
+    tab.get_by_text("Proteins it encodes: 1 shown").wait_for()
+    tab.get_by_text(f"{abl2} ABL2").wait_for()
+    # It can't widen it: a refinement on a field it doesn't read is refused by the page.
+    (frame,) = [f for f in page.frames if "/plugin-components/acme/protein.board/" in f.url]
+    frame.evaluate(
+        """() => document.querySelector("protein-board").dispatchEvent(new CustomEvent(
+            "iki-refine",
+            { bubbles: true, detail: { where: { field: "lims_id", op: "is_set", value: false } } },
+        ))"""
+    )
+    tab.get_by_role("textbox", name="Name starts with").fill("")
+    tab.get_by_role("button", name="Filter").click()
+    tab.get_by_text("Proteins it encodes: 2 shown").wait_for()
+
+    # Picking one offers the run page; opening one is Iki's navigation, only to what it shows.
+    tab.get_by_role("button", name=f"Select {abl1}").click()
+    page.get_by_role("status").filter(has_text="1 protein selected").wait_for()
+    assert_clean(page)
+    frame.evaluate(
+        f"""() => document.querySelector("protein-board").dispatchEvent(new CustomEvent(
+            "iki-open", {{ bubbles: true, detail: {{ entity: "{src}" }} }},
+        ))"""
+    )
+    tab.get_by_role("button", name=f"Open {abl2}").click()
+    page.wait_for_url(re.compile(rf"/entities/{abl2}/(\?project=kinase-atlas)?$"))
+    page.get_by_role("heading", level=1, name=re.compile("ABL2")).wait_for()
+
+    # The grid's results, shown as the board: the same search, narrowed by the grid's text.
+    # Each place in a page of its own, closed once it's checked.
+    page.context.close()
+    page = open_as("viewer", "/projects/kinase-atlas/entities/?type=acme/protein.Protein&q=ABL")
+    page.get_by_role("table").wait_for()
+    page.get_by_role("combobox", name="Show as").select_option("acme/protein.board")
+    board = page.frame_locator('iframe[title="Board"]')
+    board.get_by_text("Board: 2 shown").wait_for()
+    assert page.get_by_role("table").count() == 0
+    assert_clean(page)
+
+    # A section of the project's page, of everything there.
+    page.context.close()
+    page = open_as("viewer", "/projects/kinase-atlas/")
+    section = page.get_by_role("region", name="Protein board")
+    section.frame_locator("iframe").get_by_text("Protein board: 3 shown").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+
+    # A person's home: what they added. The viewer added nothing, so has no section.
+    page.context.close()
+    page = open_as("editor", "/")
+    home = page.get_by_role("region", name="Proteins you added")
+    home.frame_locator("iframe").get_by_text("Proteins you added: 3 shown").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.context.close()
+    page = open_as("viewer", "/")
+    page.get_by_role("heading", level=1).wait_for()
+    quiet()
+    assert page.get_by_role("region", name="Proteins you added").count() == 0
+
+    # An app's panel, beside Iki's own: what's picked in it, the panel after it reads.
+    spec = {
+        "version": 1,
+        "panels": [
+            {
+                "id": "board",
+                "title": "Kinases",
+                "component": "acme/protein.board",
+                "props": {
+                    "type": "acme/protein.Protein",
+                    "where": {"field": "name", "op": "starts_with", "value": "ABL"},
+                },
+            },
+            {
+                "id": "picked",
+                "component": "iki.text",
+                "props": {"text": "{{ size(board.selection) }} picked."},
+            },
+        ],
+    }
+    made_app = entities.create(
+        editor, "iki/core.App", world.project, {"name": "Kinase board", "spec": spec}
+    ).entity
+    page.context.close()
+    page = open_as("viewer", f"/entities/{Entity.objects.get(pk=made_app.pk).hrid}/")
+    panel = page.get_by_role("region", name="Kinases")
+    shown = panel.frame_locator("iframe")
+    shown.get_by_text("Kinases: 2 shown").wait_for()
+    page.get_by_text("0 picked.").wait_for()
+    shown.get_by_role("button", name=f"Select {abl2}").click()
+    page.get_by_text("1 picked.").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+
+
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     page = open_as("org_admin", "/projects/kinase-atlas/")
     page.get_by_text("You’re not a member of this project").wait_for()
@@ -1663,10 +1809,13 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
     # Once the overview has what it asked for: had a request of it still been going, its
     # answer would send the page to sign in, coming back to the overview.
     page.get_by_text("Your role").wait_for()
+    # Its costs, and its plugins' sections (the test plugin's board has one, ADR 0117).
     page.wait_for_function(
-        "() => performance.getEntriesByType('resource')"
-        ".some((e) => new URL(e.name).pathname.endsWith('/costs') && e.responseEnd > 0)"
+        "() => [/\\/costs$/, /^\\/api\\/v1\\/components\\/.+\\/entities$/].every((path) =>"
+        " performance.getEntriesByType('resource')"
+        ".some((e) => path.test(new URL(e.name).pathname) && e.responseEnd > 0))"
     )
+    quiet()
     # The session ends (signed out elsewhere, or deactivated) while the page is open.
     from iki_server.accounts.models import UserSession
 
