@@ -324,6 +324,27 @@
         "title": "ActionSecretOut",
         "type": "object"
       },
+      "AdjustIn": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/AmountIn",
+            "description": "How much there is: what it was found to be."
+          },
+          "reason": {
+            "description": "Why: a recount, a spill.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "reason"
+        ],
+        "title": "AdjustIn",
+        "type": "object"
+      },
       "AgentOut": {
         "description": "The agent that acted for the person (ADR 0072): an OAuth client, through one of\nthe person's grants.",
         "properties": {
@@ -468,6 +489,144 @@
           "reference"
         ],
         "title": "AlignmentViewerOut",
+        "type": "object"
+      },
+      "AliquotsOut": {
+        "properties": {
+          "aliquots": {
+            "description": "The new records, in order.",
+            "items": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "title": "Aliquots",
+            "type": "array"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/AmountOut"
+          },
+          "ids": {
+            "description": "Their IDs, in the same order.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "movement": {
+            "$ref": "#/components/schemas/MovementOut"
+          }
+        },
+        "required": [
+          "amount",
+          "movement",
+          "aliquots",
+          "ids"
+        ],
+        "title": "AliquotsOut",
+        "type": "object"
+      },
+      "AmountIn": {
+        "properties": {
+          "unit": {
+            "description": "Its UCUM unit, such as uL, mg or umol.",
+            "maxLength": 50,
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "How much: a number, or a string for an exact decimal.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ],
+        "title": "AmountIn",
+        "type": "object"
+      },
+      "AmountMovedOut": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/AmountOut"
+          },
+          "movement": {
+            "$ref": "#/components/schemas/MovementOut"
+          }
+        },
+        "required": [
+          "amount",
+          "movement"
+        ],
+        "title": "AmountMovedOut",
+        "type": "object"
+      },
+      "AmountOut": {
+        "properties": {
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As its type shows it, in its `display_unit`, such as 0.25 mL. None if it's shown in `unit`.",
+            "title": "Display"
+          },
+          "held_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state field whose state holds it, such as quarantine: none of it is drawn, transferred or split off until that changes. None if nothing holds it.",
+            "title": "Held By"
+          },
+          "label": {
+            "description": "What its type calls it, such as Volume.",
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "description": "The unit its type keeps it in.",
+            "title": "Unit",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "value": {
+            "description": "How much there is, exactly, in `unit`.",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "unit",
+          "label",
+          "display",
+          "held_by",
+          "updated_at"
+        ],
+        "title": "AmountOut",
         "type": "object"
       },
       "ApiActionOut": {
@@ -3141,6 +3300,17 @@
       },
       "CreatedOut": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded."
+          },
           "archived": {
             "title": "Archived",
             "type": "boolean"
@@ -3724,6 +3894,26 @@
         "title": "DraftEntityOut",
         "type": "object"
       },
+      "DrawIn": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/AmountIn",
+            "description": "How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass."
+          },
+          "reason": {
+            "default": "",
+            "description": "What it was used for.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "DrawIn",
+        "type": "object"
+      },
       "EffectCountsOut": {
         "properties": {
           "created": {
@@ -4120,6 +4310,17 @@
       },
       "EntityIn": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a type with an amount (ADR 0139): how much there is of it to start with, in its unit or one that converts to it."
+          },
           "hold_reason": {
             "anyOf": [
               {
@@ -4166,6 +4367,17 @@
       },
       "EntityOut": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded."
+          },
           "archived": {
             "title": "Archived",
             "type": "boolean"
@@ -4442,6 +4654,17 @@
             "description": "Abstract types have no entities of their own.",
             "title": "Abstract",
             "type": "boolean"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeAmountOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero."
           },
           "description": {
             "anyOf": [
@@ -5930,6 +6153,24 @@
         "title": "FreezeIn",
         "type": "object"
       },
+      "GivenOut": {
+        "properties": {
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ],
+        "title": "GivenOut",
+        "type": "object"
+      },
       "GivenSignatureOut": {
         "description": "A signature given for setting a state, on the record's current revision.",
         "properties": {
@@ -5982,6 +6223,8 @@
               "reference",
               "run",
               "file",
+              "aliquot",
+              "transfer",
               "record"
             ],
             "title": "Kind",
@@ -6248,12 +6491,14 @@
             "type": "integer"
           },
           "edges": {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "items": {
               "enum": [
                 "reference",
                 "run",
-                "file"
+                "file",
+                "aliquot",
+                "transfer"
               ],
               "type": "string"
             },
@@ -8405,6 +8650,17 @@
       },
       "MovedOut": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded."
+          },
           "archived": {
             "title": "Archived",
             "type": "boolean"
@@ -8597,6 +8853,167 @@
           "repointed"
         ],
         "title": "MovedOut",
+        "type": "object"
+      },
+      "MovementOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance": {
+            "description": "How much it had after.",
+            "pattern": "^\\d+(\\.\\d+)?$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "change": {
+            "description": "What it took (below zero) or gave, in `unit`.",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Change",
+            "type": "string"
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "counterpart": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other record, if there is one.",
+            "title": "Counterpart"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "given": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GivenOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What was asked for, in the unit it was asked in."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`recorded`: how much it had to start with; `drawn`: used up; `transferred_out` and `transferred_in`: moved to or from `counterpart`; `aliquoted`: split into aliquots, and `aliquot`: an aliquot's first, split from `counterpart`; `adjusted`: set to what it was found to be.",
+            "enum": [
+              "recorded",
+              "drawn",
+              "transferred_out",
+              "transferred_in",
+              "aliquoted",
+              "aliquot",
+              "adjusted"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "operation": {
+            "description": "One per request: a transfer's two movements, and a split's and its aliquots', share it.",
+            "format": "uuid",
+            "title": "Operation",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "change",
+          "balance",
+          "unit",
+          "given",
+          "counterpart",
+          "operation",
+          "user",
+          "via",
+          "client",
+          "agent",
+          "reason",
+          "created_at"
+        ],
+        "title": "MovementOut",
+        "type": "object"
+      },
+      "MovementsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MovementOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The counterparts you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MovementsOut",
         "type": "object"
       },
       "MySigningOut": {
@@ -13068,7 +13485,9 @@
               "enum": [
                 "reference",
                 "run",
-                "file"
+                "file",
+                "aliquot",
+                "transfer"
               ],
               "type": "string"
             },
@@ -17904,6 +18323,53 @@
         "title": "SortIn",
         "type": "object"
       },
+      "SplitIn": {
+        "properties": {
+          "count": {
+            "description": "How many aliquots.",
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Count",
+            "type": "integer"
+          },
+          "each": {
+            "$ref": "#/components/schemas/AmountIn",
+            "description": "How much each holds."
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The aliquots' own values: one object for all, or a list, one each. An aliquot of its own type has the record's values, but not its unique ones or states.",
+            "title": "Values"
+          }
+        },
+        "required": [
+          "count",
+          "each"
+        ],
+        "title": "SplitIn",
+        "type": "object"
+      },
       "StartedOut": {
         "properties": {
           "created_at": {
@@ -18128,6 +18594,12 @@
             },
             "title": "Guards",
             "type": "array"
+          },
+          "holds_amount": {
+            "default": false,
+            "description": "A record in it is held (ADR 0139): none of its amount can be drawn, transferred or split off until its state field is set to a state that doesn't.",
+            "title": "Holds Amount",
+            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -18672,6 +19144,33 @@
         "title": "TrackOut",
         "type": "object"
       },
+      "TransferIn": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/AmountIn",
+            "description": "How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass."
+          },
+          "reason": {
+            "default": "",
+            "description": "What it was used for.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "to": {
+            "description": "The record it goes to, by ID or HRID.",
+            "maxLength": 64,
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "to"
+        ],
+        "title": "TransferIn",
+        "type": "object"
+      },
       "TriggerFiredOut": {
         "properties": {
           "enabled_by": {
@@ -18922,6 +19421,90 @@
           "label"
         ],
         "title": "TriggerRefOut",
+        "type": "object"
+      },
+      "TypeAmountOut": {
+        "properties": {
+          "aliquots": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type its aliquots are: its own, or another such as an Aliquot.",
+            "title": "Aliquots"
+          },
+          "aliquots_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For aliquots of another type, its reference naming the record each was split from.",
+            "title": "Aliquots Of"
+          },
+          "concentration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The quantity field giving how much of it each volume holds: an amount can then be drawn as a mass of a volume, or a volume of a mass.",
+            "title": "Concentration"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unit it's shown in, if not `unit`.",
+            "title": "Display Unit"
+          },
+          "label": {
+            "description": "What it's called, such as Volume.",
+            "title": "Label",
+            "type": "string"
+          },
+          "unit": {
+            "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "label",
+          "description",
+          "display_unit",
+          "concentration",
+          "aliquots",
+          "aliquots_of"
+        ],
+        "title": "TypeAmountOut",
         "type": "object"
       },
       "TypeNotificationOut": {
@@ -19561,12 +20144,14 @@
             "type": "integer"
           },
           "edges": {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "items": {
               "enum": [
                 "reference",
                 "run",
-                "file"
+                "file",
+                "aliquot",
+                "transfer"
               ],
               "type": "string"
             },
@@ -19630,12 +20215,14 @@
             "type": "integer"
           },
           "edges": {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "items": {
               "enum": [
                 "reference",
                 "run",
-                "file"
+                "file",
+                "aliquot",
+                "transfer"
               ],
               "type": "string"
             },
@@ -19701,6 +20288,8 @@
               "reference",
               "run",
               "file",
+              "aliquot",
+              "transfer",
               "record"
             ],
             "title": "Kind",
@@ -24656,6 +25245,324 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/aliquots": {
+      "post": {
+        "description": "Makes ``count`` new records in its project, each holding ``each`` of its amount and\nsplit from it (an edge of the graph), and takes exactly that much from it: nothing is\nmade or lost. All of them, or none.",
+        "operationId": "iki_server_api_amounts_split",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AliquotsOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Split it into aliquots",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/amount": {
+      "get": {
+        "description": "404 for a type without an amount, or a record with none recorded yet: adjust it to\nrecord one.",
+        "operationId": "iki_server_api_amounts_get_amount",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmountOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How much there is of it",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/amount/adjust": {
+      "post": {
+        "description": "Sets it to what it was found to be, saying why: a recount, a spill, a correction. A\nrecord with no amount recorded gets one.",
+        "operationId": "iki_server_api_amounts_adjust",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmountMovedOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Adjust its amount",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/amount/draw": {
+      "post": {
+        "description": "Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that\nmuch, or a state holds it. Two people drawing at once take turns.",
+        "operationId": "iki_server_api_amounts_draw",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmountMovedOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Draw from its amount",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/amount/movements": {
+      "get": {
+        "description": "Newest first: each change to its amount, who made it, how, when and why.",
+        "operationId": "iki_server_api_amounts_list_movements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Its amount's ledger",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/amount/transfer": {
+      "post": {
+        "description": "Moves some of it to another record with an amount: pooled, or topped up. Each is\nchanged, and each keeps a movement naming the other. Needs Editor in both projects.",
+        "operationId": "iki_server_api_amounts_transfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmountMovedOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Transfer some of its amount",
+        "tags": [
+          "amounts"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/apps": {
       "get": {
         "description": "Apps about its type in the projects it's in, that you can read, by name: its page\nshows each as a tab, about it.",
@@ -24794,17 +25701,19 @@
             }
           },
           {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "in": "query",
             "name": "edges",
             "required": false,
             "schema": {
-              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
               "items": {
                 "enum": [
                   "reference",
                   "run",
-                  "file"
+                  "file",
+                  "aliquot",
+                  "transfer"
                 ],
                 "type": "string"
               },
@@ -24952,17 +25861,19 @@
             }
           },
           {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "in": "query",
             "name": "edges",
             "required": false,
             "schema": {
-              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
               "items": {
                 "enum": [
                   "reference",
                   "run",
-                  "file"
+                  "file",
+                  "aliquot",
+                  "transfer"
                 ],
                 "type": "string"
               },
@@ -25088,17 +25999,19 @@
             }
           },
           {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "in": "query",
             "name": "edges",
             "required": false,
             "schema": {
-              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
               "items": {
                 "enum": [
                   "reference",
                   "run",
-                  "file"
+                  "file",
+                  "aliquot",
+                  "transfer"
                 ],
                 "type": "string"
               },
@@ -26204,17 +27117,19 @@
             }
           },
           {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "in": "query",
             "name": "edges",
             "required": false,
             "schema": {
-              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
               "items": {
                 "enum": [
                   "reference",
                   "run",
-                  "file"
+                  "file",
+                  "aliquot",
+                  "transfer"
                 ],
                 "type": "string"
               },
@@ -26362,17 +27277,19 @@
             }
           },
           {
-            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+            "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
             "in": "query",
             "name": "edges",
             "required": false,
             "schema": {
-              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
+              "description": "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.",
               "items": {
                 "enum": [
                   "reference",
                   "run",
-                  "file"
+                  "file",
+                  "aliquot",
+                  "transfer"
                 ],
                 "type": "string"
               },

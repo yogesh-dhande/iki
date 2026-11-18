@@ -22,11 +22,13 @@ export type LineageRun = Schemas["GraphRunOut"];
 export type LineageEdge = Schemas["GraphEdgeOut"];
 
 export type Direction = "upstream" | "downstream";
-export type EdgeKind = "reference" | "run" | "file";
+export type EdgeKind = "reference" | "run" | "file" | "aliquot" | "transfer";
 export const EDGE_KINDS: readonly { value: EdgeKind; label: string; description: string }[] = [
   { value: "reference", label: "References", description: "A field names it." },
   { value: "run", label: "Runs", description: "A run made or changed it from it." },
   { value: "file", label: "Files", description: "A run made it from a file it held." },
+  { value: "aliquot", label: "Aliquots", description: "It was split from it." },
+  { value: "transfer", label: "Transfers", description: "Some of it was moved into it." },
 ];
 
 /** As the server allows: how far a walk goes, at most, and when it isn't said. */
@@ -152,6 +154,10 @@ export function stepWords(step: WalkStep, prev: string, direction: Direction): s
       const file = step.file ? step.file.name : "a file you can’t see";
       return `${run} made ${dependent} from ${file} of ${dependency} (its ${field})`;
     }
+    case "aliquot":
+      return `${dependent} was split from ${dependency}`;
+    case "transfer":
+      return `Some of ${dependency} was moved into ${dependent}`;
     case "record":
       return `${step.entity.hrid} is the same entity, in ${step.entity.project?.name ?? "another project"}`;
   }

@@ -148,6 +148,32 @@ def batch_hold(w: World) -> tuple[Any, ...]:
     return f"/entities/{found.entity.pk}/holds/{hold.pk}/review", {"reason": "Fine."}
 
 
+def sample_amount(suffix: str, body: Any = None) -> Build:
+    """A sample with an amount (ADR 0139); a transfer's body names another."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        import uuid
+
+        from iki_server.entities import services as entities
+
+        def made() -> Any:
+            label = f"S-{uuid.uuid4().hex[:8]}"
+            amount = {"value": "100", "unit": "uL"}
+            return entities.create(
+                w.users["editor"], "acme/protein.Sample", w.project, {"label": label}, amount=amount
+            ).entity
+
+        found = made()
+        given = dict(body or {})
+        if given.get("to") == "another":
+            given["to"] = str(made().pk)
+        if "values" in given:
+            given["values"] = {"label": f"A-{uuid.uuid4().hex[:8]}"}
+        return f"/entities/{found.pk}{suffix}", given or None
+
+    return build
+
+
 def sample_take(w: World) -> tuple[Any, ...]:
     """Taking a received sample as its analyst (ADR 0122), which needs the role nobody has."""
     from iki_server.entities import services as entities
@@ -910,6 +936,37 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     # Only those with one of a state's lab roles set it: nobody here has one.
     ("POST", "/entities/{ref}/states/{field}", sample_state, readers(403)),
+    # Amounts (ADR 0139): read by readers, changed by editors.
+    ("GET", "/entities/{ref}/amount", sample_amount("/amount"), readers(200)),
+    ("GET", "/entities/{ref}/amount/movements", sample_amount("/amount/movements"), readers(200)),
+    (
+        "POST",
+        "/entities/{ref}/amount/draw",
+        sample_amount("/amount/draw", {"amount": {"value": 1, "unit": "uL"}}),
+        editors(200),
+    ),
+    (
+        "POST",
+        "/entities/{ref}/amount/transfer",
+        sample_amount("/amount/transfer", {"to": "another", "amount": {"value": 1, "unit": "uL"}}),
+        editors(200),
+    ),
+    (
+        "POST",
+        "/entities/{ref}/amount/adjust",
+        sample_amount(
+            "/amount/adjust", {"amount": {"value": 5, "unit": "uL"}, "reason": "Recounted"}
+        ),
+        editors(200),
+    ),
+    (
+        "POST",
+        "/entities/{ref}/aliquots",
+        sample_amount(
+            "/aliquots", {"count": 1, "each": {"value": 1, "unit": "uL"}, "values": {"label": "A"}}
+        ),
+        editors(201),
+    ),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
     ("POST", "/entities/{ref}/take", sample_take, readers(403)),
     # A hold is reviewed by its rule's lab roles (ADR 0127): nobody here has one.

@@ -2419,3 +2419,77 @@ def test_request_blocks_must_be_well_formed(tmp_path: Path, request_: str) -> No
 )
 def test_result_blocks_must_be_well_formed(tmp_path: Path, result_: str) -> None:
     assert "schema" in codes(make(tmp_path, requests(result=result_), ROLES))
+
+
+TUBE = """\
+amount:
+  unit: uL
+  label: Volume
+  concentration: concentration
+  aliquots: { type: Aliquot, of: parent }
+fields:
+  concentration: { type: quantity, unit: mg/mL }
+  status:
+    type: state
+    initial: quarantined
+    states:
+      quarantined: { holds_amount: true }
+      released: { set_by: [qa] }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Aliquot
+schema_version: 1
+hrid: { prefix: ALQ }
+amount: { unit: uL }
+fields:
+  parent: { type: ref, to: Assay }
+"""
+
+
+def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
+    """ADR 0139: kept in a unit that adds up, drawn by its concentration, split into
+    aliquots of another type, and held in a state."""
+    result = make(tmp_path, TYPE + TUBE, ROLES)
+    assert codes(result) == []
+    assert result.plugin is not None
+    amount = result.plugin.types["acme/lab.Assay"].amount
+    assert amount is not None
+    assert (amount.unit, amount.label, amount.concentration) == ("uL", "Volume", "concentration")
+    assert (amount.aliquots, amount.aliquots_of) == ("acme/lab.Aliquot", "parent")
+    status = result.plugin.types["acme/lab.Assay"].fields["status"]
+    assert status.states["quarantined"].holds_amount
+    # It round-trips through the built manifest.
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+    def problems(*changes: tuple[str, str]) -> list[str]:
+        text = TUBE
+        for change in changes:
+            text = text.replace(*change)
+        return codes(make(tmp_path, TYPE + text, ROLES))
+
+    assert problems(("unit: uL\n  label", "unit: Cel\n  label")) == ["amount-unit"]
+    assert problems(("unit: uL\n  label", "unit: m\n  label")) == ["amount-unit"]
+    mass = ("unit: uL\n  label", "unit: mg\n  label")
+    # An aliquot holds what it was split from lost, so in the same kind of unit.
+    assert problems(mass) == ["amount-aliquots"]
+    assert problems(mass, ("amount: { unit: uL }\n", "amount: { unit: ug }\n")) == []
+    assert problems(("unit: mg/mL }", "unit: mg }")) == ["amount-concentration"]
+    assert problems(("concentration: concentration", "concentration: status")) == [
+        "amount-concentration"
+    ]
+    assert problems(("of: parent", "of: nothing")) == ["amount-aliquots"]
+    assert problems(("amount: { unit: uL }\n", "")) == ["amount-aliquots"]
+    assert problems(
+        ("hrid: { prefix: ALQ }", "hrid: { prefix: ALQ }\nextends: Assay"),
+        ("amount: { unit: uL }\n", "amount: { unit: mL }\n"),
+    ) == ["amount-twice"]
+    identity = (
+        "fields:\n  concentration",
+        "identity: [code]\nfields:\n"
+        "  code: { type: string, required: true, immutable: true }\n  concentration",
+    )
+    assert problems(identity) == ["amount-on-identity"]
+    # A state can hold only an amount the type has.
+    held = make(tmp_path, TYPE + "fields:" + TUBE.split("---")[0].split("fields:", 1)[1], ROLES)
+    assert codes(held) == ["holds-without-amount"]

@@ -32,6 +32,10 @@ class EdgeKind(models.TextChoices):
     RUN = "run", "Run"
     FILE = "file", "File read by a run"
     RECORD = "record", "Record of an entry"
+    #: Split from a record's amount (ADR 0139): an aliquot depends on what it was split from.
+    ALIQUOT = "aliquot", "Aliquot of"
+    #: Some of its amount came from another record.
+    TRANSFER = "transfer", "Transferred from"
 
 
 class Edge(models.Model):

@@ -134,6 +134,14 @@ _register(
         org=True,
     ),
     EventType(
+        "entity.amount_moved",
+        "Someone draws from a record's amount, transfers some of it, splits it into "
+        "aliquots or adjusts it (ADR 0139): `kind`, its `change` and `balance` in `unit`, "
+        "what was asked for (`given`), and the other record (`counterpart`), if any.",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "entity.assigned",
         "Someone names people in a record's assignment field, or takes them off it (ADR "
         "0122): `field`, and who was `added` and `removed`.",
@@ -460,12 +468,24 @@ def _intake(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[s
     return event.action, {"project": project_data(target), "changes": event.data}
 
 
+def _amount_moved(
+    event: AuditEvent, target: models.Model | None
+) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    keys = ("kind", "change", "balance", "unit", "given", "counterpart", "operation", "reason")
+    return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
+
+
 FROM_AUDIT: dict[str, Builder] = {
     "request.submitted": _request,
     "request.received": _request,
     "request.result_released": _request,
     "project.intake_changed": _intake,
     "budget.threshold_reached": _budget,
+    "entity.amount_moved": _amount_moved,
     "entity.assigned": _assigned,
     "entity.linked": _entity_link,
     "entity.unlinked": _entity_link,

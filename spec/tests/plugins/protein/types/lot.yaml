@@ -5,6 +5,8 @@ label: Lot
 schema_version: 1
 description: A lot of protein, signed for at each step under 21 CFR Part 11.
 hrid: { prefix: LOT }
+# How much of it there is (ADR 0139), split into samples, each naming its lot.
+amount: { unit: mL, label: Volume, display_unit: L, aliquots: { type: Sample, of: lot } }
 fields:
   label: { type: string, required: true, max_length: 200 }
   protein: { type: ref, to: Protein }

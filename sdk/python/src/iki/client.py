@@ -11,6 +11,7 @@ import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import date
+from decimal import Decimal
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote
@@ -25,6 +26,9 @@ if TYPE_CHECKING:
 
     from iki.schema import (
         ActionOut,
+        AliquotsOut,
+        AmountMovedOut,
+        AmountOut,
         ApiCallOut,
         AssignOut,
         AttemptLogOut,
@@ -37,6 +41,7 @@ if TYPE_CHECKING:
         GraphOut,
         IntakeOut,
         MeOut,
+        MovementOut,
         NotificationOut,
         OriginOut,
         ProjectOut,
@@ -87,6 +92,18 @@ def _escape(value: str | int) -> str:
         if len(segments) == 2 and all(s and s not in (".", "..") for s in segments):
             return "/".join(quote(s, safe="") for s in segments)
     return quote(str(value), safe="")
+
+
+#: An amount: ``(12.5, "uL")``, or a mapping with its ``value`` and ``unit``. A value may be
+#: a string or a ``Decimal``, to be exact.
+type Quantity = tuple[Decimal | str | float, str] | Mapping[str, Any]
+
+
+def _quantity(q: Quantity) -> dict[str, Any]:
+    if isinstance(q, Mapping):
+        return {"value": str(q["value"]), "unit": q["unit"]}
+    value, unit = q
+    return {"value": str(value), "unit": unit}
 
 
 def _path(template: str, **parts: str | int) -> str:
@@ -450,6 +467,7 @@ class Entities(_Part):
         project: str | Mapping[str, Any],
         reason: str = "",
         hold_reason: str = "",
+        amount: Quantity | None = None,
     ) -> CreatedOut:
         """A new entity in `project` (its ID or slug). For a type with an identity, it
         registers it: a new identity gets a registry ID (``registered`` true); one
@@ -460,8 +478,9 @@ class Entities(_Part):
         ``errors`` naming the ``rule``. A rule that holds records for review, such as a
         result's specification, refuses with the code ``hold_reason_required`` unless
         you say why in ``hold_reason``: then it's saved, and held until it's reviewed
-        (see :meth:`review_hold`)."""
-        body = {
+        (see :meth:`review_hold`). For a type with an amount, ``amount`` is how much
+        there is to start with: ``(250, "uL")``."""
+        body: dict[str, Any] = {
             "type": type,
             "project": self._client._project_id(project),
             "values": dict(values),
@@ -469,6 +488,8 @@ class Entities(_Part):
         }
         if hold_reason:
             body["hold_reason"] = hold_reason
+        if amount is not None:
+            body["amount"] = _quantity(amount)
         return cast("CreatedOut", self._client.request("POST", "/entities", json=body))
 
     def move(self, ref: str, *, reason: str = "") -> EntityOut:
@@ -628,6 +649,71 @@ class Entities(_Part):
             ),
         )
 
+    def amount(self, ref: str) -> AmountOut:
+        """How much there is of it, for a type with an amount, and the state field that
+        holds it (``held_by``), if one does. Values are exact decimal strings."""
+        return cast(
+            "AmountOut", self._client.request("GET", _path("/entities/{ref}/amount", ref=ref))
+        )
+
+    def movements(self, ref: str) -> Results[MovementOut]:
+        """Its amount's ledger, newest first: each draw, transfer, split and adjustment,
+        who made it and why."""
+        client = self._client
+        path = _path("/entities/{ref}/amount/movements", ref=ref)
+        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+
+    def draw(self, ref: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
+        """Draws some of it: ``iki.entities.draw("SMP-000003", (12.5, "uL"))``. In its
+        unit, one that converts to it, or, for a type with a concentration, a mass of a
+        volume (or a volume of a mass). Refused if it hasn't that much, or a state holds
+        it; two drawing at once take turns."""
+        return self._move(ref, "draw", {"amount": _quantity(amount), "reason": reason})
+
+    def transfer(self, ref: str, to: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
+        """Moves some of it to the record ``to`` (an ID or HRID): pooled, or topped up."""
+        body = {"to": to, "amount": _quantity(amount), "reason": reason}
+        return self._move(ref, "transfer", body)
+
+    def adjust(self, ref: str, amount: Quantity, *, reason: str) -> AmountMovedOut:
+        """Sets how much there is to what it was found to be, saying why."""
+        return self._move(ref, "adjust", {"amount": _quantity(amount), "reason": reason})
+
+    def split(
+        self,
+        ref: str,
+        count: int,
+        each: Quantity,
+        *,
+        values: Mapping[str, Any] | Sequence[Mapping[str, Any]] | None = None,
+        reason: str = "",
+    ) -> AliquotsOut:
+        """Splits it into ``count`` aliquots, each a new record holding ``each`` of it,
+        and takes exactly that much from it. ``values``: the aliquots' own, one mapping
+        for all or a list, one each::
+
+            iki.entities.split(
+                "SMP-000003", 3, (20, "uL"), values=[{"label": f"S-1.{n}"} for n in (1, 2, 3)]
+            )
+        """
+        body: dict[str, Any] = {"count": count, "each": _quantity(each), "reason": reason}
+        if values is not None:
+            body["values"] = (
+                dict(values) if isinstance(values, Mapping) else [dict(v) for v in values]
+            )
+        return cast(
+            "AliquotsOut",
+            self._client.request("POST", _path("/entities/{ref}/aliquots", ref=ref), json=body),
+        )
+
+    def _move(self, ref: str, how: str, body: dict[str, Any]) -> AmountMovedOut:
+        return cast(
+            "AmountMovedOut",
+            self._client.request(
+                "POST", _path("/entities/{ref}/amount/" + how, ref=ref), json=body
+            ),
+        )
+
     def history(self, ref: str) -> Results[RevisionOut]:
         """Its revisions, newest first: who changed what, when, how and why."""
         client = self._client
@@ -654,7 +740,7 @@ class Entities(_Part):
         ref: str,
         *,
         depth: int = 10,
-        edges: Sequence[Literal["reference", "run", "file"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
@@ -675,7 +761,7 @@ class Entities(_Part):
         ref: str,
         *,
         depth: int = 10,
-        edges: Sequence[Literal["reference", "run", "file"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
@@ -704,7 +790,7 @@ class Entities(_Part):
         *,
         up: int = 3,
         down: int = 3,
-        edges: Sequence[Literal["reference", "run", "file"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
     ) -> GraphOut:
         """A few steps each way, with the edges between: to draw."""
         return cast(

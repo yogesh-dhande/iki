@@ -622,6 +622,68 @@ fields:
   states are that field's (`unknown-state`), not its initial one
   (`result-released-initial`).
 
+### Amounts
+
+A type whose records are things in the lab (a sample, a lot, a tube) can
+keep how much of each there is: its `amount`
+([ADR 0139](../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)).
+Iki keeps it, never below zero, and changes it only by its own operations:
+recorded when a record is made, then drawn (used up), transferred to
+another record, split into aliquots, or adjusted to what it was found to be,
+with a reason. Each change is a movement of the record's ledger, with who
+made it, how, when and why; two people drawing at once take turns. It isn't
+one of the record's values, so it isn't in its revisions, and a state that
+locks the record doesn't stop it being drawn. A state that `holds_amount`
+does.
+
+```yaml
+amount:
+  unit: uL # UCUM: a volume, a mass, an amount of substance, or a count such as {vial}
+  label: Volume
+  display_unit: mL # shown in mL; kept in uL
+  concentration: concentration # draw 50 ug of a 2 mg/mL sample: 25 uL
+  aliquots: { type: Aliquot, of: sample }
+fields:
+  concentration: { type: quantity, unit: mg/mL, min: 0 }
+  status:
+    type: state
+    initial: received
+    states:
+      received: { label: Received, set_by: [analyst] }
+      quarantined: { label: Quarantined, set_by: [qa], reason: required, holds_amount: true }
+```
+
+- `unit` measures how much there is of something: a volume, a mass, an
+  amount of substance or a count, never a temperature or a ratio
+  (`amount-unit`). An amount is given in its unit or any that converts to
+  it, and kept exactly, as a decimal. `display_unit` measures the same thing
+  (`amount-unit`).
+- `concentration` names a quantity field of the type whose unit, times a
+  volume, is a mass or an amount of substance (mg/mL, mmol/L), or the
+  other way about (`amount-concentration`). Then an amount in a volume
+  is drawn as a mass at the record's concentration, and an amount in a
+  mass as a volume.
+- A split makes each aliquot a new record in the same project, holding its
+  share, and takes exactly what they hold: nothing is made or lost, and
+  it's all of them or none. An aliquot is of the type's own type by
+  default, with its values but not its unique ones or its states. Or
+  `aliquots` names another type with an amount in the same kind of unit,
+  and `of` its reference to the type, which names the record each was
+  split from (`amount-aliquots`). Each aliquot depends on what it was
+  split from, and a record transferred into depends on what was moved into
+  it: edges of the graph (`aliquot`, `transfer`), walked as references are.
+- A record has one amount: a subtype has its parent's (`amount-twice`).
+  A type with an identity has none (`amount-on-identity`): each project
+  has one record of each entry, which isn't a thing in the lab.
+- `holds_amount: true` on a state stops any of the amount being drawn,
+  transferred or split off while the record's in it, as a quarantine does.
+  It can still be adjusted. Only a type with an amount has a state that
+  holds it (`holds-without-amount`).
+- `POST /api/v1/entities` takes an `amount`; `/entities/{ref}/amount`
+  draws, transfers and adjusts it and lists its ledger, and
+  `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
+  and the webhook event `entity.amount_moved` says so.
+
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
@@ -2091,6 +2153,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`                                                                                                                                                                             | Requests between projects       |
+| `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                              | Identities                      |

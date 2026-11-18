@@ -280,14 +280,14 @@ describe("an entity's lineage page", () => {
       direction: "downstream",
       view: "list",
       depth: 2,
-      edges: ["run", "file"],
+      edges: ["run", "file", "aliquot", "transfer"],
     });
     expect(calls("GET", "/api/v1/entities/PRT-000001/downstream").at(-1)?.query.toString()).toBe(
-      "depth=2&limit=50&edges=run&edges=file",
+      "depth=2&limit=50&edges=run&edges=file&edges=aliquot&edges=transfer",
     );
     expect(screen.getByRole("link", { name: "Download all as CSV" })).toHaveAttribute(
       "href",
-      "/api/v1/entities/PRT-000001/downstream.csv?depth=2&edges=run&edges=file",
+      "/api/v1/entities/PRT-000001/downstream.csv?depth=2&edges=run&edges=file&edges=aliquot&edges=transfer",
     );
   });
 

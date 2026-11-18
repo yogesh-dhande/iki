@@ -39,9 +39,9 @@ from iki_server.runs.services import visible_runs
 
 router = Router(tags=["graph"])
 
-EdgeKindName = Literal["reference", "run", "file", "record"]
+EdgeKindName = Literal["reference", "run", "file", "aliquot", "transfer", "record"]
 #: What a walk may be narrowed to: a record's edge to its entry is always followed.
-FollowedName = Literal["reference", "run", "file"]
+FollowedName = Literal["reference", "run", "file", "aliquot", "transfer"]
 Direction = Literal["upstream", "downstream"]
 
 #: The most rows a CSV has: past this, narrow it.
@@ -54,8 +54,9 @@ MAX_GRAPH_STEPS = 10
 
 _EDGES = (
     "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or "
-    "updated it from it) and `file` (a run made it from a file it held, or that a run on it "
-    "wrote). All, if none are given. A project's record of a registry entry and the entry "
+    "updated it from it), `file` (a run made it from a file it held, or that a run on it "
+    "wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into "
+    "it). All, if none are given. A project's record of a registry entry and the entry "
     "are one thing (ADR 0115), so the walk always goes between them, at no depth."
 )
 

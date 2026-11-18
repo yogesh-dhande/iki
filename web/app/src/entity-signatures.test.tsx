@@ -22,6 +22,7 @@ const IN_REVIEW: Schemas["StateOut"] = {
   description: null,
   set_by: ["acme/lims.analyst"],
   locks: false,
+  holds_amount: false,
   reason: null,
   signatures: [],
 };

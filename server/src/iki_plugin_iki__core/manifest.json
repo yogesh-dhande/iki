@@ -366,7 +366,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       },
       "iki/core.App": {
         "plugin": "iki/core",
@@ -850,7 +851,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       },
       "iki/core.Collection": {
         "plugin": "iki/core",
@@ -1133,7 +1135,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       },
       "iki/core.Entity": {
         "plugin": "iki/core",
@@ -1155,7 +1158,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       },
       "iki/core.Sequence": {
         "plugin": "iki/core",
@@ -1313,7 +1317,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       },
       "iki/core.View": {
         "plugin": "iki/core",
@@ -2167,7 +2172,8 @@
         "rules": {},
         "notifications": {},
         "request": null,
-        "result": null
+        "result": null,
+        "amount": null
       }
     },
     "extensions": [],

@@ -15,6 +15,15 @@ description: >-
   A result outside its specification is recorded as measured, with why,
   and held until QA reviews it.
 hrid: { prefix: SAM }
+# How much of it there is (ADR 0139): drawn by volume, or by protein mass at its
+# concentration, and split into aliquots, each an Aliquot holding its share.
+amount:
+  unit: uL
+  label: Volume
+  description: How much of the sample is left.
+  display_unit: mL
+  concentration: concentration
+  aliquots: { type: Aliquot, of: sample }
 fields:
   protein:
     type: ref
@@ -101,6 +110,8 @@ fields:
         description: Logged, and on its way to the lab.
         set_by: [coordinator]
         reason: required
+        # Nothing's drawn from a sample the lab hasn't received.
+        holds_amount: true
       received:
         label: Received
         description: In the lab, waiting to be tested.
@@ -172,6 +183,7 @@ fields:
         set_by: [qa]
         locks: true
         reason: required
+        holds_amount: true
         signatures:
           - meaning: responsibility
             label: QA rejection

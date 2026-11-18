@@ -56,6 +56,11 @@ complete and check it as you type.
    before the first deployment. Other plugins' types are written with their
    full names (`iki/dna.DNASequence`); your own need none (`Sample`).
 3. Replace the example types with yours. Keep only the dependencies you use.
+   Besides fields, a type can have an identity (one registry entry per
+   molecule, however it's written), states, lists of rows, references to one
+   of several types and, for what the lab keeps, an `amount`: how much of
+   each record there is, drawn and split into aliquots
+   ([spec](https://github.com/yogesh-dhande/iki/tree/main/spec#amounts)).
 4. Delete `migrations/` and make your first migration:
 
    ```sh

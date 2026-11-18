@@ -112,6 +112,16 @@ It shows the parts of Iki such a plugin needs:
   QA Released, signing for it (21 CFR Part 11). Released, it goes back to
   the project that asked, locked, and stays there; until then that project
   can't see it.
+- **How much of each there is**
+  ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
+  a sample's volume, in µL (shown in mL), and each aliquot's. A sample is
+  drawn from by volume, or by protein mass at its concentration (50 µg of
+  a 2 mg/mL sample is 25 µL), and split into aliquots: each a new
+  `Aliquot`, naming its sample, holding exactly what the sample lost. Two
+  analysts drawing at once take turns, and neither takes more than there
+  is. Each draw, transfer, split and adjustment is in the sample's ledger,
+  with who, when and why. A Registered sample, not in the lab yet, and a
+  Rejected one hold their volume: none of it can be drawn or split off.
 
 - **Donors, and what's derived from them**: a `Donor` (by the study's
   pseudonymous code, never a name) gives `Sample`s, each sample `Aliquot`s,

@@ -42,6 +42,7 @@ from iki_spec.identity import IDENTITY_TYPES, NUCLEIC_FORMATS, SEQUENCE_FORMATS
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
+    Amount,
     Component,
     EntityType,
     Environment,
@@ -725,6 +726,22 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         )
         if isinstance(body.get("result"), dict)
         else None,
+        amount=_amount(body.get("amount"), plugin),
+    )
+
+
+def _amount(data: Any, plugin: str) -> Amount | None:  # noqa: ANN401 - YAML
+    if not isinstance(data, dict):
+        return None
+    aliquots = data.get("aliquots") or {}
+    return Amount(
+        unit=data["unit"],
+        label=data.get("label") or "Amount",
+        description=data.get("description"),
+        display_unit=data.get("display_unit"),
+        concentration=data.get("concentration"),
+        aliquots=qualify(aliquots["type"], plugin) if "type" in aliquots else None,
+        aliquots_of=aliquots.get("of"),
     )
 
 
@@ -1226,6 +1243,7 @@ class _Semantics:
             self.request(entity_type, source, every)
         if entity_type.result is not None:
             self.result(entity_type, source, every)
+        self.amount(entity_type, source, every)
 
     # Requests between projects (ADR 0132) -------------------------------------------------------
 
@@ -1629,6 +1647,177 @@ class _Semantics:
                 "project's own.",
                 source,
                 ("due",),
+            )
+
+    def amount(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """A type's amount (ADR 0139): kept in a unit that adds up, on records that are each a
+        thing in the lab, and the states that hold it."""
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        held = [
+            (name, state)
+            for name, (f, owner) in every.items()
+            if owner is entity_type and f.type == "state"
+            for state, s in f.states.items()
+            if s.holds_amount and not s.removed
+        ]
+        amount = next((t.amount for t in lineage if t.amount is not None), None)
+        if amount is None:
+            for name, state in held:
+                self.add(
+                    "holds-without-amount",
+                    f"`{state}` holds the record's amount, and `{entity_type.name}` has none.",
+                    source,
+                    ("fields", name, "states", state, "holds_amount"),
+                    key=True,
+                    hint="Give the type an `amount`, or leave `holds_amount` off.",
+                )
+            return
+        if entity_type.amount is None:
+            return
+        parent = next((t for t in lineage[1:] if t.amount is not None), None)
+        if parent is not None:
+            self.add(
+                "amount-twice",
+                f"`{parent.qualified_name}`, which this type extends, has an amount already.",
+                source,
+                ("amount",),
+                key=True,
+                hint="A record has one amount: leave this one off.",
+            )
+        if any(t.identity for t in lineage):
+            self.add(
+                "amount-on-identity",
+                f"`{entity_type.name}` has an identity, so each project has one record of each "
+                "of its entries: its records aren't things in the lab, with an amount each.",
+                source,
+                ("amount",),
+                key=True,
+                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
+                "that refers to the entry.",
+            )
+        try:
+            unit = units.parse(amount.unit)
+        except units.UnitError as error:
+            self.add("amount-unit", str(error), source, ("amount", "unit"))
+            return
+        if unit.is_special or not _adds_up(unit):
+            self.add(
+                "amount-unit",
+                f"`{amount.unit}` doesn't measure how much there is of something.",
+                source,
+                ("amount", "unit"),
+                hint="Use a volume (uL), a mass (mg), an amount of substance (umol) or a "
+                "count ({vial}).",
+            )
+            return
+        if amount.display_unit is not None:
+            self.amount_unit(amount.display_unit, unit, source, ("amount", "display_unit"))
+        if amount.concentration is not None:
+            self.concentration(amount.concentration, unit, every, source)
+        if amount.aliquots is not None:
+            self.aliquots(entity_type, amount, source)
+
+    def amount_unit(self, code: str, unit: units.Unit, source: Document, at: Path) -> None:
+        try:
+            other = units.parse(code)
+        except units.UnitError as error:
+            self.add("amount-unit", str(error), source, at)
+            return
+        if not other.is_commensurable(unit):
+            self.add(
+                "amount-unit",
+                f"`{code}` and `{unit.code}` measure different things.",
+                source,
+                at,
+            )
+
+    def concentration(
+        self,
+        name: str,
+        unit: units.Unit,
+        every: dict[str, tuple[Field, EntityType]],
+        source: Document,
+    ) -> None:
+        found = every.get(name)
+        f = found[0] if found is not None else None
+        at: Path = ("amount", "concentration")
+        if f is None or f.removed or f.type != "quantity" or f.unit is None:
+            self.add(
+                "amount-concentration",
+                f"`concentration` names a quantity field of the type, and `{name}` "
+                + ("isn't one." if f is None else f"is a {f.type} field."),
+                source,
+                at,
+                hint="Such as `concentration: { type: quantity, unit: mg/mL }`.",
+            )
+            return
+        concentration = units.parse(f.unit)
+        litre = units.parse("L")
+        held = units.parse(f"({f.unit}).L")
+        # Times a volume, it's how much: of what the amount counts, or (for an amount kept
+        # as a volume) of anything but another volume.
+        fits = _adds_up(held) and (
+            not held.is_commensurable(litre)
+            if unit.is_commensurable(litre)
+            else held.is_commensurable(unit)
+        )
+        if concentration.is_special or not fits:
+            self.add(
+                "amount-concentration",
+                f"`{name}` is in {f.unit}, which isn't how much of it a volume holds, in a "
+                f"unit {unit.code} converts to.",
+                source,
+                at,
+                hint="Such as mg/mL for an amount in uL or in mg.",
+            )
+
+    def aliquots(self, entity_type: EntityType, amount: Amount, source: Document) -> None:
+        target = self.types.get(amount.aliquots or "")
+        at: Path = ("amount", "aliquots")
+        if target is None:
+            self.add(
+                "unknown-type",
+                f"`{amount.aliquots}` isn't a type of this plugin or its dependencies.",
+                source,
+                (*at, "type"),
+            )
+            return
+        lineage = [target, *self.ancestors(target)]
+        theirs = next((t.amount for t in lineage if t.amount is not None), None)
+        if theirs is None:
+            self.add(
+                "amount-aliquots",
+                f"`{target.qualified_name}` has no amount, so its records can't be aliquots.",
+                source,
+                (*at, "type"),
+                hint="Give that type an `amount` too.",
+            )
+        elif _measures_as(theirs.unit, amount.unit) is False:
+            # What an aliquot holds is what its source lost: in the same kind of unit.
+            self.add(
+                "amount-aliquots",
+                f"`{target.name}`'s amount is in {theirs.unit}, which doesn't measure what "
+                f"`{entity_type.name}`'s does, in {amount.unit}: an aliquot holds what it lost.",
+                source,
+                (*at, "type"),
+            )
+        fields = {n: f for t in lineage for n, f in t.fields.items()}
+        of = fields.get(amount.aliquots_of or "")
+        mine = {
+            entity_type.qualified_name,
+            *(t.qualified_name for t in self.ancestors(entity_type)),
+        }
+        if of is None or of.type != "ref" or not mine & set(of.to):
+            self.add(
+                "amount-aliquots",
+                f"`of` names `{target.name}`'s reference to the record each aliquot was split "
+                f"from, a `{entity_type.name}`, and `{amount.aliquots_of}` isn't one.",
+                source,
+                (*at, "of"),
+                hint=f"Such as `{entity_type.name.lower()}: {{ type: ref, to: "
+                f"{entity_type.qualified_name} }}`.",
             )
 
     def state_ref(self, name: str, names: set[str], source: Document, path: Path) -> None:
@@ -2958,3 +3147,24 @@ def _identifies(f: Field) -> bool:
             n in item.fields and item.fields[n].type in IDENTITY_TYPES - {"file"} for n in names
         )
     return item.type in IDENTITY_TYPES - {"file"}
+
+
+#: What an amount can be kept in: how much there is of something, which adds up when
+#: it's split and pooled. A volume (length cubed), a mass, or a number of things: moles,
+#: counts ({vial}) and arbitrary units such as [IU] (ADR 0139).
+_LITRE = units.parse("L")
+_GRAM = units.parse("g")
+
+
+def _measures_as(one: str, other: str) -> bool | None:
+    """Whether two units measure the same thing; None if either isn't a unit."""
+    try:
+        return units.parse(one).is_commensurable(units.parse(other))
+    except units.UnitError:
+        return None
+
+
+def _adds_up(unit: units.Unit) -> bool:
+    return (
+        unit.is_commensurable(_LITRE) or unit.is_commensurable(_GRAM) or (not any(unit.dimension))
+    ) and not (unit.is_dimensionless and unit.code in ("%", "[ppm]", "[ppb]"))

@@ -58,6 +58,7 @@ import { SavedViewPanel } from "./view";
 import { EntityHolds } from "./entity-holds";
 import { EntitySignatures } from "./entity-signatures";
 import { EntityRequest, ResultNote } from "./entity-request";
+import { EntityAmount } from "./entity-amount";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityWatch } from "./entity-watch";
@@ -984,6 +985,7 @@ export function EntityOverview() {
       {type?.result ? <ResultNote entity={entity} type={type} /> : null}
       {type && sides ? <EntityRequest entity={entity} type={type} /> : null}
       {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
+      <EntityAmount entity={entity} type={type} types={types} />
       {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
       <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />
       {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}

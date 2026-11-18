@@ -2296,6 +2296,37 @@ a.lineage-node:focus-visible {
   margin: 0 0 1.25rem auto;
 }
 
+/* A record's amount (ADR 0139): how much there is, then its controls and its ledger. */
+.amount {
+  margin: 0 0 0.75rem;
+}
+
+.amount-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount-unit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+
+.amount-unit > .field:first-child {
+  flex: 1 1 10rem;
+}
+
+.amount-unit > .field:last-child {
+  flex: 0 1 8rem;
+}
+
+.table td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* --- Entity forms ------------------------------------------------------------ */
 
 input[type="date"],

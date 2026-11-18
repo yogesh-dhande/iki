@@ -23,6 +23,7 @@ const RECEIVED: Schemas["StateOut"] = {
   description: null,
   set_by: ["iki/lims.analyst"],
   locks: false,
+  holds_amount: false,
   reason: null,
   signatures: [],
 };

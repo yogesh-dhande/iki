@@ -125,6 +125,7 @@ def test_a_type_says_its_state_fields_and_their_states(world: World) -> None:
         "description": "Its results can be used.",
         "set_by": [QA],
         "locks": True,
+        "holds_amount": False,
         "reason": "optional",
         "signatures": [],
         "guards": [],

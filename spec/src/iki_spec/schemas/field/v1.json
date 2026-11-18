@@ -990,6 +990,10 @@
             "$ref": "#/$defs/roleRef"
           }
         },
+        "holds_amount": {
+          "description": "A record in this state is held: none of its amount is drawn, transferred or split into aliquots (ADR 0139), as for a sample in quarantine.",
+          "type": "boolean"
+        },
         "locks": {
           "description": "A record with the field in this state is locked: its other fields can't change, nor can it be archived or restored, until someone sets a state field to a state that doesn't lock.",
           "type": "boolean"

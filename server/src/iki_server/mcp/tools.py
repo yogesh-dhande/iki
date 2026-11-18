@@ -9,6 +9,7 @@ marker the data itself can't guess (ADR 0013).
 import json
 import secrets
 from collections.abc import Sequence
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -56,10 +57,11 @@ Depth = Annotated[
     Field(ge=1, le=queries.MAX_DEPTH, description="How many edges away, at most."),
 ]
 Edges = Annotated[
-    list[Literal["reference", "run", "file"]] | None,
+    list[Literal["reference", "run", "file", "aliquot", "transfer"]] | None,
     Field(
         description="Only these kinds of edge: reference (a field names it), run (a run made "
-        "it from it) and file (a run made it from a file it held). All if left out. A "
+        "it from it), file (a run made it from a file it held), aliquot (split from it) and "
+        "transfer (some of it was moved into it). All if left out. A "
         "project's record of a registry entry and the entry are one, and always followed."
     ),
 ]
@@ -194,6 +196,15 @@ def workflow_waiting(run: dict[str, Any]) -> str:
     if not told:
         return ""
     return " ".join(told) + " get_workflow_run shows when it moves on."
+
+
+class AmountIn(BaseModel):
+    """How much: an exact decimal, in a UCUM unit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: Decimal = Field(description="How much: a number, or a string to be exact.")
+    unit: str = Field(max_length=50, description="Its UCUM unit, such as uL, mg or umol.")
 
 
 Inputs = Annotated[
@@ -550,6 +561,13 @@ def build() -> MCPServer:
         ],
         reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
         hold_reason: HoldReason = "",
+        amount: Annotated[
+            AmountIn | None,
+            Field(
+                description="For a type with an amount (describe_entity_type's `amount`): "
+                "how much there is to start with."
+            ),
+        ] = None,
     ) -> CallToolResult:
         """A new entity in the project. For a type with an identity, it registers it: a
         new identity gets a registry ID (`registered`); one registered already gets the
@@ -557,13 +575,15 @@ def build() -> MCPServer:
         back as it is (`reused`). Only the entry's existence and ID are told, never who
         else has it. Values that break its type's rules (describe_entity_type's `rules`)
         are refused, each error naming its rule; see hold_reason for rules that hold."""
-        body = {
+        body: dict[str, Any] = {
             "type": type,
             "project": str(project),
             "values": values,
             "reason": reason,
             "hold_reason": hold_reason,
         }
+        if amount is not None:
+            body["amount"] = amount.model_dump(mode="json")
         return answer(await call("POST", "/entities", body=body))
 
     @server.tool(annotations=CHANGE, title="Change an entity")
@@ -686,6 +706,89 @@ def build() -> MCPServer:
         the person can read them. The asking project sees only results the service
         released back."""
         return answer(await call("GET", path("/entities/{ref}/request", ref=ref)))
+
+    @server.tool(annotations=READ, title="Get an amount's ledger")
+    async def get_amount_movements(ref: Ref, cursor: Cursor = None) -> CallToolResult:
+        """How much there is of a record with an amount (get_entity's `amount`) came to be:
+        each time it was recorded, drawn, transferred, split into aliquots or adjusted,
+        newest first, by whom and why."""
+        return answer(
+            await call(
+                "GET",
+                path("/entities/{ref}/amount/movements", ref=ref),
+                query={"cursor": cursor} if cursor else None,
+            )
+        )
+
+    @server.tool(annotations=CHANGE, title="Draw from an amount")
+    async def draw_amount(
+        ref: Ref,
+        amount: Annotated[
+            AmountIn,
+            Field(
+                description="How much to draw: in its unit, one that converts to it, or, for "
+                "a type with a concentration, a mass of a volume or a volume of a mass."
+            ),
+        ],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Records that some of a sample, aliquot or other record with an amount was used
+        up. Refused if it hasn't that much, or a state holds it (`amount.held_by`). Only
+        when the person says it was drawn: this is what the lab has."""
+        body = {"amount": amount.model_dump(mode="json"), "reason": reason}
+        return answer(await call("POST", path("/entities/{ref}/amount/draw", ref=ref), body=body))
+
+    @server.tool(annotations=CHANGE, title="Transfer some of an amount")
+    async def transfer_amount(
+        ref: Ref,
+        to: Annotated[str, Field(max_length=64, description="The record it goes to.")],
+        amount: Annotated[AmountIn, Field(description="How much to move.")],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Moves some of one record's amount into another's: pooled, or topped up. Each
+        keeps a movement naming the other, and the one it went to depends on the one it
+        came from (a `transfer` edge)."""
+        body = {"to": to, "amount": amount.model_dump(mode="json"), "reason": reason}
+        return answer(
+            await call("POST", path("/entities/{ref}/amount/transfer", ref=ref), body=body)
+        )
+
+    @server.tool(annotations=CHANGE, title="Adjust an amount")
+    async def adjust_amount(
+        ref: Ref,
+        amount: Annotated[AmountIn, Field(description="How much there is: what was found.")],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Sets how much there is of a record to what it was found to be: a recount, a
+        spill, a correction."""
+        body = {"amount": amount.model_dump(mode="json"), "reason": reason}
+        return answer(await call("POST", path("/entities/{ref}/amount/adjust", ref=ref), body=body))
+
+    @server.tool(annotations=ADD, title="Split into aliquots")
+    async def split_into_aliquots(
+        ref: Ref,
+        count: Annotated[int, Field(ge=1, le=200, description="How many aliquots.")],
+        each: Annotated[AmountIn, Field(description="How much each aliquot holds.")],
+        reason: Reason,
+        values: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
+            Field(
+                description="The aliquots' own values: one object for all, or a list, one "
+                "each. Unique fields, such as a label, need one each."
+            ),
+        ] = None,
+    ) -> CallToolResult:
+        """Splits a record with an amount into `count` new aliquot records, each holding
+        `each` of it, and takes exactly that much from it: all of them, or none. Each
+        aliquot depends on it (an `aliquot` edge), so get_impact finds them."""
+        body: dict[str, Any] = {
+            "count": count,
+            "each": each.model_dump(mode="json"),
+            "reason": reason,
+        }
+        if values is not None:
+            body["values"] = values
+        return answer(await call("POST", path("/entities/{ref}/aliquots", ref=ref), body=body))
 
     @server.tool(annotations=READ, title="How to write an app")
     async def describe_apps() -> CallToolResult:

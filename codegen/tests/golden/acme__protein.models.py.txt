@@ -836,8 +836,10 @@ class Sample(Entity):
     )
     label = models.CharField(max_length=200, db_index=True)
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    lot = models.ForeignKey('Lot', models.PROTECT, related_name='+', null=True)
     material = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     purity = models.FloatField(null=True)
+    concentration = QuantityField(unit='mg/mL', null=True)
     tags = ArrayField(models.CharField(max_length=40), null=True)
     notes = models.TextField(null=True)
     analyst = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
@@ -879,6 +881,14 @@ class Sample(Entity):
             models.CheckConstraint(
                 condition=Q(purity__lte=100),
                 name='acme__protein_sample__purity__max',
+            ),
+            models.CheckConstraint(
+                condition=Q(concentration__gt=float('-inf'), concentration__lt=float('inf')),
+                name='acme__protein_sample__concentration__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(concentration__gte=0),
+                name='acme__protein_sample__concentration__min',
             ),
             models.CheckConstraint(
                 condition=checks.IsPlainList('tags'),
@@ -928,8 +938,10 @@ class Sample_History(models.Model):
     revision = models.PositiveIntegerField()
     label = models.TextField(null=True)
     protein = models.UUIDField(db_column='protein_id', null=True)
+    lot = models.UUIDField(db_column='lot_id', null=True)
     material = models.UUIDField(db_column='material_id', null=True)
     purity = models.FloatField(null=True)
+    concentration = QuantityField(unit='mg/mL', null=True)
     tags = ArrayField(models.TextField(), null=True)
     additions = models.JSONField(null=True)
     notes = models.TextField(null=True)

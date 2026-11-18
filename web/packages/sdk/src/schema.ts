@@ -1006,6 +1006,132 @@ export interface paths {
         patch: operations["iki_server_api_entities_patch_entity"];
         trace?: never;
     };
+    "/api/v1/entities/{ref}/aliquots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Split it into aliquots
+         * @description Makes ``count`` new records in its project, each holding ``each`` of its amount and
+         *     split from it (an edge of the graph), and takes exactly that much from it: nothing is
+         *     made or lost. All of them, or none.
+         */
+        post: operations["iki_server_api_amounts_split"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/amount": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How much there is of it
+         * @description 404 for a type without an amount, or a record with none recorded yet: adjust it to
+         *     record one.
+         */
+        get: operations["iki_server_api_amounts_get_amount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/amount/adjust": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adjust its amount
+         * @description Sets it to what it was found to be, saying why: a recount, a spill, a correction. A
+         *     record with no amount recorded gets one.
+         */
+        post: operations["iki_server_api_amounts_adjust"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/amount/draw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draw from its amount
+         * @description Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
+         *     much, or a state holds it. Two people drawing at once take turns.
+         */
+        post: operations["iki_server_api_amounts_draw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/amount/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Its amount's ledger
+         * @description Newest first: each change to its amount, who made it, how, when and why.
+         */
+        get: operations["iki_server_api_amounts_list_movements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/amount/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer some of its amount
+         * @description Moves some of it to another record with an amount: pooled, or topped up. Each is
+         *     changed, and each keeps a movement naming the other. Needs Editor in both projects.
+         */
+        post: operations["iki_server_api_amounts_transfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/apps": {
         parameters: {
             query?: never;
@@ -4174,6 +4300,16 @@ export interface components {
              */
             set: boolean;
         };
+        /** AdjustIn */
+        AdjustIn: {
+            /** @description How much there is: what it was found to be. */
+            amount: components["schemas"]["AmountIn"];
+            /**
+             * Reason
+             * @description Why: a recount, a spill.
+             */
+            reason: string;
+        };
         /**
          * AgentOut
          * @description The agent that acted for the person (ADR 0072): an OAuth client, through one of
@@ -4242,6 +4378,72 @@ export interface components {
              * @enum {string}
              */
             viewer: "alignment";
+        };
+        /** AliquotsOut */
+        AliquotsOut: {
+            /**
+             * Aliquots
+             * @description The new records, in order.
+             */
+            aliquots: components["schemas"]["RefOut"][];
+            amount: components["schemas"]["AmountOut"];
+            /**
+             * Ids
+             * @description Their IDs, in the same order.
+             */
+            ids: string[];
+            movement: components["schemas"]["MovementOut"];
+        };
+        /** AmountIn */
+        AmountIn: {
+            /**
+             * Unit
+             * @description Its UCUM unit, such as uL, mg or umol.
+             */
+            unit: string;
+            /**
+             * Value
+             * @description How much: a number, or a string for an exact decimal.
+             */
+            value: number | string;
+        };
+        /** AmountMovedOut */
+        AmountMovedOut: {
+            amount: components["schemas"]["AmountOut"];
+            movement: components["schemas"]["MovementOut"];
+        };
+        /** AmountOut */
+        AmountOut: {
+            /**
+             * Display
+             * @description As its type shows it, in its `display_unit`, such as 0.25 mL. None if it's shown in `unit`.
+             */
+            display: string | null;
+            /**
+             * Held By
+             * @description The state field whose state holds it, such as quarantine: none of it is drawn, transferred or split off until that changes. None if nothing holds it.
+             */
+            held_by: string | null;
+            /**
+             * Label
+             * @description What its type calls it, such as Volume.
+             */
+            label: string;
+            /**
+             * Unit
+             * @description The unit its type keeps it in.
+             */
+            unit: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Value
+             * @description How much there is, exactly, in `unit`.
+             */
+            value: string;
         };
         /** ApiActionOut */
         ApiActionOut: {
@@ -5627,6 +5829,8 @@ export interface components {
         };
         /** CreatedOut */
         CreatedOut: {
+            /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
+            amount?: components["schemas"]["AmountOut"] | null;
             /** Archived */
             archived: boolean;
             /** Archived At */
@@ -5902,6 +6106,17 @@ export interface components {
              */
             id: string;
         };
+        /** DrawIn */
+        DrawIn: {
+            /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
+            amount: components["schemas"]["AmountIn"];
+            /**
+             * Reason
+             * @description What it was used for.
+             * @default
+             */
+            reason: string;
+        };
         /** EffectCountsOut */
         EffectCountsOut: {
             /** Created */
@@ -6086,6 +6301,8 @@ export interface components {
         };
         /** EntityIn */
         EntityIn: {
+            /** @description For a type with an amount (ADR 0139): how much there is of it to start with, in its unit or one that converts to it. */
+            amount?: components["schemas"]["AmountIn"] | null;
             /**
              * Hold Reason
              * @description Why to save it though it breaks rules that hold records for review, such as a result outside its specification (ADR 0127): it's saved, and held. Without it, such a save is refused with `hold_reason_required`.
@@ -6115,6 +6332,8 @@ export interface components {
         };
         /** EntityOut */
         EntityOut: {
+            /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
+            amount?: components["schemas"]["AmountOut"] | null;
             /** Archived */
             archived: boolean;
             /** Archived At */
@@ -6255,6 +6474,8 @@ export interface components {
              * @description Abstract types have no entities of their own.
              */
             abstract: boolean;
+            /** @description How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero. */
+            amount?: components["schemas"]["TypeAmountOut"] | null;
             /** Description */
             description: string | null;
             /**
@@ -6933,6 +7154,13 @@ export interface components {
              */
             reason: string;
         };
+        /** GivenOut */
+        GivenOut: {
+            /** Unit */
+            unit: string;
+            /** Value */
+            value: string;
+        };
         /**
          * GivenSignatureOut
          * @description A signature given for setting a state, on the record's current revision.
@@ -6964,7 +7192,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "reference" | "run" | "file" | "record";
+            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "record";
             /**
              * Node
              * Format: uuid
@@ -7114,9 +7342,9 @@ export interface components {
             down: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
             /**
              * Project
              * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
@@ -8184,6 +8412,8 @@ export interface components {
         };
         /** MovedOut */
         MovedOut: {
+            /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
+            amount?: components["schemas"]["AmountOut"] | null;
             /** Archived */
             archived: boolean;
             /** Archived At */
@@ -8282,6 +8512,75 @@ export interface components {
              */
             values: {
                 [key: string]: unknown;
+            };
+        };
+        /** MovementOut */
+        MovementOut: {
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Balance
+             * @description How much it had after.
+             */
+            balance: string;
+            /**
+             * Change
+             * @description What it took (below zero) or gave, in `unit`.
+             */
+            change: string;
+            /** Client */
+            client: string;
+            /**
+             * Counterpart
+             * @description The other record, if there is one.
+             */
+            counterpart: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description What was asked for, in the unit it was asked in. */
+            given: components["schemas"]["GivenOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description `recorded`: how much it had to start with; `drawn`: used up; `transferred_out` and `transferred_in`: moved to or from `counterpart`; `aliquoted`: split into aliquots, and `aliquot`: an aliquot's first, split from `counterpart`; `adjusted`: set to what it was found to be.
+             * @enum {string}
+             */
+            kind: "recorded" | "drawn" | "transferred_out" | "transferred_in" | "aliquoted" | "aliquot" | "adjusted";
+            /**
+             * Operation
+             * Format: uuid
+             * @description One per request: a transfer's two movements, and a split's and its aliquots', share it.
+             */
+            operation: string;
+            /** Reason */
+            reason: string;
+            /** Unit */
+            unit: string;
+            user: components["schemas"]["UserOut"] | null;
+            /** Via */
+            via: string;
+        };
+        /** MovementsOut */
+        MovementsOut: {
+            /** Items */
+            items: components["schemas"]["MovementOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+            /**
+             * Refs
+             * @description The counterparts you can read, by ID.
+             */
+            refs?: {
+                [key: string]: components["schemas"]["RefOut"];
             };
         };
         /**
@@ -10195,7 +10494,7 @@ export interface components {
              * Edges
              * @description The kinds of edge it walks; empty for all.
              */
-            edges: ("reference" | "run" | "file")[];
+            edges: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
         };
         /** ReproduceIn */
         ReproduceIn: {
@@ -12450,6 +12749,30 @@ export interface components {
              */
             field: string;
         };
+        /** SplitIn */
+        SplitIn: {
+            /**
+             * Count
+             * @description How many aliquots.
+             */
+            count: number;
+            /** @description How much each holds. */
+            each: components["schemas"]["AmountIn"];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Values
+             * @description The aliquots' own values: one object for all, or a list, one each. An aliquot of its own type has the record's values, but not its unique ones or states.
+             */
+            values?: {
+                [key: string]: unknown;
+            }[] | {
+                [key: string]: unknown;
+            } | null;
+        };
         /** StartedOut */
         StartedOut: {
             /**
@@ -12566,6 +12889,12 @@ export interface components {
              * @description Conditions on setting the field to it, besides `set_by` (ADR 0128): each must be true. `can.states` says, for a record, whether one refuses you.
              */
             guards?: components["schemas"]["GuardOut"][];
+            /**
+             * Holds Amount
+             * @description A record in it is held (ADR 0139): none of its amount can be drawn, transferred or split off until its state field is set to a state that doesn't.
+             * @default false
+             */
+            holds_amount: boolean;
             /** Label */
             label: string;
             /**
@@ -12840,6 +13169,22 @@ export interface components {
              */
             min: number | null;
         };
+        /** TransferIn */
+        TransferIn: {
+            /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
+            amount: components["schemas"]["AmountIn"];
+            /**
+             * Reason
+             * @description What it was used for.
+             * @default
+             */
+            reason: string;
+            /**
+             * To
+             * @description The record it goes to, by ID or HRID.
+             */
+            to: string;
+        };
         /** TriggerFiredOut */
         TriggerFiredOut: {
             /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
@@ -12970,6 +13315,41 @@ export interface components {
              * @description The trigger's qualified name, such as `protein.weigh_new`.
              */
             name: string;
+        };
+        /** TypeAmountOut */
+        TypeAmountOut: {
+            /**
+             * Aliquots
+             * @description The type its aliquots are: its own, or another such as an Aliquot.
+             */
+            aliquots: string | null;
+            /**
+             * Aliquots Of
+             * @description For aliquots of another type, its reference naming the record each was split from.
+             */
+            aliquots_of: string | null;
+            /**
+             * Concentration
+             * @description The quantity field giving how much of it each volume holds: an amount can then be drawn as a mass of a volume, or a volume of a mass.
+             */
+            concentration: string | null;
+            /** Description */
+            description: string | null;
+            /**
+             * Display Unit
+             * @description The unit it's shown in, if not `unit`.
+             */
+            display_unit: string | null;
+            /**
+             * Label
+             * @description What it's called, such as Volume.
+             */
+            label: string;
+            /**
+             * Unit
+             * @description The UCUM unit it's kept in, such as uL, mg or {vial}.
+             */
+            unit: string;
         };
         /**
          * TypeNotificationOut
@@ -13281,9 +13661,9 @@ export interface components {
             depth: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
             /**
              * Limit
              * @description Results per page.
@@ -13316,9 +13696,9 @@ export interface components {
             depth: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
             /**
              * Project
              * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
@@ -13351,7 +13731,7 @@ export interface components {
              * @description `reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).
              * @enum {string}
              */
-            kind: "reference" | "run" | "file" | "record";
+            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "record";
             /**
              * Revision
              * @description For a run's input: its revision the run read. Empty for a reference, which names what's there now.
@@ -15578,6 +15958,159 @@ export interface operations {
             };
         };
     };
+    iki_server_api_amounts_split: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AliquotsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_amounts_get_amount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmountOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_amounts_adjust: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_amounts_draw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DrawIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_amounts_list_movements: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_amounts_transfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+        };
+    };
     iki_server_api_apps_entity_apps: {
         parameters: {
             query?: never;
@@ -15629,8 +16162,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -15666,8 +16199,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -15701,8 +16234,8 @@ export interface operations {
                 up?: number;
                 /** @description How many steps downstream. */
                 down?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
             };
             header?: never;
             path: {
@@ -16150,8 +16683,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -16187,8 +16720,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it) and `file` (a run made it from a file it held, or that a run on it wrote). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */

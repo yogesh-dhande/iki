@@ -3,11 +3,13 @@ apiVersion: iki/v1
 kind: EntityType
 name: Aliquot
 label: Aliquot
-schema_version: 1
+schema_version: 2
 description: >-
   A portion of a sample, in a tube or well of its own, which an assay uses.
   One on hold mustn't be used, until someone takes it off hold, saying why.
 hrid: { prefix: ALQ }
+# How much of it there is (ADR 0139): drawn by an assay, never below zero.
+amount: { unit: uL, label: Volume }
 fields:
   sample:
     type: ref
@@ -15,11 +17,6 @@ fields:
     required: true
     immutable: true
     description: The sample it was taken from.
-  volume:
-    type: quantity
-    unit: uL
-    min: 0
-    description: How much of it there is.
   location:
     type: string
     max_length: 120

@@ -172,6 +172,58 @@
         }
       },
       "additionalProperties": false
+    },
+    "amount": {
+      "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
+      "type": "object",
+      "required": ["unit"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "description": "What it's called, such as Volume. Defaults to Amount.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "unit": {
+          "description": "The UCUM unit it's kept in: a volume, a mass, an amount of substance, or a count such as `{vial}`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "display_unit": {
+          "description": "The unit people see it in, if not `unit`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "concentration": {
+          "description": "A quantity field of the type saying how much each unit of volume holds, so it can be drawn in a unit the concentration converts it to: 50 ug of a sample at 2 mg/mL is 25 uL.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "aliquots": {
+          "description": "What its aliquots are: records of another type, with a reference to the record each was split from. Its own type, by default.",
+          "type": "object",
+          "required": ["type", "of"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "description": "The aliquots' type, which has an amount of its own.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "of": {
+              "description": "That type's reference to the record each was split from.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            }
+          }
+        }
+      }
     }
   },
   "additionalProperties": false,

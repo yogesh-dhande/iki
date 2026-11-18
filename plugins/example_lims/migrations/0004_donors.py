@@ -27,7 +27,6 @@ class Migration(migrations.Migration):
                 ('entity_id', models.UUIDField()),
                 ('revision', models.PositiveIntegerField()),
                 ('sample', models.UUIDField(db_column='sample_id', null=True)),
-                ('volume', iki_server.entities.fields.QuantityField(null=True, unit='uL')),
                 ('location', models.TextField(null=True)),
                 ('on_hold', models.BooleanField(null=True)),
                 ('hold_reason', models.TextField(null=True)),
@@ -84,7 +83,6 @@ class Migration(migrations.Migration):
             name='Aliquot',
             fields=[
                 ('entity', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki_entities.entity')),
-                ('volume', iki_server.entities.fields.QuantityField(null=True, unit='uL')),
                 ('location', models.CharField(db_index=True, max_length=120, null=True)),
                 ('on_hold', models.BooleanField(db_index=True, null=True)),
                 ('hold_reason', models.TextField(null=True)),
@@ -137,14 +135,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name='aliquot',
             index=django.contrib.postgres.indexes.GinIndex(django.contrib.postgres.search.SearchVector('hold_reason', config='simple'), name='hold_reaso_fts_8b3ba76f9ae7685'),
-        ),
-        migrations.AddConstraint(
-            model_name='aliquot',
-            constraint=models.CheckConstraint(condition=models.Q(('volume__gt', float("-inf")), ('volume__lt', float("inf"))), name='iki__example_lims_aliquot__volume__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='aliquot',
-            constraint=models.CheckConstraint(condition=models.Q(('volume__gte', 0)), name='iki__example_lims_aliquot__volume__min'),
         ),
         migrations.AddConstraint(
             model_name='aliquot',

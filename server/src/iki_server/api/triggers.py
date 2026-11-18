@@ -40,7 +40,7 @@ class RelatedOut(Schema):
         description="`downstream`: what was derived from it; `upstream`: what it was derived from."
     )
     depth: int = Field(description="How many edges away, at most.")
-    edges: list[Literal["reference", "run", "file"]] = Field(
+    edges: list[Literal["reference", "run", "file", "aliquot", "transfer"]] = Field(
         description="The kinds of edge it walks; empty for all."
     )
 

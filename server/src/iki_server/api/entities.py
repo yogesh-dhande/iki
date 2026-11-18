@@ -22,6 +22,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -189,6 +190,11 @@ class StateOut(Schema):
     locks: bool = Field(
         description="A record in it is locked: its other fields can't change, and it can't be "
         "archived, restored or moved, until its state field is set to a state that doesn't."
+    )
+    holds_amount: bool = Field(
+        False,
+        description="A record in it is held (ADR 0139): none of its amount can be drawn, "
+        "transferred or split off until its state field is set to a state that doesn't.",
     )
     reason: Literal["required", "optional"] | None = Field(
         description="Whether setting it asks why: required, optional, or not at all (null)."
@@ -403,6 +409,24 @@ class ResultTypeOut(Schema):
     )
 
 
+class TypeAmountOut(Schema):
+    unit: str = Field(description="The UCUM unit it's kept in, such as uL, mg or {vial}.")
+    label: str = Field(description="What it's called, such as Volume.")
+    description: str | None
+    display_unit: str | None = Field(description="The unit it's shown in, if not `unit`.")
+    concentration: str | None = Field(
+        description="The quantity field giving how much of it each volume holds: an amount "
+        "can then be drawn as a mass of a volume, or a volume of a mass."
+    )
+    aliquots: str | None = Field(
+        description="The type its aliquots are: its own, or another such as an Aliquot."
+    )
+    aliquots_of: str | None = Field(
+        description="For aliquots of another type, its reference naming the record each was "
+        "split from."
+    )
+
+
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -458,6 +482,12 @@ class EntityTypeOut(Schema):
         None,
         description="Its records are a request's results (ADR 0132), which the service owns "
         "and releases back to the asking project.",
+    )
+    amount: TypeAmountOut | None = Field(
+        None,
+        description="How much of each of its records there is (ADR 0139), if it keeps that: "
+        "drawn, transferred, split into aliquots and adjusted through "
+        "`/entities/{ref}/amount`, never below zero.",
     )
 
 
@@ -660,6 +690,28 @@ class RequestSidesOut(Schema):
     )
 
 
+class AmountIn(Schema):
+    value: Decimal = Field(description="How much: a number, or a string for an exact decimal.")
+    unit: str = Field(max_length=50, description="Its UCUM unit, such as uL, mg or umol.")
+
+
+class AmountOut(Schema):
+    value: str = Field(
+        pattern=r"^\d+(\.\d+)?$", description="How much there is, exactly, in `unit`."
+    )
+    unit: str = Field(description="The unit its type keeps it in.")
+    label: str = Field(description="What its type calls it, such as Volume.")
+    display: str | None = Field(
+        description="As its type shows it, in its `display_unit`, such as 0.25 mL. None if "
+        "it's shown in `unit`."
+    )
+    held_by: str | None = Field(
+        description="The state field whose state holds it, such as quarantine: none of it is "
+        "drawn, transferred or split off until that changes. None if nothing holds it."
+    )
+    updated_at: datetime
+
+
 class EntityOut(Schema):
     id: UUID
     hrid: str
@@ -716,6 +768,11 @@ class EntityOut(Schema):
         description="For a request between projects (ADR 0132): the project that asks and the "
         "service it's sent to, and whose each field is. Null for a record of another type.",
     )
+    amount: AmountOut | None = Field(
+        None,
+        description="For a type with an amount (ADR 0139), how much there is of it: changed "
+        "only through `/entities/{ref}/amount`. None if none is recorded.",
+    )
     can: EntityCan
 
 
@@ -740,6 +797,11 @@ class EntityIn(Schema):
     type: str = Field(description="Qualified, such as iki/dna.DNASequence.")
     project: UUID = Field(description="The project it belongs to. It needs you as an Editor.")
     values: dict[str, Any] = Field(default_factory=dict)
+    amount: AmountIn | None = Field(
+        None,
+        description="For a type with an amount (ADR 0139): how much there is of it to start "
+        "with, in its unit or one that converts to it.",
+    )
     reason: str = Field("", max_length=2000, description="Why, for the record.")
     hold_reason: str | None = Field(
         None,
@@ -1089,6 +1151,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "notifications": declared.describe(entity_type),
         "request": _request_type_out(name),
         "result": _result_type_out(name),
+        "amount": _type_amount(name),
     }
 
 
@@ -1135,6 +1198,23 @@ def _result_type_out(name: str) -> dict[str, Any] | None:
     }
 
 
+def _type_amount(type_name: str) -> dict[str, Any] | None:
+    from iki_server.amounts import services as amounts
+
+    wanted = amounts.spec(type_name)
+    if wanted is None:
+        return None
+    return {
+        "unit": wanted.unit,
+        "label": wanted.label,
+        "description": wanted.description,
+        "display_unit": wanted.display_unit,
+        "concentration": wanted.concentration,
+        "aliquots": wanted.aliquots or type_name,
+        "aliquots_of": wanted.aliquots_of,
+    }
+
+
 def _state_out(state: State) -> dict[str, Any]:
     return {
         "name": state.name,
@@ -1142,6 +1222,7 @@ def _state_out(state: State) -> dict[str, Any]:
         "description": state.description,
         "set_by": list(state.set_by),
         "locks": state.locks,
+        "holds_amount": state.holds_amount,
         "reason": state.reason,
         "guards": [
             {
@@ -1327,6 +1408,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
     held, breaches = _holds_of(user, entities)
+    from iki_server.amounts import services as amounts
+
+    amounts_held = amounts.amounts_of(entities)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -1363,6 +1447,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
                 "request": asked.get(entity.pk),
+                "amount": _amount(entity, amounts_held.get(entity.pk), values[entity.pk]),
                 "can": {
                     "edit": (
                         bool(asked[entity.pk]["yours"])
@@ -1700,6 +1785,29 @@ def _etag(entity: Entity) -> str:
     return f'"{entity.revision}"'
 
 
+def _plain(value: Decimal) -> str:
+    from iki_server.amounts.services import shown
+
+    return shown(value)
+
+
+def _amount(entity: Entity, amount: Any, values: dict[str, Any]) -> dict[str, Any] | None:  # noqa: ANN401 - an Amount
+    """A record's amount (ADR 0139), as ``AmountOut``."""
+    from iki_server.amounts import services as amounts
+
+    wanted = amounts.spec(entity.type)
+    if wanted is None or amount is None:
+        return None
+    return {
+        "value": _plain(amount.value),
+        "unit": amount.unit,
+        "label": wanted.label,
+        "display": amounts.displayed(wanted, amount.value),
+        "held_by": amounts.held(entity, values),
+        "updated_at": amount.updated_at,
+    }
+
+
 def _one(user: User, entity: Entity, response: HttpResponse) -> dict[str, Any]:
     response["ETag"] = _etag(entity)
     return _out(user, [entity])[0]
@@ -1892,6 +2000,20 @@ def _etags(header: str) -> set[str]:
 def _invalid(error: Invalid) -> Problem:
     """A 422 for invalid values: each field's problems, and each broken rule's (ADR 0127)
     on its own, naming the rule and whether a reason would save it anyway."""
+    from iki_server.amounts.services import Wrong
+
+    if isinstance(error, Wrong):
+        # Where in the request (ADR 0139): its amount, or an aliquot's values.
+        return Problem(
+            422,
+            "The amount can't change so."
+            if "amount" in error.errors
+            else "Some values are invalid.",
+            errors=[
+                {"pointer": f"#/{name}" if name else "#", "detail": " ".join(messages)}
+                for name, messages in error.errors.items()
+            ],
+        )
     from_rules: dict[str, list[str]] = defaultdict(list)
     errors: list[dict[str, Any]] = []
     for b in getattr(error, "broken", ()):
@@ -1947,6 +2069,7 @@ def create_entity(request: HttpRequest, payload: EntityIn, response: HttpRespons
             payload.values,
             reason=payload.reason,
             hold_reason=payload.hold_reason or "",
+            amount=payload.amount.model_dump(mode="json") if payload.amount else None,
         )
     except Invalid as error:
         raise _invalid(error) from None

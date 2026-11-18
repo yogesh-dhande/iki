@@ -260,3 +260,31 @@ $$;
 """
 
 DROP_ROWS = "DROP FUNCTION IF EXISTS iki_graph_rows() CASCADE;"
+
+
+#: An aliquot's and a transfer's edges (ADR 0139), from the amounts' append-only ledger:
+#: the aliquot, or the record transferred into, depends on the other.
+MOVEMENTS = (
+    _function(
+        "iki_graph_movements",
+        _execute(
+            "INSERT INTO %1$I.iki_graph_edge (node_id, on_id, kind) "
+            "SELECT DISTINCT a.entity_id, a.counterpart_id, "
+            "CASE a.kind WHEN 'aliquot' THEN 'aliquot' ELSE 'transfer' END "
+            "FROM added a "
+            "WHERE a.counterpart_id IS NOT NULL AND a.kind IN ('aliquot', 'transferred_in') "
+            # One edge however many times some was moved between them.
+            "AND NOT EXISTS (SELECT 1 FROM %1$I.iki_graph_edge e WHERE e.node_id = a.entity_id "
+            "AND e.on_id = a.counterpart_id "
+            "AND e.kind = CASE a.kind WHEN 'aliquot' THEN 'aliquot' ELSE 'transfer' END)"
+        ),
+    )
+    + """
+CREATE TRIGGER iki_graph_movements AFTER INSERT ON iki_amount_movement
+REFERENCING NEW TABLE AS added FOR EACH STATEMENT EXECUTE FUNCTION iki_graph_movements();
+"""
+)
+DROP_MOVEMENTS = """
+DROP TRIGGER IF EXISTS iki_graph_movements ON iki_amount_movement;
+DROP FUNCTION IF EXISTS iki_graph_movements();
+"""

@@ -319,6 +319,9 @@ class State:
     #: Conditions on setting the field to this state, by name (ADR 0128): each must hold,
     #: besides ``set_by``.
     guards: dict[str, Guard] = field(default_factory=dict)
+    #: A record in it is held (ADR 0139): none of its amount is drawn, transferred or split
+    #: off, as for a sample in quarantine.
+    holds_amount: bool = False
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
@@ -329,6 +332,7 @@ class State:
             description=data.get("description"),
             set_by=tuple(lab_role_name(r, plugin) for r in data.get("set_by") or ()),
             locks=bool(data.get("locks", False)),
+            holds_amount=bool(data.get("holds_amount", False)),
             reason=data.get("reason"),
             removed=bool(data.get("removed", False)),
             moved_to=data.get("moved_to"),
@@ -668,6 +672,25 @@ class ResultSpec:
 
 
 @dataclass(frozen=True)
+class Amount:
+    """How much of each of a type's records there is (ADR 0139): kept in ``unit``, never
+    below zero, changed only by drawing, transferring, splitting into aliquots or
+    adjusting it, each a movement of its ledger."""
+
+    unit: str  # UCUM: a volume, a mass, an amount of substance, or a count such as {vial}
+    label: str = "Amount"
+    description: str | None = None
+    display_unit: str | None = None
+    #: A quantity field of the type giving how much of it each unit of volume holds, so
+    #: an amount can be drawn in a unit the concentration converts it to (50 ug at 2 mg/mL).
+    concentration: str | None = None
+    #: The type its aliquots are (qualified; its own if None), and that type's reference
+    #: naming the record each was split from.
+    aliquots: str | None = None
+    aliquots_of: str | None = None
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -698,6 +721,8 @@ class EntityType:
     request: RequestSpec | None = None
     #: Its records are a request's results (ADR 0132).
     result: ResultSpec | None = None
+    #: How much of each record there is (ADR 0139): its own or a parent's.
+    amount: Amount | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -1142,7 +1167,7 @@ ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", 
 #: it was derived from.
 RELATED_DIRECTIONS = ("downstream", "upstream")
 #: The kinds of edge a trigger's walk may be narrowed to.
-RELATED_EDGES = ("reference", "run", "file")
+RELATED_EDGES = ("reference", "run", "file", "aliquot", "transfer")
 
 
 @dataclass(frozen=True)
@@ -1365,6 +1390,7 @@ def parse_duration(text: str) -> int:
 
 
 _DATACLASSES = (
+    Amount,
     Field,
     RowRole,
     State,
@@ -1451,6 +1477,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # ...or requests.
                         "request": _request(v.get("request")),
                         "result": _result(v.get("result")),
+                        # ...or amounts (ADR 0139).
+                        "amount": Amount(**v["amount"]) if v.get("amount") else None,
                     }
                 )
                 for k, v in data["types"].items()

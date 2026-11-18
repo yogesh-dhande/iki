@@ -33,6 +33,7 @@ function state(
     description: null,
     set_by: ["iki/lims.analyst"],
     locks: false,
+    holds_amount: false,
     reason: null,
     signatures: [],
     ...more,

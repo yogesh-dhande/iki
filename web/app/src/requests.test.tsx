@@ -36,6 +36,7 @@ function state(name: string, label: string): Schemas["StateOut"] {
     description: null,
     set_by: ["acme/protein.qa"],
     locks: false,
+    holds_amount: false,
     reason: null,
     signatures: [],
   };

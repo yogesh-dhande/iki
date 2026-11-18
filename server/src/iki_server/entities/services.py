@@ -236,6 +236,7 @@ def create(
     reason: str = "",
     by_run: bool = False,
     hold_reason: str = "",
+    amount: Any = None,  # noqa: ANN401 - JSON: a quantity
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
     project's record of its registry entry: a new one, or the one the project has, as it is.
@@ -243,8 +244,14 @@ def create(
     ``by_run``: an action run is writing its results (ADR 0044), for ``user``. It may set
     computed fields, and its revision is marked ``via="run"``. ``hold_reason``: why to save
     it though it breaks rules that hold records for review (ADR 0127). Without one, such a
-    save is refused with :class:`checking.Held`.
+    save is refused with :class:`checking.Held`. ``amount``: how much there is of it, for a
+    type with one (ADR 0139).
     """
+    from iki_server.amounts import services as amounts
+
+    if amount is not None and amounts.spec(type_name) is None:
+        raise amounts.Wrong({"amount": [f"{type_name} has no amount."]})
+    given_amount = amounts.Given.of(amount) if amount is not None else None
     form, given, holding = prepare(
         user,
         type_name,
@@ -258,6 +265,9 @@ def create(
         saved = _create(user, form, project, values, given, reason, by_run)
         if holding and not saved.reused and saved.revision is not None:
             _hold(saved, holding, user, hold_reason, saved.revision.number)
+        if given_amount is not None and not saved.reused:
+            record = Entity.objects.get(pk=saved.entity.pk)
+            amounts.record(user, record, given_amount, reason=reason)
         return saved
 
 

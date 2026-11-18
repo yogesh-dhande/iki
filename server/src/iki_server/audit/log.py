@@ -146,6 +146,7 @@ ACTIONS: dict[str, str] = {
     "request.submitted": "Sent a request to another project's service",
     "request.received": "A request came from another project",
     "request.result_released": "Released a request's result back to the project that asked",
+    "entity.amount_moved": "Drew, transferred, split or adjusted a record's amount",
     "signature.requested": "Started signing a record, and was sent to sign in again",
     "signature.signed": "Signed a record electronically",
     "signature.failed": "Tried to sign a record, and it didn't sign",

@@ -207,7 +207,8 @@ def test_rows_references_are_edges_of_the_graph(world: World) -> None:
         {"name": "BS-1", "components": components(heavy, light, linker)},
         BISPECIFIC,
     ).json()
-    edges = Edge.objects.filter(node_id=made["id"], kind="reference")
+    # Its components are its identity's, so its registry entry's (ADR 0138).
+    edges = Edge.objects.filter(node_id=made["entry"]["id"], kind="reference")
     assert sorted((e.field, e.position) for e in edges) == [
         ("components.part", 0),
         ("components.part", 1),

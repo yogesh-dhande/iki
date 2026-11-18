@@ -58,6 +58,12 @@ def test_the_plugin_is_valid() -> None:
         "released": [("approval", "QA release")],
         "rejected": [("responsibility", "QA rejection")],
     }
+    # A sample's volume is drawn by protein mass too, and split into aliquots (ADR 0139).
+    amount = sample.amount
+    assert amount is not None
+    assert (amount.unit, amount.concentration) == ("uL", "concentration")
+    assert (amount.aliquots, amount.aliquots_of) == ("iki/example_lims.Aliquot", "sample")
+    assert [n for n, st in status.items() if st.holds_amount] == ["registered", "rejected"]
     # A donor's withdrawn consent holds everything derived from them (ADR 0123).
     hold = result.plugin.triggers["hold_withdrawn_consent"]
     assert (hold.on, hold.state_field, hold.states, hold.input) == (

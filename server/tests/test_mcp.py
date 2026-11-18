@@ -165,6 +165,11 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "list_services",
         "submit_request",
         "get_request",
+        "get_amount_movements",
+        "draw_amount",
+        "transfer_amount",
+        "adjust_amount",
+        "split_into_aliquots",
         "describe_apps",
         "check_app",
         "create_app",
@@ -199,6 +204,10 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "set_entity_archived",
         "set_entity_state",
         "submit_request",
+        "draw_amount",
+        "transfer_amount",
+        "adjust_amount",
+        "split_into_aliquots",
         "run_action",
         "run_batch",
         "cancel_run",
@@ -712,6 +721,54 @@ async def test_agents_find_what_rules_hold_and_why(world: World) -> None:
         )
     )
     assert "#/where/value" in wrong and "purity_in_specification" in wrong
+
+
+async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
+    world: World,
+) -> None:
+    """ADR 0139: an agent's draws and splits are in the ledger, by the person, through it."""
+    token = await token_for(world)
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={"label": "S-1"},
+            amount={"value": "100", "unit": "uL"},
+        )
+    )
+    assert made["amount"]["value"] == "100"
+    ref = made["hrid"]
+    drawn = data(
+        await tool(token, "draw_amount", ref=ref, amount={"value": 10, "unit": "uL"}, reason="SEC")
+    )
+    assert drawn["amount"]["value"] == "90"
+    split = data(
+        await tool(
+            token,
+            "split_into_aliquots",
+            ref=ref,
+            count=2,
+            each={"value": 20, "unit": "uL"},
+            values=[{"label": "S-1.1"}, {"label": "S-1.2"}],
+            reason="For the assays",
+        )
+    )
+    assert [a["type"] for a in split["aliquots"]] == ["acme/protein.Sample"] * 2
+    too_much = error(
+        await tool(token, "draw_amount", ref=ref, amount={"value": 1, "unit": "mL"}, reason="More")
+    )
+    assert "(422" in too_much and "is more than" in too_much
+    ledger = data(await tool(token, "get_amount_movements", ref=ref))["items"]
+    assert [(m["kind"], m["balance"]) for m in ledger] == [
+        ("aliquoted", "50"),
+        ("drawn", "90"),
+        ("recorded", "100"),
+    ]
+    assert {m["via"] for m in ledger} == {"mcp"}
+    assert ledger[1]["user"]["email"] == world.users["editor"].email
+    assert ledger[1]["agent"] is not None
 
 
 async def test_agents_set_records_states(world: World) -> None:
