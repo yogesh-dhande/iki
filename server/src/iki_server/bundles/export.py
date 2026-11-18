@@ -36,6 +36,7 @@ from iki_server.org.permissions import Action, can
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
+    ApiCall,
     EntityMaking,
     ExternalOrigin,
     Job,
@@ -649,7 +650,7 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
     going = set(found.entities)
     runs = (
         ActionRun.objects.filter(pk__in=ids)
-        .select_related("batch", "workflow", "reused_from", "reproduces", "approval")
+        .select_related("batch", "workflow", "reused_from", "reproduces", "approval", "consent")
         .order_by("created_at", "id")
     )
     inputs: dict[uuid.UUID, list[dict[str, Any]]] = {}
@@ -748,6 +749,31 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "log": log,
             }
         )
+    # What its outside APIs said they were and answered (ADR 0130): only runs that called any.
+    calls: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for a in ApiCall.objects.filter(run_id__in=ids).order_by("id"):
+        calls.setdefault(a.run_id, []).append(
+            {
+                "job": str(a.job_id),
+                "kind": a.kind,
+                "api": a.api,
+                "host": a.host,
+                "method": a.method,
+                "path": a.path,
+                "status": a.status,
+                "error": a.error,
+                "started_at": a.started_at.isoformat(),
+                "duration_ms": a.duration_ms,
+                "request_bytes": a.request_bytes,
+                "response_bytes": a.response_bytes,
+                "request_sha256": a.request_sha256,
+                "response_sha256": a.response_sha256,
+                "model": a.model,
+                "version": a.version,
+                "parameters": a.parameters,
+                "usage": a.usage,
+            }
+        )
     outputs = {o.run_id: o for o in RunOutput.objects.filter(run_id__in=ids)}
     return [
         _run(
@@ -758,6 +784,7 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
             lineage=lineage.get(run.pk, []),
             origins=origins.get(run.pk, []),
             **({"made_with": made_with[run.pk]} if run.pk in made_with else {}),
+            **({"api_calls": calls[run.pk]} if run.pk in calls else {}),
             attempts=attempts.get(run.pk, []),
             output=outputs.get(run.pk),
         )
@@ -770,6 +797,21 @@ def _run(
 ) -> dict[str, Any]:
     approval = run.approval
     workflow = run.workflow
+    consent = run.consent
+    agreed = (
+        {
+            "consent": {
+                "given_by": _json(consent.given_by_id),
+                "via": consent.via,
+                "client": consent.client,
+                "agent": _json(consent.agent_id),
+                "statements": consent.statements,
+                "given_at": consent.given_at.isoformat(),
+            }
+        }
+        if consent is not None
+        else {}
+    )
     return {
         "id": str(run.pk),
         "hrid": run.hrid,
@@ -820,6 +862,7 @@ def _run(
             if approval is not None
             else None
         ),
+        **agreed,
         **parts,
         "output": (
             {

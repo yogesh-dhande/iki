@@ -44,7 +44,14 @@ EXPECTED: dict[str, tuple[set[Action], set[Action], set[Action]]] = {
     "outsider": (set(), set(), set()),
     "team_member": (set(), {A.TEAM_VIEW, A.PROJECT_CREATE}, set()),
     "org_admin": (
-        {A.ORG_MANAGE, A.TEAM_CREATE, A.COSTS_READ, A.ORG_WEBHOOKS_MANAGE, A.REGISTRIES_MANAGE},
+        {
+            A.ORG_MANAGE,
+            A.TEAM_CREATE,
+            A.COSTS_READ,
+            A.ORG_WEBHOOKS_MANAGE,
+            A.REGISTRIES_MANAGE,
+            A.OUTSIDE_APIS_MANAGE,
+        },
         {A.TEAM_VIEW, A.TEAM_MANAGE},
         {A.PROJECT_SEE, A.PROJECT_MEMBERS_MANAGE},
     ),

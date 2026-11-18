@@ -35,6 +35,7 @@ import {
 } from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
+import { consentFor, SendsOutside, useSending } from "../outside-apis";
 import {
   actionsQuery,
   actionsTakingQuery,
@@ -356,6 +357,8 @@ function RunForm({
   }));
   const [reason, setReason] = useState("");
   const [labels, setLabels] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const sending = useSending(project.id, action.apis);
   const selfHosted = action.tier === "self_hosted";
   const batch = each?.cardinality === "one" && entities.length > 1;
   const tooMany = each?.cardinality === "many" && each.max !== null && entities.length > each.max;
@@ -369,6 +372,7 @@ function RunForm({
         reuse: true,
         add_to_project: body.addToProject,
         labels: selfHosted ? parseLabels(labels) : [],
+        consent: agreed ? consentFor(action.apis) : [],
       };
       if (batch) {
         const made = unwrap(
@@ -438,6 +442,9 @@ function RunForm({
       else errors[key] = encoded.error;
     }
     if (tooMany) errors[`inputs/${each.name}`] = `This input takes at most ${String(each.max)}.`;
+    if (action.apis.length && !agreed) {
+      errors["consent"] = "Agree to send this data, or don’t start the run.";
+    }
     if (!form.validate(errors)) return;
     start({ inputs, params: values, addToProject: false });
   }
@@ -525,9 +532,15 @@ function RunForm({
         {makes.length ? <li>It makes new {makes.join(", ")}.</li> : null}
         {action.network.length ? (
           <li>It can reach {action.network.join(", ")} on the internet.</li>
-        ) : (
+        ) : action.apis.length ? null : (
           <li>It can’t reach the internet.</li>
         )}
+        {action.apis.some((a) => a.priced) ? (
+          <li>Its calls to outside APIs cost money, counted with the run’s cost.</li>
+        ) : null}
+        {action.apis.some((a) => a.parks) ? (
+          <li>While an outside API works on it, it waits without holding a machine.</li>
+        ) : null}
         {action.secrets.some((secret) => secret.set) ? (
           <li>
             It gets{" "}
@@ -601,8 +614,22 @@ function RunForm({
         multiline
         help="Why, for the record. It’s kept with the run, and with what it changes."
       />
+      <SendsOutside
+        projectName={project.name}
+        statements={action.apis}
+        missing={sending.unapproved}
+        agreed={agreed}
+        onAgree={setAgreed}
+        error={form.errors["consent"]}
+      />
       <div className="actions">
-        <Button type="submit" variant="primary" busy={launch.isPending} busyText="Starting…">
+        <Button
+          type="submit"
+          variant="primary"
+          busy={launch.isPending}
+          busyText="Starting…"
+          disabled={sending.blocked}
+        >
           {batch ? `Start ${String(entities.length)} runs` : "Start run"}
         </Button>
         <Link

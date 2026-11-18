@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: Action
+name: predict_hosted
+label: Predict a structure with FoldCloud
+inputs:
+  protein: { type: Protein }
+params:
+  recycles: { type: int, default: 3, min: 1, max: 20 }
+effects:
+  creates: [{ type: ProteinStructure, cardinality: one, derived_from: [protein] }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/hosted.py]
+apis:
+  fold:
+    sends:
+      inputs: { protein: [sequence] }
+      params: [recycles]
+timeout: 10m

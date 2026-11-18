@@ -62,6 +62,9 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     imported: null,
     can: { cancel: true, reproduce: false, run_again: false },
     cost: null,
+    apis: [],
+    consent: null,
+    park: null,
     ...overrides,
   };
 }
@@ -94,6 +97,7 @@ export function approval(
     note: "",
     runs: [{ id: RUN_ID, hrid: "RUN-000001" }],
     can: { decide: true },
+    consent: [],
     ...overrides,
   };
 }
@@ -204,6 +208,7 @@ export const ACTION = {
   unavailable_reason: null,
   needs: "editor",
   estimate: null,
+  apis: [],
 } satisfies Schemas["ActionOut"];
 
 /** iki/protein.weigh_twice: no inputs to choose here, only the pH, and an approval. */
@@ -242,6 +247,7 @@ export const WORKFLOW = {
   tiers: ["backend"],
   available: true,
   unavailable_reason: null,
+  apis: [],
 } satisfies Schemas["WorkflowOut"];
 
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";

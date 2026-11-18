@@ -101,6 +101,7 @@ mod tests {
             updates: None,
             creates: None,
             creates_file: None,
+            park: None,
             metrics: Some([("score".to_owned(), 0.9)].into()),
             messages: None,
         };

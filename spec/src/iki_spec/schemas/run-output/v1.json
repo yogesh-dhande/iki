@@ -6,6 +6,20 @@
   "type": "object",
   "required": ["apiVersion", "kind"],
   "not": { "required": ["creates", "creates_file"] },
+  "allOf": [
+    {
+      "if": { "required": ["park"] },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["creates"] },
+            { "required": ["creates_file"] },
+            { "required": ["updates"] }
+          ]
+        }
+      }
+    }
+  ],
   "additionalProperties": false,
   "$defs": {
     "origin": {
@@ -204,6 +218,24 @@
           "description": "The file's ID, once the worker has uploaded it."
         }
       ]
+    },
+    "park": {
+      "type": "object",
+      "description": "Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.",
+      "required": ["api", "job"],
+      "additionalProperties": false,
+      "properties": {
+        "api": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "job": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]{0,199}$",
+          "description": "The API's ID for the job."
+        },
+        "state": {
+          "type": "object",
+          "description": "Up to 64 KiB of JSON the command wants back when it resumes, such as which entity the job is for."
+        }
+      }
     },
     "metrics": {
       "type": "object",

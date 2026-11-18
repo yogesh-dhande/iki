@@ -845,7 +845,7 @@ describe("a run's page", () => {
       await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Audit");
       await user.click(within(dialog).getByRole("button", { name: "Reproduce" }));
       expect(await screen.findByText("Started RUN-000002, reproducing RUN-000001.")).toBeVisible();
-      expect(calls("POST").at(-1)?.body).toEqual({ reason: "Audit" });
+      expect(calls("POST").at(-1)?.body).toEqual({ reason: "Audit", consent: [] });
       expect(screen.getByText(/^Reproduces/)).toHaveTextContent(
         /When it ends, it compares its results with those/,
       );

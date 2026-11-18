@@ -178,6 +178,56 @@
         }
       }
     },
+    "apis": {
+      "description": "The plugin's outside APIs its runs call (`apis` in plugin.yaml), by name, each with what a run sends it: people see it before they launch, and consent to it.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 10,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sends"],
+        "properties": {
+          "sends": {
+            "description": "What of a run goes to the API: fields of its inputs' entities, and its params.",
+            "type": "object",
+            "minProperties": 1,
+            "properties": {
+              "inputs": {
+                "description": "Each input's fields that are sent, such as `protein: [sequence]`.",
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                },
+                "additionalProperties": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 200,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                  }
+                }
+              },
+              "params": {
+                "description": "The params that are sent.",
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "timeout": {
       "description": "The longest a run may take before it's stopped. Defaults to 1h; at most 7d.",
       "$ref": "#/$defs/duration"

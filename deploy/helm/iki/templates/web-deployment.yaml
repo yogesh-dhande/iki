@@ -50,7 +50,7 @@ spec:
             - name: IKI_FORWARDED_ALLOW_IPS
               value: {{ .Values.forwardedAllowIps | quote }}
             {{- if .Values.runSecrets.existingSecret }}
-            # Only web pods hold run secrets: they lease jobs, each with its own (ADR 0054).
+            # Web pods hold run secrets to lease jobs, each with its own (ADR 0054).
             - name: IKI_RUN_SECRETS_DIR
               value: /etc/iki/run-secrets
             {{- end }}

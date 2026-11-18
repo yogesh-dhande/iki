@@ -11,3 +11,27 @@ roles:
   analyst: { label: Analyst, description: Measures proteins and records the results. }
   reviewer: { label: Reviewer, description: Checks another analyst's results. }
   qa: { label: QA, description: Releases what was reviewed. }
+apis:
+  fold:
+    label: FoldCloud
+    host: fold.models.example
+    purpose: Predicts protein structures with FoldCloud's hosted models.
+    credential:
+      secret: FOLD_API_KEY
+      description: A key from FoldCloud's console.
+    reports:
+      model: /model
+      version: header:x-model-version
+      parameters: [/recycles]
+      usage: { gpu_seconds: /usage/gpu_seconds }
+    jobs:
+      poll: /v1/predictions/{id}
+      status: /status
+      done: [succeeded]
+      failed: [failed, canceled]
+      message: /error
+      cancel: /v1/predictions/{id}/cancel
+      every: 30s
+      timeout: 1d
+      usage: { gpu_seconds: /usage/gpu_seconds }
+      webhook: { signature: standard-webhooks, secret: FOLD_WEBHOOK_SECRET }

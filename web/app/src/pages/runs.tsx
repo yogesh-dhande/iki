@@ -19,6 +19,7 @@ import { iki, meQuery, problemOf, projectsQuery, useApiMutation } from "../api";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
   actionsQuery,
@@ -58,6 +59,7 @@ import {
   useNow,
 } from "../ui";
 import { useProject } from "./project-overview";
+import { ParkedNote, RunOutsideApis } from "./run-outside-apis";
 
 export const VIA: Record<string, string> = {
   web: "in the web app",
@@ -374,18 +376,32 @@ function reproducible(run: Run): { id: string; hrid: string } {
   return run.reused_from ?? run.reproduces ?? { id: run.id, hrid: run.hrid };
 }
 
+/** What reproducing `run` sends outside Iki: what was agreed to for it, else where it went. */
+function sends(run: Run): Statement[] {
+  if (run.consent?.statements.length) return run.consent.statements;
+  return run.apis.map((a) => ({
+    ...a,
+    inputs: {},
+    params: [],
+    statement: `This sends your data to ${a.label} (${a.host}). ${a.purpose}`,
+  }));
+}
+
 function ReproduceRun({ run }: { run: Run }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [unagreed, setUnagreed] = useState(false);
   const { say } = useMessages();
   const navigate = useNavigate();
   const original = reproducible(run);
+  const statements = sends(run);
   const reproduce = useApiMutation(
     async () =>
       unwrap(
         await iki.POST("/api/v1/runs/{ref}/reproduce", {
           params: { path: { ref: original.id } },
-          body: { reason: reason.trim() },
+          body: { reason: reason.trim(), consent: agreed ? consentFor(statements) : [] },
         }),
       ),
     [RUNS],
@@ -394,6 +410,8 @@ function ReproduceRun({ run }: { run: Run }) {
   const close = () => {
     setAsking(false);
     setReason("");
+    setAgreed(false);
+    setUnagreed(false);
     reproduce.reset();
   };
   return (
@@ -414,6 +432,10 @@ function ReproduceRun({ run }: { run: Run }) {
         problem={reproduce.error ? problemOf(reproduce.error) : undefined}
         onCancel={close}
         onConfirm={() => {
+          if (statements.length && !agreed) {
+            setUnagreed(true);
+            return;
+          }
           reproduce.mutate(undefined, {
             onSuccess: (made) => {
               close();
@@ -437,6 +459,17 @@ function ReproduceRun({ run }: { run: Run }) {
           optional
           multiline
           help="Why, for the record. It’s kept with the run."
+        />
+        <SendsOutside
+          projectName="its project"
+          statements={statements}
+          missing={[]}
+          agreed={agreed}
+          onAgree={(value) => {
+            setAgreed(value);
+            setUnagreed(false);
+          }}
+          error={unagreed ? "Agree to send this data again, or don’t reproduce it." : undefined}
         />
       </ConfirmDialog>
     </div>
@@ -613,6 +646,11 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
   };
   const count = approval.runs.length;
   const these = count > 1 ? `these ${String(count)} runs` : "this run";
+  const consent = approval.consent;
+  const who = approval.trigger ? "a trigger" : "an AI agent";
+  const why = consent.length
+    ? `${count > 1 ? "They send" : "It sends"} data outside Iki, to ${destinations(consent)}, which ${who} can’t agree to for anyone`
+    : `${count > 1 ? "They run" : "It runs"} on the ${run.tier} tier, which ${who} can’t start by itself`;
   return (
     <section className="alert alert-warning" aria-labelledby="approval-title">
       <h2 className="alert-title" id="approval-title">
@@ -620,9 +658,7 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
       </h2>
       <p>
         {asker(approval)} asked to start {these} for {approval.requested_by.name}{" "}
-        <RelativeTime value={approval.created_at} />. {count > 1 ? "They run" : "It runs"} on the{" "}
-        {run.tier} tier, which {approval.trigger ? "a trigger" : "an AI agent"} can’t start by
-        itself, so{" "}
+        <RelativeTime value={approval.created_at} />. {why}, so{" "}
         {approval.can.decide
           ? `${count > 1 ? "they wait" : "it waits"} for you.`
           : `${count > 1 ? "they wait" : "it waits"} for ${approval.decider.name} to approve ${count > 1 ? "them" : "it"} in Iki.`}{" "}
@@ -644,6 +680,19 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
             ))}
           {others > 5 ? ` and ${String(others - 5)} more` : ""}.
         </p>
+      ) : null}
+      {consent.length ? (
+        <>
+          <p>
+            {approval.can.decide ? "Approving agrees, for you," : "Approving agrees"} to what{" "}
+            {count > 1 ? "they send" : "it sends"}:
+          </p>
+          <ul>
+            {consent.map((s) => (
+              <li key={`${s.step ?? ""}:${s.api}`}>{s.statement}</li>
+            ))}
+          </ul>
+        </>
       ) : null}
       {approve.error ? <ProblemAlert problem={problemOf(approve.error)} /> : null}
       {approval.can.decide ? (
@@ -1225,6 +1274,7 @@ export function RunPage() {
         </div>
       ) : null}
       {run.needs_worker ? <NeedsWorker why={run.needs_worker} labels={run.labels} /> : null}
+      <ParkedNote run={run} />
       {run.reused ? <ReusedNote run={run} /> : null}
       {run.reproduces || run.reproduction ? <ReproductionNote run={run} /> : null}
       {run.error ? (
@@ -1291,6 +1341,8 @@ export function RunPage() {
       ) : null}
 
       {artifacts.length ? <RunArtifacts runRef={run.hrid} artifacts={artifacts} /> : null}
+
+      <RunOutsideApis run={run} />
 
       <section aria-labelledby="attempts-title">
         <h2 className="section-title" id="attempts-title">
@@ -1551,10 +1603,16 @@ function RunCost({ cost }: { cost: NonNullable<Run["cost"]> }) {
       </>
     );
   }
+  const apis = cost.apis ?? 0;
   return (
     <>
       {money(cost.amount, cost.currency)}
-      {cost.final ? "" : " so far"} <span className="muted">for {time} of machine time</span>
+      {cost.final ? "" : " so far"}{" "}
+      <span className="muted">
+        {apis
+          ? `: ${money(apis, cost.currency)} for outside APIs’ calls, and the rest for ${time} of machine time`
+          : `for ${time} of machine time`}
+      </span>
     </>
   );
 }

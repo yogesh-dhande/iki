@@ -2609,6 +2609,22 @@ input[type="file"]::file-selector-button {
   margin-top: 0.25rem;
 }
 
+/* What a launch sends to outside APIs (ADR 0130), and the box to agree to it. */
+.sends-outside {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.sends-outside-statements {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.sends-outside-statements li + li {
+  margin-top: 0.25rem;
+}
+
 /* The Costs page's month: the one shown, between the one before and the one after. */
 .month-stepper {
   display: flex;

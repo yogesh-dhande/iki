@@ -107,23 +107,36 @@ SETTING_HOST = re.compile(r"\{settings\.([a-z][a-z0-9_]*)\}")
 
 
 def with_hosts(plugin: Plugin, values: Mapping[str, Any]) -> Plugin:
-    """`plugin` with each ``{settings.<name>}`` in its actions' ``network`` replaced by the
-    host the deployment set. One left unset is dropped: its runs reach nothing there."""
+    """`plugin` with each ``{settings.<name>}`` in its actions' ``network``, and as an outside
+    API's ``host`` (ADR 0130), replaced by the host the deployment set. A network entry left
+    unset is dropped: its runs reach nothing there. An API left unset has no host, and its
+    actions can't run until the deployment sets one."""
+
+    def host(entry: str) -> str:
+        match = SETTING_HOST.fullmatch(entry)
+        found = values.get(match.group(1)) if match else entry
+        return found if isinstance(found, str) else ""
 
     def hosts(network: tuple[str, ...]) -> tuple[str, ...]:
         out: list[str] = []
         for entry in network:
-            match = SETTING_HOST.fullmatch(entry)
-            host = values.get(match.group(1)) if match else entry
-            if isinstance(host, str) and host and host not in out:
-                out.append(host)
+            found = host(entry)
+            if found and found not in out:
+                out.append(found)
         return tuple(out)
 
+    apis = {
+        name: dataclasses.replace(api, host=host(api.host)) for name, api in plugin.apis.items()
+    }
     actions = {
-        name: dataclasses.replace(action, network=hosts(action.network))
+        name: dataclasses.replace(
+            action,
+            network=hosts(action.network),
+            apis=tuple(dataclasses.replace(u, api=apis.get(u.name)) for u in action.apis),
+        )
         for name, action in plugin.actions.items()
     }
-    return dataclasses.replace(plugin, actions=actions)
+    return dataclasses.replace(plugin, actions=actions, apis=apis)
 
 
 def _components(plugin: Plugin, source: Path | None, package: Path) -> None:

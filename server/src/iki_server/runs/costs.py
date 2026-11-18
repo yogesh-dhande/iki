@@ -138,7 +138,8 @@ def _record(
 
 def _count(record: CostRecord) -> None:
     labels = {"template": record.template, "tier": record.tier, "kind": record.kind}
-    machine_time.add(float(record.seconds), labels)
+    if record.kind != CostKind.API:
+        machine_time.add(float(record.seconds), labels)
     if record.amount is not None:
         spend.add(float(record.amount), {**labels, "currency": record.currency})
 
@@ -211,9 +212,10 @@ def _going(job: Job, now: datetime) -> tuple[Launch, datetime] | None:
 
 
 def of_run(run: ActionRun) -> dict[str, Any] | None:
-    """What the run has cost: recorded, and so far on machines still up. None for a run on a
-    tier without per-run costs."""
-    if run.tier not in PRICED_TIERS:
+    """What the run has cost: recorded, and so far on machines still up, with what its calls
+    to outside APIs cost (ADR 0130). None for a run on a tier without per-run costs that
+    calls no outside API."""
+    if run.tier not in PRICED_TIERS and not run.spec.get("apis"):
         return None
     now = timezone.now()
     recorded = run.costs.aggregate(amount=Sum("amount"), seconds=Sum("seconds"))
@@ -236,11 +238,15 @@ def of_run(run: ActionRun) -> dict[str, Any] | None:
         if costs is not None:
             amount += costs.of(part)
             currency = currency or costs.currency
+    apis = run.costs.filter(kind=CostKind.API).aggregate(amount=Sum("amount"))["amount"]
+    if run.status == RunStatus.PARKED:
+        final = False
     return {
         "amount": float(amount.quantize(Decimal("0.0001"))),
         "currency": currency or None,
         "seconds": float(seconds),
         "final": final,
+        "apis": float(apis.quantize(Decimal("0.0001"))) if apis is not None else None,
     }
 
 
@@ -289,7 +295,11 @@ GROUPS = {
     "template": ("template", "template"),
     "action": ("action", "action"),
     "tier": ("tier", "tier"),
+    "api": ("api", "api"),
 }
+#: What records without a group are, by what's grouped: machines' records have no API,
+#: and outside APIs' calls no template.
+_UNGROUPED = {"template": "Outside APIs", "api": "Machines"}
 
 
 def between(since: datetime, until: datetime) -> QuerySet[CostRecord]:
@@ -316,14 +326,16 @@ def summary(records: QuerySet[CostRecord], by: str) -> dict[str, Any]:
         .annotate(
             amount=Sum("amount"),
             seconds=Sum("seconds"),
-            runs=Count("run", distinct=True, filter=Q(kind=CostKind.RUN)),
+            runs=Count("run", distinct=True, filter=Q(kind__in=[CostKind.RUN, CostKind.API])),
         )
         .order_by(F("amount").desc(nulls_last=True), label)
     )
     groups = [
         {
             "key": str(row[key]) if row[key] is not None else None,
-            "label": row[label] if row[key] is not None else "Idle machines",
+            "label": (row[label] or _UNGROUPED.get(by, ""))
+            if row[key] is not None
+            else "Idle machines",
             "currency": row["currency"] or None,
             "amount": float(row["amount"] or 0),
             "seconds": float(row["seconds"]),

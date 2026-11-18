@@ -21,6 +21,7 @@ import {
 } from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
+import { consentFor, SendsOutside, useSending } from "../outside-apis";
 import {
   actionsQuery,
   projectWorkflowRunsQuery,
@@ -330,6 +331,8 @@ function WorkflowForm({
     ),
   }));
   const [reason, setReason] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const sending = useSending(project.id, workflow.apis);
   const launch = useApiMutation(
     async (body: Start) =>
       unwrap(
@@ -341,6 +344,7 @@ function WorkflowForm({
             params: body.params,
             reason: reason.trim(),
             add_to_project: body.addToProject,
+            consent: agreed ? consentFor(workflow.apis) : [],
           },
         }),
       ),
@@ -377,6 +381,9 @@ function WorkflowForm({
       const encoded = encode(param, draft, params);
       if (encoded.ok) values[param.name] = encoded.value;
       else errors[key] = encoded.error;
+    }
+    if (workflow.apis.length && !agreed) {
+      errors["consent"] = "Agree to send this data, or don’t start the workflow.";
     }
     if (!form.validate(errors)) return;
     start({ inputs, params: values, addToProject: false });
@@ -461,8 +468,22 @@ function WorkflowForm({
         multiline
         help="Why, for the record. It’s kept with the workflow and each of its runs."
       />
+      <SendsOutside
+        projectName={project.name}
+        statements={workflow.apis}
+        missing={sending.unapproved}
+        agreed={agreed}
+        onAgree={setAgreed}
+        error={form.errors["consent"]}
+      />
       <div className="actions">
-        <Button type="submit" variant="primary" busy={launch.isPending} busyText="Starting…">
+        <Button
+          type="submit"
+          variant="primary"
+          busy={launch.isPending}
+          busyText="Starting…"
+          disabled={sending.blocked}
+        >
           Start workflow
         </Button>
         <Link

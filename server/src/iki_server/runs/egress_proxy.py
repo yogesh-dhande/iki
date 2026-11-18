@@ -16,7 +16,9 @@ lease token as credentials. For each ``CONNECT host:443`` the proxy:
 - keeps, with the attempt, each host reached or refused, with connections and bytes.
 
 Plain HTTP is refused: everything a run fetches is encrypted end to end, and the proxy
-never sees it.
+never sees it. The exception is a host that's an outside API of the attempt's action (ADR
+0130): there the proxy is the endpoint, and calls the API with its key
+(:mod:`iki_server.runs.api_gateway`). It also polls the jobs runs parked on.
 """
 
 import asyncio
@@ -39,7 +41,7 @@ from django.conf import settings
 from django.db import close_old_connections
 
 from iki_server.core import addresses
-from iki_server.runs import egress
+from iki_server.runs import api_gateway, egress
 
 logger = structlog.get_logger("iki.egress")
 
@@ -181,6 +183,8 @@ class Tunnel:
     port: int
     #: Whether `job_id` is a setup build's (ADR 0075).
     setup: bool = False
+    #: For an outside API's host: the API's name in its plugin (ADR 0130).
+    api: str = ""
     sent: int = 0
     received: int = 0
     active_at: float = field(default_factory=time.monotonic)
@@ -219,8 +223,11 @@ class Proxy:
         upstream: str = "",
         networks: list[addresses.Network] | None = None,
         resolve: Callable[[str, int], Awaitable[list[tuple[str, int]]]] | None = None,
+        gateway: api_gateway.Gateway | None = None,
     ) -> None:
         self.upstream = urlsplit(upstream) if upstream else None
+        #: Its key for outside APIs, if it has one (ADR 0130).
+        self.gateway = gateway
         self.networks = list(networks or ())
         self._resolve = resolve or self._getaddrinfo
         self.open: Counter[uuid.UUID] = Counter()
@@ -270,9 +277,8 @@ class Proxy:
             await self._refuse(writer, refusal)
             return
         assert decision.job_id is not None  # noqa: S101 - an allowed decision names it
-        await self._tunnel(
-            reader, writer, Tunnel(decision.job_id, host, port, setup=decision.setup), authorization
-        )
+        tunnel = Tunnel(decision.job_id, host, port, setup=decision.setup, api=decision.api)
+        await self._tunnel(reader, writer, tunnel, authorization)
 
     async def _refuse(
         self, writer: asyncio.StreamWriter, refusal: Refused, tunnel: Tunnel | None = None
@@ -311,6 +317,16 @@ class Proxy:
         self.open[tunnel.job_id] += 1
         remote: asyncio.StreamWriter | None = None
         try:
+            if tunnel.api:
+                if self.gateway is None:
+                    why = (
+                        f"{tunnel.host} is an outside API, and this proxy has no gateway key to "
+                        "call it with. An Iki administrator can set egressProxy.gatewayKey."
+                    )
+                    await self._refuse(writer, Refused(502, why), tunnel)
+                    return
+                await self.gateway.serve(self, reader, writer, tunnel, tunnel.api)
+                return
             try:
                 remote_reader, remote = await self._connect(tunnel.host, tunnel.port)
             except Refused as refusal:
@@ -392,6 +408,18 @@ class Proxy:
             if not held:
                 return
 
+    async def refuse(
+        self, writer: asyncio.StreamWriter, refusal: Refused, tunnel: Tunnel | None = None
+    ) -> None:
+        await self._refuse(writer, refusal, tunnel)
+
+    async def connect(
+        self, host: str, port: int
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """A connection to `host`, at an address runs may reach, or through the upstream
+        proxy. Raises :class:`Refused` why not."""
+        return await self._connect(host, port)
+
     # --- Reaching the host ----------------------------------------------------------------
 
     async def _getaddrinfo(self, host: str, port: int) -> list[tuple[str, int]]:
@@ -467,12 +495,22 @@ class Proxy:
     ) -> None:
         server = await asyncio.start_server(self.handle, host, port, limit=HEAD_LIMIT)
         bound = server.sockets[0].getsockname()[1]
-        logger.info("egress.listening", host=host, port=bound)
+        logger.info("egress.listening", host=host, port=bound, gateway=self.gateway is not None)
+        background: list[asyncio.Task[None]] = []
+        if self.gateway is not None:
+            # Outside APIs (ADR 0130): say it has its key, and poll parked runs' jobs.
+            background = [
+                asyncio.create_task(self.gateway.register(stop)),
+                asyncio.create_task(self.gateway.poll(self, stop)),
+            ]
         if ready is not None:
             ready(bound)
         async with server:
             await stop.wait()
             server.close()
+            for task in background:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.wait_for(task, grace)
             if self.tunnels:
                 logger.info("egress.draining", tunnels=len(self.tunnels))
                 _, pending = await asyncio.wait(set(self.tunnels), timeout=grace)
@@ -503,6 +541,7 @@ def run(host: str, port: int, *, grace: float) -> None:
     proxy = Proxy(
         upstream=settings.IKI_EGRESS_UPSTREAM_PROXY,
         networks=settings.IKI_EGRESS_ALLOWED_NETWORKS,
+        gateway=api_gateway.load(settings.IKI_EGRESS_GATEWAY_KEY_FILE),
     )
 
     async def main() -> None:

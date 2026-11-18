@@ -50,6 +50,7 @@ from iki_server.runs import (
     reuse,
     workers,
 )
+from iki_server.runs import outside as sends
 from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
@@ -58,6 +59,7 @@ from iki_server.runs.models import (
     HRID_PREFIX,
     HRID_SEQUENCE,
     ActionRun,
+    ApiConsent,
     Job,
     JobState,
     RunApproval,
@@ -67,7 +69,7 @@ from iki_server.runs.models import (
     RunStatus,
     WorkflowRun,
 )
-from iki_spec.model import Action, Workflow
+from iki_spec.model import Action, Workflow, action_from_dict
 from iki_spec.validate import value_problems
 
 __all__ = [
@@ -178,11 +180,14 @@ def launch(
     workflow: WorkflowRun | None = None,
     workflow_step: str = "",
     labels: Sequence[str] = (),
+    consent: Sequence[str] = (),
 ) -> ActionRun:
     """Queue a run of `action` in `project`, or raise why it can't run. For a deterministic
     action, an identical earlier run's results are reused instead, unless `reuse_results`
     is off (ADR 0057). `add_to_project` links inputs from other projects into it first.
-    A workflow's step names its `workflow` run and `workflow_step` (ADR 0079).
+    A workflow's step names its `workflow` run and `workflow_step` (ADR 0079). An action
+    that sends data to outside APIs needs them approved in the project, and `consent`
+    naming each (ADR 0130).
 
     Raises :class:`PermissionDenied` if the caller can't run the action's tier in the project,
     :class:`Refused` if it can't run here now, :class:`Invalid` for inputs and params, and
@@ -201,6 +206,7 @@ def launch(
         raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
+    sends.check_approved(project, action)
     with transaction.atomic():
         link_into_project(user, project, outside)
         made = _made(
@@ -210,6 +216,7 @@ def launch(
         if made.original is not None:
             return _reuse(user, action, project, entities, values, reason, made, step=step)
         budgets.check_launch(project, action)
+        agreed = _consent(user, action, project, consent, workflow)
         approval = approvals.ask(user, action, project)
         run = _queue(
             user,
@@ -222,6 +229,7 @@ def launch(
             made=made,
             step=step,
             labels=wanted,
+            consent=agreed,
         )
         if approval is not None:
             approvals.announce(
@@ -245,6 +253,7 @@ def launch_each(
     workflow: WorkflowRun | None = None,
     workflow_step: str = "",
     labels: Sequence[str] = (),
+    consent: Sequence[str] = (),
 ) -> list[ActionRun]:
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
@@ -281,6 +290,7 @@ def launch_each(
         raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
+    sends.check_approved(project, action)
     chosen = entities.pop(each)
     with transaction.atomic():
         link_into_project(user, project, outside)
@@ -297,8 +307,10 @@ def launch_each(
             for position, e in enumerate(chosen)
         ]
         to_run = sum(1 for m in made if m.original is None)
+        agreed = None
         if to_run:
             budgets.check_launch(project, action, to_run)
+            agreed = _consent(user, action, project, consent, workflow)
         # One request, one approval: a batch is approved or declined together. Runs that
         # reuse results run nothing, so they need none.
         approval = approvals.ask(user, action, project, runs=to_run) if to_run else None
@@ -340,6 +352,7 @@ def launch_each(
                 made=m,
                 step=step,
                 labels=wanted,
+                consent=agreed,
             )
             for entity, m in zip(chosen, made, strict=True)
         ]
@@ -358,6 +371,29 @@ def launch_each(
                 path=f"/batches/{batch.hrid}/",
             )
         return runs
+
+
+def _consent(
+    user: User,
+    action: Action,
+    project: Project,
+    agreed: Sequence[str],
+    workflow: WorkflowRun | None,
+) -> ApiConsent | None:
+    """The consent a launch gives for what its action sends to outside APIs (ADR 0130), or
+    raises :class:`outside.ConsentRequired`. A run that waits for its person's approval
+    gets theirs when they approve it: an agent doesn't consent for them."""
+    given = sends.statements(action)
+    if not given or approvals.needed(action):
+        return None
+    return sends.consent(
+        user,
+        project,
+        action.qualified_name,
+        given,
+        agreed,
+        covered_by=workflow.consent if workflow is not None else None,
+    )
 
 
 def input_taking(action: Action, types: Sequence[str]) -> str | None:
@@ -415,6 +451,7 @@ def _queue(
     copy_of: ActionRun | None = None,
     step: tuple[WorkflowRun, str] | None = None,
     labels: Sequence[str] = (),
+    consent: ApiConsent | None = None,
 ) -> ActionRun:
     """Queues the run, or holds it for `approval`. Call inside a transaction, with its
     inputs and params checked. A reproduction is a `copy_of` the run it reproduces: its
@@ -427,6 +464,7 @@ def _queue(
     run = ActionRun.objects.create(
         status=RunStatus.AWAITING_APPROVAL if approval else RunStatus.QUEUED,
         approval=approval,
+        consent=consent,
         client=audit.current_oauth_client(),
         agent=audit.current_agent(),
         hrid=_next_hrid(),
@@ -489,6 +527,7 @@ def _queue(
         resources=asdict(environment.resources.at_least(action.resources)),
         lifecycle=action.lifecycle or "",
         state=JobState.AWAITING_APPROVAL if approval else JobState.QUEUED,
+        outside=bool(run.spec.get("apis")),
     )
     if approval is None:
         queue.notify(action.tier)
@@ -588,7 +627,9 @@ def _seed() -> int:
     return secrets.randbelow(2**31)
 
 
-def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
+def reproduce(
+    user: User, run: ActionRun, *, reason: str = "", consent: Sequence[str] = ()
+) -> ActionRun:
     """Queue a run that reproduces `run` exactly (ADR 0057): the same plugin commit, action
     as launched, params, plugin settings, inputs at the revisions it read, and seed. It
     writes nothing; when it ends, it says whether its results are the same.
@@ -636,8 +677,12 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             f"{listed} {verb} in {original.project.name} any more, so this run can't be "
             "reproduced there: a run reads only what's in its project."
         )
+    # It sends what the original sent, where it sent it: approved, and agreed to again.
+    launched = action_from_dict(original.spec)
+    sends.check_approved(original.project, launched)
     with transaction.atomic():
         budgets.check_launch(original.project, action)
+        agreed = _consent(user, launched, original.project, consent, None)
         approval = approvals.ask(user, action, original.project)
         reproduction = _queue(
             user,
@@ -649,6 +694,7 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             approval,
             made=_Made(original.plugin_sha, dict(original.plugin_settings), "", None, []),
             copy_of=original,
+            consent=agreed,
         )
         if approval is not None:
             approvals.announce(
@@ -855,8 +901,13 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             return run
         now = timezone.now()
         data = {"reason": reason} if reason else {}
-        if job is None or job.state in (JobState.QUEUED, JobState.AWAITING_APPROVAL):
-            if job is not None:
+        if job is None or job.state in (
+            JobState.QUEUED,
+            JobState.AWAITING_APPROVAL,
+            JobState.PARKED,
+        ):
+            # A parked attempt stays as it ended: it parked.
+            if job is not None and job.state != JobState.PARKED:
                 job.state = JobState.CANCELLED
                 job.finished_at = now
                 job.save(update_fields=["state", "finished_at"])
@@ -875,6 +926,8 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             audit.record("run.cancelled", actor=user, target=run, project=run.project, data=data)
             # Queued again after an interruption, it may have saved progress (ADR 0069).
             endings.ended(run)
+            # Parked on an outside API's job: the API is asked to cancel it (ADR 0130).
+            sends.cancel_parked(run)
             if run.approval_id is not None:
                 approvals.settle(
                     RunApproval.objects.select_for_update().get(pk=run.approval_id), user

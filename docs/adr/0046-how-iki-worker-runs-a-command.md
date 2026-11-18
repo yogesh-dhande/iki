@@ -37,6 +37,8 @@ locale and certificate settings, those directories (`IKI_INPUT`,
 `IKI_OUTPUT`, `IKI_OUT_DIR`), and the run's ID and attempt. For an action
 that declares hosts, it also holds `HTTPS_PROXY`, the egress proxy with the
 attempt's credentials (ADR 0053), and the secrets it declares (ADR 0054).
+For one that calls outside APIs, each one's address (`IKI_API_<NAME>_URL`)
+and certificate settings that trust the attempt's own CA (ADR 0130).
 Nothing of the worker's own, so the command never sees its token.
 
 **The command runs in a process group of its own.** Stopping it sends

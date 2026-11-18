@@ -16,12 +16,36 @@ from __future__ import annotations
 from typing import Any, Literal, NotRequired, TypedDict
 
 
+class ActionApiOut(TypedDict):
+    #: The API, by qualified name, such as `iki/protein.fold`.
+    api: str
+    #: Where the data goes. Empty while the deployment hasn't set it.
+    host: str
+    #: Each input, with the fields sent.
+    inputs: dict[str, list[str]]
+    label: str
+    #: The params sent.
+    params: list[str]
+    #: It runs jobs a run can wait on without holding a worker (`jobs`).
+    parks: bool
+    #: This deployment prices its calls, so runs are costly: budgets hold them, and an agent's wait for approval (ADR 0130).
+    priced: bool
+    #: What it's sent for, as the plugin says.
+    purpose: str
+    #: What the person launching is told, and agrees to: "This sends your data to …".
+    statement: str
+    #: For a workflow: the step that sends it.
+    step: NotRequired[str | None]
+
+
 class ActionFilters(TypedDict):
     #: Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.
     takes: NotRequired[list[str]]
 
 
 class ActionOut(TypedDict):
+    #: The outside APIs its runs send data to (ADR 0130), with what each sends. Launching needs each approved in the project by an Org Admin, and `consent` naming each.
+    apis: list[ActionApiOut]
     #: Whether it can run on this deployment.
     available: bool
     #: Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one.
@@ -103,6 +127,84 @@ class AlignmentViewerOut(TypedDict):
     rows: str | None
     #: `alignment`: aligned sequences, a row each.
     viewer: Literal['alignment']
+
+
+class ApiActionOut(TypedDict):
+    action: str
+    label: str
+    #: What people launching it are told is sent.
+    statement: str
+
+
+class ApiApprovalIn(TypedDict):
+    #: Why, for the record.
+    note: NotRequired[str]
+    project: str
+
+
+class ApiApprovalOut(TypedDict):
+    approved_at: str
+    approved_by: PersonRef
+    #: Whether it still counts: the API names the host and purpose approved. Once it names others, it must be approved again.
+    current: bool
+    #: The host approved.
+    host: str
+    note: str
+    project: str
+    project_name: str
+    #: The purpose approved.
+    purpose: str
+
+
+class ApiCallOut(TypedDict):
+    api: str
+    #: The attempt it was made for.
+    attempt: int
+    #: At this deployment's price; null without one.
+    cost: float | None
+    currency: str | None
+    duration_ms: int
+    error: str
+    host: str
+    id: int
+    #: A call its command made, or the egress proxy's poll of, or cancel of, a parked job.
+    kind: Literal['call', 'poll', 'cancel']
+    method: str
+    #: The model the answer said answered, if the plugin says where.
+    model: str
+    #: The request's declared parameters.
+    parameters: dict[str, Any]
+    #: Without the query, which may hold data.
+    path: str
+    request_bytes: int
+    #: Of the request's body, as sent.
+    request_sha256: str
+    response_bytes: int
+    #: Of the answer's body, as the API sent it.
+    response_sha256: str
+    started_at: str
+    #: What the API answered; null when it didn't.
+    status: int | None
+    #: What the answer said it used, as declared.
+    usage: dict[str, Any]
+    version: str
+
+
+class ApiCredentialOut(TypedDict):
+    description: str
+    #: The header the egress proxy sends it in.
+    header: str
+    #: Where administrators set it: its key in the run secrets.
+    key: str
+    #: Whether this deployment has set it. Its value is never shown.
+    set: bool
+
+
+class ApiPriceOut(TypedDict):
+    currency: str
+    per_call: float | None
+    #: The price of each unit of usage it reports.
+    usage: dict[str, float]
 
 
 class AppCheckIn(TypedDict):
@@ -579,6 +681,36 @@ class ConditionOut(TypedDict):
     operator: Literal['is', 'is_not', 'in', 'at_least', 'at_most', 'above', 'below']
     #: What's compared: `$params.<name>`, or `$steps.<id>.metrics.<name>`, a number that step's run reported.
     value: str
+
+
+class ConsentOut(TypedDict):
+    #: The agent that asked, when the person agreed by approving its request.
+    agent: AgentOut | None
+    given_at: str
+    given_by: PersonRef
+    id: str
+    #: What they agreed to, as shown.
+    statements: list[ConsentStatementOut]
+    #: How: in the web app, through the API, or approving an agent.
+    via: str
+
+
+class ConsentStatementOut(TypedDict):
+    #: The API, by qualified name, such as `iki/protein.fold`.
+    api: str
+    #: Where the data goes. Empty while the deployment hasn't set it.
+    host: str
+    #: Each input, with the fields sent.
+    inputs: dict[str, list[str]]
+    label: str
+    #: The params sent.
+    params: list[str]
+    #: What it's sent for, as the plugin says.
+    purpose: str
+    #: What the person launching is told, and agrees to: "This sends your data to …".
+    statement: str
+    #: For a workflow: the step that sends it.
+    step: NotRequired[str | None]
 
 
 class ContentUrlOut(TypedDict):
@@ -1589,7 +1721,7 @@ class InventoryOut(TypedDict):
     project: ProjectRef
 
 
-JobState = Literal['awaiting_approval', 'queued', 'leased', 'staging', 'running', 'uploading', 'committing', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'interrupted']
+JobState = Literal['awaiting_approval', 'queued', 'leased', 'staging', 'running', 'uploading', 'committing', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'interrupted', 'parked']
 
 
 class KindOut(TypedDict):
@@ -1907,7 +2039,7 @@ class NotificationRecordOut(TypedDict):
 
 
 class OrgParams(TypedDict):
-    by: NotRequired[Literal['project', 'team', 'template', 'action', 'tier']]
+    by: NotRequired[Literal['project', 'team', 'template', 'action', 'tier', 'api']]
     #: The first day, in UTC. The first of this month unless given.
     since: NotRequired[str | None]
     #: The day after the last, in UTC. The first of next month unless given.
@@ -1957,6 +2089,27 @@ class OutputErrorOut(TypedDict):
     pointer: str
 
 
+class OutsideApiOut(TypedDict):
+    #: The actions that call it.
+    actions: list[ApiActionOut]
+    #: By qualified name, such as `iki/protein.fold`.
+    api: str
+    #: The projects it's approved for, that you can see.
+    approvals: list[ApiApprovalOut]
+    credential: ApiCredentialOut | None
+    #: Empty while the deployment hasn't set it.
+    host: str
+    #: Runs can park on its jobs, polled without a worker.
+    jobs: bool
+    label: str
+    plugin: str
+    #: This deployment's price for its calls.
+    price: ApiPriceOut | None
+    purpose: str
+    #: It calls back when a job is done, signed.
+    webhook: bool
+
+
 class OutsideRef(TypedDict):
     #: Whether an entity with its ID is here.
     here: bool
@@ -1982,6 +2135,12 @@ class OverviewOut(TypedDict):
     machines: list[MachinesOut]
     queues: list[QueueOut]
     workers: list[WorkersOut]
+
+
+class PageApiCallOut(TypedDict):
+    items: list[ApiCallOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
 
 
 class PageBatchOut(TypedDict):
@@ -2236,6 +2395,25 @@ class ParamOut(TypedDict):
     unit_symbol: str | None
     #: Enums: the allowed values.
     values: list[str]
+
+
+class ParkOut(TypedDict):
+    #: The API's name in its plugin.
+    api: str
+    #: When it gives up, and asks the API to cancel.
+    deadline: str
+    ended_at: str | None
+    #: The API's ID for the job.
+    job: str
+    last_polled_at: str | None
+    message: str
+    #: Null once the wait has ended.
+    next_poll_at: str | None
+    outcome: Literal['', 'done', 'failed', 'timed_out', 'cancelled', 'ended']
+    parked_at: str
+    polls: int
+    #: The job's state, as the API last said it.
+    status: str
 
 
 class PartOut(TypedDict):
@@ -2719,6 +2897,8 @@ class RelatedOut(TypedDict):
 
 
 class ReproduceIn(TypedDict):
+    #: For a run that sent data to outside APIs: each API, agreeing to send it again (ADR 0130).
+    consent: NotRequired[list[str]]
     #: Why, for the record.
     reason: NotRequired[str]
 
@@ -2734,6 +2914,8 @@ class ReproductionOut(TypedDict):
 
 
 class RerunIn(TypedDict):
+    #: For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.
+    consent: NotRequired[list[str]]
     #: Why, for the record.
     reason: NotRequired[str]
 
@@ -2835,12 +3017,22 @@ RuleOut = TypedDict(
 )
 
 
+class RunApiOut(TypedDict):
+    #: By qualified name, such as `iki/protein.fold`.
+    api: str
+    host: str
+    label: str
+    purpose: str
+
+
 class RunApprovalOut(TypedDict):
     #: The agent that asked, acting for requested_by, if one did (ADR 0072).
     agent: AgentOut | None
     can: ApprovalCan
     #: The app that asked, such as an AI agent's MCP client.
     client: str
+    #: What its runs send to outside APIs (ADR 0130). Approving is agreeing to it: the consent is the decider's, with the agent beside it.
+    consent: list[ConsentStatementOut]
     created_at: str
     decided_at: str | None
     decided_by: PersonRef | None
@@ -2920,6 +3112,8 @@ class RunAttemptOut(TypedDict):
 class RunBatchIn(TypedDict):
     #: A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
     add_to_project: NotRequired[bool]
+    #: For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says every run sends (ADR 0130).
+    consent: NotRequired[list[str]]
     #: The input each run takes one of `entities` for.
     each: str
     #: One run for each, in this order: at most 1000.
@@ -2954,6 +3148,8 @@ class RunCan(TypedDict):
 class RunCostOut(TypedDict):
     #: What it has cost so far, at its templates' prices.
     amount: float
+    #: What its calls to outside APIs cost, of `amount`; null for none.
+    apis: NotRequired[float | None]
     #: Null while nothing it ran on has a price.
     currency: str | None
     #: It's ended and so have its machines: nothing more will be added.
@@ -3010,6 +3206,8 @@ class RunImportedOut(TypedDict):
 class RunIn(TypedDict):
     #: A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
     add_to_project: NotRequired[bool]
+    #: For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says is sent (ADR 0130). Without it, the launch is refused with 409 `consent_required`, which gives the statements.
+    consent: NotRequired[list[str]]
     #: Entity IDs for each input: one, or a list for inputs that take many.
     inputs: NotRequired[dict[str, str | list[str]]]
     #: For a self-hosted action: labels the machine must have, besides the ones the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They only narrow which machines take it.
@@ -3050,6 +3248,8 @@ class RunOut(TypedDict):
     action: str
     #: The agent that asked for it, acting for requested_by, if one did (ADR 0072).
     agent: AgentOut | None
+    #: The outside APIs its action sends data to, as they were when it was launched (ADR 0130). `GET /runs/{ref}/api-calls` lists each call.
+    apis: list[RunApiOut]
     #: When an agent asked for it on a tier that needs approval: the request.
     approval: RunApprovalOut | None
     attempts: int
@@ -3059,7 +3259,9 @@ class RunOut(TypedDict):
     cancel_requested_at: str | None
     #: The OAuth app it was asked for through, if any.
     client: str
-    #: On the container and VM tiers: what the machines it ran on cost (ADR 0070). Null on tiers whose machines run anyway.
+    #: For a run that sends data to outside APIs: who agreed to it, and to what.
+    consent: ConsentOut | None
+    #: On the container and VM tiers: what the machines it ran on cost (ADR 0070), with its calls to outside APIs (ADR 0130). Null on tiers whose machines run anyway, for a run that calls none.
     cost: RunCostOut | None
     created_at: str
     #: How many entities it created, updated and reused.
@@ -3089,6 +3291,8 @@ class RunOut(TypedDict):
     #: The hosts it may reach, as its action declared them when it was launched.
     network: list[str]
     params: dict[str, Any]
+    #: When it waited, or waits, on an outside API's job: the last wait.
+    park: ParkOut | None
     #: The plugin's commit, when built from a lockfile.
     plugin_sha: str
     plugin_version: str
@@ -3108,7 +3312,7 @@ class RunOut(TypedDict):
     #: The plugin's settings, as the deployment set them when it was launched.
     settings: dict[str, Any]
     started_at: str | None
-    status: Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
+    status: Literal['awaiting_approval', 'queued', 'running', 'parked', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
     tier: Literal['self_hosted', 'backend', 'container', 'vm']
     #: The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080).
     trigger: TriggerFiredOut | None
@@ -3125,7 +3329,7 @@ class RunRefOut(TypedDict):
     id: str
 
 
-RunStatus = Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
+RunStatus = Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined', 'parked']
 
 
 class RunningOut(TypedDict):
@@ -4266,6 +4470,8 @@ class WorkflowInputOut(TypedDict):
 
 
 class WorkflowOut(TypedDict):
+    #: What its steps send to outside APIs, by step (ADR 0130). Starting it needs `consent` naming each API, for all of them.
+    apis: list[ConsentStatementOut]
     #: Whether every step's action can run on this deployment.
     available: bool
     description: str | None
@@ -4306,6 +4512,8 @@ class WorkflowRunFilters(TypedDict):
 class WorkflowRunIn(TypedDict):
     #: Its steps read only what's in its project (ADR 0066). Set true to add inputs from other projects to it first; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
     add_to_project: NotRequired[bool]
+    #: For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.
+    consent: NotRequired[list[str]]
     #: Entity IDs for each input: one, or a list for inputs that take many.
     inputs: NotRequired[dict[str, str | list[str]]]
     params: NotRequired[dict[str, Any]]
@@ -4410,4 +4618,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'KindOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RuleOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeNotificationOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'KindOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeNotificationOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

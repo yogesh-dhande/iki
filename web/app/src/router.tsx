@@ -15,6 +15,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 
 import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
+import { outsideApisQuery } from "./outside-apis";
 import { Layout } from "./layout";
 import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
@@ -50,6 +51,7 @@ import {
 const entityPages = () => import("./pages/entity");
 const typePages = () => import("./pages/types");
 const webhookPages = () => import("./pages/webhooks");
+const outsideApiPages = () => import("./pages/outside-apis");
 const OrgCosts = lazyRouteComponent(() => import("./pages/costs"), "OrgCosts");
 const ComputeVolumes = lazyRouteComponent(() => import("./pages/volumes"), "ComputeVolumes");
 const ComputeWorkersPage = lazyRouteComponent(
@@ -104,6 +106,7 @@ const EntryPage = lazyRouteComponent(registryPages, "EntryPage");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
+const OutsideApisSettings = lazyRouteComponent(outsideApiPages, "OutsideApisSettings");
 const OrgWebhook = lazyRouteComponent(webhookPages, "OrgWebhook");
 const ProjectWebhooks = lazyRouteComponent(webhookPages, "ProjectWebhooks");
 const ProjectWebhook = lazyRouteComponent(webhookPages, "ProjectWebhook");
@@ -488,6 +491,13 @@ const orgWebhookRoute = createRoute({
   component: OrgWebhook,
 });
 
+const outsideApisRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "outside-apis",
+  loader: ({ context }) => context.queryClient.query(outsideApisQuery),
+  component: OutsideApisSettings,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
@@ -534,7 +544,10 @@ const routeTree = rootRoute.addChildren([
   batchRoute,
 
   workflowRunRoute,
-  settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
+  settingsRoute.addChildren([
+    orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute]),
+    outsideApisRoute,
+  ]),
 ]);
 
 /** The app's router; tests pass a memory history. */

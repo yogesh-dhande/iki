@@ -1,6 +1,88 @@
 {
   "components": {
     "schemas": {
+      "ActionApiOut": {
+        "properties": {
+          "api": {
+            "description": "The API, by qualified name, such as `iki/protein.fold`.",
+            "title": "Api",
+            "type": "string"
+          },
+          "host": {
+            "description": "Where the data goes. Empty while the deployment hasn't set it.",
+            "title": "Host",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each input, with the fields sent.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "params": {
+            "description": "The params sent.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "parks": {
+            "description": "It runs jobs a run can wait on without holding a worker (`jobs`).",
+            "title": "Parks",
+            "type": "boolean"
+          },
+          "priced": {
+            "description": "This deployment prices its calls, so runs are costly: budgets hold them, and an agent's wait for approval (ADR 0130).",
+            "title": "Priced",
+            "type": "boolean"
+          },
+          "purpose": {
+            "description": "What it's sent for, as the plugin says.",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "statement": {
+            "description": "What the person launching is told, and agrees to: \"This sends your data to …\".",
+            "title": "Statement",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a workflow: the step that sends it.",
+            "title": "Step"
+          }
+        },
+        "required": [
+          "api",
+          "label",
+          "host",
+          "purpose",
+          "inputs",
+          "params",
+          "statement",
+          "priced",
+          "parks"
+        ],
+        "title": "ActionApiOut",
+        "type": "object"
+      },
       "ActionFilters": {
         "properties": {
           "takes": {
@@ -17,6 +99,14 @@
       },
       "ActionOut": {
         "properties": {
+          "apis": {
+            "description": "The outside APIs its runs send data to (ADR 0130), with what each sends. Launching needs each approved in the project by an Org Admin, and `consent` naming each.",
+            "items": {
+              "$ref": "#/components/schemas/ActionApiOut"
+            },
+            "title": "Apis",
+            "type": "array"
+          },
           "available": {
             "description": "Whether it can run on this deployment.",
             "title": "Available",
@@ -185,6 +275,7 @@
           "deterministic",
           "network",
           "secrets",
+          "apis",
           "timeout",
           "batchable",
           "available",
@@ -377,6 +468,320 @@
           "reference"
         ],
         "title": "AlignmentViewerOut",
+        "type": "object"
+      },
+      "ApiActionOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "statement": {
+            "description": "What people launching it are told is sent.",
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "label",
+          "statement"
+        ],
+        "title": "ApiActionOut",
+        "type": "object"
+      },
+      "ApiApprovalIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "title": "ApiApprovalIn",
+        "type": "object"
+      },
+      "ApiApprovalOut": {
+        "properties": {
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "current": {
+            "description": "Whether it still counts: the API names the host and purpose approved. Once it names others, it must be approved again.",
+            "title": "Current",
+            "type": "boolean"
+          },
+          "host": {
+            "description": "The host approved.",
+            "title": "Host",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "The purpose approved.",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "project_name",
+          "host",
+          "purpose",
+          "note",
+          "approved_by",
+          "approved_at",
+          "current"
+        ],
+        "title": "ApiApprovalOut",
+        "type": "object"
+      },
+      "ApiCallOut": {
+        "properties": {
+          "api": {
+            "title": "Api",
+            "type": "string"
+          },
+          "attempt": {
+            "description": "The attempt it was made for.",
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At this deployment's price; null without one.",
+            "title": "Cost"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "A call its command made, or the egress proxy's poll of, or cancel of, a parked job.",
+            "enum": [
+              "call",
+              "poll",
+              "cancel"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "model": {
+            "description": "The model the answer said answered, if the plugin says where.",
+            "title": "Model",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "description": "The request's declared parameters.",
+            "title": "Parameters",
+            "type": "object"
+          },
+          "path": {
+            "description": "Without the query, which may hold data.",
+            "title": "Path",
+            "type": "string"
+          },
+          "request_bytes": {
+            "title": "Request Bytes",
+            "type": "integer"
+          },
+          "request_sha256": {
+            "description": "Of the request's body, as sent.",
+            "title": "Request Sha256",
+            "type": "string"
+          },
+          "response_bytes": {
+            "title": "Response Bytes",
+            "type": "integer"
+          },
+          "response_sha256": {
+            "description": "Of the answer's body, as the API sent it.",
+            "title": "Response Sha256",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the API answered; null when it didn't.",
+            "title": "Status"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "description": "What the answer said it used, as declared.",
+            "title": "Usage",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "api",
+          "host",
+          "method",
+          "path",
+          "status",
+          "error",
+          "attempt",
+          "started_at",
+          "duration_ms",
+          "request_bytes",
+          "response_bytes",
+          "request_sha256",
+          "response_sha256",
+          "model",
+          "version",
+          "parameters",
+          "usage",
+          "cost",
+          "currency"
+        ],
+        "title": "ApiCallOut",
+        "type": "object"
+      },
+      "ApiCredentialOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "header": {
+            "description": "The header the egress proxy sends it in.",
+            "title": "Header",
+            "type": "string"
+          },
+          "key": {
+            "description": "Where administrators set it: its key in the run secrets.",
+            "title": "Key",
+            "type": "string"
+          },
+          "set": {
+            "description": "Whether this deployment has set it. Its value is never shown.",
+            "title": "Set",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "set",
+          "header",
+          "description"
+        ],
+        "title": "ApiCredentialOut",
+        "type": "object"
+      },
+      "ApiPriceOut": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "per_call": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Call"
+          },
+          "usage": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "The price of each unit of usage it reports.",
+            "title": "Usage",
+            "type": "object"
+          }
+        },
+        "required": [
+          "per_call",
+          "usage",
+          "currency"
+        ],
+        "title": "ApiPriceOut",
         "type": "object"
       },
       "AppCheckIn": {
@@ -2343,6 +2748,127 @@
           "operand"
         ],
         "title": "ConditionOut",
+        "type": "object"
+      },
+      "ConsentOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that asked, when the person agreed by approving its request."
+          },
+          "given_at": {
+            "format": "date-time",
+            "title": "Given At",
+            "type": "string"
+          },
+          "given_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "statements": {
+            "description": "What they agreed to, as shown.",
+            "items": {
+              "$ref": "#/components/schemas/ConsentStatementOut"
+            },
+            "title": "Statements",
+            "type": "array"
+          },
+          "via": {
+            "description": "How: in the web app, through the API, or approving an agent.",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "given_by",
+          "given_at",
+          "via",
+          "agent",
+          "statements"
+        ],
+        "title": "ConsentOut",
+        "type": "object"
+      },
+      "ConsentStatementOut": {
+        "properties": {
+          "api": {
+            "description": "The API, by qualified name, such as `iki/protein.fold`.",
+            "title": "Api",
+            "type": "string"
+          },
+          "host": {
+            "description": "Where the data goes. Empty while the deployment hasn't set it.",
+            "title": "Host",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each input, with the fields sent.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "params": {
+            "description": "The params sent.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "purpose": {
+            "description": "What it's sent for, as the plugin says.",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "statement": {
+            "description": "What the person launching is told, and agrees to: \"This sends your data to …\".",
+            "title": "Statement",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a workflow: the step that sends it.",
+            "title": "Step"
+          }
+        },
+        "required": [
+          "api",
+          "label",
+          "host",
+          "purpose",
+          "inputs",
+          "params",
+          "statement"
+        ],
+        "title": "ConsentStatementOut",
         "type": "object"
       },
       "ContentUrlOut": {
@@ -6866,7 +7392,8 @@
           "cancelled",
           "timed_out",
           "rejected",
-          "interrupted"
+          "interrupted",
+          "parked"
         ],
         "title": "JobState",
         "type": "string"
@@ -8178,7 +8705,8 @@
               "team",
               "template",
               "action",
-              "tier"
+              "tier",
+              "api"
             ],
             "title": "By",
             "type": "string"
@@ -8400,6 +8928,94 @@
         "title": "OutputErrorOut",
         "type": "object"
       },
+      "OutsideApiOut": {
+        "properties": {
+          "actions": {
+            "description": "The actions that call it.",
+            "items": {
+              "$ref": "#/components/schemas/ApiActionOut"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "api": {
+            "description": "By qualified name, such as `iki/protein.fold`.",
+            "title": "Api",
+            "type": "string"
+          },
+          "approvals": {
+            "description": "The projects it's approved for, that you can see.",
+            "items": {
+              "$ref": "#/components/schemas/ApiApprovalOut"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiCredentialOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "description": "Empty while the deployment hasn't set it.",
+            "title": "Host",
+            "type": "string"
+          },
+          "jobs": {
+            "description": "Runs can park on its jobs, polled without a worker.",
+            "title": "Jobs",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApiPriceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This deployment's price for its calls."
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "webhook": {
+            "description": "It calls back when a job is done, signed.",
+            "title": "Webhook",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "api",
+          "plugin",
+          "label",
+          "host",
+          "purpose",
+          "credential",
+          "jobs",
+          "webhook",
+          "price",
+          "actions",
+          "approvals"
+        ],
+        "title": "OutsideApiOut",
+        "type": "object"
+      },
       "OutsideRef": {
         "properties": {
           "here": {
@@ -8548,6 +9164,35 @@
           }
         },
         "title": "PageParams",
+        "type": "object"
+      },
+      "Page_ApiCallOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApiCallOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ApiCallOut]",
         "type": "object"
       },
       "Page_BatchOut_": {
@@ -9807,6 +10452,108 @@
           "pattern"
         ],
         "title": "ParamOut",
+        "type": "object"
+      },
+      "ParkOut": {
+        "properties": {
+          "api": {
+            "description": "The API's name in its plugin.",
+            "title": "Api",
+            "type": "string"
+          },
+          "deadline": {
+            "description": "When it gives up, and asks the API to cancel.",
+            "format": "date-time",
+            "title": "Deadline",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "job": {
+            "description": "The API's ID for the job.",
+            "title": "Job",
+            "type": "string"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "next_poll_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null once the wait has ended.",
+            "title": "Next Poll At"
+          },
+          "outcome": {
+            "enum": [
+              "",
+              "done",
+              "failed",
+              "timed_out",
+              "cancelled",
+              "ended"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "parked_at": {
+            "format": "date-time",
+            "title": "Parked At",
+            "type": "string"
+          },
+          "polls": {
+            "title": "Polls",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The job's state, as the API last said it.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api",
+          "job",
+          "status",
+          "parked_at",
+          "polls",
+          "last_polled_at",
+          "next_poll_at",
+          "deadline",
+          "ended_at",
+          "outcome",
+          "message"
+        ],
+        "title": "ParkOut",
         "type": "object"
       },
       "PartOut": {
@@ -12049,6 +12796,15 @@
       },
       "ReproduceIn": {
         "properties": {
+          "consent": {
+            "description": "For a run that sent data to outside APIs: each API, agreeing to send it again (ADR 0130).",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Consent",
+            "type": "array"
+          },
           "reason": {
             "default": "",
             "description": "Why, for the record.",
@@ -12095,6 +12851,15 @@
       },
       "RerunIn": {
         "properties": {
+          "consent": {
+            "description": "For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Consent",
+            "type": "array"
+          },
           "reason": {
             "default": "",
             "description": "Why, for the record.",
@@ -12590,6 +13355,35 @@
         "title": "RuleOut",
         "type": "object"
       },
+      "RunApiOut": {
+        "properties": {
+          "api": {
+            "description": "By qualified name, such as `iki/protein.fold`.",
+            "title": "Api",
+            "type": "string"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api",
+          "label",
+          "host",
+          "purpose"
+        ],
+        "title": "RunApiOut",
+        "type": "object"
+      },
       "RunApprovalOut": {
         "properties": {
           "agent": {
@@ -12610,6 +13404,14 @@
             "description": "The app that asked, such as an AI agent's MCP client.",
             "title": "Client",
             "type": "string"
+          },
+          "consent": {
+            "description": "What its runs send to outside APIs (ADR 0130). Approving is agreeing to it: the consent is the decider's, with the agent beside it.",
+            "items": {
+              "$ref": "#/components/schemas/ConsentStatementOut"
+            },
+            "title": "Consent",
+            "type": "array"
           },
           "created_at": {
             "format": "date-time",
@@ -12705,6 +13507,7 @@
           "decided_at",
           "note",
           "runs",
+          "consent",
           "can"
         ],
         "title": "RunApprovalOut",
@@ -12999,6 +13802,15 @@
             "title": "Add To Project",
             "type": "boolean"
           },
+          "consent": {
+            "description": "For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says every run sends (ADR 0130).",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Consent",
+            "type": "array"
+          },
           "each": {
             "description": "The input each run takes one of `entities` for.",
             "title": "Each",
@@ -13129,6 +13941,18 @@
             "description": "What it has cost so far, at its templates' prices.",
             "title": "Amount",
             "type": "number"
+          },
+          "apis": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its calls to outside APIs cost, of `amount`; null for none.",
+            "title": "Apis"
           },
           "currency": {
             "anyOf": [
@@ -13383,6 +14207,15 @@
             "title": "Add To Project",
             "type": "boolean"
           },
+          "consent": {
+            "description": "For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says is sent (ADR 0130). Without it, the launch is refused with 409 `consent_required`, which gives the statements.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Consent",
+            "type": "array"
+          },
           "inputs": {
             "additionalProperties": {
               "anyOf": [
@@ -13539,6 +14372,14 @@
             ],
             "description": "The agent that asked for it, acting for requested_by, if one did (ADR 0072)."
           },
+          "apis": {
+            "description": "The outside APIs its action sends data to, as they were when it was launched (ADR 0130). `GET /runs/{ref}/api-calls` lists each call.",
+            "items": {
+              "$ref": "#/components/schemas/RunApiOut"
+            },
+            "title": "Apis",
+            "type": "array"
+          },
           "approval": {
             "anyOf": [
               {
@@ -13585,6 +14426,17 @@
             "title": "Client",
             "type": "string"
           },
+          "consent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a run that sends data to outside APIs: who agreed to it, and to what."
+          },
           "cost": {
             "anyOf": [
               {
@@ -13594,7 +14446,7 @@
                 "type": "null"
               }
             ],
-            "description": "On the container and VM tiers: what the machines it ran on cost (ADR 0070). Null on tiers whose machines run anyway."
+            "description": "On the container and VM tiers: what the machines it ran on cost (ADR 0070), with its calls to outside APIs (ADR 0130). Null on tiers whose machines run anyway, for a run that calls none."
           },
           "created_at": {
             "format": "date-time",
@@ -13746,6 +14598,17 @@
             "title": "Params",
             "type": "object"
           },
+          "park": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParkOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it waited, or waits, on an outside API's job: the last wait."
+          },
           "plugin_sha": {
             "description": "The plugin's commit, when built from a lockfile.",
             "title": "Plugin Sha",
@@ -13840,6 +14703,7 @@
               "awaiting_approval",
               "queued",
               "running",
+              "parked",
               "succeeded",
               "failed",
               "cancelled",
@@ -13944,6 +14808,9 @@
           "reproduces",
           "reproduction",
           "cost",
+          "apis",
+          "consent",
+          "park",
           "imported",
           "can"
         ],
@@ -13984,7 +14851,8 @@
           "cancelled",
           "timed_out",
           "rejected",
-          "declined"
+          "declined",
+          "parked"
         ],
         "title": "RunStatus",
         "type": "string"
@@ -19086,6 +19954,14 @@
       },
       "WorkflowOut": {
         "properties": {
+          "apis": {
+            "description": "What its steps send to outside APIs, by step (ADR 0130). Starting it needs `consent` naming each API, for all of them.",
+            "items": {
+              "$ref": "#/components/schemas/ConsentStatementOut"
+            },
+            "title": "Apis",
+            "type": "array"
+          },
           "available": {
             "description": "Whether every step's action can run on this deployment.",
             "title": "Available",
@@ -19180,7 +20056,8 @@
           "steps",
           "tiers",
           "available",
-          "unavailable_reason"
+          "unavailable_reason",
+          "apis"
         ],
         "title": "WorkflowOut",
         "type": "object"
@@ -19280,6 +20157,15 @@
             "description": "Its steps read only what's in its project (ADR 0066). Set true to add inputs from other projects to it first; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.",
             "title": "Add To Project",
             "type": "boolean"
+          },
+          "consent": {
+            "description": "For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Consent",
+            "type": "array"
           },
           "inputs": {
             "additionalProperties": {
@@ -20869,7 +21755,8 @@
                 "team",
                 "template",
                 "action",
-                "tier"
+                "tier",
+                "api"
               ],
               "title": "By",
               "type": "string"
@@ -25922,6 +26809,136 @@
         ]
       }
     },
+    "/api/v1/outside-apis": {
+      "get": {
+        "description": "Every outside API installed plugins call, with where data goes, why, the actions that\nsend it and what each sends, the key's state, the price, and each project's approval.\nOrg Admins see every project's approvals.",
+        "operationId": "iki_server_api_outside_apis_list_outside_apis",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OutsideApiOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outside APIs",
+        "tags": [
+          "Outside APIs"
+        ]
+      }
+    },
+    "/api/v1/outside-apis/{name}/approvals": {
+      "post": {
+        "description": "Lets runs in the project send data to the API, for the host and purpose it names now.\nOnly Org Admins, in the web app. Audited as `outside_api.approved`.",
+        "operationId": "iki_server_api_outside_apis_approve_outside_api",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiApprovalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiApprovalOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Approve an outside API for a project",
+        "tags": [
+          "Outside APIs"
+        ]
+      }
+    },
+    "/api/v1/outside-apis/{name}/approvals/{project_id}": {
+      "delete": {
+        "description": "Runs in the project can no longer send data to the API: launches are refused,\nrunning attempts' next calls too, and parked runs end, their jobs cancelled at the API\nwhere it says how. Audited as `outside_api.revoked`.",
+        "operationId": "iki_server_api_outside_apis_revoke_outside_api",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Revoke an outside API's approval for a project",
+        "tags": [
+          "Outside APIs"
+        ]
+      }
+    },
     "/api/v1/project-roles": {
       "get": {
         "description": "Each role includes everything the roles before it can do.",
@@ -27171,6 +28188,52 @@
         "summary": "Set a grant's lab roles",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/outside-apis": {
+      "get": {
+        "description": "Every installed outside API, with the project's approval if it has one: what its\nmembers see before launching an action that sends data outside.",
+        "operationId": "iki_server_api_outside_apis_list_project_outside_apis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OutsideApiOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outside APIs, and whether each is approved for a project",
+        "tags": [
+          "Outside APIs"
         ]
       }
     },
@@ -28673,6 +29736,79 @@
           }
         ],
         "summary": "A run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/api-calls": {
+      "get": {
+        "description": "Each call the run made to an outside API, and each poll and cancel of a job it parked\non, oldest first, as the egress proxy recorded it (ADR 0130): the provenance of the\nanswers it used.",
+        "operationId": "iki_server_api_runs_list_api_calls",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ApiCallOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A run's calls to outside APIs",
         "tags": [
           "runs"
         ]

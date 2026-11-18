@@ -33,6 +33,7 @@ from iki_server.runs import (
     catalog,
     costs,
     input_files,
+    outside,
     provisioner,
     quotas,
     secrets,
@@ -43,6 +44,8 @@ from iki_server.runs import (
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
+    ApiCall,
+    ApiConsent,
     ApprovalState,
     ImportPhase,
     Job,
@@ -58,12 +61,13 @@ from iki_server.runs.models import (
     RunInclusion,
     RunInput,
     RunOutput,
+    RunPark,
     RunStatus,
     TriggerFiring,
     WorkflowRun,
 )
 from iki_server.runs.services import TIER_PERMISSIONS
-from iki_spec.model import Action
+from iki_spec.model import Action, action_from_dict
 
 router = Router(tags=["runs"])
 
@@ -133,6 +137,29 @@ class EstimateOut(Schema):
     )
 
 
+class ConsentStatementOut(Schema):
+    api: str = Field(description="The API, by qualified name, such as `iki/protein.fold`.")
+    label: str
+    host: str = Field(description="Where the data goes. Empty while the deployment hasn't set it.")
+    purpose: str = Field(description="What it's sent for, as the plugin says.")
+    inputs: dict[str, list[str]] = Field(description="Each input, with the fields sent.")
+    params: list[str] = Field(description="The params sent.")
+    statement: str = Field(
+        description='What the person launching is told, and agrees to: "This sends your data to …".'
+    )
+    step: str | None = Field(None, description="For a workflow: the step that sends it.")
+
+
+class ActionApiOut(ConsentStatementOut):
+    priced: bool = Field(
+        description="This deployment prices its calls, so runs are costly: budgets hold "
+        "them, and an agent's wait for approval (ADR 0130)."
+    )
+    parks: bool = Field(
+        description="It runs jobs a run can wait on without holding a worker (`jobs`)."
+    )
+
+
 class ActionOut(Schema):
     name: str = Field(description="The qualified name, such as `protein.compute_properties`.")
     plugin: str
@@ -158,6 +185,11 @@ class ActionOut(Schema):
     deterministic: bool
     network: list[str] = Field(description="The hosts its runs may reach.")
     secrets: list[ActionSecretOut] = Field(description="The secrets its runs get, by name.")
+    apis: list[ActionApiOut] = Field(
+        description="The outside APIs its runs send data to (ADR 0130), with what each sends. "
+        "Launching needs each approved in the project by an Org Admin, and `consent` naming "
+        "each."
+    )
     timeout: int = Field(description="Seconds each attempt may run.")
     batchable: int = Field(
         description="Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one."
@@ -228,6 +260,16 @@ def _action_out(action: Action) -> dict[str, Any]:
                 "set": secrets.is_set(action.plugin, s.name),
             }
             for s in action.secrets
+        ],
+        "apis": [
+            {
+                **statement,
+                "priced": statement["api"] in catalog.compute().prices,
+                "parks": use.api is not None and use.api.jobs is not None,
+            }
+            for statement, use in zip(
+                outside.statements(action), [u for u in action.apis if u.api], strict=True
+            )
         ],
         "timeout": action.timeout,
         "batchable": action.batchable,
@@ -302,6 +344,13 @@ class RunIn(Schema):
         description="For a self-hosted action: labels the machine must have, besides the ones "
         "the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They "
         "only narrow which machines take it.",
+    )
+    consent: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="For an action that sends data to outside APIs: each API, by qualified "
+        "name, agreeing to what its `statement` says is sent (ADR 0130). Without it, the "
+        "launch is refused with 409 `consent_required`, which gives the statements.",
     )
 
 
@@ -403,6 +452,12 @@ class ReproductionOut(Schema):
 
 class ReproduceIn(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    consent: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="For a run that sent data to outside APIs: each API, agreeing to send it "
+        "again (ADR 0130).",
+    )
 
 
 class ApprovalRunOut(Schema):
@@ -444,6 +499,10 @@ class RunApprovalOut(Schema):
     decided_at: datetime | None
     note: str = Field(description="Why it was declined, if they said.")
     runs: list[ApprovalRunOut] = Field(description="The runs it holds, all decided together.")
+    consent: list[ConsentStatementOut] = Field(
+        description="What its runs send to outside APIs (ADR 0130). Approving is agreeing to "
+        "it: the consent is the decider's, with the agent beside it."
+    )
     can: ApprovalCan
 
 
@@ -480,6 +539,68 @@ class RunCostOut(Schema):
     final: bool = Field(
         description="It's ended and so have its machines: nothing more will be added."
     )
+    apis: float | None = Field(
+        None, description="What its calls to outside APIs cost, of `amount`; null for none."
+    )
+
+
+class RunApiOut(Schema):
+    api: str = Field(description="By qualified name, such as `iki/protein.fold`.")
+    label: str
+    host: str
+    purpose: str
+
+
+class ConsentOut(Schema):
+    id: UUID
+    given_by: PersonRef
+    given_at: datetime
+    via: str = Field(description="How: in the web app, through the API, or approving an agent.")
+    agent: AgentOut | None = Field(
+        description="The agent that asked, when the person agreed by approving its request."
+    )
+    statements: list[ConsentStatementOut] = Field(description="What they agreed to, as shown.")
+
+
+class ParkOut(Schema):
+    api: str = Field(description="The API's name in its plugin.")
+    job: str = Field(alias="external_id", description="The API's ID for the job.")
+    status: str = Field(description="The job's state, as the API last said it.")
+    parked_at: datetime
+    polls: int
+    last_polled_at: datetime | None
+    next_poll_at: datetime | None = Field(description="Null once the wait has ended.")
+    deadline: datetime = Field(description="When it gives up, and asks the API to cancel.")
+    ended_at: datetime | None
+    outcome: Literal["", "done", "failed", "timed_out", "cancelled", "ended"]
+    message: str
+
+
+class ApiCallOut(Schema):
+    id: int
+    kind: Literal["call", "poll", "cancel"] = Field(
+        description="A call its command made, or the egress proxy's poll of, or cancel of, "
+        "a parked job."
+    )
+    api: str
+    host: str
+    method: str
+    path: str = Field(description="Without the query, which may hold data.")
+    status: int | None = Field(description="What the API answered; null when it didn't.")
+    error: str
+    attempt: int = Field(description="The attempt it was made for.")
+    started_at: datetime
+    duration_ms: int
+    request_bytes: int
+    response_bytes: int
+    request_sha256: str = Field(description="Of the request's body, as sent.")
+    response_sha256: str = Field(description="Of the answer's body, as the API sent it.")
+    model: str = Field(description="The model the answer said answered, if the plugin says where.")
+    version: str
+    parameters: dict[str, Any] = Field(description="The request's declared parameters.")
+    usage: dict[str, Any] = Field(description="What the answer said it used, as declared.")
+    cost: float | None = Field(description="At this deployment's price; null without one.")
+    currency: str | None
 
 
 class ImportedApprovalOut(Schema):
@@ -579,6 +700,7 @@ class RunOut(Schema):
         "awaiting_approval",
         "queued",
         "running",
+        "parked",
         "succeeded",
         "failed",
         "cancelled",
@@ -632,7 +754,18 @@ class RunOut(Schema):
     )
     cost: RunCostOut | None = Field(
         description="On the container and VM tiers: what the machines it ran on cost "
-        "(ADR 0070). Null on tiers whose machines run anyway."
+        "(ADR 0070), with its calls to outside APIs (ADR 0130). Null on tiers whose machines "
+        "run anyway, for a run that calls none."
+    )
+    apis: list[RunApiOut] = Field(
+        description="The outside APIs its action sends data to, as they were when it was "
+        "launched (ADR 0130). `GET /runs/{ref}/api-calls` lists each call."
+    )
+    consent: ConsentOut | None = Field(
+        description="For a run that sends data to outside APIs: who agreed to it, and to what."
+    )
+    park: ParkOut | None = Field(
+        description="When it waited, or waits, on an outside API's job: the last wait."
     )
     imported: RunImportedOut | None = Field(
         description="A run imported from another deployment in a bundle (ADR 0096): where it "
@@ -697,6 +830,63 @@ def list_effects(request: HttpRequest, ref: str, filters: Query[EffectFilters]) 
     result = page(found.select_related("entity"), filters)
     result["items"] = [_effect_out(e) for e in result["items"]]
     return result
+
+
+@router.get(
+    "/runs/{ref}/api-calls", response=Page[ApiCallOut], summary="A run's calls to outside APIs"
+)
+def list_api_calls(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
+    """Each call the run made to an outside API, and each poll and cancel of a job it parked
+    on, oldest first, as the egress proxy recorded it (ADR 0130): the provenance of the
+    answers it used."""
+    me = caller(request)
+    run = _find(me, ref)
+    result = page(ApiCall.objects.filter(run=run).select_related("job"), params)
+    result["items"] = [
+        {
+            **{f: getattr(c, f) for f in _CALL_FIELDS},
+            "attempt": c.job.attempt,
+            "cost": float(c.cost) if c.cost is not None else None,
+            "currency": c.currency or None,
+        }
+        for c in result["items"]
+    ]
+    return result
+
+
+_PARK_FIELDS = (
+    "api",
+    "external_id",
+    "status",
+    "parked_at",
+    "polls",
+    "last_polled_at",
+    "deadline",
+    "ended_at",
+    "outcome",
+    "message",
+)
+
+_CALL_FIELDS = (
+    "id",
+    "kind",
+    "api",
+    "host",
+    "method",
+    "path",
+    "status",
+    "error",
+    "started_at",
+    "duration_ms",
+    "request_bytes",
+    "response_bytes",
+    "request_sha256",
+    "response_sha256",
+    "model",
+    "version",
+    "parameters",
+    "usage",
+)
 
 
 def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
@@ -807,6 +997,27 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         ).select_related("trigger__enabled_by")
     }
     projects.update({r.project_id: r.project for r in refs.values()})
+    consents = {
+        c.pk: {
+            "id": c.pk,
+            "given_by": c.given_by,
+            "given_at": c.given_at,
+            "via": c.via,
+            "agent": agent_out(c.agent, c.client),
+            "statements": c.statements,
+        }
+        for c in ApiConsent.objects.filter(
+            pk__in={r.consent_id for r in runs if r.consent_id}
+        ).select_related("given_by", "agent")
+    }
+    parks: dict[Any, dict[str, Any]] = {}
+    for p in RunPark.objects.filter(run__in=[r for r in runs if r.spec.get("apis")]).order_by(
+        "parked_at"
+    ):
+        parks[p.run_id] = {
+            **{f: getattr(p, f) for f in _PARK_FIELDS},
+            "next_poll_at": p.next_poll_at if p.ended_at is None else None,
+        }
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
         for pid, tier in {(r.project_id, r.tier) for r in [*runs, *refs.values()]}
@@ -860,6 +1071,17 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "reproduces": _ref_out(refs.get(run.reproduces_id)),
             "reproduction": run.reproduction,
             "cost": costs.of_run(run),
+            "apis": [
+                {
+                    "api": api.qualified_name,
+                    "label": api.label,
+                    "host": api.host,
+                    "purpose": api.purpose,
+                }
+                for _, api in outside.run_uses(run)
+            ],
+            "consent": consents.get(run.consent_id) if run.consent_id else None,
+            "park": parks.get(run.pk),
             "imported": _imported(me, run, projects[run.project_id]),
             "can": {
                 "cancel": not run.finished
@@ -1010,6 +1232,7 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
             reuse_results=payload.reuse,
             add_to_project=payload.add_to_project,
             labels=payload.labels,
+            consent=payload.consent,
         )
     except Invalid as error:
         raise invalid_problem(error) from None
@@ -1055,6 +1278,12 @@ class RunBatchIn(Schema):
         description="For a self-hosted action, every run: labels the machine must have, "
         "besides the ones the action needs here, such as `lab-3` for one lab's instrument "
         "(ADR 0112). They only narrow which machines take it.",
+    )
+    consent: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="For an action that sends data to outside APIs: each API, by qualified "
+        "name, agreeing to what its `statement` says every run sends (ADR 0130).",
     )
 
 
@@ -1150,6 +1379,7 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
             reuse_results=payload.reuse,
             add_to_project=payload.add_to_project,
             labels=payload.labels,
+            consent=payload.consent,
         )
     except Invalid as error:
         raise invalid_problem(error) from None
@@ -1287,7 +1517,7 @@ def reproduce_run(
     me = caller(request)
     run = _find(me, ref)
     try:
-        made = services.reproduce(me, run, reason=payload.reason)
+        made = services.reproduce(me, run, reason=payload.reason, consent=payload.consent)
     except PermissionDenied:
         raise Problem(403) from None
     response["Location"] = f"/api/v1/runs/{made.pk}"
@@ -1308,12 +1538,17 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
         "requested_by", "decided_by", "agent", "trigger__enabled_by"
     )
     held: dict[Any, list[dict[str, Any]]] = {}
-    for run_id, hrid, approval_id in (
+    sending: dict[Any, list[dict[str, Any]]] = {}
+    for run_id, hrid, approval_id, spec in (
         ActionRun.objects.filter(approval__in=ids)
         .order_by("id")
-        .values_list("pk", "hrid", "approval")
+        .values_list("pk", "hrid", "approval", "spec")
     ):
         held.setdefault(approval_id, []).append({"id": run_id, "hrid": hrid})
+        if approval_id not in sending:
+            sending[approval_id] = (
+                outside.statements(action_from_dict(spec)) if spec.get("apis") else []
+            )
     web = permissions.token_limits(me) is None
     return {
         a.pk: {
@@ -1330,6 +1565,7 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
             "decided_at": a.decided_at,
             "note": a.note,
             "runs": held.get(a.pk, []),
+            "consent": sending.get(a.pk, []),
             "can": {
                 "decide": web
                 and approvals.decider(a).pk == me.pk

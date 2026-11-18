@@ -42,6 +42,7 @@ NAMES = (
     "compute",
     "compute-template",
     "environment-binding",
+    "api-price",
     "run-input",
     "run-output",
     "setup-input",

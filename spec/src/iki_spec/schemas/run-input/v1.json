@@ -96,6 +96,36 @@
           "pattern": "^http://",
           "description": "For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY."
         },
+        "apis": {
+          "type": "object",
+          "required": ["ca", "calls"],
+          "additionalProperties": false,
+          "description": "For an action that calls outside APIs (ADR 0130): the certificate authority made for this attempt alone, which the worker adds to the command's trusted roots so it trusts the egress proxy for those hosts, and each API's address. The proxy adds the API's key to each call; the command never gets it.",
+          "properties": {
+            "ca": { "type": "string", "pattern": "^-----BEGIN CERTIFICATE-----" },
+            "calls": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "url"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,62}$",
+                    "description": "The API's name in its plugin: the command gets its address as IKI_API_<NAME>_URL."
+                  },
+                  "url": { "type": "string", "pattern": "^https://" },
+                  "callback": {
+                    "type": "string",
+                    "pattern": "^https?://",
+                    "description": "For an API that calls back when a job is done: where it calls, for this run. The command gets it as IKI_API_<NAME>_CALLBACK_URL, to give the API."
+                  }
+                }
+              }
+            }
+          }
+        },
         "secrets": {
           "type": "object",
           "description": "The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.",
@@ -174,6 +204,22 @@
       "additionalProperties": {
         "type": "array",
         "items": { "$ref": "#/$defs/entity" }
+      }
+    },
+    "resume": {
+      "type": "object",
+      "description": "When the run parked on an outside API's job and it's done (ADR 0130): the job, what the command saved when it parked, and the poll's last answer. The command picks up from there.",
+      "required": ["api", "job", "state", "status", "answer", "parked_at"],
+      "additionalProperties": false,
+      "properties": {
+        "api": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "job": { "type": "string", "description": "The API's ID for the job." },
+        "state": { "type": "object", "description": "What the command gave under `park.state`." },
+        "status": { "type": "string", "description": "The job's state, as the API said it." },
+        "answer": {
+          "description": "The last poll's answer: its JSON, or null when it wasn't JSON or was over 1 MiB."
+        },
+        "parked_at": { "type": "string", "format": "date-time" }
       }
     },
     "volumes": {

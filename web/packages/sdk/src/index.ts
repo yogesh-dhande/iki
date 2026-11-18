@@ -52,6 +52,14 @@ export interface Problem {
   guard?: string;
   /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
   entities?: { id: string; hrid: string; type: string }[];
+  /**
+   * For `consent_required`: what the launch sends to outside APIs, and where (ADR 0130).
+   * Launch again with `consent` naming each `api` to agree.
+   */
+  consent?: Schemas["ConsentStatementOut"][];
+  /** For `outside_api_not_approved`: the APIs, and Org Admins who can approve them. */
+  apis?: string[];
+  approvers?: string[];
   request_id?: string;
 }
 

@@ -19,10 +19,12 @@ from typing import Any
 __all__ = [
     "ApiError",
     "Conflict",
+    "ConsentRequired",
     "FieldError",
     "Forbidden",
     "IkiError",
     "Invalid",
+    "NotApproved",
     "NotFound",
     "NotSignedIn",
     "RateLimited",
@@ -110,6 +112,31 @@ class Conflict(ApiError):
     named (412): read it again, then decide."""
 
 
+class ConsentRequired(Conflict):
+    """The action sends data to outside APIs (ADR 0130), and you didn't agree to it.
+    ``statements`` says what each sends, and where: read them, then start it again with
+    ``consent=`` naming each API."""
+
+    @property
+    def statements(self) -> list[dict[str, Any]]:
+        found = self.problem.get("consent") or []
+        return [s for s in found if isinstance(s, dict)]
+
+    @property
+    def apis(self) -> list[str]:
+        """What ``consent=`` names, to agree to every statement."""
+        return [str(s.get("api")) for s in self.statements]
+
+
+class NotApproved(Conflict):
+    """An outside API the action sends data to isn't approved for the project. An Org
+    Admin approves it in Iki's web app; ``approvers`` names some."""
+
+    @property
+    def approvers(self) -> list[str]:
+        return [str(a) for a in self.problem.get("approvers") or []]
+
+
 class RateLimited(ApiError):
     """Too many requests (429), even after waiting as the API asked."""
 
@@ -137,6 +164,11 @@ _BY_STATUS: dict[int, type[ApiError]] = {
     429: RateLimited,
 }
 
+_BY_CODE: dict[str, type[ApiError]] = {
+    "consent_required": ConsentRequired,
+    "outside_api_not_approved": NotApproved,
+}
+
 
 def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
     """The error for a response the API refused, from its problem document."""
@@ -152,7 +184,7 @@ def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
         for e in problem.get("errors") or []
         if isinstance(e, dict)
     )
-    kind = _BY_STATUS.get(status, ApiError)
+    kind = _BY_CODE.get(str(problem.get("code") or ""), _BY_STATUS.get(status, ApiError))
     return kind(
         status,
         detail,

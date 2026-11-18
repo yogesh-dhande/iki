@@ -47,12 +47,14 @@ from iki_server.entities.values import shape, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.runs import (
+    budgets,
     checkpoints,
     costs,
     endings,
     included,
     launches,
     live,
+    outside,
     quotas,
     secrets,
     workers,
@@ -343,6 +345,16 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             candidates = candidates.exclude(project__in=list(stop.projects))
         if stop.teams:
             candidates = candidates.exclude(project__team__in=list(stop.teams))
+        if worker.tier not in costs.PRICED_TIERS:
+            # Runs that call priced outside APIs cost on any tier (ADR 0130).
+            spent = quotas.Blocked()
+            budgets.hold(spent, worker.tier, outside=True)
+            if spent.organization:
+                candidates = candidates.exclude(outside=True)
+            if spent.projects:
+                candidates = candidates.exclude(outside=True, project__in=list(spent.projects))
+            if spent.teams:
+                candidates = candidates.exclude(outside=True, project__team__in=list(spent.teams))
         shortlist = _shortlist(candidates, worker.tier, scope, labels)
         if shortlist is None:
             return None
@@ -545,6 +557,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             **({"secrets": given} if given else {}),
             **({"artifacts": run.spec["artifacts"]} if run.spec.get("artifacts") else {}),
             **({"checkpoint": saving} if (saving := checkpoints.for_payload(job, run)) else {}),
+            **outside.for_payload(job, run),
         },
         "command": run.spec["command"],
         "environment": f"{run.action.split('.')[0]}.{run.environment}",
@@ -554,6 +567,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "files": input_files.describe(files),
         **({"volumes": job.volumes} if job.volumes else {}),
         **({"pack": pack} if members else {}),
+        **outside.for_resume(job),
     }
 
 
@@ -580,12 +594,13 @@ def _trigger(run: ActionRun) -> dict[str, Any]:
 
 
 def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
-    """For an action that declares hosts: the egress proxy, with this attempt's job ID and
-    lease token as its credentials (ADR 0053). They work while the attempt holds its lease."""
+    """For an action that declares hosts, or calls outside APIs: the egress proxy, with this
+    attempt's job ID and lease token as its credentials (ADR 0053, 0130). They work while
+    the attempt holds its lease."""
     # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074).
     vm = job.tier == "vm"
     url = settings.IKI_RUNS_VM_EGRESS_PROXY_URL if vm else settings.IKI_EGRESS_PROXY_URL
-    if not run.spec.get("network") or not url:
+    if not (run.spec.get("network") or run.spec.get("apis")) or not url:
         return {}
     parts = urlsplit(url)
     return {"proxy": f"http://{job.pk}:{job.lease_token}@{parts.netloc}"}
@@ -775,6 +790,9 @@ def _commit(job: Job, run: ActionRun, document: dict[str, Any]) -> ActionRun:
     RunOutput.objects.create(run=run, job=job, document=document)
     if run.cancel_requested_at is not None:
         return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
+    if "park" in document:
+        # It submitted an outside API's job: it waits for it, holding nothing (ADR 0130).
+        return outside.park(job, run, document["park"])
     if run.reproduces_id is not None:
         # A reproduction writes nothing: it says whether its results are the same (ADR 0057).
         from iki_server.runs import reuse
@@ -1040,6 +1058,7 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
             labels=job.labels,
             resources=job.resources,
             lifecycle=job.lifecycle,
+            outside=job.outside,
             # The database's clock, as leasing compares with: app servers' clocks may drift.
             queued_at=Now() + RETRY_BACKOFF * job.attempt,
         )

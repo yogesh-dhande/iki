@@ -1,6 +1,8 @@
 {{- if .Values.egressProxy.enabled }}
 # The egress proxy (ADR 0053): runs reach the hosts their action declares
-# through it, with their attempt's credentials, and nothing else.
+# through it, with their attempt's credentials, and nothing else. It calls
+# outside APIs for them with the APIs' keys, and polls the jobs runs park on
+# (ADR 0130).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -50,6 +52,20 @@ spec:
               value: {{ .Values.egressProxy.port | quote }}
             - name: IKI_EGRESS_GRACE_SECONDS
               value: {{ .Values.egressProxy.graceSeconds | quote }}
+            {{- if .Values.egressProxy.gatewayKey.existingSecret }}
+            - name: IKI_EGRESS_GATEWAY_KEY_FILE
+              value: /etc/iki/egress-gateway/{{ .Values.egressProxy.gatewayKey.key }}
+            {{- end }}
+            {{- if .Values.runSecrets.existingSecret }}
+            # For outside APIs' keys and webhook secrets, which it adds to their
+            # requests and checks their callbacks with; runs never see them.
+            - name: IKI_RUN_SECRETS_DIR
+              value: /etc/iki/run-secrets
+            {{- end }}
+            {{- if .Values.egressProxy.caSecret.name }}
+            - name: SSL_CERT_FILE
+              value: /etc/iki/egress-ca/{{ .Values.egressProxy.caSecret.key }}
+            {{- end }}
           ports:
             - name: proxy
               containerPort: {{ .Values.egressProxy.port }}
@@ -74,8 +90,51 @@ spec:
             {{- include "iki.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
+            {{- if .Values.egressProxy.gatewayKey.existingSecret }}
+            - name: egress-gateway
+              mountPath: /etc/iki/egress-gateway
+              readOnly: true
+            {{- end }}
+            {{- if .Values.runSecrets.existingSecret }}
+            - name: run-secrets
+              mountPath: /etc/iki/run-secrets
+              readOnly: true
+            {{- end }}
+            {{- if .Values.egressProxy.caSecret.name }}
+            - name: egress-ca
+              mountPath: /etc/iki/egress-ca
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "iki.volumes" . | nindent 8 }}
+        {{- with .Values.egressProxy.gatewayKey }}
+        {{- if .existingSecret }}
+        - name: egress-gateway
+          secret:
+            secretName: {{ .existingSecret }}
+            defaultMode: 0440
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.runSecrets.existingSecret }}
+        - name: run-secrets
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440
+            optional: true
+        {{- end }}
+        {{- with .Values.egressProxy.caSecret }}
+        {{- if .name }}
+        - name: egress-ca
+          secret:
+            secretName: {{ .name }}
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+        {{- end }}
+        {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone

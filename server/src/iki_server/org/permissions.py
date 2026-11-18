@@ -72,6 +72,9 @@ class Action(StrEnum):
     REGISTRIES_MANAGE = "registries.manage"
     """Add, rename and describe registries, choose which teams use each, appoint their
     registrars, and move a project with no entities to another registry (ADR 0115)."""
+    OUTSIDE_APIS_MANAGE = "outside_apis.manage"
+    """Approve outside APIs for projects, and revoke approvals (ADR 0130): where runs may send
+    the lab's data."""
 
     # A registry
     REGISTRY_CURATE = "registry.curate"
@@ -121,6 +124,7 @@ ORG_ACTIONS = frozenset(
         Action.COSTS_READ,
         Action.ORG_WEBHOOKS_MANAGE,
         Action.REGISTRIES_MANAGE,
+        Action.OUTSIDE_APIS_MANAGE,
     }
 )
 TEAM_ACTIONS = frozenset({Action.TEAM_VIEW, Action.TEAM_MANAGE, Action.PROJECT_CREATE})
@@ -157,6 +161,8 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.REGISTRIES_MANAGE: "admin",
     # A registrar's changes are every holder's: tokens need the admin scope.
     Action.REGISTRY_CURATE: "admin",
+    # Approving is web-only (ADR 0130); a token with the admin scope may revoke.
+    Action.OUTSIDE_APIS_MANAGE: "admin",
 }
 
 
@@ -202,6 +208,7 @@ _ORG_ACTION_ROLES = {
     Action.COSTS_READ: {OrgRole.COMPUTE_ADMIN, OrgRole.AUDITOR, OrgRole.ORG_ADMIN},
     Action.ORG_WEBHOOKS_MANAGE: {OrgRole.ORG_ADMIN},
     Action.REGISTRIES_MANAGE: {OrgRole.ORG_ADMIN},
+    Action.OUTSIDE_APIS_MANAGE: {OrgRole.ORG_ADMIN},
 }
 
 #: The lowest project role each project action needs.

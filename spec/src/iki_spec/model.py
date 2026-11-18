@@ -753,6 +753,86 @@ class Metric:
 
 
 @dataclass(frozen=True)
+class ApiCredential:
+    """How an outside API's key goes with each call (ADR 0130): the egress proxy adds it, as
+    ``header: prefix + key``, from the run secret `secret`. Runs' commands never see it."""
+
+    secret: str
+    header: str = "Authorization"
+    prefix: str = "Bearer "
+    #: For the administrators who set it: what it's for, and where to get one.
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class ApiWebhook:
+    """How the API says a job is done: a callback signed with the run secret `secret`, by
+    `signature` (``standard-webhooks``, or ``hmac-sha256`` of the body, hex, in `header`)."""
+
+    signature: str
+    secret: str
+    header: str = ""
+
+
+@dataclass(frozen=True)
+class ApiJobs:
+    """An API whose work is a job to submit, then poll: what a parked run polls (ADR 0130).
+    Paths take the job's ID as ``{id}``; `status`, `message` and `usage` are locators in the
+    poll's answer."""
+
+    poll: str
+    status: str
+    done: tuple[str, ...]
+    failed: tuple[str, ...]
+    message: str = ""
+    cancel: str = ""
+    every: int = 30  # seconds
+    timeout: int = 86400  # seconds
+    #: Usage read from the last poll's answer, by name: what a job used in all.
+    usage: dict[str, str] = field(default_factory=dict)
+    webhook: ApiWebhook | None = None
+
+
+@dataclass(frozen=True)
+class OutsideApi:
+    """A third party's API a plugin's actions call, such as a hosted model (ADR 0130). Org
+    Admins approve it per project; runs call it through the egress proxy, which adds the
+    credential and records each call. A locator is a JSON pointer in a JSON answer (or in
+    a streamed answer's last event that has it), or ``header:<name>``."""
+
+    plugin: str
+    name: str
+    label: str
+    host: str
+    purpose: str
+    credential: ApiCredential | None = None
+    #: Locators of the model and its version, in each answer.
+    model: str = ""
+    version: str = ""
+    #: JSON pointers in each request's body whose values are kept as its parameters.
+    parameters: tuple[str, ...] = ()
+    #: Usage read from each call's answer, by name, such as ``gpu_seconds``.
+    usage: dict[str, str] = field(default_factory=dict)
+    jobs: ApiJobs | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+
+@dataclass(frozen=True)
+class ApiUse:
+    """An outside API an action calls, and what of a run it sends there: which fields of
+    each input's entities, and which params. People see it before they launch (ADR 0130).
+    `api` is the plugin's API, as installed."""
+
+    name: str
+    inputs: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    params: tuple[str, ...] = ()
+    api: OutsideApi | None = None
+
+
+@dataclass(frozen=True)
 class Action:
     plugin: str
     name: str
@@ -774,6 +854,8 @@ class Action:
     artifact_retention: int | None = None  # seconds
     network: tuple[str, ...] = ()
     secrets: tuple[Secret, ...] = ()
+    #: The outside APIs its runs call, through the egress proxy (ADR 0130).
+    apis: tuple[ApiUse, ...] = ()
     metrics: dict[str, Metric] = field(default_factory=dict)
     software: tuple[Software, ...] = ()
     timeout: int = 3600  # seconds
@@ -1097,6 +1179,8 @@ class Plugin:
     components: dict[str, Component] = field(default_factory=dict)
     #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
     roles: dict[str, LabRole] = field(default_factory=dict)
+    #: The outside APIs its actions call, by name (ADR 0130).
+    apis: dict[str, OutsideApi] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -1210,6 +1294,11 @@ _DATACLASSES = (
     Viewer,
     Track,
     LabRole,
+    ApiCredential,
+    ApiWebhook,
+    ApiJobs,
+    OutsideApi,
+    ApiUse,
 )
 
 
@@ -1291,6 +1380,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "components": {k: _component(v) for k, v in (data.get("components") or {}).items()},
             # ...or lab roles.
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
+            # ...or outside APIs.
+            "apis": {k: outside_api(v) for k, v in (data.get("apis") or {}).items()},
         }
     )
 
@@ -1380,9 +1471,44 @@ def _action(data: dict[str, Any]) -> Action:
                 Secret(**s) if isinstance(s, dict) else Secret(s) for s in data["secrets"]
             ),
             "metrics": {n: Metric(**m) for n, m in (data.get("metrics") or {}).items()},
+            # Actions built before outside APIs call none.
+            "apis": tuple(api_use(u) for u in data.get("apis") or ()),
             "retry_on": tuple(data["retry_on"]),
             "software": tuple(Software(**w) for w in data.get("software") or ()),
         }
+    )
+
+
+def outside_api(data: dict[str, Any]) -> OutsideApi:
+    """An outside API from its JSON form, as a plugin's manifest or a run keeps it."""
+    jobs = data.get("jobs")
+    return OutsideApi(
+        **{
+            **data,
+            "credential": ApiCredential(**data["credential"]) if data.get("credential") else None,
+            "parameters": tuple(data.get("parameters") or ()),
+            "usage": dict(data.get("usage") or {}),
+            "jobs": ApiJobs(
+                **{
+                    **jobs,
+                    "done": tuple(jobs["done"]),
+                    "failed": tuple(jobs["failed"]),
+                    "usage": dict(jobs.get("usage") or {}),
+                    "webhook": ApiWebhook(**jobs["webhook"]) if jobs.get("webhook") else None,
+                }
+            )
+            if jobs
+            else None,
+        }
+    )
+
+
+def api_use(data: dict[str, Any]) -> ApiUse:
+    return ApiUse(
+        name=data["name"],
+        inputs={n: tuple(f) for n, f in (data.get("inputs") or {}).items()},
+        params=tuple(data.get("params") or ()),
+        api=outside_api(data["api"]) if data.get("api") else None,
     )
 
 

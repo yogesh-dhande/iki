@@ -1966,6 +1966,7 @@
     "workflows": {},
     "triggers": {},
     "components": {},
-    "roles": {}
+    "roles": {},
+    "apis": {}
   }
 }

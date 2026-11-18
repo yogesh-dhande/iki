@@ -30,6 +30,7 @@ export const STATUS: Record<RunStatus, string> = {
   awaiting_approval: "Awaiting approval",
   queued: "Queued",
   running: "Running",
+  parked: "Waiting on an outside API",
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -46,6 +47,7 @@ export const ATTEMPT_STATE: Record<AttemptState, string> = {
   running: "Running",
   uploading: "Uploading results",
   committing: "Committing results",
+  parked: "Waiting on an outside API",
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -73,7 +75,12 @@ export function tone(status: RunStatus | AttemptState): "good" | "bad" | "busy" 
 }
 
 export function finished(status: RunStatus): boolean {
-  return !(status === "awaiting_approval" || status === "queued" || status === "running");
+  return !(
+    status === "awaiting_approval" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "parked"
+  );
 }
 
 /** The actions installed here, for their labels. */

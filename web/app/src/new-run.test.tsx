@@ -118,6 +118,7 @@ describe("starting a run", () => {
       reuse: true,
       add_to_project: false,
       labels: [],
+      consent: [],
     });
     expect(await screen.findByText("Started RUN-000001.")).toBeVisible();
   });
@@ -181,6 +182,7 @@ describe("starting a run", () => {
       reuse: true,
       add_to_project: false,
       labels: [],
+      consent: [],
     });
 
     answer(`POST /api/v1/actions/${ACTION.name}/runs/batch`, () => ({
@@ -349,6 +351,7 @@ describe("starting a run", () => {
       reuse: true,
       add_to_project: false,
       labels: [],
+      consent: [],
     });
   });
 

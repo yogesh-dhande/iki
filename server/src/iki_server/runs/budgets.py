@@ -147,9 +147,10 @@ def _month_name(month: date) -> str:
 # --- Stopping spending -----------------------------------------------------------------------
 
 
-def hold(stop: Blocked, tier: str, now: datetime | None = None) -> None:
-    """Adds the scopes whose enforced budgets are spent to `stop`, on tiers that cost."""
-    if tier not in costs.PRICED_TIERS:
+def hold(stop: Blocked, tier: str, now: datetime | None = None, *, outside: bool = False) -> None:
+    """Adds the scopes whose enforced budgets are spent to `stop`, on tiers that cost: or,
+    with `outside`, for runs that call priced outside APIs, on any tier (ADR 0130)."""
+    if tier not in costs.PRICED_TIERS and not outside:
         return
     for budget in Budget.objects.filter(enforce=True):
         found = status(budget, now)
@@ -168,9 +169,13 @@ def hold(stop: Blocked, tier: str, now: datetime | None = None) -> None:
 
 
 def check_launch(project: Project, action: Action, runs: int = 1) -> None:
-    """Refuses a launch on a costly tier that its scope's enforced budgets can't pay for:
-    one that's spent, or that its runs' typical cost would take past it."""
-    if action.tier not in costs.PRICED_TIERS:
+    """Refuses a launch on a costly tier, or of an action calling a priced outside API (ADR
+    0130), that its scope's enforced budgets can't pay for: one that's spent, or that its
+    runs' typical cost would take past it."""
+    from iki_server.runs import outside
+
+    sends = outside.priced(action)
+    if action.tier not in costs.PRICED_TIERS and not sends:
         return
     budgets = list(covering(project).filter(enforce=True))
     if not budgets:
@@ -184,8 +189,13 @@ def check_launch(project: Project, action: Action, runs: int = 1) -> None:
             raise Refused(
                 f"{_whose(budget)} budget for {month} is spent "
                 f"({money(found.spent, budget.currency)} of "
-                f"{money(budget.amount, budget.currency)}), so runs on the {action.tier} tier "
-                "can't start until next month. A Compute Admin can raise it."
+                f"{money(budget.amount, budget.currency)}), so "
+                + (
+                    f"runs on the {action.tier} tier"
+                    if action.tier in costs.PRICED_TIERS
+                    else "runs that call priced outside APIs"
+                )
+                + " can't start until next month. A Compute Admin can raise it."
             )
         if typical is None or estimate is None or estimate["currency"] != budget.currency:
             continue

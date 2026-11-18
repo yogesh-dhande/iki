@@ -781,6 +781,59 @@ setting with `format: hostname`. A deployment's build fills in the host it
 sets, so the manifest the server reads, and what the run's page shows, names
 the real host; a setting left unset reaches nothing.
 
+### Outside APIs
+
+A model or service behind a company's API, such as a hosted structure
+predictor or a language model, is an **outside API**
+([ADR 0130](../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)).
+The plugin declares it under `apis`, and each action that calls it says what
+of a run it sends:
+
+```yaml
+# plugin.yaml
+apis:
+  foldcloud:
+    label: FoldCloud
+    host: "{settings.fold_api_host}" # or a host name
+    purpose: Predicts protein structures from their sequences.
+    credential: { secret: FOLDCLOUD_API_KEY } # Authorization: Bearer <key>
+    reports:
+      model: /model # JSON pointers in the answer, or header:<name>
+      version: header:x-model-version
+      parameters: [/model, /num_recycles] # JSON pointers in the request
+      usage: { gpu_seconds: /usage/gpu_seconds }
+    jobs: # for APIs that take a job, then answer polls
+      poll: /v1/predictions/{id}
+      status: /status
+      done: [succeeded]
+      failed: [failed, canceled]
+      cancel: /v1/predictions/{id}/cancel
+      every: 30s
+      timeout: 1d
+      webhook: { signature: standard-webhooks, secret: FOLDCLOUD_WEBHOOK_SECRET }
+
+# actions/predict_structure.yaml
+apis:
+  foldcloud:
+    sends: { inputs: { protein: [sequence] }, params: [model, num_recycles] }
+```
+
+An Org Admin approves each API for each project, in Settings → Outside APIs,
+and people agree to what's sent before launching; agents' runs wait for
+their person to. The command calls the API at its address,
+`IKI_API_FOLDCLOUD_URL`, through the egress proxy, **without a key**: the
+proxy adds the organization's from the run secrets, and records each call
+with the model, version and parameters the API reported and hashes of what
+went each way. A deployment prices calls with an `ApiPrice` in its compute
+config, and they count toward its costs and budgets.
+
+An API with `jobs` lets a command submit, then park: its output is
+`{"park": {"api": "foldcloud", "job": "<the API's job ID>", "state": {...}}}`.
+The run waits, holding no worker, while Iki polls the job, or the API calls
+back (`IKI_API_FOLDCLOUD_CALLBACK_URL`, signed). Once the job's done, the
+command runs again with `resume` in its input: the job, its `state` and the
+API's last answer. `plugins/example_models` is a complete example.
+
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
 since a retry could repeat what they did elsewhere, such as placing an order.
@@ -1462,6 +1515,23 @@ before it's launched. All of a deployment's prices are in one currency
 without one (`unpriced-template`): its runs show machine time but no cost.
 Backend and self-hosted tiers have no per-run cost.
 
+An `ApiPrice` prices an outside API's calls (ADR 0130): per call, and per
+unit of each usage the API reports, in the same currency.
+
+```yaml
+apiVersion: iki/v1
+kind: ApiPrice
+api: iki/example_models.foldcloud
+per_call: 0.01
+usage: { gpu_seconds: 0.0011 }
+currency: USD
+```
+
+Each call's cost is recorded with its run and counts against budgets, and an
+action that calls a priced API is costly on any tier: an agent's runs of it
+wait for approval, and a spent budget that's enforced refuses it. The build
+warns about an installed API without a price (`unpriced-api`).
+
 ## What a command reads
 
 When a worker leases a job, it gets the run input and writes it to
@@ -1532,6 +1602,14 @@ the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
 | `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is           |
 | `IKI_SEED`                      | a seed for its random numbers (0 to 2³¹ − 1) |
 | `IKI_CHECKPOINT_DIR`            | where a checkpointable action saves progress |
+| `IKI_API_<NAME>_URL`            | each outside API the action calls            |
+| `IKI_API_<NAME>_CALLBACK_URL`   | where that API calls back, for this run      |
+
+For an action that calls outside APIs, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`
+and `CURL_CA_BUNDLE` name a file of the system's roots and the attempt's own
+CA, and `NODE_EXTRA_CA_CERTS` one of the CA alone, so the command trusts the
+egress proxy for those hosts
+([ADR 0130](../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)).
 
 What it prints goes to the run's log. A line like
 `::progress 0.4 Folding chain A` reports progress (a fraction, or `40%`).
@@ -1867,6 +1945,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
 | `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Reuse and retries               |
+| `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                     | Outside APIs                    |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                                                                                                                              | Workflows                       |
 | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
 | `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                 | Components                      |
@@ -1876,3 +1955,4 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                                                                                                                                 | Action tests                    |
 | `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                         | Compute templates               |
 | `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                       | Bindings                        |
+| `unknown-api`, `unknown-usage`; `unpriced-api` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Prices of outside APIs          |

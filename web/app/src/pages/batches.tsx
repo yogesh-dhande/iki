@@ -48,6 +48,7 @@ const ORDER: RunStatus[] = [
   "awaiting_approval",
   "queued",
   "running",
+  "parked",
   "succeeded",
   "failed",
   "timed_out",

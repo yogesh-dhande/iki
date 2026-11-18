@@ -108,6 +108,7 @@ def test_builds_the_pinned_commits(
     assert json.loads((out / "compute.json").read_text()) == {
         "apiVersion": "iki/v1",
         "bindings": {},
+        "prices": {},
         "templates": {},
     }
     assert json.loads((out / "iki_plugin_acme__dna" / "settings.json").read_text()) == {
@@ -254,6 +255,12 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: acme/protein.protein-tools
 templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: ApiPrice
+api: acme/protein.fold
+per_call: 0.02
+currency: USD
 """
 
 

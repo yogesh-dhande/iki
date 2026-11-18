@@ -74,6 +74,7 @@ from iki_server.runs import services as run_services
 from iki_server.runs.models import (
     HRID_PREFIX,
     ActionRun,
+    ApiCall,
     EntityMaking,
     ExternalOrigin,
     Job,
@@ -768,6 +769,12 @@ class _Writer:
                 "import": str(self.made.pk),
                 "linked": line["linked"],
                 "approval": approval,
+                # Who agreed to send its data to outside APIs there (ADR 0130), by name.
+                **(
+                    {"consent": {**c, "given_by": self._name(c["given_by"])}}
+                    if (c := line.get("consent"))
+                    else {}
+                ),
                 # What it read that isn't here: kept as it was there.
                 "inputs": [i for i in line["inputs"] if i["entity"] not in here],
                 **(
@@ -801,6 +808,32 @@ class _Writer:
                 JobLog.objects.create(
                     job=job, offset=0, text=a["log"], created_at=a["finished_at"] or a["queued_at"]
                 )
+        # Each outside API call, as the source's egress proxy recorded it: provenance, not
+        # cost, which was the source deployment's.
+        ApiCall.objects.bulk_create(
+            ApiCall(
+                run=run,
+                job_id=c["job"],
+                api=c["api"],
+                host=c["host"],
+                kind=c["kind"],
+                method=c["method"],
+                path=c["path"],
+                status=c["status"],
+                error=c["error"],
+                started_at=c["started_at"],
+                duration_ms=c["duration_ms"],
+                request_bytes=c["request_bytes"],
+                response_bytes=c["response_bytes"],
+                request_sha256=c["request_sha256"],
+                response_sha256=c["response_sha256"],
+                model=c["model"],
+                version=c["version"],
+                parameters=c["parameters"],
+                usage=c["usage"],
+            )
+            for c in line.get("api_calls", ())
+        )
         output = line["output"]
         if output is not None:
             RunOutput.objects.create(

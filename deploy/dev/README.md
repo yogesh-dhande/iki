@@ -56,6 +56,7 @@ worker pod, so their backend actions run there.
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                                 |
 | Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
 | Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS plugin; lists the requests runs made    |
+| Fake FoldCloud                   | <http://localhost:8092/requests>     | `https://fake-foldcloud.iki.svc`, for the example models plugin; lists the requests made  |
 | Grafana, Tempo, Loki, Prometheus | <http://localhost:3300>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics. Dashboards → Iki → Iki (ADR 0098) |
 
 The example LIMS plugin (`plugins/example_lims`) imports from the fake LIMS

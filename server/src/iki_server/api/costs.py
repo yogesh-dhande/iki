@@ -45,7 +45,7 @@ class PeriodParams(Schema):
 
 
 class OrgParams(PeriodParams):
-    by: Literal["project", "team", "template", "action", "tier"] = "project"
+    by: Literal["project", "team", "template", "action", "tier", "api"] = "project"
 
 
 class ProjectParams(PeriodParams):
@@ -135,6 +135,7 @@ def org_cost_records(request: HttpRequest, params: Query[PeriodParams]) -> Strea
         "team_id",
         "team",
         "template",
+        "api",
         "tier",
         "started_at",
         "ended_at",
@@ -159,6 +160,7 @@ def org_cost_records(request: HttpRequest, params: Query[PeriodParams]) -> Strea
                     record.team_id or "",
                     _safe(record.team.name) if record.team else "",
                     record.template,
+                    record.api,
                     record.tier,
                     record.started_at.isoformat(),
                     record.ended_at.isoformat(),

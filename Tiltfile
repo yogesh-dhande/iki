@@ -18,6 +18,7 @@ k8s_yaml([
     'deploy/dev/manifests/mailpit.yaml',
     'deploy/dev/manifests/webhook-receiver.yaml',
     'deploy/dev/manifests/fake-lims.yaml',
+    'deploy/dev/manifests/fake-foldcloud.yaml',
     'deploy/dev/manifests/shared-filesystem.yaml',
     'deploy/dev/manifests/bucket.yaml',
 ])
@@ -55,6 +56,13 @@ k8s_resource(
     port_forwards=['8091:8080'],
     labels=['deps'],
     links=[link('http://localhost:8091/requests', 'Fake LIMS requests')],
+)
+k8s_resource(
+    'fake-foldcloud',
+    objects=['fake-foldcloud:configmap'],
+    port_forwards=['8092:8080'],
+    labels=['deps'],
+    links=[link('http://localhost:8092/requests', 'Fake FoldCloud requests')],
 )
 # Iki's Grafana dashboard (ADR 0098), from the chart's own file, for otel-lgtm to load.
 watch_file('deploy/helm/iki/files/dashboards')

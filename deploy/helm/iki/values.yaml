@@ -529,9 +529,11 @@ runSecrets:
   # each, named for the plugin's label and the secret: iki__dna.NCBI_API_KEY
   # for iki/dna's NCBI_API_KEY (a key can't hold a /). Sync it from
   # your secret manager (External Secrets, the Vault or AWS Secrets Manager
-  # CSI driver). Only web pods mount it; each run gets only the secrets its
-  # action declares, and they never appear in logs. An action that needs one
-  # you haven't set says so where people would run it.
+  # CSI driver). Only web pods and the egress proxy mount it; each run gets
+  # only the secrets its action declares, and they never appear in logs. An
+  # outside API's key (ADR 0130) never reaches a run: the egress proxy adds it
+  # to the API's requests. An action that needs one you haven't set says so
+  # where people would run it.
   existingSecret: ""
 
 egressProxy:
@@ -555,6 +557,24 @@ egressProxy:
     url: ""
     existingSecret: ""
     key: url
+  # The proxy's key for calling outside APIs (ADR 0130): a Secret holding an
+  # ECDSA P-256 private key in PEM, made once with
+  #   openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256
+  # and kept in your secret manager. Each run's attempt gets a certificate
+  # authority of its own, for its APIs' hosts alone, which signs certificates
+  # for this key and is then thrown away; the proxy presents them to the
+  # run's command, adds the API's key from runSecrets, and records each call.
+  # Every replica uses the same key, so attempts outlive a proxy restart.
+  # Without it, actions that call outside APIs can't run.
+  gatewayKey:
+    existingSecret: ""
+    key: key.pem
+  # A Secret with the CA bundle the proxy trusts when it calls outside APIs,
+  # such as your internal CA's for an API inside your network: the public
+  # CAs and yours. Without it, the image's public CAs.
+  caSecret:
+    name: ""
+    key: bundle.pem
   # Seconds open connections get to finish when a proxy pod stops.
   graceSeconds: 25
   podDisruptionBudget:

@@ -48,6 +48,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("costs/", web.app, name="costs"),
     # The web app's: the organization's webhooks (project ones are in org.urls).
     path("settings/webhooks/", web.app, name="webhook_settings"),
+    # Outside APIs and the projects each is approved for (ADR 0130).
+    path("settings/outside-apis/", web.app, name="outside_api_settings"),
     path("compute/", web.app, name="compute"),
     path("compute/workers/", web.app, name="compute_workers"),
     path("compute/quotas/", web.app, name="compute_quotas"),

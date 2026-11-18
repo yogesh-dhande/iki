@@ -120,6 +120,9 @@ export function SettingsTabs() {
       <Link to="/settings/webhooks/" activeProps={{ "aria-current": "page" }}>
         Webhooks
       </Link>
+      <Link to="/settings/outside-apis/" activeProps={{ "aria-current": "page" }}>
+        Outside APIs
+      </Link>
     </nav>
   );
 }

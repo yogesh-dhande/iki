@@ -151,9 +151,14 @@ def waiting(runs: list[dict[str, Any]], *, page: str = "") -> str:
         else ("This run waits", "it runs", "it")
     )
     expires = (first.get("approval") or {}).get("expires_at", "")
+    sends = first.get("apis") or []
+    if sends:
+        places = ", ".join(f"{a.get('label')} ({a.get('host')})" for a in sends)
+        why = f"it sends data outside Iki, to {places}, which an agent can't agree to for them"
+    else:
+        why = f"{verb} on the {first.get('tier')} tier, which an agent can't start alone"
     return (
-        f"{what} for the person's approval: {verb} on the {first.get('tier')} tier, which "
-        "an agent can't start alone. Ask them to approve or decline in Iki at "
+        f"{what} for the person's approval: {why}. Ask them to approve or decline in Iki at "
         f"{web_url(page or f'/runs/{first["hrid"]}/')}"
         + (f" before {expires}" if expires else "")
         + f". You can't approve {them} yourself; get_run shows when it's decided."
@@ -822,11 +827,18 @@ def build() -> MCPServer:
     async def get_run(ref: Ref) -> CallToolResult:
         """A run: its status, inputs, params, what it wrote, what it cost, each attempt
         (where it ran, how it ended), and the artifacts it kept (files people download from
-        its page in Iki, each with when it's deleted)."""
+        its page in Iki, each with when it's deleted). For a run that called outside APIs,
+        each call: the model and version the API said answered, the parameters, and hashes
+        of what was sent and answered. A `parked` run waits on an outside API's job."""
         found = await call("GET", path("/runs/{ref}", ref=ref))
         attempts = await call("GET", path("/runs/{ref}/attempts", ref=ref))
         artifacts = await call("GET", path("/runs/{ref}/artifacts", ref=ref))
-        return answer({"run": found, "attempts": attempts, "artifacts": artifacts})
+        out = {"run": found, "attempts": attempts, "artifacts": artifacts}
+        if found.get("apis"):
+            # Its calls to outside APIs, as the egress proxy recorded them (ADR 0130).
+            calls = await call("GET", path("/runs/{ref}/api-calls", ref=ref), query={"limit": 100})
+            out["api_calls"] = calls["items"]
+        return answer(out)
 
     @server.tool(annotations=READ, title="Read a run's log")
     async def get_run_log(
@@ -857,9 +869,10 @@ def build() -> MCPServer:
         """Queues one run of an action. Its inputs, params and the person's role are
         checked first. Its inputs must be in the project: for ones that aren't, the error
         lists them, and the person adds them to it in Iki. Runs on the container and VM
-        tiers wait for the person to approve them in Iki; the answer says so. A run that
-        reuses an identical run's results ends at once (`reused_from`). Follow it with
-        get_run."""
+        tiers wait for the person to approve them in Iki; the answer says so. So do runs
+        of actions that send data to outside APIs (their `apis` in get_action): the person
+        agrees to what's sent by approving, as an agent can't for them. A run that reuses an
+        identical run's results ends at once (`reused_from`). Follow it with get_run."""
         body = {
             "project": str(project),
             "inputs": _ids(inputs),

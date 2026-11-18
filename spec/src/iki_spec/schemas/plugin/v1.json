@@ -61,6 +61,17 @@
       "maxProperties": 50,
       "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
       "additionalProperties": { "$ref": "#/$defs/role" }
+    },
+    "apis": {
+      "description": "The outside APIs its actions call, such as a hosted model, by name (ADR 0130). Org Admins approve each one per project, people see what's sent before they launch, and runs call it through Iki's egress proxy, which adds the organization's key and records each call.",
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/api"
+      }
     }
   },
   "additionalProperties": false,
@@ -84,6 +95,192 @@
       "description": "Comparisons with whole schema versions, separated by commas, such as `>=2` or `>=2,<4`.",
       "type": "string",
       "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+)*\\s*$"
+    },
+    "api": {
+      "type": "object",
+      "required": ["label", "host", "purpose"],
+      "properties": {
+        "label": {
+          "description": "Its provider's name for it, as people see it, such as `FoldServe`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "host": {
+          "description": "The host its calls go to, over HTTPS: a name, not a domain (no `*.`). `{settings.<name>}` is the host a deployment gives in that setting, which has `format: hostname`.",
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^(([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}|\\{settings\\.[a-z][a-z0-9_]{0,62}\\})$"
+        },
+        "purpose": {
+          "description": "What the plugin uses it for, as Org Admins approve it and people consent to it, such as `Predicts protein structures with FoldServe's hosted models.`",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "credential": {
+          "description": "The organization's key for it: a run secret the egress proxy adds to each call. Runs' commands never see it.",
+          "type": "object",
+          "required": ["secret"],
+          "properties": {
+            "secret": {
+              "description": "The run secret it's kept as, for this plugin, such as `FOLDSERVE_API_KEY`.",
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
+            },
+            "header": {
+              "description": "The header it goes in. Defaults to `Authorization`.",
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9-]{0,99}$"
+            },
+            "prefix": {
+              "description": "What comes before it in the header. Defaults to `Bearer ` for `Authorization`, else nothing.",
+              "type": "string",
+              "maxLength": 50,
+              "pattern": "^[\\x21-\\x7e]*( )?$"
+            },
+            "description": {
+              "description": "For the administrators who set it: what it's for, and where to get one.",
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false
+        },
+        "reports": {
+          "description": "What Iki keeps of each call, for the run's provenance and cost.",
+          "type": "object",
+          "properties": {
+            "model": {
+              "description": "The model the answer says answered.",
+              "$ref": "#/$defs/locator"
+            },
+            "version": {
+              "description": "Its version, as the answer says.",
+              "$ref": "#/$defs/locator"
+            },
+            "parameters": {
+              "description": "JSON pointers in each request's body whose values are kept, such as `/num_recycles`. Never the data itself.",
+              "type": "array",
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 300,
+                "pattern": "^(/([^~/]|~[01])*)+$"
+              }
+            },
+            "usage": {
+              "$ref": "#/$defs/usage"
+            }
+          },
+          "additionalProperties": false
+        },
+        "jobs": {
+          "description": "For an API whose work is a job to submit and then poll: a run can park while it runs, holding no worker, and resume once it's done.",
+          "type": "object",
+          "required": ["poll", "status", "done", "failed"],
+          "properties": {
+            "poll": {
+              "description": "Where its state is: polled with GET.",
+              "$ref": "#/$defs/path"
+            },
+            "status": {
+              "description": "Where the poll's answer says its state.",
+              "$ref": "#/$defs/locator"
+            },
+            "done": {
+              "description": "The states that say it's done: the run resumes.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "failed": {
+              "description": "The states that say it failed: the run fails.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "message": {
+              "description": "Where a failed job's answer says why.",
+              "$ref": "#/$defs/locator"
+            },
+            "cancel": {
+              "description": "Where to ask it to stop, with POST, when the run is cancelled or times out.",
+              "$ref": "#/$defs/path"
+            },
+            "every": {
+              "description": "How often to poll. Defaults to 30s; at least 5s.",
+              "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+            },
+            "timeout": {
+              "description": "The longest a run waits on it. Defaults to 1d; at most 7d.",
+              "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+            },
+            "usage": {
+              "description": "Usage the last poll's answer reports: what the job used in all.",
+              "$ref": "#/$defs/usage"
+            },
+            "webhook": {
+              "description": "When it calls back once a job is done: how its callbacks are signed. A callback that verifies makes Iki poll at once.",
+              "type": "object",
+              "required": ["signature", "secret"],
+              "properties": {
+                "signature": {
+                  "description": "`standard-webhooks` (webhook-id, webhook-timestamp and webhook-signature headers), or `hmac-sha256`: the body's HMAC-SHA256 in hex, in `header`, optionally after `sha256=`.",
+                  "enum": ["standard-webhooks", "hmac-sha256"]
+                },
+                "secret": {
+                  "description": "The run secret its callbacks are signed with.",
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
+                },
+                "header": {
+                  "description": "For `hmac-sha256`: the header the signature is in.",
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9-]{0,99}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "locator": {
+      "description": "Where in an answer a value is: a JSON pointer in its JSON body (or, for a streamed answer, in the last event that has it), such as `/model`, or `header:<name>`.",
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^(header:[A-Za-z0-9-]{1,100}|(/([^~/]|~[01])*)+)$"
+    },
+    "path": {
+      "description": "A path on the API's host with the job's ID as `{id}`, such as `/v1/jobs/{id}`.",
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*\\{id\\}[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$"
+    },
+    "usage": {
+      "description": "Usage the answer reports, by name, such as `gpu_seconds: /usage/gpu_seconds`: numbers a deployment can price (ADR 0130).",
+      "type": "object",
+      "maxProperties": 10,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/locator"
+      }
     }
   }
 }

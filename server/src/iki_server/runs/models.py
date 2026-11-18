@@ -65,6 +65,8 @@ class RunStatus(models.TextChoices):
     REJECTED = "rejected", "Rejected"
     #: The person didn't approve it, or not in time.
     DECLINED = "declined", "Declined"
+    #: Waiting on an outside API's job, holding no worker; resumed when it's done (ADR 0130).
+    PARKED = "parked", "Waiting on an outside API"
 
 
 #: Statuses a run ends in.
@@ -100,6 +102,9 @@ class JobState(models.TextChoices):
     REJECTED = "rejected", "Rejected"
     #: The worker went away or was stopped (spot interruption); the run may be retried.
     INTERRUPTED = "interrupted", "Interrupted"
+    #: Its command submitted an outside API's job and parked: the run resumes in a new
+    #: attempt once the job is done (ADR 0130).
+    PARKED = "parked", "Parked"
 
 
 class ApprovalState(models.TextChoices):
@@ -299,6 +304,10 @@ class WorkflowRun(models.Model):
         "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     reason = models.TextField(blank=True, default="")
+    #: The consent its launch gave for what its steps send to outside APIs (ADR 0130).
+    consent = models.ForeignKey(
+        "ApiConsent", null=True, blank=True, on_delete=models.PROTECT, related_name="workflows"
+    )
     #: Every workflow param's value, defaults filled in.
     params = models.JSONField(default=dict)
     status = models.CharField(
@@ -485,6 +494,11 @@ class ActionRun(models.Model):
         RunApproval, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
     )
     reason = models.TextField(blank=True, default="")
+    #: For an action that sends data to outside APIs: the consent its launch gave, as shown
+    #: (ADR 0130). An agent's run gets it when the person approves it.
+    consent = models.ForeignKey(
+        "ApiConsent", null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
+    )
     #: The batch it was launched in, if any.
     batch = models.ForeignKey(
         RunBatch, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
@@ -593,7 +607,12 @@ class ActionRun(models.Model):
                 fields=["status", "id"],
                 name="iki_action_run_unfinished",
                 condition=Q(
-                    status__in=[RunStatus.AWAITING_APPROVAL, RunStatus.QUEUED, RunStatus.RUNNING]
+                    status__in=[
+                        RunStatus.AWAITING_APPROVAL,
+                        RunStatus.QUEUED,
+                        RunStatus.RUNNING,
+                        RunStatus.PARKED,
+                    ]
                 ),
             ),
         ]
@@ -1216,6 +1235,17 @@ class Job(models.Model):
     resumed_from = models.ForeignKey(
         "RunCheckpoint", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: Whether its action calls outside APIs (ADR 0130): an enforced budget that's spent
+    #: holds it on any tier.
+    outside = models.BooleanField(default=False)
+    #: For an action that calls outside APIs: the CA made for this attempt and the
+    #: certificates it signed for the egress proxy's keys, by key and host (ADR 0130).
+    #: The CA's private key was thrown away once they were signed.
+    gateway = models.JSONField(default=dict, blank=True)
+    #: The parked attempt whose job this one resumes from, if it does (ADR 0130).
+    resumes = models.ForeignKey(
+        "RunPark", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
 
     class Meta:
         db_table = "iki_job"
@@ -1800,15 +1830,26 @@ class CostKind(models.TextChoices):
     #: A persistent machine's time without a job, or a machine that never ran one: the
     #: organization's, not any project's.
     IDLE = "idle", "Idle"
+    #: A call to an outside API a run made, at the deployment's price for it (ADR 0130).
+    API = "api", "Outside API"
 
 
 class CostRecord(models.Model):
     """What a machine Iki started cost, and whose it was (ADR 0070): its seconds times its
-    template's price when it was recorded. Recorded once, never changed."""
+    template's price when it was recorded. Or what a run's call to an outside API cost, at
+    the deployment's price for it (ADR 0130). Recorded once, never changed."""
 
     id = models.BigAutoField(primary_key=True)
-    launch = models.ForeignKey(Launch, on_delete=models.PROTECT, related_name="costs")
+    #: The machine, for a run's share or idle time; none for an outside API's call.
+    launch = models.ForeignKey(
+        Launch, null=True, blank=True, on_delete=models.PROTECT, related_name="costs"
+    )
     kind = models.CharField(max_length=8, choices=CostKind.choices)
+    #: For an outside API's call: the call, and the API (``plugin.api``).
+    call = models.OneToOneField(
+        "ApiCall", null=True, blank=True, on_delete=models.PROTECT, related_name="cost_record"
+    )
+    api = models.CharField(max_length=200, blank=True, default="")
     #: For a run's share: the attempt, its run and where the run was, when it was recorded.
     job = models.ForeignKey(Job, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     run = models.ForeignKey(
@@ -1821,7 +1862,8 @@ class CostRecord(models.Model):
         Team, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     action = models.CharField(max_length=200, blank=True, default="")
-    template = models.CharField(max_length=100)
+    #: Empty for an outside API's call.
+    template = models.CharField(max_length=100, blank=True, default="")
     tier = models.CharField(max_length=16)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField()
@@ -1845,8 +1887,31 @@ class CostRecord(models.Model):
             models.CheckConstraint(condition=Q(kind__in=CostKind.values), name="iki_cost_kind"),
             models.CheckConstraint(condition=Q(seconds__gte=0), name="iki_cost_seconds"),
             models.CheckConstraint(
-                condition=Q(kind="run", run__isnull=False, project__isnull=False)
-                | Q(kind="idle", run__isnull=True, project__isnull=True, team__isnull=True),
+                condition=Q(
+                    kind="run",
+                    run__isnull=False,
+                    project__isnull=False,
+                    launch__isnull=False,
+                    call__isnull=True,
+                )
+                | Q(
+                    kind="idle",
+                    run__isnull=True,
+                    project__isnull=True,
+                    team__isnull=True,
+                    launch__isnull=False,
+                    call__isnull=True,
+                )
+                | (
+                    Q(
+                        kind="api",
+                        run__isnull=False,
+                        project__isnull=False,
+                        launch__isnull=True,
+                        call__isnull=False,
+                    )
+                    & ~Q(api="")
+                ),
                 name="iki_cost_whose",
             ),
             models.CheckConstraint(
@@ -1855,13 +1920,19 @@ class CostRecord(models.Model):
                     price_per_hour__isnull=False,
                     amount__isnull=False,
                     currency__regex=r"^[A-Z]{3}$",
+                )
+                | Q(
+                    kind="api",
+                    price_per_hour__isnull=True,
+                    amount__isnull=False,
+                    currency__regex=r"^[A-Z]{3}$",
                 ),
                 name="iki_cost_priced",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.template} {self.kind} {self.amount} {self.currency}"
+        return f"{self.template or self.api} {self.kind} {self.amount} {self.currency}"
 
 
 def _warn_at() -> list[int]:
@@ -1939,3 +2010,228 @@ class BudgetAlert(models.Model):
 
     def __str__(self) -> str:
         return f"{self.threshold}% of {self.budget_id} in {self.month}"
+
+
+# --- Outside APIs (ADR 0130) -------------------------------------------------------------------
+
+
+class ApiApproval(models.Model):
+    """An Org Admin's approval of an outside API for a project: runs there may call it while
+    its plugin names the host and purpose approved, until it's revoked (ADR 0130)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    api = models.CharField(max_length=200, db_comment="plugin.api, such as iki/protein.fold.")
+    #: What was approved, as the plugin said it then.
+    label = models.CharField(max_length=200)
+    host = models.CharField(max_length=253)
+    purpose = models.TextField()
+    note = models.TextField(blank=True, default="")
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    approved_at = models.DateTimeField(db_default=Now())
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_api_approval"
+        db_table_comment = "Org Admins' approvals of outside APIs, per project (ADR 0130)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["project", "api"],
+                condition=Q(revoked_at__isnull=True),
+                name="iki_api_approval_current",
+            ),
+            models.CheckConstraint(
+                condition=Q(revoked_at__isnull=True, revoked_by__isnull=True)
+                | Q(revoked_at__isnull=False),
+                name="iki_api_approval_revoked",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.api} in {self.project_id}"
+
+
+class ApiConsent(models.Model):
+    """What a person agreed to send to outside APIs when they launched, as it was shown to
+    them (ADR 0130). Runs and workflows point to it."""
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The action, or the workflow, it was given for.
+    launched = models.CharField(max_length=200)
+    given_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    #: How: in the web app, through the API, or approving an agent's request.
+    via = models.CharField(max_length=16)
+    client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that asked, when the person consented by approving its request (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: Each API, with what's sent and the statement shown: ``[{api, label, host, purpose,
+    #: inputs, params, statement}]``.
+    statements = models.JSONField()
+    given_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_api_consent"
+        db_table_comment = "What people agreed to send to outside APIs, as shown (ADR 0130)."
+
+    def __str__(self) -> str:
+        return f"{self.launched} by {self.given_by_id}"
+
+
+class ParkOutcome(models.TextChoices):
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+    TIMED_OUT = "timed_out", "Timed out"
+    CANCELLED = "cancelled", "Cancelled"
+    #: Its API stopped being approved, or Iki couldn't poll it.
+    ENDED = "ended", "Ended"
+
+
+class RunPark(models.Model):
+    """A run waiting on an outside API's job, holding no worker (ADR 0130). The egress
+    proxy's poller polls it until it's done, failed, cancelled or out of time."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="parks")
+    #: The attempt that submitted the job and parked.
+    job = models.OneToOneField(Job, on_delete=models.PROTECT, related_name="park")
+    api = models.CharField(max_length=63, db_comment="The API's name in its plugin.")
+    external_id = models.CharField(max_length=200, db_comment="The API's ID for the job.")
+    state = models.JSONField(default=dict, blank=True)
+    parked_at = models.DateTimeField(db_default=Now())
+    next_poll_at = models.DateTimeField()
+    deadline = models.DateTimeField()
+    polls = models.PositiveIntegerField(default=0)
+    #: Polls in a row that failed: they back off, and too many end the park.
+    failures = models.PositiveSmallIntegerField(default=0)
+    #: The job's state, as the API last said it.
+    status = models.CharField(max_length=100, blank=True, default="")
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    #: When a signed callback last said it might be done.
+    woken_at = models.DateTimeField(null=True, blank=True)
+    #: Set when the run was cancelled: the poller asks the API to cancel, then ends it.
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    #: What the API answered when asked to cancel the job, if it was.
+    cancel_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=16, choices=ParkOutcome.choices, blank=True, default="")
+    message = models.CharField(max_length=2000, blank=True, default="")
+    #: The last poll's answer, which the resuming attempt gets: null when it wasn't JSON or
+    #: was too large.
+    answer = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_run_park"
+        db_table_comment = "Runs waiting on outside APIs' jobs, and how each wait ended."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["next_poll_at"],
+                name="iki_run_park_due",
+                condition=Q(ended_at__isnull=True),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["run"], condition=Q(ended_at__isnull=True), name="iki_run_park_open"
+            ),
+            models.CheckConstraint(
+                condition=Q(ended_at__isnull=True, outcome="")
+                | Q(ended_at__isnull=False, outcome__in=ParkOutcome.values),
+                name="iki_run_park_outcome",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} on {self.api} {self.external_id}"
+
+
+class CallKind(models.TextChoices):
+    #: A request the run's command made.
+    CALL = "call", "Call"
+    #: The poller asking after a parked run's job.
+    POLL = "poll", "Poll"
+    #: The poller asking the API to cancel a parked run's job.
+    CANCEL = "cancel", "Cancel"
+
+
+class ApiCall(models.Model):
+    """One call to an outside API, as the egress proxy made it (ADR 0130): never its body,
+    but hashes of what went and came, what the answer said answered, the declared
+    parameters and usage, and the cost. The provenance of an outside model's answer."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="api_calls")
+    #: The attempt it was made for.
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="+")
+    park = models.ForeignKey(
+        RunPark, null=True, blank=True, on_delete=models.PROTECT, related_name="calls"
+    )
+    api = models.CharField(max_length=200, db_comment="plugin.api")
+    host = models.CharField(max_length=253)
+    kind = models.CharField(max_length=8, choices=CallKind.choices)
+    method = models.CharField(max_length=16)
+    path = models.CharField(max_length=2000, db_comment="Without the query, which may hold data.")
+    #: The HTTP status the API answered; none when it didn't answer.
+    status = models.PositiveSmallIntegerField(null=True, blank=True)
+    error = models.CharField(max_length=500, blank=True, default="")
+    started_at = models.DateTimeField()
+    duration_ms = models.PositiveIntegerField()
+    request_bytes = models.BigIntegerField(default=0)
+    response_bytes = models.BigIntegerField(default=0)
+    request_sha256 = models.CharField(max_length=64, blank=True, default="")
+    response_sha256 = models.CharField(max_length=64, blank=True, default="")
+    model = models.CharField(max_length=200, blank=True, default="")
+    version = models.CharField(max_length=200, blank=True, default="")
+    parameters = models.JSONField(default=dict, blank=True)
+    usage = models.JSONField(default=dict, blank=True)
+    cost = models.DecimalField(max_digits=14, decimal_places=6, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_api_call"
+        db_table_comment = "Each call runs made to outside APIs, for provenance and cost."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["run", "id"], name="iki_api_call_run"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(kind__in=CallKind.values), name="iki_api_call_kind"),
+            models.CheckConstraint(
+                condition=Q(cost__isnull=True, currency="")
+                | Q(cost__isnull=False, currency__regex=r"^[A-Z]{3}$"),
+                name="iki_api_call_priced",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.method} {self.host}{self.path} {self.status}"
+
+
+class EgressGatewayKey(models.Model):
+    """An egress proxy's public key: each attempt's certificates for its outside APIs are
+    signed for it (ADR 0130). Each proxy says it has it as it starts, and while it runs."""
+
+    fingerprint = models.CharField(max_length=64, primary_key=True, db_comment="SHA-256, hex.")
+    public_key = models.TextField(db_comment="PEM, SubjectPublicKeyInfo.")
+    first_seen_at = models.DateTimeField(db_default=Now())
+    last_seen_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_egress_gateway_key"
+        db_table_comment = "The egress proxies' public keys, for outside APIs' certificates."
+
+    def __str__(self) -> str:
+        return self.fingerprint[:16]

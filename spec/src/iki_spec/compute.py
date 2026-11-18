@@ -17,6 +17,13 @@ which::
     kind: EnvironmentBinding
     environment: structure_prediction.alphafold-gpu
     templates: [{ template: gpu-a100-spot }, { template: gpu-a100, priority: 1 }]
+    ---
+    apiVersion: iki/v1
+    kind: ApiPrice
+    api: acme/models.fold
+    per_call: 0.02
+    usage: { gpu_seconds: 0.0011 }
+    currency: USD
 
 ``iki deploy build`` checks them against the plugins the lockfile pins: every
 binding's templates are big enough for its environment, every action fits
@@ -34,6 +41,7 @@ from iki_spec import API_VERSION, schemas
 from iki_spec.model import (
     Action,
     Environment,
+    OutsideApi,
     Plugin,
     Resources,
     parse_duration,
@@ -57,7 +65,11 @@ __all__ = [
 
 FILENAME = "compute.yaml"
 
-KINDS = {"ComputeTemplate": "compute-template", "EnvironmentBinding": "environment-binding"}
+KINDS = {
+    "ComputeTemplate": "compute-template",
+    "EnvironmentBinding": "environment-binding",
+    "ApiPrice": "api-price",
+}
 
 #: The tier each provisioner starts machines for.
 TIER = {
@@ -186,9 +198,22 @@ class Binding:
 
 
 @dataclass(frozen=True)
+class ApiPrice:
+    """What the deployment pays for a plugin's outside API (ADR 0130): per call answered,
+    and per unit of each usage it reports."""
+
+    api: str  # plugin.api
+    currency: str
+    per_call: float | None = None
+    usage: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Compute:
     templates: dict[str, Template] = field(default_factory=dict)
     bindings: dict[str, Binding] = field(default_factory=dict)
+    #: Outside APIs' prices, by ``plugin.api``.
+    prices: dict[str, ApiPrice] = field(default_factory=dict)
 
 
 @dataclass
@@ -245,6 +270,7 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
             return ComputeResult(None, read_problems)
     templates: dict[str, tuple[Template, Document]] = {}
     bindings: dict[str, tuple[Binding, Document]] = {}
+    prices: dict[str, tuple[ApiPrice, Document]] = {}
     for document in documents:
         if document.data is None:
             continue
@@ -253,12 +279,13 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
         if kind not in KINDS:
             problems.add(
                 "unknown-kind",
-                f"compute.yaml holds compute templates and environment bindings, not `{kind}`."
+                "compute.yaml holds compute templates, environment bindings and API prices, "
+                f"not `{kind}`."
                 if kind
                 else "Each document in compute.yaml needs a `kind`.",
                 document,
                 ("kind",) if kind else (),
-                hint="Use `kind: ComputeTemplate` or `kind: EnvironmentBinding`.",
+                hint="Use `kind: ComputeTemplate`, `kind: EnvironmentBinding` or `kind: ApiPrice`.",
             )
             continue
         issues = schemas.check(KINDS[kind], data)
@@ -282,6 +309,23 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
                 )
                 continue
             templates[template.name] = (template, document)
+        elif kind == "ApiPrice":
+            price = ApiPrice(
+                api=data["api"],
+                currency=data["currency"],
+                per_call=data.get("per_call"),
+                usage=dict(data.get("usage") or {}),
+            )
+            if price.api in prices:
+                problems.add(
+                    "duplicate-price",
+                    f"`{price.api}` is priced twice (first on line "
+                    f"{prices[price.api][1].start.line}).",
+                    document,
+                    ("api",),
+                )
+                continue
+            prices[price.api] = (price, document)
         else:
             binding = Binding(
                 environment=data["environment"],
@@ -303,10 +347,11 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
             bindings[binding.environment] = (binding, document)
     if any(p.is_error for p in problems.problems):
         return ComputeResult(None, problems.problems)
-    _Rules(templates, bindings, plugins, problems).run()
+    _Rules(templates, bindings, plugins, problems, prices).run()
     compute = Compute(
         templates={n: t for n, (t, _) in templates.items()},
         bindings={n: b for n, (b, _) in bindings.items()},
+        prices={n: p for n, (p, _) in prices.items()},
     )
     errors = any(p.is_error for p in problems.problems)
     return ComputeResult(None if errors else compute, problems.problems)
@@ -396,9 +441,14 @@ class _Rules:
         bindings: dict[str, tuple[Binding, Document]],
         plugins: Sequence[Plugin],
         problems: _Problems,
+        prices: dict[str, tuple[ApiPrice, Document]] | None = None,
     ) -> None:
         self.templates = templates
         self.bindings = bindings
+        self.api_prices = prices or {}
+        self.apis: dict[str, OutsideApi] = {
+            api.qualified_name: api for plugin in plugins for api in plugin.apis.values()
+        }
         self.problems = problems
         self.add = problems.add
         self.environments: dict[str, Environment] = {}
@@ -451,22 +501,62 @@ class _Rules:
         )
 
     def prices(self) -> None:
-        """Costs add up in one currency, for reports and budgets (ADR 0070)."""
-        priced = [(t, d) for t, d in self.templates.values() if t.currency is not None]
-        currencies = sorted({t.currency for t, _ in priced if t.currency})
-        if len(currencies) > 1:
-            first = priced[0][0].currency
-            for template, document in priced:
-                if template.currency != first:
+        """Costs add up in one currency, for reports and budgets (ADR 0070): templates' and
+        outside APIs' (ADR 0130)."""
+        priced: list[tuple[str, str, Document, DocPath]] = [
+            (t.name, t.currency, d, ("price", "currency"))
+            for t, d in self.templates.values()
+            if t.currency is not None
+        ]
+        priced += [(p.api, p.currency, d, ("currency",)) for p, d in self.api_prices.values()]
+        if len({currency for _, currency, _, _ in priced}) > 1:
+            first_name, first, _, _ = priced[0]
+            for name, currency, document, path in priced:
+                if currency != first:
                     self.add(
                         "mixed-currencies",
-                        f"`{template.name}` is priced in {template.currency}, but "
-                        f"`{priced[0][0].name}` in {first}: a deployment's costs and budgets "
-                        "are in one currency.",
+                        f"`{name}` is priced in {currency}, but `{first_name}` in {first}: a "
+                        "deployment's costs and budgets are in one currency.",
                         document,
-                        ("price", "currency"),
+                        path,
                         hint="Convert its price.",
                     )
+        for price, document in self.api_prices.values():
+            api = self.apis.get(price.api)
+            if api is None:
+                self.add(
+                    "unknown-api",
+                    f"No installed plugin has the outside API `{price.api}`.",
+                    document,
+                    ("api",),
+                    hint=schemas._did_you_mean(price.api, list(self.apis)),
+                )
+                continue
+            reported = {*api.usage, *(api.jobs.usage if api.jobs else {})}
+            for name in price.usage:
+                if name not in reported:
+                    self.add(
+                        "unknown-usage",
+                        f"{api.label} doesn't report `{name}`"
+                        + (
+                            f": it reports {', '.join(f'`{u}`' for u in sorted(reported))}."
+                            if reported
+                            else ", or any usage."
+                        ),
+                        document,
+                        ("usage", name),
+                        key=True,
+                    )
+        for qualified, api in sorted(self.apis.items()):
+            if qualified not in self.api_prices:
+                self.add(
+                    "unpriced-api",
+                    f"`{qualified}` ({api.label}) has no price, so calls to it cost nothing in "
+                    "Iki's records, and budgets can't hold them back.",
+                    None,
+                    severity=Severity.WARNING,
+                    hint="Add an ApiPrice for it, with `per_call` or `usage`.",
+                )
         for template, document in self.templates.values():
             if template.tier in ("container", "vm") and template.price_per_hour is None:
                 self.add(
@@ -860,6 +950,7 @@ def compute_to_dict(compute: Compute) -> dict[str, Any]:
         "apiVersion": API_VERSION,
         "templates": {n: asdict(t) for n, t in sorted(compute.templates.items())},
         "bindings": {n: asdict(b) for n, b in sorted(compute.bindings.items())},
+        "prices": {n: asdict(p) for n, p in sorted(compute.prices.items())},
     }
 
 
@@ -884,4 +975,6 @@ def compute_from_dict(data: dict[str, Any]) -> Compute:
             )
             for n, b in data["bindings"].items()
         },
+        # Deployments built before outside APIs price none.
+        prices={n: ApiPrice(**p) for n, p in (data.get("prices") or {}).items()},
     )

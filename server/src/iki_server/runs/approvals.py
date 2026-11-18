@@ -8,6 +8,10 @@ the web app. So do a trigger's runs on those tiers, for the Admin who turned it 
 own request. One request is one decision: a batch is approved or declined together,
 and a request nobody decides within a week expires.
 
+So do an agent's, or a trigger's, runs of actions that send data to outside APIs, on any
+tier (ADR 0130): an agent doesn't agree to that for its person. Approving is their consent,
+kept as theirs with the agent beside it.
+
 Approving checks again that the person may run the tier in the project, and the
 quotas on waiting runs; the jobs then join the queue as if just launched.
 """
@@ -31,7 +35,7 @@ from iki_server.notifications.services import notify
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs import budgets, catalog, endings, live, queue, quotas
+from iki_server.runs import budgets, catalog, endings, live, outside, queue, quotas
 from iki_server.runs.models import (
     ActionRun,
     ApprovalState,
@@ -41,7 +45,7 @@ from iki_server.runs.models import (
     RunApproval,
     RunStatus,
 )
-from iki_spec.model import Action
+from iki_spec.model import Action, action_from_dict
 
 #: Tiers whose runs an agent can't start by itself.
 APPROVAL_TIERS = frozenset({"container", "vm"})
@@ -66,7 +70,9 @@ def for_trigger(trigger: ProjectTrigger) -> Iterator[None]:
 
 def needed(action: Action) -> bool:
     """Whether a run of `action`, launched now, waits for approval."""
-    return audit.current_via() in UNATTENDED and action.tier in APPROVAL_TIERS
+    return audit.current_via() in UNATTENDED and (
+        action.tier in APPROVAL_TIERS or bool(action.apis) or outside.priced(action)
+    )
 
 
 def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunApproval | None:
@@ -95,12 +101,18 @@ def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunAp
 def announce(approval: RunApproval, runs: int, label: str, *, path: str) -> None:
     """Tells the person their agent, or their trigger, is asking, with a link to decide."""
     what = f"{runs} runs of {label}" if runs > 1 else f"a run of {label}"
+    first = ActionRun.objects.filter(approval=approval).order_by("id").first()
+    sending = first is not None and bool(first.spec.get("apis"))
+    why = (
+        "It sends data to outside APIs, which needs your agreement."
+        if sending
+        else "It runs on a tier that needs your approval."
+    )
     notify(
         [decider(approval)],
         kinds.RUN_APPROVAL_REQUESTED,
         title=f"{asker(approval)} asks to start {what} in {approval.project.name}",
-        body="It runs on a tier that needs your approval. Approve or decline it in Iki; "
-        f"it expires in {EXPIRES_AFTER.days} days.",
+        body=f"{why} Approve or decline it in Iki; it expires in {EXPIRES_AFTER.days} days.",
         path=path,
         project=approval.project,
     )
@@ -183,6 +195,20 @@ def approve(user: User, approval: RunApproval) -> list[ActionRun]:
         action = catalog.action(runs[0].action) if runs else None
         if action is not None:
             budgets.check_launch(runs[0].project, action, len(runs))
+        # What they send to outside APIs: still approved there, and agreed to by approving.
+        launched = action_from_dict(runs[0].spec) if runs else None
+        if launched is not None and launched.apis:
+            outside.check_approved(runs[0].project, launched)
+            agreed = outside.record_consent(
+                user,
+                runs[0].project,
+                launched.qualified_name,
+                outside.statements(launched),
+                via=Via.WEB,
+                client=approval.client,
+                agent=approval.agent,
+            )
+            ActionRun.objects.filter(pk__in=[r.pk for r in runs]).update(consent=agreed)
         for run in runs:
             quotas.check_queued(run.project, run.tier)
             run.status = RunStatus.QUEUED

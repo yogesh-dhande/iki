@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from iki.schema import (
         ActionOut,
+        ApiCallOut,
         AssignOut,
         AttemptLogOut,
         BudgetOut,
@@ -1106,6 +1107,7 @@ class Runs(_Part):
         reuse: bool = True,
         add_to_project: bool = False,
         labels: Iterable[str] = (),
+        consent: Iterable[str] = (),
     ) -> RunOut:
         """Queues a run. `inputs` name entities by ID, HRID or the entity itself:
         ``{"protein": "PRT-000123"}``, or a list for inputs that take many.
@@ -1119,7 +1121,13 @@ class Runs(_Part):
         members can then read them.
 
         For a self-hosted action, ``labels`` narrow which machines take it: only one with
-        every label, besides the ones the action needs, such as ``["lab-3"]``."""
+        every label, besides the ones the action needs, such as ``["lab-3"]``.
+
+        An action that sends data to outside APIs (its ``apis``) needs ``consent``
+        naming each, such as ``["iki/example_models.foldcloud"]``: you agree to what its
+        ``statement`` says is sent. Without it, :class:`ConsentRequired` gives the
+        statements; :class:`NotApproved` means an Org Admin hasn't approved the API for
+        the project (ADR 0130)."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -1129,6 +1137,7 @@ class Runs(_Part):
             "reuse": reuse,
             "add_to_project": add_to_project,
             "labels": list(labels),
+            "consent": list(consent),
         }
         return cast(
             "RunOut",
@@ -1148,11 +1157,12 @@ class Runs(_Part):
         reuse: bool = True,
         add_to_project: bool = False,
         labels: Iterable[str] = (),
+        consent: Iterable[str] = (),
     ) -> builtins.list[RunOut]:
         """Queues one run for each of `entities` as its `each` input, all or none:
         if any can't run, none is queued, and the error says which. Runs identical to
         earlier ones reuse their results, and inputs from other projects need
-        `add_to_project`, as for :meth:`start`, as do `labels`."""
+        `add_to_project`, as for :meth:`start`, as do `labels` and `consent`."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -1164,6 +1174,7 @@ class Runs(_Part):
             "reuse": reuse,
             "add_to_project": add_to_project,
             "labels": list(labels),
+            "consent": list(consent),
         }
         batch = client.request("POST", _path("/actions/{n}/runs/batch", n=_Name(action)), json=body)
         return cast("builtins.list[RunOut]", batch["runs"])
@@ -1193,16 +1204,30 @@ class Runs(_Part):
             frames.runs,
         )
 
-    def reproduce(self, ref: str | Mapping[str, Any], *, reason: str = "") -> RunOut:
+    def reproduce(
+        self, ref: str | Mapping[str, Any], *, reason: str = "", consent: Iterable[str] = ()
+    ) -> RunOut:
         """Queues a run that does this one again exactly: the same plugin commit, params,
         settings, seed, and inputs at the revisions it read. It writes nothing; once it
-        ends, its ``reproduction`` says whether its results match."""
+        ends, its ``reproduction`` says whether its results match. A run that sent data to
+        outside APIs needs ``consent`` to send it again, as :meth:`start` does."""
         return cast(
             "RunOut",
             self._client.request(
-                "POST", _path("/runs/{r}/reproduce", r=_ref(ref)), json={"reason": reason}
+                "POST",
+                _path("/runs/{r}/reproduce", r=_ref(ref)),
+                json={"reason": reason, "consent": list(consent)},
             ),
         )
+
+    def api_calls(self, ref: str | Mapping[str, Any]) -> Results[ApiCallOut]:
+        """Its calls to outside APIs, and the polls and cancels of jobs it waited on,
+        oldest first, as the egress proxy recorded them (ADR 0130): the model and version
+        each answer said answered, the declared parameters and usage, SHA-256 hashes of
+        what was sent and answered, and the cost."""
+        client = self._client
+        path = _path("/runs/{r}/api-calls", r=_ref(ref))
+        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
 
     def cancel(self, ref: str | Mapping[str, Any], *, reason: str = "") -> RunOut:
         """Cancels a run: at once if it hasn't started, else its worker stops it."""

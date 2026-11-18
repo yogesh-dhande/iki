@@ -630,11 +630,18 @@ except ValueError as _error:
         f"IKI_EGRESS_ALLOWED_NETWORKS must be CIDRs such as 10.20.0.0/16: {_error}"
     ) from None
 
+#: The egress proxy's private key for outside APIs (ADR 0130): a PEM file the proxy reads
+#: at start. Each attempt's certificates for its APIs' hosts are signed for its public key.
+#: Every replica mounts the same one, so a restarted replica serves attempts leased before.
+#: Without it, the proxy only tunnels, and actions that call outside APIs can't run.
+IKI_EGRESS_GATEWAY_KEY_FILE: str = env.str("IKI_EGRESS_GATEWAY_KEY_FILE", default="")
+
 # --- Run secrets (ADR 0054) ------------------------------------------------
 # The secrets actions declare, kept in the deployment's secret manager and
 # mounted here (a Kubernetes Secret, synced by External Secrets or the like):
 # one file per secret, named for its plugin's label and name, such as
-# iki__dna.NCBI_API_KEY. Only web pods mount it; each run gets only its own.
+# iki__dna.NCBI_API_KEY. Web pods and the egress proxy mount it (the proxy adds
+# outside APIs' keys to their calls, ADR 0130); each run gets only its own.
 
 IKI_RUN_SECRETS_DIR: str = env.str("IKI_RUN_SECRETS_DIR", default="")
 if IKI_RUN_SECRETS_DIR and not Path(IKI_RUN_SECRETS_DIR).is_dir():

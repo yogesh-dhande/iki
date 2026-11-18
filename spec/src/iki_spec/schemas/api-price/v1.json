@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/api-price/v1",
+  "title": "Iki outside API price (iki/v1)",
+  "description": "What this deployment pays for a plugin's outside API (ADR 0130): per call, and per unit of each usage the API reports, in the currency of the deployment's other prices. Each call's cost is recorded with its run and counts against budgets.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "api", "currency"],
+  "anyOf": [{ "required": ["per_call"] }, { "required": ["usage"] }],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "ApiPrice" },
+    "api": {
+      "description": "The plugin and its API, such as `iki/example_models.fold`.",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9_]{0,62}$"
+    },
+    "per_call": {
+      "description": "What each call the API answers successfully costs.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "usage": {
+      "description": "What each unit of a usage the API reports costs, by the name the plugin gives it, such as `gpu_seconds: 0.0011`.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 10,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": { "type": "number", "minimum": 0, "maximum": 100000 }
+    },
+    "currency": {
+      "description": "An ISO 4217 code, such as `USD` or `EUR`: the currency of the deployment's other prices.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    }
+  },
+  "additionalProperties": false
+}

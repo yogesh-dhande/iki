@@ -1,5 +1,6 @@
 """Actions and environments: their schemas, and the rules beyond them."""
 
+import dataclasses
 import json
 import os
 import shutil
@@ -8,7 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.model import parse_duration, parse_quantity, plugin_from_dict, plugin_to_dict
+from iki_spec import apis
+from iki_spec.compute import compute_from_dict, compute_to_dict, load_compute
+from iki_spec.model import (
+    action_from_dict,
+    parse_duration,
+    parse_quantity,
+    plugin_from_dict,
+    plugin_to_dict,
+)
 from iki_spec.problems import Severity
 from iki_spec.validate import Result, load_plugin
 
@@ -783,3 +792,198 @@ def test_deterministic_warnings(tmp_path: Path) -> None:
     result = make(tmp_path, retried)
     assert only(result, "retries-deterministic-failure")
     assert result.ok
+
+
+# --- Outside APIs (ADR 0130) -------------------------------------------------------------------
+
+API = """\
+apis:
+  fold:
+    label: FoldCloud
+    host: fold.example.com
+    purpose: Predicts structures.
+    credential: { secret: FOLD_KEY }
+    reports:
+      model: /model
+      version: header:x-version
+      parameters: [/recycles]
+      usage: { gpu_seconds: /usage/gpu_seconds }
+    jobs:
+      poll: /v1/jobs/{id}
+      status: /status
+      done: [succeeded]
+      failed: [failed]
+      cancel: /v1/jobs/{id}/cancel
+      every: 10s
+      timeout: 2d
+      webhook: { signature: standard-webhooks, secret: FOLD_HOOK }
+"""
+
+USES = """\
+apis:
+  fold:
+    sends:
+      inputs: { assay: [barcode] }
+"""
+
+
+def test_a_plugin_declares_its_apis_and_actions_say_what_they_send(tmp_path: Path) -> None:
+    result = make(tmp_path, ACTION + USES, files={"plugin.yaml": PLUGIN + API})
+    assert result.problems == []
+    assert result.plugin is not None
+    api = result.plugin.apis["fold"]
+    assert api.qualified_name == "acme/lab.fold"
+    assert api.credential is not None
+    assert (api.credential.header, api.credential.prefix) == ("Authorization", "Bearer ")
+    assert api.jobs is not None
+    assert (api.jobs.every, api.jobs.timeout) == (10, 2 * 86400)
+    (use,) = result.plugin.actions["score"].apis
+    assert (use.name, use.inputs, use.params, use.api) == ("fold", {"assay": ("barcode",)}, (), api)
+    # A run keeps its action as JSON, with the API it calls, and reads it back the same.
+    again = plugin_from_dict(plugin_to_dict(result.plugin))
+    assert again == result.plugin
+    action = result.plugin.actions["score"]
+    assert action_from_dict(dataclasses.asdict(action)) == action
+    # Runs that call outside APIs aren't retried by default: they'd pay again.
+    assert action.retry_max == 0
+
+
+def test_a_header_credential_has_no_prefix_unless_it_says(tmp_path: Path) -> None:
+    api = API.replace(
+        "credential: { secret: FOLD_KEY }", "credential: { secret: FOLD_KEY, header: X-Api-Key }"
+    )
+    result = make(tmp_path, ACTION + USES, files={"plugin.yaml": PLUGIN + api})
+    assert result.plugin is not None
+    credential = result.plugin.apis["fold"].credential
+    assert credential is not None
+    assert (credential.header, credential.prefix) == ("X-Api-Key", "")
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        (("every: 10s", "every: 2s"), "api-polls-too-often"),
+        (("timeout: 2d", "timeout: 8d"), "api-job-timeout"),
+        (("failed: [failed]", "failed: [failed, succeeded]"), "api-status-twice"),
+        (("signature: standard-webhooks", "signature: hmac-sha256"), "webhook-needs-header"),
+        (("FOLD_HOOK }", "FOLD_HOOK, header: X-Sig }"), "webhook-header"),
+        (("secret: FOLD_HOOK", "secret: FOLD_KEY"), "webhook-secret-is-credential"),
+        (("{ secret: FOLD_KEY }", "{ secret: FOLD_KEY, header: Host }"), "api-credential-header"),
+        (("host: fold.example.com", "host: '{settings.fold_host}'"), "network-unknown-setting"),
+    ],
+)
+def test_an_apis_declaration_is_checked(tmp_path: Path, change: tuple[str, str], code: str) -> None:
+    api = API.replace(*change)
+    assert api != API
+    assert only(make(tmp_path, ACTION + USES, files={"plugin.yaml": PLUGIN + api}), code)
+
+
+def test_the_schema_refuses_a_wildcard_host_and_a_path_without_the_id(tmp_path: Path) -> None:
+    wildcard = API.replace("host: fold.example.com", "host: '*.example.com'")
+    assert "schema" in codes(
+        make(tmp_path, ACTION + USES, files={"plugin.yaml": PLUGIN + wildcard})
+    )
+    for poll in ("/v1/jobs", "/v1/jobs/{id}/{id}"):
+        no_id = API.replace("poll: /v1/jobs/{id}", f"poll: {poll}")
+        found = make(tmp_path, ACTION + USES, files={"plugin.yaml": PLUGIN + no_id})
+        assert "schema" in codes(found)
+
+
+@pytest.mark.parametrize(
+    ("action", "code"),
+    [
+        (ACTION + USES.replace("assay: [barcode]", "sample: [barcode]"), "unknown-input"),
+        (ACTION + USES.replace("[barcode]", "[barcod]"), "unknown-field"),
+        (ACTION + USES.replace("inputs: { assay: [barcode] }", "params: [depth]"), "unknown-param"),
+        (ACTION + USES + "network: [fold.example.com]\n", "api-in-network"),
+        (ACTION + USES + "secrets: [FOLD_KEY]\n", "api-credential-is-secret"),
+        (ACTION + USES + "secrets: [FOLD_HOOK]\n", "api-credential-is-secret"),
+        (ACTION.replace("tier: backend", "tier: self_hosted") + USES, "self-hosted-apis"),
+        (ACTION + USES + "deterministic: true\n", "deterministic-with-api"),
+    ],
+)
+def test_what_an_action_sends_is_checked(tmp_path: Path, action: str, code: str) -> None:
+    assert only(make(tmp_path, action, files={"plugin.yaml": PLUGIN + API}), code)
+
+
+def test_an_action_calls_only_its_plugins_apis(tmp_path: Path) -> None:
+    result = make(
+        tmp_path, ACTION + USES.replace("fold:", "folds:"), files={"plugin.yaml": PLUGIN + API}
+    )
+    assert codes(result) == ["unknown-api", "unused-api"]
+
+
+def test_a_batchable_action_cant_call_an_api_it_parks_on(tmp_path: Path) -> None:
+    single = ACTION.replace(
+        "effects:\n  updates: [{ input: assay, fields: [score] }]\n",
+        "effects:\n  updates: [{ input: assay, fields: [score] }]\nbatchable: 10\n",
+    )
+    assert only(make(tmp_path, single + USES, files={"plugin.yaml": PLUGIN + API}), "batch-parks")
+
+
+def test_an_api_no_action_calls_is_warned_about(tmp_path: Path) -> None:
+    assert only(make(tmp_path, ACTION, files={"plugin.yaml": PLUGIN + API}), "unused-api")
+
+
+def test_the_example_plugins_api(tmp_path: Path) -> None:
+    result = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"])
+    assert result.problems == []
+    assert result.plugin is not None
+    (use,) = result.plugin.actions["predict_hosted"].apis
+    assert use.api is not None and use.api.host == "fold.models.example"
+
+
+def test_compute_config_prices_apis(tmp_path: Path) -> None:
+    protein = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"]).plugin
+    assert protein is not None
+    file = tmp_path / "compute.yaml"
+    file.write_text(
+        "apiVersion: iki/v1\nkind: ApiPrice\napi: acme/protein.fold\nper_call: 0.02\n"
+        "usage: { gpu_seconds: 0.001 }\ncurrency: USD\n"
+    )
+    result = load_compute(file, [protein])
+    assert [p.code for p in result.problems if p.code != "unbound-environment"] == []
+    assert result.compute is not None
+    price = result.compute.prices["acme/protein.fold"]
+    assert (price.per_call, price.usage, price.currency) == (0.02, {"gpu_seconds": 0.001}, "USD")
+    assert compute_from_dict(compute_to_dict(result.compute)) == result.compute
+
+    file.write_text(
+        "apiVersion: iki/v1\nkind: ApiPrice\napi: acme/protein.fold\nusage: { tokens: 1 }\n"
+        "currency: USD\n---\napiVersion: iki/v1\nkind: ApiPrice\napi: acme/protein.flod\n"
+        "per_call: 1\ncurrency: EUR\n"
+    )
+    found = sorted(p.code for p in load_compute(file, [protein]).problems)
+    assert found == ["mixed-currencies", "unbound-environment", "unknown-api", "unknown-usage"]
+    file.write_text("")
+    assert "unpriced-api" in [p.code for p in load_compute(file, [protein]).problems]
+
+
+# --- Reading answers ---------------------------------------------------------------------------
+
+
+def test_a_locator_reads_a_json_pointer_or_a_header() -> None:
+    answer = {"model": "fold-2", "usage": {"gpu_seconds": 12.5}, "a/b": [{"~x": 1}]}
+    assert apis.locate("/model", [answer]) == "fold-2"
+    assert apis.locate("/usage/gpu_seconds", [answer]) == 12.5
+    assert apis.locate("/a~1b/0/~0x", [answer]) == 1
+    assert apis.locate("/a~1b/01/~0x", [answer]) is None
+    assert apis.locate("/missing", [answer]) is None
+    assert apis.locate("header:X-Version", [], {"x-version": "2.1"}) == "2.1"
+    # A streamed answer's events: the last one that has it.
+    events = [{"model": "a"}, {"delta": "…"}, {"model": "b", "usage": {"tokens": 3}}, {}]
+    assert apis.locate("/model", events) == "b"
+    assert apis.locate("/usage/tokens", events) == 3
+
+
+def test_a_job_id_goes_into_its_path_escaped() -> None:
+    assert apis.job_path("/v1/jobs/{id}/cancel", "abc:1.2") == "/v1/jobs/abc%3A1.2/cancel"
+    for bad in ("", "../x", "a b", "a/b", "x" * 201):
+        with pytest.raises(ValueError, match="job ID"):
+            apis.job_path("/v1/jobs/{id}", bad)
+
+
+def test_kept_values_are_short() -> None:
+    assert apis.short(3) == 3
+    assert apis.short({"a": 1}) == '{"a":1}'
+    assert apis.short("x" * 2000, 10) == "x" * 9 + "…"

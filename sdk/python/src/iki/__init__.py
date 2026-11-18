@@ -38,10 +38,12 @@ from iki.client import Client, Results
 from iki.errors import (
     ApiError,
     Conflict,
+    ConsentRequired,
     FieldError,
     Forbidden,
     IkiError,
     Invalid,
+    NotApproved,
     NotFound,
     NotSignedIn,
     RateLimited,
@@ -66,10 +68,12 @@ __all__ = [
     "ApiError",
     "Client",
     "Conflict",
+    "ConsentRequired",
     "FieldError",
     "Forbidden",
     "IkiError",
     "Invalid",
+    "NotApproved",
     "NotFound",
     "NotSignedIn",
     "RateLimited",
@@ -189,9 +193,12 @@ def run(
     inputs: Mapping[str, Any] | None = None,
     params: Mapping[str, Any] | None = None,
     reason: str = "",
+    consent: Sequence[str] = (),
 ) -> RunOut:
     """Queues a run of `action`: see ``iki.runs.start``."""
-    return client().runs.start(action, project=project, inputs=inputs, params=params, reason=reason)
+    return client().runs.start(
+        action, project=project, inputs=inputs, params=params, reason=reason, consent=consent
+    )
 
 
 def run_each(
@@ -203,6 +210,7 @@ def run_each(
     inputs: Mapping[str, Any] | None = None,
     params: Mapping[str, Any] | None = None,
     reason: str = "",
+    consent: Sequence[str] = (),
 ) -> list[RunOut]:
     """Queues one run for each entity, all or none: see ``iki.runs.start_each``."""
     return client().runs.start_each(
@@ -213,6 +221,7 @@ def run_each(
         inputs=inputs,
         params=params,
         reason=reason,
+        consent=consent,
     )
 
 

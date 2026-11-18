@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: predict_structure
+label: Predict a structure with FoldCloud
+description: >-
+  Sends the protein's sequence to FoldCloud and imports the structure it
+  predicts. While FoldCloud works, the run waits without holding a worker;
+  FoldCloud calls back when it's done. The structure keeps the model and
+  version FoldCloud says predicted it, and the run keeps each call.
+inputs:
+  protein: { type: iki/protein.Protein }
+params:
+  model:
+    type: enum
+    values: [fold-2, fold-2-multimer]
+    default: fold-2
+    description: Which of FoldCloud's models predicts it.
+  num_recycles:
+    type: int
+    label: Recycles
+    default: 3
+    min: 1
+    max: 20
+    description: How many times the model refines its prediction.
+effects:
+  creates: [{ type: iki/protein.ProteinStructure, cardinality: one, derived_from: [protein] }]
+runs_on: { tier: backend, environment: model-tools }
+command: [python, ./scripts/predict.py]
+apis:
+  foldcloud:
+    sends:
+      inputs: { protein: [sequence] }
+      params: [model, num_recycles]
+timeout: 10m

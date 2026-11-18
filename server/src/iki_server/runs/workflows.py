@@ -36,12 +36,14 @@ from iki_server.notifications.services import notify
 from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project, ProjectRole
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, included, live, services
+from iki_server.runs import approvals, catalog, included, live, services
+from iki_server.runs import outside as sends
 from iki_server.runs.models import (
     APPROVAL_EXPIRES_AFTER,
     WORKFLOW_HRID_PREFIX,
     WORKFLOW_HRID_SEQUENCE,
     ActionRun,
+    ApiConsent,
     EffectKind,
     RunEffect,
     RunInput,
@@ -119,6 +121,7 @@ def may_start(user: User, of: Workflow, project: Project) -> None:
                 f"Step `{step_id}` runs `{of.steps[step_id].action}`, which isn't installed."
             )
         services.may_launch(user, action, project)
+        sends.check_approved(project, action)
 
 
 def may_cancel(user: User, run: WorkflowRun) -> bool:
@@ -165,10 +168,12 @@ def start(
     *,
     reason: str = "",
     add_to_project: bool = False,
+    consent: Sequence[str] = (),
 ) -> WorkflowRun:
     """Start a run of `of` in `project`, or raise why it can't start: as
     :func:`services.launch` does, for the workflow's inputs and params, and for each step's
-    tier and action. Its first steps are launched before it returns."""
+    tier and action. Its first steps are launched before it returns. `consent` agrees to
+    what its steps send to outside APIs, for all of them (ADR 0130)."""
     may_start(user, of, project)
     steps = actions(of)
     errors: dict[str, list[str]] = {}
@@ -192,9 +197,31 @@ def start(
                 if a is not None
             },
         }
-        run = _create(user, of, project, spec, entities, values, reason=reason)
+        agreed = _consent(user, of, project, steps, consent)
+        run = _create(user, of, project, spec, entities, values, reason=reason, consent=agreed)
         _advance(run)
     return run
+
+
+def _consent(
+    user: User,
+    of: Workflow,
+    project: Project,
+    steps: Mapping[str, Action | None],
+    agreed: Sequence[str],
+) -> ApiConsent | None:
+    """The consent a workflow's launch gives for what its steps send to outside APIs, each
+    step's statement kept. An agent's, or a trigger's, steps wait for their person's
+    approval instead, which is their consent."""
+    given = [
+        {**statement, "step": step_id}
+        for step_id, action in steps.items()
+        if action is not None
+        for statement in sends.statements(action)
+    ]
+    if not given or audit.current_via() in approvals.UNATTENDED:
+        return None
+    return sends.consent(user, project, of.qualified_name, given, agreed)
 
 
 def _reads(
@@ -242,7 +269,9 @@ def may_rerun(user: User, run: WorkflowRun) -> bool:
     return True
 
 
-def rerun(user: User, original: WorkflowRun, *, reason: str = "") -> WorkflowRun:
+def rerun(
+    user: User, original: WorkflowRun, *, reason: str = "", consent: Sequence[str] = ()
+) -> WorkflowRun:
     """Run `original` again, as GitHub re-runs failed jobs: a new workflow run, by `user`, of
     the workflow as it was then, on the same inputs (as they are now) and params. Its steps
     that succeeded are carried over, their runs and results with them; the rest run again,
@@ -274,6 +303,7 @@ def rerun(user: User, original: WorkflowRun, *, reason: str = "") -> WorkflowRun
         s.step: s for s in WorkflowStep.objects.filter(workflow=original, state=StepState.SUCCEEDED)
     }
     with transaction.atomic():
+        agreed = _consent(user, of, project, steps, consent)
         run = _create(
             user,
             of,
@@ -284,6 +314,7 @@ def rerun(user: User, original: WorkflowRun, *, reason: str = "") -> WorkflowRun
             reason=reason,
             rerun_of=original,
             carried=before,
+            consent=agreed,
         )
         _advance(run)
     return run
@@ -300,6 +331,7 @@ def _create(
     reason: str,
     rerun_of: WorkflowRun | None = None,
     carried: Mapping[str, WorkflowStep] | None = None,
+    consent: ApiConsent | None = None,
 ) -> WorkflowRun:
     """The workflow run, its inputs and its steps, audited. Call inside a transaction."""
     order = of.order()
@@ -319,6 +351,7 @@ def _create(
         reason=reason,
         params=values,
         rerun_of=rerun_of,
+        consent=consent,
     )
     WorkflowInput.objects.bulk_create(
         WorkflowInput(workflow=run, name=name, position=i, entity=entity, revision=entity.revision)

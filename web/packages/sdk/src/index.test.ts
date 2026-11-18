@@ -129,6 +129,41 @@ describe("unwrap", () => {
     await expect(call).rejects.toMatchObject({ status: 409, code: "refused" });
   });
 
+  it("gives what a launch sends outside when it needs consent (ADR 0130)", async () => {
+    const consent = {
+      api: "iki/example_models.foldcloud",
+      label: "FoldCloud",
+      host: "fold.example.com",
+      purpose: "Predicts protein structures.",
+      inputs: { protein: ["sequence"] },
+      params: [],
+      statement: "This sends your data to FoldCloud (fold.example.com): each Protein's sequence.",
+    };
+    const { requests, fetch } = recorder(
+      { ...PROBLEM, code: "consent_required", detail: consent.statement, consent: [consent] },
+      409,
+    );
+    const iki = createIkiClient({ baseUrl: BASE, fetch });
+    const body = {
+      project: "01a1ee10-0000-7000-8000-000000000001",
+      add_to_project: false,
+      reason: "",
+      reuse: true,
+      consent: [],
+    };
+    const call = iki
+      .POST("/api/v1/actions/{name}/runs", {
+        params: { path: { name: "iki/example_models.predict_structure" } },
+        body,
+      })
+      .then(unwrap);
+    await expect(call).rejects.toMatchObject({
+      code: "consent_required",
+      problem: { consent: [consent] },
+    });
+    expect(await requests[0]?.json()).toEqual(body);
+  });
+
   it("describes responses that aren't problems", () => {
     const response = new Response("<html>", { status: 502, statusText: "Bad Gateway" });
     expect(() => unwrap({ error: "<html>", response })).toThrow("HTTP 502");

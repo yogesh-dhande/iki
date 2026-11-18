@@ -1930,6 +1930,71 @@ export interface paths {
         patch: operations["iki_server_api_notifications_mark"];
         trace?: never;
     };
+    "/api/v1/outside-apis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outside APIs
+         * @description Every outside API installed plugins call, with where data goes, why, the actions that
+         *     send it and what each sends, the key's state, the price, and each project's approval.
+         *     Org Admins see every project's approvals.
+         */
+        get: operations["iki_server_api_outside_apis_list_outside_apis"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outside-apis/{name}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve an outside API for a project
+         * @description Lets runs in the project send data to the API, for the host and purpose it names now.
+         *     Only Org Admins, in the web app. Audited as `outside_api.approved`.
+         */
+        post: operations["iki_server_api_outside_apis_approve_outside_api"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outside-apis/{name}/approvals/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an outside API's approval for a project
+         * @description Runs in the project can no longer send data to the API: launches are refused,
+         *     running attempts' next calls too, and parked runs end, their jobs cancelled at the API
+         *     where it says how. Audited as `outside_api.revoked`.
+         */
+        delete: operations["iki_server_api_outside_apis_revoke_outside_api"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-roles": {
         parameters: {
             query?: never;
@@ -2252,6 +2317,27 @@ export interface paths {
          *     told.
          */
         put: operations["iki_server_api_projects_set_lab_roles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/outside-apis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outside APIs, and whether each is approved for a project
+         * @description Every installed outside API, with the project's approval if it has one: what its
+         *     members see before launching an action that sends data outside.
+         */
+        get: operations["iki_server_api_outside_apis_list_project_outside_apis"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2646,6 +2732,28 @@ export interface paths {
          * @description By its ID or HRID (RUN-000123).
          */
         get: operations["iki_server_api_runs_get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{ref}/api-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's calls to outside APIs
+         * @description Each call the run made to an outside API, and each poll and cancel of a job it parked
+         *     on, oldest first, as the egress proxy recorded it (ADR 0130): the provenance of the
+         *     answers it used.
+         */
+        get: operations["iki_server_api_runs_list_api_calls"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3679,6 +3787,58 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionApiOut */
+        ActionApiOut: {
+            /**
+             * Api
+             * @description The API, by qualified name, such as `iki/protein.fold`.
+             */
+            api: string;
+            /**
+             * Host
+             * @description Where the data goes. Empty while the deployment hasn't set it.
+             */
+            host: string;
+            /**
+             * Inputs
+             * @description Each input, with the fields sent.
+             */
+            inputs: {
+                [key: string]: string[];
+            };
+            /** Label */
+            label: string;
+            /**
+             * Params
+             * @description The params sent.
+             */
+            params: string[];
+            /**
+             * Parks
+             * @description It runs jobs a run can wait on without holding a worker (`jobs`).
+             */
+            parks: boolean;
+            /**
+             * Priced
+             * @description This deployment prices its calls, so runs are costly: budgets hold them, and an agent's wait for approval (ADR 0130).
+             */
+            priced: boolean;
+            /**
+             * Purpose
+             * @description What it's sent for, as the plugin says.
+             */
+            purpose: string;
+            /**
+             * Statement
+             * @description What the person launching is told, and agrees to: "This sends your data to …".
+             */
+            statement: string;
+            /**
+             * Step
+             * @description For a workflow: the step that sends it.
+             */
+            step?: string | null;
+        };
         /** ActionFilters */
         ActionFilters: {
             /**
@@ -3689,6 +3849,11 @@ export interface components {
         };
         /** ActionOut */
         ActionOut: {
+            /**
+             * Apis
+             * @description The outside APIs its runs send data to (ADR 0130), with what each sends. Launching needs each approved in the project by an Org Admin, and `consent` naming each.
+             */
+            apis: components["schemas"]["ActionApiOut"][];
             /**
              * Available
              * @description Whether it can run on this deployment.
@@ -3865,6 +4030,182 @@ export interface components {
              * @enum {string}
              */
             viewer: "alignment";
+        };
+        /** ApiActionOut */
+        ApiActionOut: {
+            /** Action */
+            action: string;
+            /** Label */
+            label: string;
+            /**
+             * Statement
+             * @description What people launching it are told is sent.
+             */
+            statement: string;
+        };
+        /** ApiApprovalIn */
+        ApiApprovalIn: {
+            /**
+             * Note
+             * @description Why, for the record.
+             * @default
+             */
+            note: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+        };
+        /** ApiApprovalOut */
+        ApiApprovalOut: {
+            /**
+             * Approved At
+             * Format: date-time
+             */
+            approved_at: string;
+            approved_by: components["schemas"]["PersonRef"];
+            /**
+             * Current
+             * @description Whether it still counts: the API names the host and purpose approved. Once it names others, it must be approved again.
+             */
+            current: boolean;
+            /**
+             * Host
+             * @description The host approved.
+             */
+            host: string;
+            /** Note */
+            note: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Project Name */
+            project_name: string;
+            /**
+             * Purpose
+             * @description The purpose approved.
+             */
+            purpose: string;
+        };
+        /** ApiCallOut */
+        ApiCallOut: {
+            /** Api */
+            api: string;
+            /**
+             * Attempt
+             * @description The attempt it was made for.
+             */
+            attempt: number;
+            /**
+             * Cost
+             * @description At this deployment's price; null without one.
+             */
+            cost: number | null;
+            /** Currency */
+            currency: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: string;
+            /** Host */
+            host: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @description A call its command made, or the egress proxy's poll of, or cancel of, a parked job.
+             * @enum {string}
+             */
+            kind: "call" | "poll" | "cancel";
+            /** Method */
+            method: string;
+            /**
+             * Model
+             * @description The model the answer said answered, if the plugin says where.
+             */
+            model: string;
+            /**
+             * Parameters
+             * @description The request's declared parameters.
+             */
+            parameters: {
+                [key: string]: unknown;
+            };
+            /**
+             * Path
+             * @description Without the query, which may hold data.
+             */
+            path: string;
+            /** Request Bytes */
+            request_bytes: number;
+            /**
+             * Request Sha256
+             * @description Of the request's body, as sent.
+             */
+            request_sha256: string;
+            /** Response Bytes */
+            response_bytes: number;
+            /**
+             * Response Sha256
+             * @description Of the answer's body, as the API sent it.
+             */
+            response_sha256: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Status
+             * @description What the API answered; null when it didn't.
+             */
+            status: number | null;
+            /**
+             * Usage
+             * @description What the answer said it used, as declared.
+             */
+            usage: {
+                [key: string]: unknown;
+            };
+            /** Version */
+            version: string;
+        };
+        /** ApiCredentialOut */
+        ApiCredentialOut: {
+            /** Description */
+            description: string;
+            /**
+             * Header
+             * @description The header the egress proxy sends it in.
+             */
+            header: string;
+            /**
+             * Key
+             * @description Where administrators set it: its key in the run secrets.
+             */
+            key: string;
+            /**
+             * Set
+             * @description Whether this deployment has set it. Its value is never shown.
+             */
+            set: boolean;
+        };
+        /** ApiPriceOut */
+        ApiPriceOut: {
+            /** Currency */
+            currency: string;
+            /** Per Call */
+            per_call: number | null;
+            /**
+             * Usage
+             * @description The price of each unit of usage it reports.
+             */
+            usage: {
+                [key: string]: number;
+            };
         };
         /** AppCheckIn */
         AppCheckIn: {
@@ -4874,6 +5215,74 @@ export interface components {
              * @description What's compared: `$params.<name>`, or `$steps.<id>.metrics.<name>`, a number that step's run reported.
              */
             value: string;
+        };
+        /** ConsentOut */
+        ConsentOut: {
+            /** @description The agent that asked, when the person agreed by approving its request. */
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Given At
+             * Format: date-time
+             */
+            given_at: string;
+            given_by: components["schemas"]["PersonRef"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Statements
+             * @description What they agreed to, as shown.
+             */
+            statements: components["schemas"]["ConsentStatementOut"][];
+            /**
+             * Via
+             * @description How: in the web app, through the API, or approving an agent.
+             */
+            via: string;
+        };
+        /** ConsentStatementOut */
+        ConsentStatementOut: {
+            /**
+             * Api
+             * @description The API, by qualified name, such as `iki/protein.fold`.
+             */
+            api: string;
+            /**
+             * Host
+             * @description Where the data goes. Empty while the deployment hasn't set it.
+             */
+            host: string;
+            /**
+             * Inputs
+             * @description Each input, with the fields sent.
+             */
+            inputs: {
+                [key: string]: string[];
+            };
+            /** Label */
+            label: string;
+            /**
+             * Params
+             * @description The params sent.
+             */
+            params: string[];
+            /**
+             * Purpose
+             * @description What it's sent for, as the plugin says.
+             */
+            purpose: string;
+            /**
+             * Statement
+             * @description What the person launching is told, and agrees to: "This sends your data to …".
+             */
+            statement: string;
+            /**
+             * Step
+             * @description For a workflow: the step that sends it.
+             */
+            step?: string | null;
         };
         /** ContentUrlOut */
         ContentUrlOut: {
@@ -7075,7 +7484,7 @@ export interface components {
          * JobState
          * @enum {string}
          */
-        JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
+        JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted" | "parked";
         /** KindOut */
         KindOut: {
             /**
@@ -7735,7 +8144,7 @@ export interface components {
              * @default project
              * @enum {string}
              */
-            by: "project" | "team" | "template" | "action" | "tier";
+            by: "project" | "team" | "template" | "action" | "tier" | "api";
             /**
              * Since
              * @description The first day, in UTC. The first of this month unless given.
@@ -7826,6 +8235,48 @@ export interface components {
              */
             pointer: string;
         };
+        /** OutsideApiOut */
+        OutsideApiOut: {
+            /**
+             * Actions
+             * @description The actions that call it.
+             */
+            actions: components["schemas"]["ApiActionOut"][];
+            /**
+             * Api
+             * @description By qualified name, such as `iki/protein.fold`.
+             */
+            api: string;
+            /**
+             * Approvals
+             * @description The projects it's approved for, that you can see.
+             */
+            approvals: components["schemas"]["ApiApprovalOut"][];
+            credential: components["schemas"]["ApiCredentialOut"] | null;
+            /**
+             * Host
+             * @description Empty while the deployment hasn't set it.
+             */
+            host: string;
+            /**
+             * Jobs
+             * @description Runs can park on its jobs, polled without a worker.
+             */
+            jobs: boolean;
+            /** Label */
+            label: string;
+            /** Plugin */
+            plugin: string;
+            /** @description This deployment's price for its calls. */
+            price: components["schemas"]["ApiPriceOut"] | null;
+            /** Purpose */
+            purpose: string;
+            /**
+             * Webhook
+             * @description It calls back when a job is done, signed.
+             */
+            webhook: boolean;
+        };
         /** OutsideRef */
         OutsideRef: {
             /**
@@ -7896,6 +8347,16 @@ export interface components {
              * @default 50
              */
             limit: number;
+        };
+        /** Page[ApiCallOut] */
+        Page_ApiCallOut_: {
+            /** Items */
+            items: components["schemas"]["ApiCallOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** Page[BatchOut] */
         Page_BatchOut_: {
@@ -8348,6 +8809,53 @@ export interface components {
              * @description Enums: the allowed values.
              */
             values: string[];
+        };
+        /** ParkOut */
+        ParkOut: {
+            /**
+             * Api
+             * @description The API's name in its plugin.
+             */
+            api: string;
+            /**
+             * Deadline
+             * Format: date-time
+             * @description When it gives up, and asks the API to cancel.
+             */
+            deadline: string;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Job
+             * @description The API's ID for the job.
+             */
+            job: string;
+            /** Last Polled At */
+            last_polled_at: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Next Poll At
+             * @description Null once the wait has ended.
+             */
+            next_poll_at: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "" | "done" | "failed" | "timed_out" | "cancelled" | "ended";
+            /**
+             * Parked At
+             * Format: date-time
+             */
+            parked_at: string;
+            /** Polls */
+            polls: number;
+            /**
+             * Status
+             * @description The job's state, as the API last said it.
+             */
+            status: string;
         };
         /** PartOut */
         PartOut: {
@@ -9365,6 +9873,11 @@ export interface components {
         /** ReproduceIn */
         ReproduceIn: {
             /**
+             * Consent
+             * @description For a run that sent data to outside APIs: each API, agreeing to send it again (ADR 0130).
+             */
+            consent?: string[];
+            /**
              * Reason
              * @description Why, for the record.
              * @default
@@ -9392,6 +9905,11 @@ export interface components {
         };
         /** RerunIn */
         RerunIn: {
+            /**
+             * Consent
+             * @description For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.
+             */
+            consent?: string[];
             /**
              * Reason
              * @description Why, for the record.
@@ -9608,6 +10126,20 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        /** RunApiOut */
+        RunApiOut: {
+            /**
+             * Api
+             * @description By qualified name, such as `iki/protein.fold`.
+             */
+            api: string;
+            /** Host */
+            host: string;
+            /** Label */
+            label: string;
+            /** Purpose */
+            purpose: string;
+        };
         /** RunApprovalOut */
         RunApprovalOut: {
             /** @description The agent that asked, acting for requested_by, if one did (ADR 0072). */
@@ -9618,6 +10150,11 @@ export interface components {
              * @description The app that asked, such as an AI agent's MCP client.
              */
             client: string;
+            /**
+             * Consent
+             * @description What its runs send to outside APIs (ADR 0130). Approving is agreeing to it: the consent is the decider's, with the agent beside it.
+             */
+            consent: components["schemas"]["ConsentStatementOut"][];
             /**
              * Created At
              * Format: date-time
@@ -9797,6 +10334,11 @@ export interface components {
              */
             add_to_project: boolean;
             /**
+             * Consent
+             * @description For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says every run sends (ADR 0130).
+             */
+            consent?: string[];
+            /**
              * Each
              * @description The input each run takes one of `entities` for.
              */
@@ -9872,6 +10414,11 @@ export interface components {
              * @description What it has cost so far, at its templates' prices.
              */
             amount: number;
+            /**
+             * Apis
+             * @description What its calls to outside APIs cost, of `amount`; null for none.
+             */
+            apis?: number | null;
             /**
              * Currency
              * @description Null while nothing it ran on has a price.
@@ -9993,6 +10540,11 @@ export interface components {
              */
             add_to_project: boolean;
             /**
+             * Consent
+             * @description For an action that sends data to outside APIs: each API, by qualified name, agreeing to what its `statement` says is sent (ADR 0130). Without it, the launch is refused with 409 `consent_required`, which gives the statements.
+             */
+            consent?: string[];
+            /**
              * Inputs
              * @description Entity IDs for each input: one, or a list for inputs that take many.
              */
@@ -10085,6 +10637,11 @@ export interface components {
             action: string;
             /** @description The agent that asked for it, acting for requested_by, if one did (ADR 0072). */
             agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Apis
+             * @description The outside APIs its action sends data to, as they were when it was launched (ADR 0130). `GET /runs/{ref}/api-calls` lists each call.
+             */
+            apis: components["schemas"]["RunApiOut"][];
             /** @description When an agent asked for it on a tier that needs approval: the request. */
             approval: components["schemas"]["RunApprovalOut"] | null;
             /** Attempts */
@@ -10099,7 +10656,9 @@ export interface components {
              * @description The OAuth app it was asked for through, if any.
              */
             client: string;
-            /** @description On the container and VM tiers: what the machines it ran on cost (ADR 0070). Null on tiers whose machines run anyway. */
+            /** @description For a run that sends data to outside APIs: who agreed to it, and to what. */
+            consent: components["schemas"]["ConsentOut"] | null;
+            /** @description On the container and VM tiers: what the machines it ran on cost (ADR 0070), with its calls to outside APIs (ADR 0130). Null on tiers whose machines run anyway, for a run that calls none. */
             cost: components["schemas"]["RunCostOut"] | null;
             /**
              * Created At
@@ -10171,6 +10730,8 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /** @description When it waited, or waits, on an outside API's job: the last wait. */
+            park: components["schemas"]["ParkOut"] | null;
             /**
              * Plugin Sha
              * @description The plugin's commit, when built from a lockfile.
@@ -10215,7 +10776,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
+            status: "awaiting_approval" | "queued" | "running" | "parked" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
             /**
              * Tier
              * @enum {string}
@@ -10249,7 +10810,7 @@ export interface components {
          * RunStatus
          * @enum {string}
          */
-        RunStatus: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
+        RunStatus: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined" | "parked";
         /** RunningOut */
         RunningOut: {
             /** Action */
@@ -12708,6 +13269,11 @@ export interface components {
         /** WorkflowOut */
         WorkflowOut: {
             /**
+             * Apis
+             * @description What its steps send to outside APIs, by step (ADR 0130). Starting it needs `consent` naming each API, for all of them.
+             */
+            apis: components["schemas"]["ConsentStatementOut"][];
+            /**
              * Available
              * @description Whether every step's action can run on this deployment.
              */
@@ -12794,6 +13360,11 @@ export interface components {
              * @default false
              */
             add_to_project: boolean;
+            /**
+             * Consent
+             * @description For a workflow whose steps send data to outside APIs: each API, by qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is refused with 409 `consent_required`, which gives the statements.
+             */
+            consent?: string[];
             /**
              * Inputs
              * @description Entity IDs for each input: one, or a list for inputs that take many.
@@ -13523,7 +14094,7 @@ export interface operations {
                 since?: string | null;
                 /** @description The day after the last, in UTC. The first of next month unless given. */
                 until?: string | null;
-                by?: "project" | "team" | "template" | "action" | "tier";
+                by?: "project" | "team" | "template" | "action" | "tier" | "api";
             };
             header?: never;
             path?: never;
@@ -15618,6 +16189,73 @@ export interface operations {
             };
         };
     };
+    iki_server_api_outside_apis_list_outside_apis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutsideApiOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_outside_apis_approve_outside_api: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiApprovalIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiApprovalOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_outside_apis_revoke_outside_api: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     iki_server_api_projects_project_roles: {
         parameters: {
             query?: never;
@@ -16142,6 +16780,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectMemberOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_outside_apis_list_project_outside_apis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutsideApiOut"][];
                 };
             };
         };
@@ -16758,6 +17418,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_list_api_calls: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ApiCallOut_"];
                 };
             };
         };

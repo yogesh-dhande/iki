@@ -84,6 +84,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "acme/protein.import_proteins",
         "acme/protein.import_samples",
         "acme/protein.measure_purity",
+        "acme/protein.predict_hosted",
         RELAX,
     ]
     predict, _, _, _, compute, *_ = actions
@@ -151,6 +152,7 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
         "acme/protein.align_pair",
         COMPUTE,
         "acme/protein.flag_samples",
+        "acme/protein.predict_hosted",
     ]
     assert taking("acme/protein.ProteinStructure") == ["acme/protein.flag_samples", RELAX]
     assert taking("acme/protein.Protein", "acme/protein.ProteinStructure") == []

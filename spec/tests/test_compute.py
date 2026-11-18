@@ -89,6 +89,13 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: acme/prediction.colabfold
 templates: [{ template: gpu-t4 }, { template: gpu-t4-warm }]
+---
+apiVersion: iki/v1
+kind: ApiPrice
+api: acme/protein.fold
+per_call: 0.02
+usage: { gpu_seconds: 0.0011 }
+currency: USD
 """
 
 
@@ -131,6 +138,8 @@ def test_without_compute_yaml_only_the_client_tier_runs(
     assert result.compute is not None
     assert result.compute.templates == {}
     assert [(p.code, p.severity) for p in result.problems] == [
+        # Its outside API's calls cost nothing either (ADR 0130).
+        ("unpriced-api", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),

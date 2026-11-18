@@ -272,7 +272,7 @@
             "title": "Message"
           },
           "run_status": {
-            "description": "`succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run. `running` when its creates came in a file: Iki is importing them (ADR 0056), and the job is over for the worker all the same.",
+            "description": "`succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run. `running` when its creates came in a file: Iki is importing them (ADR 0056), and the job is over for the worker all the same. `parked` when it parked on an outside API's job (ADR 0130): Iki polls the job, and runs it again with `resume` once it's done.",
             "title": "Run Status",
             "type": "string"
           }

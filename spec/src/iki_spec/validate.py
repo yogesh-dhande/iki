@@ -25,6 +25,7 @@ from jsonschema.exceptions import SchemaError
 from iki_spec import (
     API_VERSION,
     actions,
+    apis,
     components,
     naming,
     notifications,
@@ -495,7 +496,10 @@ def _read(root: FilePath) -> _Loaded:
         triggers=fires,
         components=shown,
         roles=roles,
+        apis=apis.read_apis(name, data),
     )
+    # Each action's uses of an outside API, with the API as the plugin declares it.
+    loaded.plugin = apis.resolve(loaded.plugin)
     return loaded
 
 
@@ -836,6 +840,7 @@ class _Semantics:
             self.plugin, types=types, extensions=extensions
         )
         actions.check(self)
+        apis.check(self)
         workflows.check(self)
         # With the input each gives its entity, where it was left out and only one fits.
         self.loaded.plugin = dataclasses.replace(self.plugin, triggers=triggers.check(self))

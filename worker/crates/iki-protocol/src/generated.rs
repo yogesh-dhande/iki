@@ -52,6 +52,9 @@ pub struct RunInput {
     pub settings: Option<serde_json::Map<String, serde_json::Value>>,
     /// Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).
     pub inputs: std::collections::BTreeMap<String, Vec<RunInputEntity>>,
+    /// When the run parked on an outside API's job and it's done (ADR 0130): the job, what the command saved when it parked, and the poll's last answer. The command picks up from there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<RunInputResume>,
     /// The environment's volumes its machine has (ADR 0075), by name: the setup build that made the version, its number, and what its setup said the data is. Each is mounted read-only where the environment says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volumes: Option<std::collections::BTreeMap<String, RunInputVolumesValue>>,
@@ -124,6 +127,9 @@ pub struct RunInputJob {
     /// For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
+    /// For an action that calls outside APIs (ADR 0130): the certificate authority made for this attempt alone, which the worker adds to the command's trusted roots so it trusts the egress proxy for those hosts, and each API's address. The proxy adds the API's key to each call; the command never gets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apis: Option<RunInputJobApis>,
     /// The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<std::collections::BTreeMap<String, String>>,
@@ -148,6 +154,23 @@ pub struct RunInputJobResources {
     pub gpu_memory: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch_disk: Option<i64>,
+}
+
+/// For an action that calls outside APIs (ADR 0130): the certificate authority made for this attempt alone, which the worker adds to the command's trusted roots so it trusts the egress proxy for those hosts, and each API's address. The proxy adds the API's key to each call; the command never gets it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobApis {
+    pub ca: String,
+    pub calls: Vec<RunInputJobApisCallsItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobApisCallsItem {
+    /// The API's name in its plugin: the command gets its address as IKI_API_<NAME>_URL.
+    pub name: String,
+    pub url: String,
+    /// For an API that calls back when a job is done: where it calls, for this run. The command gets it as IKI_API_<NAME>_CALLBACK_URL, to give the API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callback: Option<String>,
 }
 
 /// For a checkpointable action: the worker gives the command a checkpoint directory, `IKI_CHECKPOINT_DIR`, and saves it as this says (ADR 0069).
@@ -184,6 +207,21 @@ pub struct RunInputJobCheckpointSaved {
     /// Bytes.
     pub size: i64,
     pub sha256: String,
+}
+
+/// When the run parked on an outside API's job and it's done (ADR 0130): the job, what the command saved when it parked, and the poll's last answer. The command picks up from there.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputResume {
+    pub api: String,
+    /// The API's ID for the job.
+    pub job: String,
+    /// What the command gave under `park.state`.
+    pub state: serde_json::Map<String, serde_json::Value>,
+    /// The job's state, as the API said it.
+    pub status: String,
+    /// The last poll's answer: its JSON, or null when it wasn't JSON or was over 1 MiB.
+    pub answer: serde_json::Value,
+    pub parked_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,6 +336,9 @@ pub struct RunOutput {
     /// Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. Give `creates` or this, not both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creates_file: Option<serde_json::Value>,
+    /// Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub park: Option<RunOutputPark>,
     /// Numbers about the run, such as a score or a count, kept on the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<std::collections::BTreeMap<String, f64>>,
@@ -323,6 +364,17 @@ pub struct RunOutputUpdatesValueItem {
     /// The input entity's ID, from input.json.
     pub entity: String,
     pub values: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputPark {
+    pub api: String,
+    /// The API's ID for the job.
+    pub job: String,
+    /// Up to 64 KiB of JSON the command wants back when it resumes, such as which entity the job is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -500,7 +552,7 @@ pub struct CompleteOut {
     pub errors: Option<Vec<OutputErrorOut>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// `succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run. `running` when its creates came in a file: Iki is importing them (ADR 0056), and the job is over for the worker all the same.
+    /// `succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run. `running` when its creates came in a file: Iki is importing them (ADR 0056), and the job is over for the worker all the same. `parked` when it parked on an outside API's job (ADR 0130): Iki polls the job, and runs it again with `resume` once it's done.
     pub run_status: String,
 }
 

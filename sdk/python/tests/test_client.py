@@ -493,7 +493,45 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
         "reuse": True,
         "add_to_project": False,
         "labels": [],
+        "consent": [],
     }
+
+
+def test_runs_that_send_data_outside_need_consent(fake: FakeIki, client: Client) -> None:
+    statement = {
+        "api": "iki/example_models.foldcloud",
+        "statement": "This sends your data to FoldCloud (fold.example.com): each Protein's "
+        "sequence.",
+    }
+    path = "/api/v1/actions/iki/example_models.predict_structure/runs"
+    fake.on(
+        "POST", path, problem(409, statement["statement"], "consent_required", consent=[statement])
+    )
+    with pytest.raises(iki.ConsentRequired) as refused:
+        client.runs.start("iki/example_models.predict_structure", project=PROJECT)
+    assert refused.value.statements == [statement]
+    assert refused.value.apis == ["iki/example_models.foldcloud"]
+    assert isinstance(refused.value, iki.Conflict)
+    fake.on("POST", path, run())
+    client.runs.start(
+        "iki/example_models.predict_structure", project=PROJECT, consent=refused.value.apis
+    )
+    assert fake.body("POST", path)["consent"] == ["iki/example_models.foldcloud"]
+
+    fake.on(
+        "POST",
+        path,
+        problem(409, "Not approved.", "outside_api_not_approved", approvers=["Ada Lovelace"]),
+    )
+    with pytest.raises(iki.NotApproved) as unapproved:
+        client.runs.start("iki/example_models.predict_structure", project=PROJECT)
+    assert unapproved.value.approvers == ["Ada Lovelace"]
+
+
+def test_a_runs_calls_to_outside_apis(fake: FakeIki, client: Client) -> None:
+    call = {"id": 1, "kind": "call", "model": "fold-2", "version": "2.1"}
+    fake.on("GET", "/api/v1/runs/RUN-000001/api-calls", {"items": [call], "next_cursor": None})
+    assert list(client.runs.api_calls("RUN-000001")) == [call]
 
 
 def test_runs_can_run_again_rather_than_reuse_and_be_reproduced(
@@ -506,7 +544,10 @@ def test_runs_can_run_again_rather_than_reuse_and_be_reproduced(
     fake.on("POST", "/api/v1/runs/RUN-000001/reproduce", run("RUN-000002"))
     again = client.runs.reproduce(run(), reason="Audit")
     assert again["hrid"] == "RUN-000002"
-    assert fake.body("POST", "/api/v1/runs/RUN-000001/reproduce") == {"reason": "Audit"}
+    assert fake.body("POST", "/api/v1/runs/RUN-000001/reproduce") == {
+        "reason": "Audit",
+        "consent": [],
+    }
 
 
 def test_a_batch_runs_one_for_each(fake: FakeIki, client: Client) -> None:

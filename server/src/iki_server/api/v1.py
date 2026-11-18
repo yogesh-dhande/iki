@@ -26,6 +26,7 @@ from iki_server.api import (
     graph,
     me,
     notifications,
+    outside_apis,
     projects,
     registries,
     runs,
@@ -82,6 +83,7 @@ for module in (
     compute,
     setups,
     costs,
+    outside_apis,
     files,
     bundles,
     notifications,
@@ -116,7 +118,11 @@ def _http_error(request: HttpRequest, exc: HttpError) -> HttpResponse:
 @api.exception_handler(Refused)
 def _refused(request: HttpRequest, exc: Refused) -> HttpResponse:
     errors = [{"pointer": f"#/{exc.field}", "detail": str(exc)}] if exc.field else None
-    return response(Problem(409, str(exc), code="refused", errors=errors))
+    # Some refusals say more, for clients to act on: an outside API to approve, or what
+    # a launch sends to consent to (ADR 0130).
+    code = getattr(exc, "code", "refused")
+    extensions = getattr(exc, "extensions", None)
+    return response(Problem(409, str(exc), code=code, errors=errors, extensions=extensions))
 
 
 @api.exception_handler(Http404)

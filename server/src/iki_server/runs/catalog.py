@@ -101,6 +101,12 @@ def availability(of: Action) -> Availability:
             f"It reaches {_hosts(of.network)} on the internet, and this deployment gives runs "
             "no network access. An Iki administrator can turn on the egress proxy.",
         )
+    if of.apis:
+        from iki_server.runs import outside
+
+        why = outside.unavailable(of)
+        if why is not None:
+            return Availability(False, why)
     deployment = compute()
     qualified = f"{of.plugin}.{of.environment}"
     binding = deployment.bindings.get(qualified)

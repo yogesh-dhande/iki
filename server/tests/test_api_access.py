@@ -661,6 +661,19 @@ def file(suffix: str = "") -> Build:
     return build
 
 
+OUTSIDE_API = "acme/protein.fold"
+
+
+def outside_api_approved(w: World) -> tuple[str, Any]:
+    """FoldCloud approved for the project (ADR 0130), for revoking it."""
+    from iki_server.entities import registry
+    from iki_server.runs import outside
+
+    api = registry.plugins()["acme/protein"].apis["fold"]
+    outside.approve(w.users["org_admin"], w.project, api, note="")
+    return f"/outside-apis/{OUTSIDE_API}/approvals/{w.project.pk}", None
+
+
 ORG_ADMIN_ONLY = row(403, org_admin=200)
 COMPUTE_ONLY = row(403, compute_admin=200)
 TEAM_VISIBLE = row(404, org_admin=200, team_member=200)
@@ -1372,6 +1385,26 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         # Its entry wasn't superseded, so there's nowhere to move it.
         editors(409),
     ),
+    ("GET", "/outside-apis", fixed("/outside-apis"), ORG_ADMIN_ONLY),
+    (
+        "GET",
+        "/projects/{project_id}/outside-apis",
+        project("/outside-apis"),
+        visible(200),
+    ),
+    (
+        "POST",
+        "/outside-apis/{name}/approvals",
+        lambda w: (f"/outside-apis/{OUTSIDE_API}/approvals", {"project": str(w.project.pk)}),
+        visible(403, org_admin=201),
+    ),
+    (
+        "DELETE",
+        "/outside-apis/{name}/approvals/{project_id}",
+        outside_api_approved,
+        visible(403, org_admin=204),
+    ),
+    ("GET", "/runs/{ref}/api-calls", run("/api-calls"), readers(200)),
 ]
 
 

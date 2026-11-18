@@ -1025,6 +1025,68 @@
             "additionalProperties": false
           }
         },
+        "consent": {
+          "description": "Who agreed to send its data to outside APIs, and to what (ADR 0130): only on runs that called any.",
+          "type": "object",
+          "required": ["given_by", "via", "client", "agent", "statements", "given_at"],
+          "additionalProperties": false,
+          "properties": {
+            "given_by": { "$ref": "#/$defs/uuid" },
+            "via": { "type": "string", "maxLength": 16 },
+            "client": { "type": "string", "maxLength": 255 },
+            "agent": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+            "statements": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
+            "given_at": { "$ref": "#/$defs/time" }
+          }
+        },
+        "api_calls": {
+          "description": "Each call to an outside API, and each poll and cancel of a job it waited on, as the egress proxy recorded them (ADR 0130): only on runs that called any.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "job",
+              "kind",
+              "api",
+              "host",
+              "method",
+              "path",
+              "status",
+              "error",
+              "started_at",
+              "duration_ms",
+              "request_bytes",
+              "response_bytes",
+              "request_sha256",
+              "response_sha256",
+              "model",
+              "version",
+              "parameters",
+              "usage"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "job": { "$ref": "#/$defs/uuid" },
+              "kind": { "enum": ["call", "poll", "cancel"] },
+              "api": { "type": "string", "maxLength": 200 },
+              "host": { "type": "string", "maxLength": 253 },
+              "method": { "type": "string", "maxLength": 16 },
+              "path": { "type": "string", "maxLength": 2000 },
+              "status": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+              "error": { "type": "string", "maxLength": 500 },
+              "started_at": { "$ref": "#/$defs/time" },
+              "duration_ms": { "type": "integer", "minimum": 0 },
+              "request_bytes": { "type": "integer", "minimum": 0 },
+              "response_bytes": { "type": "integer", "minimum": 0 },
+              "request_sha256": { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
+              "response_sha256": { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
+              "model": { "type": "string", "maxLength": 200 },
+              "version": { "type": "string", "maxLength": 200 },
+              "parameters": { "type": "object" },
+              "usage": { "type": "object" }
+            }
+          }
+        },
         "made_with": {
           "description": "The software Iki recorded it made each of the bundle's entities with (ADR 0106): its action's, or those its output named. Older bundles leave it out.",
           "type": "array",

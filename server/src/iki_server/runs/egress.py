@@ -5,6 +5,9 @@ credentials. The proxy lets a connection through only while that attempt holds i
 lease, only to a host its action declares under ``network``, and only on port 443. Each
 host an attempt reached, or was refused, is kept with the attempt, for its run's page.
 
+A host that's one of the action's outside APIs (ADR 0130) is let through too: the proxy
+ends the TLS connection itself and calls the API for the command, with its key.
+
 An environment's setup build (ADR 0075) gets the same, with its ID and lease token: it
 reaches the hosts its setup lists under ``network``, and what it reached is kept with it.
 """
@@ -34,6 +37,8 @@ class Decision:
     job_id: uuid.UUID | None = None
     #: Whether `job_id` is a setup build's, not a run's attempt.
     setup: bool = False
+    #: For a host that's an outside API of the attempt's action: the API's name (ADR 0130).
+    api: str = ""
 
     @property
     def allowed(self) -> bool:
@@ -107,9 +112,15 @@ def decide(header: str | None, host: str, port: int, *, tunnel: bool = True) -> 
     if job is None and build is None:
         return Decision(407, "These credentials are for an attempt that has ended.")
     host = normal(host)
+    apis: dict[str, str] = {}
     if job is not None:
         held_id, setup = job.pk, False
         network: list[str] = job.run.spec.get("network") or []
+        apis = {
+            normal(u["api"]["host"]): u["name"]
+            for u in job.run.spec.get("apis") or ()
+            if u.get("api") and u["api"].get("host")
+        }
         undeclared = (
             f"{job.run.action} doesn't declare {host}. An action reaches only the hosts "
             "its plugin lists under `network`."
@@ -126,6 +137,8 @@ def decide(header: str | None, host: str, port: int, *, tunnel: bool = True) -> 
         why = "Runs reach hosts over HTTPS only: use an https:// address."
     elif port != PORT:
         why = "Runs reach hosts over HTTPS, on port 443, only."
+    elif host in apis:
+        return Decision(200, job_id=held_id, api=apis[host])
     elif not declares(network, host):
         why = undeclared
     else:

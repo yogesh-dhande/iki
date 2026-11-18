@@ -13,6 +13,9 @@
 //! - `IKI_SEED`: a seed for its random numbers, given again when it's reproduced
 //! - `IKI_CHECKPOINT_DIR`: for a `checkpointable` action, where it saves its progress. The
 //!   worker saves it every so often and restores it for a later attempt (`checkpoint`)
+//! - `IKI_API_<NAME>_URL` (and `IKI_API_<NAME>_CALLBACK_URL`): for an action that calls
+//!   outside APIs, each one's address, called through the egress proxy (ADR 0130). Its
+//!   trusted roots (`SSL_CERT_FILE` and the like) then include the attempt's own CA
 //!
 //! Lines it prints like `::progress 0.4 Folding chain A` report progress.
 
@@ -470,6 +473,10 @@ pub struct Dirs {
     pub checkpoint: PathBuf,
     /// Where a checkpoint is packed to upload, or downloaded to unpack.
     packed_checkpoint: PathBuf,
+    /// For an action that calls outside APIs: the system's roots and the attempt's CA,
+    /// and the CA alone (ADR 0130).
+    ca_bundle: PathBuf,
+    api_ca: PathBuf,
 }
 
 impl Dirs {
@@ -484,6 +491,8 @@ impl Dirs {
             inputs: root.join("inputs"),
             checkpoint: root.join("checkpoint"),
             packed_checkpoint: root.join("checkpoint.tar"),
+            ca_bundle: root.join("ca-bundle.pem"),
+            api_ca: root.join("api-ca.pem"),
             root,
         }
     }
@@ -554,11 +563,77 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
     if let Some(proxy) = &input.job.proxy {
         env.extend(proxy_environment(proxy));
     }
+    // An action that calls outside APIs calls each at its real address through the proxy,
+    // which ends TLS for it with a certificate from the attempt's own CA (ADR 0130). These
+    // replace any the worker passed on.
+    if let Some(apis) = &input.job.apis {
+        let bundle = path(&dirs.ca_bundle);
+        env.retain(|(name, _)| !BUNDLE_VARIABLES.contains(&name.as_str()));
+        env.extend(BUNDLE_VARIABLES.map(|name| (name.to_owned(), bundle.clone())));
+        // Node adds these to its own roots.
+        env.push(("NODE_EXTRA_CA_CERTS".into(), path(&dirs.api_ca)));
+        for call in &apis.calls {
+            let name = call.name.to_uppercase();
+            env.push((format!("IKI_API_{name}_URL"), call.url.clone()));
+            if let Some(callback) = &call.callback {
+                env.push((format!("IKI_API_{name}_CALLBACK_URL"), callback.clone()));
+            }
+        }
+    }
     // The secrets the action declares, for this command alone (ADR 0054).
     if let Some(secrets) = &input.job.secrets {
         env.extend(secrets.iter().map(|(n, v)| (n.clone(), v.clone())));
     }
     env
+}
+
+/// What programs read their trusted roots from, as a single file.
+const BUNDLE_VARIABLES: [&str; 3] = ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"];
+
+/// Where the system keeps its roots, on Debian and Alpine, on Red Hat, and on macOS.
+const SYSTEM_ROOTS: [&str; 3] = [
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+];
+
+/// The system's roots: the worker's own `SSL_CERT_FILE`, or the first of the usual
+/// places that can be read. The command runs beside the worker, in the same image on the
+/// container tier and a cloud machine, so these are the roots it would trust anyway.
+fn system_roots() -> Option<Vec<u8>> {
+    std::env::var_os("SSL_CERT_FILE")
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(SYSTEM_ROOTS.iter().map(PathBuf::from))
+        .find_map(|path| std::fs::read(path).ok())
+}
+
+/// The roots a command that calls outside APIs trusts: the system's, then the attempt's
+/// CA. Without the system's, just the CA, so the APIs can still be called.
+fn ca_bundle(roots: Option<&[u8]>, ca: &str) -> Vec<u8> {
+    let mut bundle = roots.unwrap_or_default().to_vec();
+    if !bundle.is_empty() && !bundle.ends_with(b"\n") {
+        bundle.push(b'\n');
+    }
+    bundle.extend_from_slice(ca.as_bytes());
+    if !bundle.ends_with(b"\n") {
+        bundle.push(b'\n');
+    }
+    bundle
+}
+
+/// Writes the files `environment` points at for an action that calls outside APIs.
+fn write_trust(input: &RunInput, dirs: &Dirs) -> Result<(), String> {
+    let Some(apis) = &input.job.apis else {
+        return Ok(());
+    };
+    let failed = |e: std::io::Error| format!("Couldn't write the APIs' certificates: {e}.");
+    std::fs::write(
+        &dirs.ca_bundle,
+        ca_bundle(system_roots().as_deref(), &apis.ca),
+    )
+    .map_err(failed)?;
+    std::fs::write(&dirs.api_ca, ca_bundle(None, &apis.ca)).map_err(failed)
 }
 
 /// The proxy, as programs look for it.
@@ -941,6 +1016,9 @@ pub fn execute<H: Host>(
         Err(files::Failed::Job(message)) => {
             return Some(Report::Fail(FailInReason::Failed, message));
         }
+    }
+    if let Err(message) = write_trust(input, dirs) {
+        return Some(Report::Fail(FailInReason::Failed, message));
     }
     let saving = input.job.checkpoint.as_ref();
     if let Some(saved) = saving.and_then(|c| c.saved.as_ref())
@@ -1636,6 +1714,100 @@ mod tests {
         for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
             assert_eq!(env[name], proxy);
         }
+    }
+
+    const CA: &str = "-----BEGIN CERTIFICATE-----\nattempt\n-----END CERTIFICATE-----\n";
+
+    #[test]
+    fn runs_that_call_outside_apis_get_their_addresses_and_trust_the_attempts_ca() {
+        let dir = std::env::temp_dir().join(format!("iki-job-apis-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dirs = Dirs::new(&dir, "j");
+        dirs.create().unwrap();
+        let mut raw = serde_json::to_value(input(&["python", "fold.py"])).unwrap();
+        raw["job"]["apis"] = serde_json::json!({
+            "ca": CA,
+            "calls": [
+                {"name": "foldserve", "url": "https://api.foldserve.example"},
+                {
+                    "name": "esm_atlas", "url": "https://esm.example",
+                    "callback": "https://iki.example/api/v1/runs/r/callbacks/esm_atlas",
+                },
+            ],
+        });
+        let input: RunInput = serde_json::from_value(raw).unwrap();
+
+        let env = environment(&dirs, &input, None);
+        // One of each, whatever the worker passed on.
+        assert_eq!(env.iter().filter(|(n, _)| n == "SSL_CERT_FILE").count(), 1);
+        let env: std::collections::HashMap<_, _> = env.into_iter().collect();
+        let bundle = dir
+            .join("jobs/j/ca-bundle.pem")
+            .to_string_lossy()
+            .into_owned();
+        for name in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"] {
+            assert_eq!(env[name], bundle);
+        }
+        let api_ca = dir.join("jobs/j/api-ca.pem").to_string_lossy().into_owned();
+        assert_eq!(env["NODE_EXTRA_CA_CERTS"], api_ca);
+        assert_eq!(
+            env["IKI_API_FOLDSERVE_URL"],
+            "https://api.foldserve.example"
+        );
+        assert!(!env.contains_key("IKI_API_FOLDSERVE_CALLBACK_URL"));
+        assert_eq!(env["IKI_API_ESM_ATLAS_URL"], "https://esm.example");
+        assert_eq!(
+            env["IKI_API_ESM_ATLAS_CALLBACK_URL"],
+            "https://iki.example/api/v1/runs/r/callbacks/esm_atlas"
+        );
+
+        write_trust(&input, &dirs).unwrap();
+        let written = std::fs::read(&bundle).unwrap();
+        assert_eq!(written, ca_bundle(system_roots().as_deref(), CA));
+        assert!(written.ends_with(CA.as_bytes()));
+        assert_eq!(std::fs::read_to_string(&api_ca).unwrap(), CA);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_bundle_holds_the_systems_roots_then_the_attempts_ca() {
+        let roots = b"-----BEGIN CERTIFICATE-----\nroot\n-----END CERTIFICATE-----";
+        let bundle = String::from_utf8(ca_bundle(Some(roots), CA)).unwrap();
+        assert_eq!(
+            bundle,
+            "-----BEGIN CERTIFICATE-----\nroot\n-----END CERTIFICATE-----\n\
+             -----BEGIN CERTIFICATE-----\nattempt\n-----END CERTIFICATE-----\n"
+        );
+        // Without the system's, the CA alone, ending in a newline.
+        assert_eq!(ca_bundle(None, CA.trim_end()), CA.as_bytes());
+    }
+
+    #[test]
+    fn runs_that_call_no_apis_get_nothing_of_theirs() {
+        let dir = std::env::temp_dir().join(format!("iki-job-no-apis-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dirs = Dirs::new(&dir, "j");
+        dirs.create().unwrap();
+        let input = input(&["python", "gc.py"]);
+
+        let env: std::collections::HashMap<_, _> =
+            environment(&dirs, &input, None).into_iter().collect();
+        assert_eq!(
+            env.get("SSL_CERT_FILE").cloned(),
+            std::env::var("SSL_CERT_FILE").ok()
+        );
+        for name in [
+            "REQUESTS_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "NODE_EXTRA_CA_CERTS",
+        ] {
+            assert!(!env.contains_key(name), "{name}");
+        }
+        assert!(!env.keys().any(|name| name.starts_with("IKI_API_")));
+        write_trust(&input, &dirs).unwrap();
+        assert!(!dir.join("jobs/j/ca-bundle.pem").exists());
+        assert!(!dir.join("jobs/j/api-ca.pem").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

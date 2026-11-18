@@ -13,7 +13,7 @@ import re
 from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import schemas
+from iki_spec import apis, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import (
     Action,
@@ -143,6 +143,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
         else None,
         network=tuple(body.get("network", ())),
         secrets=tuple(_secret(given) for given in body.get("secrets", ())),
+        apis=apis.read_uses(body),
         metrics={
             n: Metric(
                 name=n,
@@ -156,9 +157,10 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
             for w in body.get("software") or ()
         ),
         timeout=parse_duration(body["timeout"]) if "timeout" in body else 3600,
-        # Runs whose machine went away are retried, unless they reach the network: a retry
-        # could repeat what they did elsewhere, such as placing an order.
-        retry_max=retries.get("max", 0 if body.get("network") else 2),
+        # Runs whose machine went away are retried, unless they reach the network or an
+        # outside API: a retry could repeat what they did elsewhere, such as placing an order
+        # or paying for a prediction again.
+        retry_max=retries.get("max", 0 if body.get("network") or body.get("apis") else 2),
         retry_on=tuple(retries.get("on", ("worker_lost", "interrupted"))),
         file=document.file,
     )

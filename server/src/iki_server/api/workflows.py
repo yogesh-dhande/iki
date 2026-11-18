@@ -22,6 +22,7 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import (
     CancelIn,
+    ConsentStatementOut,
     InputOut,
     ParamOut,
     Tier,
@@ -32,7 +33,7 @@ from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
 from iki_server.entities import schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import catalog, services, workflows
+from iki_server.runs import catalog, outside, services, workflows
 from iki_server.runs.models import ActionRun, StepState, WorkflowRun, WorkflowStep
 from iki_spec.model import Workflow
 
@@ -110,6 +111,10 @@ class WorkflowOut(Schema):
     )
     available: bool = Field(description="Whether every step's action can run on this deployment.")
     unavailable_reason: str | None
+    apis: list[ConsentStatementOut] = Field(
+        description="What its steps send to outside APIs, by step (ADR 0130). Starting it "
+        "needs `consent` naming each API, for all of them."
+    )
 
 
 def _workflow_out(of: Workflow) -> dict[str, Any]:
@@ -128,6 +133,12 @@ def _workflow_out(of: Workflow) -> dict[str, Any]:
         "name": of.qualified_name,
         "plugin": of.plugin,
         "tiers": [t for t in TIER_ORDER if t in tiers],
+        "apis": [
+            {**statement, "step": step_id}
+            for step_id, action in actions.items()
+            if action is not None
+            for statement in outside.statements(action)
+        ],
         "label": of.label,
         "description": of.description,
         "inputs": [
@@ -220,6 +231,13 @@ class WorkflowRunIn(Schema):
         description="Its steps read only what's in its project (ADR 0066). Set true to add "
         "inputs from other projects to it first; each is audited as `entity.linked`. Without "
         "it, such inputs are refused with 409 `inputs_outside_project`, which lists them.",
+    )
+    consent: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="For a workflow whose steps send data to outside APIs: each API, by "
+        "qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is "
+        "refused with 409 `consent_required`, which gives the statements.",
     )
 
 
@@ -515,6 +533,7 @@ def start_workflow(
             payload.params,
             reason=payload.reason,
             add_to_project=payload.add_to_project,
+            consent=payload.consent,
         )
     except Invalid as error:
         raise invalid_problem(error) from None
@@ -639,6 +658,13 @@ def decline_workflow_step(
 
 class RerunIn(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    consent: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="For a workflow whose steps send data to outside APIs: each API, by "
+        "qualified name, agreeing to what its steps send (ADR 0130). Without it, starting is "
+        "refused with 409 `consent_required`, which gives the statements.",
+    )
 
 
 @router.post(
@@ -656,7 +682,7 @@ def rerun_workflow_run(
     me = caller(request)
     original = find(me, ref)
     try:
-        run = workflows.rerun(me, original, reason=payload.reason.strip())
+        run = workflows.rerun(me, original, reason=payload.reason.strip(), consent=payload.consent)
     except Invalid as error:
         raise invalid_problem(error) from None
     except services.OutsideProject as error:

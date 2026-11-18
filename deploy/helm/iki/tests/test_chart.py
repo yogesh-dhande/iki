@@ -1009,10 +1009,40 @@ def test_only_workers_reach_the_egress_proxy_and_only_it_reaches_the_internet() 
     )
 
 
+def test_the_egress_proxy_calls_outside_apis_with_its_gateway_key() -> None:
+    pod = named(manifests(EGRESS), "Deployment", "iki-egress-proxy")["spec"]["template"]["spec"]
+    env = {e["name"] for e in pod["containers"][0]["env"]}
+    assert not {"IKI_EGRESS_GATEWAY_KEY_FILE", "SSL_CERT_FILE"} & env
+    proxy = {
+        "enabled": True,
+        "gatewayKey": {"existingSecret": "iki-egress-gateway", "key": "key.pem"},
+        "caSecret": {"name": "internal-ca", "key": "bundle.pem"},
+    }
+    docs = manifests({**EGRESS, "egressProxy": proxy})
+    pod = named(docs, "Deployment", "iki-egress-proxy")["spec"]["template"]["spec"]
+    (container,) = pod["containers"]
+    values = {e["name"]: e.get("value") for e in container["env"]}
+    assert values["IKI_EGRESS_GATEWAY_KEY_FILE"] == "/etc/iki/egress-gateway/key.pem"
+    assert values["SSL_CERT_FILE"] == "/etc/iki/egress-ca/bundle.pem"
+    mounts = {m["name"]: m for m in container["volumeMounts"]}
+    assert mounts["egress-gateway"]["readOnly"] is True
+    volumes = {v["name"]: v for v in pod["volumes"]}
+    assert volumes["egress-gateway"]["secret"] == {
+        "secretName": "iki-egress-gateway",
+        "defaultMode": 0o440,
+        "items": [{"key": "key.pem", "path": "key.pem"}],
+    }
+    assert volumes["egress-ca"]["secret"]["secretName"] == "internal-ca"
+    # Nothing else gets the key.
+    for name, spec in pod_specs(docs):
+        if name != "Deployment/iki-egress-proxy":
+            assert all(v["name"] != "egress-gateway" for v in spec.get("volumes", [])), name
+
+
 # --- Run secrets (ADR 0054) ---------------------------------------------------------------------
 
 
-def test_only_web_pods_hold_run_secrets_mounted_read_only() -> None:
+def test_only_web_pods_and_the_egress_proxy_hold_run_secrets_mounted_read_only() -> None:
     for name, spec in pod_specs(manifests(EGRESS)):
         names = {e["name"] for e in spec["containers"][0]["env"]}
         assert "IKI_RUN_SECRETS_DIR" not in names, name
@@ -1021,7 +1051,8 @@ def test_only_web_pods_hold_run_secrets_mounted_read_only() -> None:
         (container,) = spec["containers"]
         env = {e["name"]: e.get("value") for e in container["env"]}
         mounts = {m["name"]: m for m in container.get("volumeMounts", [])}
-        if name == "Deployment/iki-web":
+        # The proxy adds outside APIs' keys to their requests (ADR 0130).
+        if name in ("Deployment/iki-web", "Deployment/iki-egress-proxy"):
             assert env["IKI_RUN_SECRETS_DIR"] == "/etc/iki/run-secrets"
             assert mounts["run-secrets"] == {
                 "name": "run-secrets",

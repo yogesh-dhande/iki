@@ -91,6 +91,7 @@ describe("a project's workflows", () => {
       params: { ph: 7 },
       reason: "Check the weights",
       add_to_project: false,
+      consent: [],
     });
     expect(await screen.findByText("Started WF-000001.")).toBeInTheDocument();
   });
