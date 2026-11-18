@@ -77,7 +77,7 @@ expect:
               isomerisation: 2
               n_glycosylation: 3
               oxidation: 2
-              unpaired_cysteine: 1
+              noncanonical_cysteine: 1
             liabilities:
               - {
                   kind: n_glycosylation,
@@ -96,7 +96,7 @@ expect:
                   severity: high,
                 }
               - {
-                  kind: unpaired_cysteine,
+                  kind: noncanonical_cysteine,
                   motif: C,
                   position: 12,
                   number: "31",
@@ -202,7 +202,7 @@ expect:
       protein:
         - values:
             liability_count: 2
-            liability_counts: { pyroglutamate: 1, unpaired_cysteine: 1 }
+            liability_counts: { pyroglutamate: 1, noncanonical_cysteine: 1 }
             liabilities:
               - {
                   kind: pyroglutamate,
@@ -213,7 +213,7 @@ expect:
                   severity: low,
                 }
               - {
-                  kind: unpaired_cysteine,
+                  kind: noncanonical_cysteine,
                   motif: C,
                   position: 2,
                   number: "23",

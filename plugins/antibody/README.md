@@ -170,19 +170,23 @@ of [LAP](https://doi.org/10.1371/journal.pcbi.1011881) (Satława et al., _PLoS
 Comput Biol_ 20(3):e1011881, 2024, Table 1), whose scope per motif (a CDR, or
 the whole variable fragment) this follows:
 
-| Kind                | Motif                                   | Where          | Severity                   |
-| ------------------- | --------------------------------------- | -------------- | -------------------------- |
-| `n_glycosylation`   | `N-X-S/T`, X not proline                | A whole domain | high                       |
-| `deamidation`       | `NG`, `NS`, `NT`, `NN`                  | A CDR          | high for `NG`, else medium |
-| `isomerisation`     | `DG`, `DS`, `DT`, `DD`                  | A CDR          | high for `DG`, else medium |
-| `fragmentation`     | `DP`                                    | A CDR          | high                       |
-| `oxidation`         | `M`, `W`                                | A CDR          | medium                     |
-| `unpaired_cysteine` | `C` away from the domain's disulphide   | A whole domain | high                       |
-| `pyroglutamate`     | `Q` or `E` at the chain's first residue | The N-terminus | low                        |
+| Kind                    | Motif                                   | Where          | Severity                   |
+| ----------------------- | --------------------------------------- | -------------- | -------------------------- |
+| `n_glycosylation`       | `N-X-S/T`, X not proline                | A whole domain | high                       |
+| `deamidation`           | `NG`, `NS`, `NT`, `NN`                  | A CDR          | high for `NG`, else medium |
+| `isomerisation`         | `DG`, `DS`, `DT`, `DD`                  | A CDR          | high for `DG`, else medium |
+| `fragmentation`         | `DP`                                    | A CDR          | high                       |
+| `oxidation`             | `M`, `W`                                | A CDR          | medium                     |
+| `noncanonical_cysteine` | `C` away from the domain's disulphide   | A whole domain | high                       |
+| `pyroglutamate`         | `Q` or `E` at the chain's first residue | The N-terminus | low                        |
 
-- **N-glycosylation**: the sequon an N-linked glycan is added at. LAP's `Ngly`,
-  over the variable fragment; here, within a variable domain ANARCI numbered, so
-  a sequon that runs past a domain's end isn't counted.
+- **N-glycosylation**: the sequon an N-linked glycan may be added at, a
+  potential site: whether it's occupied needs measuring. LAP's `Ngly`, over the
+  variable fragment; here, within a variable domain ANARCI numbered, so a sequon
+  that runs past a domain's end isn't counted. A sequon whose middle residue is
+  unknown (`X`, which may be proline, and then it's no sequon) is reported with
+  `uncertain: true`. An `X` matches no other motif, which each need a residue
+  of their own.
 - **Deamidation** and **isomerisation**: `NG` and `DG` are ranked above the
   others because they're the most labile, as measured across 131 clinical-stage
   antibodies: deamidation falls off in the order NG, NS, NT, and DG isomerises
@@ -192,12 +196,15 @@ the whole variable fragment) this follows:
   LAP puts `N[GS]` together as high; this follows the measured order instead and
   leaves `NS` at medium. Both sources count them in the CDRs alone, so a motif
   in framework isn't reported.
-- **Unpaired cysteines**: every cysteine in a variable domain other than the two
-  that make its disulphide, at IMGT 23 and 104 (Kabat's, Chothia's and Martin's
+- **Noncanonical cysteines**: every cysteine in a variable domain other than the
+  two that make its conserved disulphide, at IMGT 23 and 104 (Kabat's, Chothia's and Martin's
   numbering of the same residues, heavy 22 and 92, light 23 and 88; AHo's 23 and
   106). If either of those
-  positions isn't a cysteine, the other has nothing to pair with, so it's
-  reported too. LAP's `xCys` and `mCys`.
+  positions isn't a cysteine, the other has no canonical partner, so it's
+  reported too. LAP's `xCys` and `mCys`. Sequence alone can't say whether such
+  a cysteine is free: it may bond another, as a camelid VHH's CDR1 and CDR3
+  cysteines often do (PDB 1MEL's Cys33 and Cys109, IMGT 38 and 111F). It's a
+  site to check, not an unpaired cysteine.
 - **Oxidation**: methionine and tryptophan in a CDR. LAP's `MetOx` and `TrpOx`.
 - **Fragmentation**: `DP` in a CDR. LAP's `FragH`.
 - **Pyroglutamate**: a glutamine or glutamate at the chain's first residue

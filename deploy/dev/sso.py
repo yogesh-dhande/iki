@@ -2147,7 +2147,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
 #: the NG in CDR-H2 and the DG in CDR-H3 that Lu et al. (2019) measured as hot spots (Kabat
 #: H54 and H98), the DT in CDR-H1, the tryptophan and methionine in CDR-H3 that oxidise,
 #: the E at residue 1 that cyclises, and the NT in CDR-L1. Its cysteines are the variable
-#: domains' disulphides, so none is unpaired, and neither chain carries a sequon.
+#: domains' disulphides, so none is noncanonical, and neither chain carries a sequon.
 TRASTUZUMAB_LIABILITIES: dict[str, list[tuple[str, str, int, str, str, str]]] = {
     "heavy": [
         ("pyroglutamate", "E", 1, "1", "framework", "low"),

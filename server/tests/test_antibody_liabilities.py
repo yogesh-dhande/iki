@@ -174,8 +174,8 @@ def test_trastuzumabs_light_chain_has_one_deamidation_site_in_cdr_l1(tmp_path: P
     ]
     assert values["liability_counts"] == {"deamidation": 1}
     # Its two cysteines are the variable domain's disulphide (IMGT 23 and 104), so neither
-    # is unpaired, and its first residue (D) doesn't cyclise.
-    assert "unpaired_cysteine" not in values["liability_counts"]
+    # is noncanonical, and its first residue (D) doesn't cyclise.
+    assert "noncanonical_cysteine" not in values["liability_counts"]
     assert "pyroglutamate" not in values["liability_counts"]
 
 
@@ -240,8 +240,8 @@ def test_martin_and_aho_numbering_have_their_own_disulphide_positions(
     _, output = screen(tmp_path, chains(tmp_path, "vh", "vl", scheme=scheme))
 
     vh, vl = (u["values"] for u in output["updates"]["protein"])
-    assert "unpaired_cysteine" not in vh["liability_counts"]
-    assert "unpaired_cysteine" not in vl["liability_counts"]
+    assert "noncanonical_cysteine" not in vh["liability_counts"]
+    assert "noncanonical_cysteine" not in vl["liability_counts"]
     found = {(f["kind"], f["motif"], f["region"]) for f in vh["liabilities"]}
     # Trastuzumab's NG in CDR-H2 and DG in CDR-H3 are in both definitions' CDRs.
     assert {("deamidation", "NG", "cdr_h2"), ("isomerisation", "DG", "cdr_h3")} <= found
@@ -315,8 +315,58 @@ def test_a_sequon_and_an_extra_cysteine_are_found_anywhere_in_a_domain(tmp_path:
     values = output["updates"]["protein"][0]["values"]
     found = [(f["kind"], f["motif"], f["number"], f["severity"]) for f in values["liabilities"]]
     assert ("n_glycosylation", "NCS", "109", "high") in found
-    assert ("unpaired_cysteine", "C", "110", "high") in found
-    assert values["liability_counts"]["unpaired_cysteine"] == 1
+    assert ("noncanonical_cysteine", "C", "110", "high") in found
+    assert values["liability_counts"]["noncanonical_cysteine"] == 1
+
+
+def test_a_vhhs_second_disulphide_is_reported_as_noncanonical_cysteines(tmp_path: Path) -> None:
+    """cAb-Lys3 (PDB 1MEL): its CDR1 and CDR3 cysteines (IMGT 38 and 111F) bond each other,
+    as its SSBOND records say (Cys33-Cys109), beside the conserved Cys22-Cys96. Sequence
+    alone can't tell that, so they're reported as cysteines beyond the canonical pair, not
+    as unpaired ones."""
+    _, output = screen(tmp_path, chains(tmp_path, "cab_lys3"))
+
+    values = output["updates"]["protein"][0]["values"]
+    cysteines = [
+        (f["kind"], f["position"], f["number"], f["region"])
+        for f in values["liabilities"]
+        if f["motif"] == "C"
+    ]
+    assert cysteines == [
+        ("noncanonical_cysteine", 33, "38", "cdr_h1"),
+        ("noncanonical_cysteine", 109, "111F", "cdr_h3"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("middle", "found"),
+    [
+        # N-A-S is a sequon; N-P-S isn't; N-X-S is one unless X is proline, so it's uncertain.
+        ("A", [{"motif": "NAS"}]),
+        ("P", []),
+        ("X", [{"motif": "NXS", "uncertain": True}]),
+    ],
+)
+def test_a_sequon_with_an_unknown_middle_residue_is_uncertain(
+    tmp_path: Path, middle: str, found: list[dict[str, Any]]
+) -> None:
+    odd = SEQUENCES["vh"].replace("SRWGGDGFYAMDY", f"SRWGN{middle}SFYAMDY")
+    numbered = chains(tmp_path, "vh")
+    numbered[0]["values"]["sequence"] = odd
+    domain = numbered[0]["values"]["variable_domains"][0]
+    domain["numbering"] = [
+        [number, insertion, odd[index]]
+        for index, (number, insertion, _) in enumerate(domain["numbering"])
+    ]
+
+    _, output = screen(tmp_path, numbered)
+
+    sequons = [
+        {k: v for k, v in f.items() if k in ("motif", "uncertain")}
+        for f in output["updates"]["protein"][0]["values"]["liabilities"]
+        if f["kind"] == "n_glycosylation"
+    ]
+    assert sequons == found
 
 
 def test_a_chain_without_a_disulphide_has_its_lone_cysteine_reported(tmp_path: Path) -> None:
@@ -331,7 +381,7 @@ def test_a_chain_without_a_disulphide_has_its_lone_cysteine_reported(tmp_path: P
     _, output = screen(tmp_path, numbered)
 
     values = output["updates"]["protein"][0]["values"]
-    unpaired = [f for f in values["liabilities"] if f["kind"] == "unpaired_cysteine"]
+    unpaired = [f for f in values["liabilities"] if f["kind"] == "noncanonical_cysteine"]
     assert [(f["number"], f["region"], f["severity"]) for f in unpaired] == [
         ("23", "framework", "high")
     ]

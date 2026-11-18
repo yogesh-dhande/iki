@@ -162,7 +162,9 @@ fields:
       liability, the residues that make it, where it is (its index in the
       sequence, from 1, and its number in the scheme the chain was numbered in),
       whether it falls in a CDR (which one) or in framework, and how severe
-      published screens call it.
+      published screens call it. Each is a potential site, which needs
+      measuring; one whose motif holds only if an unknown residue (X) is what
+      it needs is marked uncertain.
     schema:
       type: array
       maxItems: 500
@@ -178,7 +180,7 @@ fields:
               - isomerisation
               - fragmentation
               - oxidation
-              - unpaired_cysteine
+              - noncanonical_cysteine
               - pyroglutamate
           motif: { type: string, minLength: 1, maxLength: 8 }
           position: { type: integer, minimum: 1 }
@@ -186,6 +188,7 @@ fields:
           region:
             enum: [cdr_h1, cdr_h2, cdr_h3, cdr_l1, cdr_l2, cdr_l3, framework]
           severity: { enum: [high, medium, low] }
+          uncertain: { const: true }
   liability_counts:
     type: json
     label: Sequence liabilities by kind
@@ -203,7 +206,7 @@ fields:
           - isomerisation
           - fragmentation
           - oxidation
-          - unpaired_cysteine
+          - noncanonical_cysteine
           - pyroglutamate
   liability_count:
     type: int

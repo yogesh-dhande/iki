@@ -9,18 +9,22 @@ code, in pure Python: no third-party tool runs, so the action lists no software
 The rules are the ones published developability screens use, with the severities they
 give them:
 
-- **N-glycosylation** `N-X-S/T`, X not proline: the sequon an N-linked glycan is added
-  at. High, anywhere in a variable domain (LAP's `Ngly`, over the variable fragment).
+- **N-glycosylation** `N-X-S/T`, X not proline: the sequon an N-linked glycan may be added
+  at, a potential site. High, anywhere in a variable domain (LAP's `Ngly`, over the
+  variable fragment). When the middle residue is unknown (X, which may be proline), the
+  sequon is only possible, and it's reported as uncertain.
 - **Deamidation** of asparagine: `NG` high, `NS`, `NT` and `NN` medium, in a CDR. NG is
   the most labile of them, and the hierarchy NG > NS > NT is Lu et al.'s (LAP has N[GS]
   high and N[AHNT] medium; this ranks NG above NS, as the measured rates do).
 - **Isomerisation** of aspartate: `DG` high, `DS`, `DT` and `DD` medium, in a CDR, the
   same way round (LAP's `Isom`, D[DGHST]; Lu et al.: DG more labile than DS, and DS than
   DD or DT).
-- **Unpaired cysteines**: a cysteine beyond the pair that makes a variable domain's
-  disulphide, at IMGT 23 and 104 or a scheme's equivalents. If one of those two isn't a
-  cysteine, the other is unpaired too, so it's reported as well. High, anywhere in a
-  variable domain (LAP's `xCys` and `mCys`).
+- **Noncanonical cysteines**: a cysteine beyond the pair that makes a variable domain's
+  conserved disulphide, at IMGT 23 and 104 or a scheme's equivalents. If one of those two
+  isn't a cysteine, the other has no canonical partner, so it's reported as well. High,
+  anywhere in a variable domain (LAP's `xCys` and `mCys`). Sequence alone can't say
+  whether it's free: it may bond another, as a camelid VHH's CDR1 and CDR3 cysteines
+  often do (PDB 1MEL's Cys33-Cys109).
 - **Oxidation**: a methionine or a tryptophan in a CDR. Medium (LAP's `MetOx` and
   `TrpOx`).
 - **Fragmentation** `DP` in a CDR. High (LAP's `FragH`).
@@ -100,10 +104,10 @@ def regions(domain: dict[str, Any]) -> list[str]:
     return found
 
 
-def _unpaired(domain: dict[str, Any], scheme: str) -> set[int]:
-    """Which of a domain's residues are cysteines that aren't its disulphide's: every
-    cysteine but the two at the canonical positions, and those two as well if either
-    position holds something else, which leaves the other unpaired."""
+def _noncanonical(domain: dict[str, Any], scheme: str) -> set[int]:
+    """Which of a domain's residues are cysteines that aren't its conserved disulphide's:
+    every cysteine but the two at the canonical positions, and those two as well if either
+    position holds something else, which leaves the other without its canonical partner."""
     side = "H" if domain["chain"] == "H" else "L"
     canonical = DISULPHIDE[scheme][side]
     at = {
@@ -125,21 +129,24 @@ def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, 
     numbering = domain["numbering"]
     residues = "".join(aa for _, _, aa in numbering)
     where = regions(domain)
-    unpaired = _unpaired(domain, scheme)
+    noncanonical = _noncanonical(domain, scheme)
     found: list[dict[str, Any]] = []
 
-    def report(index: int, kind: str, motif: str, severity: str) -> None:
+    def report(
+        index: int, kind: str, motif: str, severity: str, *, uncertain: bool = False
+    ) -> None:
         number, insertion, _ = numbering[index]
-        found.append(
-            {
-                "kind": kind,
-                "motif": motif,
-                "position": start + index,
-                "number": f"{number}{insertion}",
-                "region": where[index],
-                "severity": severity,
-            }
-        )
+        liability = {
+            "kind": kind,
+            "motif": motif,
+            "position": start + index,
+            "number": f"{number}{insertion}",
+            "region": where[index],
+            "severity": severity,
+        }
+        if uncertain:
+            liability["uncertain"] = True
+        found.append(liability)
 
     for index, residue in enumerate(residues):
         cdr = where[index] != "framework"
@@ -149,7 +156,14 @@ def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, 
             and residues[index + 2 : index + 3] in ("S", "T")
             and after not in ("P", "")
         ):
-            report(index, "n_glycosylation", residues[index : index + 3], "high")
+            # An unknown residue (X) may be proline, which would make it no sequon.
+            report(
+                index,
+                "n_glycosylation",
+                residues[index : index + 3],
+                "high",
+                uncertain=after == "X",
+            )
         if cdr and residue == "N" and after in DEAMIDATION:
             report(index, "deamidation", residue + after, DEAMIDATION[after])
         if cdr and residue == "D" and after in ISOMERISATION:
@@ -158,8 +172,8 @@ def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, 
             report(index, "fragmentation", "DP", "high")
         if cdr and residue in OXIDISES:
             report(index, "oxidation", residue, "medium")
-        if index in unpaired:
-            report(index, "unpaired_cysteine", "C", "high")
+        if index in noncanonical:
+            report(index, "noncanonical_cysteine", "C", "high")
         if start + index == 1 and residue in CYCLISES:
             report(index, "pyroglutamate", residue, "low")
     return found

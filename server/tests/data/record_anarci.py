@@ -9,7 +9,8 @@ answers from it. Run it in the numbering-tools image, offline:
 Trastuzumab's chains are PDB 1N8Z's; the VHH and the lambda chain are typical of their
 kinds; D1.3's heavy chain is a mouse's; lysozyme has no antibody domain. `long_h1` is
 trastuzumab's VH with three residues more in CDR-H1, which Kabat's numbering puts at H35A
-to H35C.
+to H35C. cAb-Lys3 is a camel VHH (PDB 1MEL, chain A, with its tag) whose four cysteines
+make two disulphides, the conserved one and one from CDR1 to CDR3.
 """
 
 import json
@@ -43,6 +44,10 @@ SEQUENCES = {
         "HTDDTARYYCARERDYRLDYWGQGTTLTVSS"
     ),
     "long_h1": VH.replace("GFNIKDTYIH", "GFNIKDTYSGSIH"),
+    "cab_lys3": (
+        "DVQLQASGGGSVQAGGSLRLSCAASGYTIGPYCMGWFRQAPGKEREGVAAINMGGGITYYADSVKGRFTISQDNAKNTVYLL"
+        "MNSLEPEDTAIYYCAADSTIYASYYECGHGLSTGGYGYDSWGQGTQVTVSSGRYPYDVPDYGSGRA"
+    ),
     "lysozyme": (
         "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"
         "LLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
