@@ -250,6 +250,58 @@ def django_db_setup(
         )
 
 
+def synced_objects() -> dict[str, list[str]]:
+    """What ``sync_plugins`` made beyond migrations that a migration can take away: unique
+    fields' triggers (ADR 0082), locked records' guards (ADR 0118) and analysts' views."""
+    from django.db import connection
+
+    from iki_server.entities import states, unique
+    from iki_server.plugins import sync
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT c.relname || ' ' || t.tgname FROM pg_trigger t "
+            "JOIN pg_class c ON c.oid = t.tgrelid "
+            "WHERE NOT t.tgisinternal AND (t.tgname LIKE %s OR t.tgname LIKE %s) ORDER BY 1",
+            [p.replace("_", r"\_") + "%" for p in (unique.TRIGGER_PREFIX, states.TRIGGER_PREFIX)],
+        )
+        triggers = [row[0] for row in cursor.fetchall()]
+        cursor.execute(
+            "SELECT viewname FROM pg_views WHERE schemaname = %s ORDER BY 1", [sync.VIEWS_SCHEMA]
+        )
+        views = [row[0] for row in cursor.fetchall()]
+    return {"triggers": triggers, "views": views}
+
+
+@pytest.fixture(autouse=True)
+def _keeps_what_sync_made(
+    request: pytest.FixtureRequest, django_db_blocker: pytest_django.DjangoDbBlocker
+) -> Iterator[None]:
+    """A test that commits leaves the triggers and views ``sync_plugins`` made as it found
+    them. Its flush empties tables but makes nothing again, so a test that migrates back and
+    forth without syncing would leave every later test on the worker without them: unique
+    fields unguarded and lookups by them finding nothing. Other tests' changes roll back."""
+    marker = request.node.get_closest_marker("django_db")
+    commits = (marker is not None and marker.kwargs.get("transaction", False)) or bool(
+        {"transactional_db", "live_server"} & set(request.fixturenames)
+    )
+    if not commits:
+        yield
+        return
+    request.getfixturevalue("django_db_setup")  # the test database, synced
+    with django_db_blocker.unblock():
+        before = synced_objects()
+    yield
+    with django_db_blocker.unblock():
+        after = synced_objects()
+    lost = {k: sorted(set(before[k]) - set(after[k])) for k in before}
+    added = {k: sorted(set(after[k]) - set(before[k])) for k in before}
+    assert before == after, (
+        f"The test left the database without what sync_plugins made ({lost}) or with more "
+        f"({added}). Run iki_server.plugins.sync.sync() after migrating, as the deploy does."
+    )
+
+
 @pytest.fixture
 def spans() -> Iterator[InMemorySpanExporter]:
     SPAN_EXPORTER.clear()

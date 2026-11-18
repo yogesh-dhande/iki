@@ -439,5 +439,9 @@ def test_the_first_admin_from_before_org_roles_becomes_an_org_admin() -> None:
         executor = MigrationExecutor(connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
         allow_test_flush()
+        # Migrating back dropped the plugins' tables, and their unique fields' triggers
+        # and locked records' guards with them, as well as the views: the deploy makes
+        # them again after migrating, and so must this, for the tests after it.
+        sync.sync()
     roles = set(OrgRoleAssignment.objects.values_list("user__email", "role"))
     assert roles == {("ada@example.com", "org_admin")}
