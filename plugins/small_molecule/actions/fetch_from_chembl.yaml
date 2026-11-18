@@ -30,6 +30,9 @@ params:
 effects:
   creates:
     - { type: Compound, cardinality: many }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+  - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }
 runs_on: { tier: backend, environment: chemistry-tools }
 command: [python, ./scripts/chembl.py]
 network: [www.ebi.ac.uk]

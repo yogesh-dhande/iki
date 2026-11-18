@@ -14,8 +14,11 @@ A name that's several compounds (PubChem lists more than one CID) takes the firs
 so. All or nothing: a name, CID or InChIKey PubChem doesn't have fails the run, naming
 it.
 
-The fetch reads PubChem's record and computes nothing of its own, so the action lists no
-software (ADR 0106); PubChem's records don't say how a compound was made.
+The compound registered is RDKit's standardisation of PubChem's SMILES (with the parent,
+its parent), identified by the InChI library, as a SMILES line is, so the action lists
+them as its software (ADR 0106) and each compound is recorded as made with them; the run
+keeps its parameters, such as whether it took the parent. PubChem's records don't say how
+a compound was made.
 """
 
 from __future__ import annotations

@@ -13,8 +13,11 @@ A name that's several molecules takes the first, saying so. All or nothing: an I
 InChIKey or name ChEMBL doesn't have, or a molecule without a structure (a biologic),
 fails the run, naming it.
 
-The fetch reads ChEMBL's record and computes nothing of its own, so the action lists no
-software (ADR 0106). ChEMBL's data is CC BY-SA 3.0.
+The compound registered is RDKit's standardisation of ChEMBL's canonical SMILES (with the
+parent, its parent), identified by the InChI library, as a SMILES line is, so the action
+lists them as its software (ADR 0106) and each compound is recorded as made with them;
+the run keeps its parameters, such as whether it took the parent. ChEMBL's data is CC
+BY-SA 3.0.
 """
 
 from __future__ import annotations

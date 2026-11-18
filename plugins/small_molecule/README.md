@@ -62,7 +62,9 @@ installs, so what it makes is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
 RDKit 2026.09.2, and the InChI library 1.07.3 for those that identify
 compounds. A registered compound is RDKit's standardisation of what it was
-given, so it's recorded as made with them.
+given, so it's recorded as made with them, fetched from PubChem or ChEMBL too:
+the fetches standardise and identify the record's SMILES as a SMILES line is,
+so the identity is Iki's computation, beside the record's origin.
 
 - **`register_compounds`**: registers each line's SMILES (up to 5,000; a name
   may follow, after a space or a tab) as a compound, standardised and
