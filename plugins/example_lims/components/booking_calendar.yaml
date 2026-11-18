@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A calendar of bookings, a month at a time (ADR 0117). Iki runs it in a sandboxed
+# frame and gives it the bookings each place's search finds, as the person viewing it
+# may read them, with only the fields it reads. It asks for one month at a time with a
+# refinement, which can only narrow what its place shows.
+apiVersion: iki/v1
+kind: Component
+name: booking_calendar
+label: Calendar
+description: Bookings by day, a month at a time.
+module: ./components/booking-calendar.js
+element: lims-booking-calendar
+entities: { type: Booking, fields: [purpose, instrument, starts_at, ends_at], limit: 1000 }
+slots:
+  # An instrument's bookings, on its page.
+  - slot: entity.tab
+    type: Instrument
+    label: Bookings
+    search: { where: { field: instrument, op: eq, value: "{{ entity }}" }, sort: starts_at }
+  # "Show as" in the grid of bookings: what the grid finds.
+  - { slot: search.results, label: Calendar }
+  # A section of the project's page: its bookings.
+  - { slot: project.page, label: Instrument bookings, search: { sort: starts_at } }
+  # A section of each person's home: the bookings they made.
+  - slot: person.home
+    label: Your bookings
+    search: { where: { field: created_by, op: eq, value: "{{ me }}" }, sort: starts_at }

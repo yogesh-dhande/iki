@@ -33,6 +33,18 @@ def test_the_plugin_is_valid() -> None:
     assert actions["import_from_lims"].network == ("{settings.lims_host}",)
     assert actions["import_from_lims"].creates[0].match_on == "lims_id"
     assert result.plugin.triggers["import_nightly"].on == "schedule"
+    # Its calendar shows bookings in each of a component's places, reading four fields.
+    calendar = result.plugin.components["booking_calendar"]
+    assert calendar.entities is not None
+    assert calendar.entities.type == "iki/example_lims.Booking"
+    assert calendar.entities.fields == ("purpose", "instrument", "starts_at", "ends_at")
+    assert [(s.slot, s.type) for s in calendar.slots] == [
+        ("entity.tab", "iki/example_lims.Instrument"),
+        ("search.results", "iki/example_lims.Booking"),
+        ("project.page", "iki/example_lims.Booking"),
+        ("person.home", "iki/example_lims.Booking"),
+    ]
+    assert calendar.selects == ""  # It opens bookings; it picks none.
 
 
 class FakeLims:

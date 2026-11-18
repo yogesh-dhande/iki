@@ -33,6 +33,25 @@ It shows the parts of Iki such a plugin needs:
 
 Every trigger is off until a project's Admin turns it on there.
 
+It also books instruments, to show a component that shows many entities
+([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places.md)):
+
+- **`Instrument`** and **`Booking`**, types of its own: a booking is time on
+  an instrument, from `starts_at` to `ends_at`, for a `purpose`.
+- **`booking_calendar`**, a component that draws bookings by day, a month at
+  a time. It's a tab on each instrument's page (its bookings), a way to show
+  the grid of bookings ("Show as: Calendar"), a section of each project's
+  page, and a section of each person's home with the bookings they made
+  (`{{ me }}`). Iki runs it in a sandboxed frame and gives it the bookings
+  each place's search finds, as the person viewing it may read them, with
+  only the four fields it reads. It asks for one month at a time with an
+  `iki-refine` event, which can only narrow what its place shows, and Iki
+  opens a booking's page when it's picked. It reaches nothing and changes
+  nothing: bookings are made and changed in Iki's own pages, as any entity.
+
+A booking that starts in one month and ends in the next shows on the day it
+starts.
+
 ## Setting it up
 
 In the deployment's config repository, give the host:

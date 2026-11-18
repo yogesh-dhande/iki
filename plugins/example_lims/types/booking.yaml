@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Booking
+label: Booking
+label_plural: Bookings
+schema_version: 1
+description: Time someone booked on an instrument. Its calendar shows them by day.
+hrid: { prefix: BKG }
+fields:
+  purpose: { type: string, required: true, max_length: 200 }
+  instrument: { type: ref, to: Instrument, required: true, description: "What's booked." }
+  starts_at: { type: datetime, required: true, indexed: true }
+  ends_at: { type: datetime, required: true }
+display:
+  title: "{{ purpose }}"

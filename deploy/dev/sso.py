@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, quote, urljoin, urlsplit
@@ -1271,6 +1271,111 @@ def lims() -> None:
     if [a["path"] for a in kept] != ["sent.json"]:
         fail(f"{sent['hrid']} kept {kept}, not what it sent")
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
+    bookings(alice, project)
+
+
+#: Where the booking calendar's places get their bookings (ADR 0117).
+CALENDAR = "/components/iki/example_lims.booking_calendar/entities"
+
+
+def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The example LIMS plugin's booking calendar (ADR 0117): each of its places gets the
+    bookings its search finds, computed by the server as the person may read them, with
+    only the fields it reads; a refinement only narrows; an app can place it; and someone
+    outside the project gets nothing."""
+
+    def made(kind: str, values: dict[str, Any]) -> dict[str, Any]:
+        body = {"type": f"iki/example_lims.{kind}", "project": project["id"], "values": values}
+        response = api_call(alice, "POST", "/entities", body)
+        if response.status_code != 201:
+            fail(f"making a {kind} answered HTTP {response.status_code}: {response.text[:300]}")
+        found: dict[str, Any] = response.json()
+        return found
+
+    def shown(session: requests.Session, place: dict[str, Any]) -> requests.Response:
+        return api_call(session, "POST", CALENDAR, place)
+
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    reader, other = (made("Instrument", {"name": f"{n} {stamp}"}) for n in ("Reader", "qPCR"))
+    start = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    booked = [
+        made(
+            "Booking",
+            {
+                "purpose": purpose,
+                "instrument": entry_of(instrument),
+                "starts_at": (start + timedelta(hours=hours)).isoformat(),
+                "ends_at": (start + timedelta(hours=hours + 2)).isoformat(),
+            },
+        )
+        for purpose, instrument, hours in (
+            ("Kinase assay", reader, 2),
+            ("Thermal shift", reader, 26),
+            ("Melt curve", other, 3),
+        )
+    ]
+    tab = shown(alice, {"entity": reader["id"]})
+    if tab.status_code != 200:
+        fail(f"the calendar's tab answered HTTP {tab.status_code}: {tab.text[:300]}")
+    items = tab.json()["items"]
+    if [i["hrid"] for i in items] != [b["hrid"] for b in booked[:2]]:
+        fail(f"{reader['hrid']}'s calendar shows {[i['hrid'] for i in items]}, not its bookings")
+    if set(items[0]["values"]) != {"purpose", "instrument", "starts_at", "ends_at"}:
+        fail(f"the calendar was given {sorted(items[0]['values'])}, not the fields it reads")
+    if items[0]["refs"].get(entry_of(reader), {}).get("hrid") != reader["hrid"]:
+        fail(f"the calendar wasn't given {reader['hrid']}, which its bookings name")
+    day = {
+        "all": [
+            {"field": "starts_at", "op": "gte", "value": start.isoformat()},
+            {"field": "starts_at", "op": "lt", "value": (start + timedelta(days=1)).isoformat()},
+        ]
+    }
+    narrowed = shown(alice, {"entity": reader["id"], "refine": {"where": day}}).json()["items"]
+    if [i["hrid"] for i in narrowed] != [booked[0]["hrid"]]:
+        fail(f"a day of {reader['hrid']}'s calendar shows {[i['hrid'] for i in narrowed]}")
+    wider = shown(alice, {"entity": reader["id"], "refine": {"where": {"field": "name"}}})
+    if wider.status_code != 422:
+        fail(f"a refinement on a field the calendar doesn't read answered {wider.status_code}")
+    # Her home has every booking she made, those of earlier runs too: these, by their IDs.
+    these = {"field": "hrid", "op": "in", "value": [b["hrid"] for b in booked]}
+    home = shown(alice, {"home": True, "refine": {"where": these}}).json()["items"]
+    if sorted(i["hrid"] for i in home) != sorted(b["hrid"] for b in booked):
+        fail(f"Alice's home calendar shows {[i['hrid'] for i in home]} of the bookings she made")
+    ok(
+        f"the booking calendar shows {reader['hrid']}'s bookings on its tab, a day of them "
+        "when it narrows, and Alice's on her home, with only the four fields it reads"
+    )
+    # An app places it beside Iki's own grid, given the instrument picked there.
+    spec = {
+        "version": 1,
+        "panels": [
+            {
+                "id": "instruments",
+                "component": "iki.entities",
+                "props": {"type": "iki/example_lims.Instrument", "sort": "name"},
+            },
+            {
+                "id": "calendar",
+                "title": "Bookings",
+                "component": "iki/example_lims.booking_calendar",
+                "props": {"entity": "{{ instruments.selection }}"},
+            },
+        ],
+    }
+    saved = save_app(alice, project, "Instrument bookings", spec)
+    if saved.status_code not in (200, 201):
+        fail(f"saving an app with the calendar answered HTTP {saved.status_code}: {saved.text}")
+    ok(f"an app places the booking calendar beside Iki's grid ({saved.json()['hrid']})")
+    # Bob, an Org Admin but not in the project, gets none of it.
+    bob = sign_in_as("bob")
+    seen = (
+        shown(bob, {"entity": reader["id"]}).status_code,
+        shown(bob, {"project": project["id"]}).status_code,
+        [i["hrid"] for i in shown(bob, {"home": True}).json().get("items", [])],
+    )
+    if seen != (404, 403, []):
+        fail(f"Bob, outside {project['name']}, got {seen} from the calendar, not nothing")
+    ok("someone outside the project gets none of its bookings from the calendar")
 
 
 #: Codons for amino acids alone (no stops), to make DNA that translates whole.

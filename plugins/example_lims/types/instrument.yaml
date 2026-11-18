@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Instrument
+label: Instrument
+label_plural: Instruments
+schema_version: 1
+description: An instrument the lab books time on, such as a plate reader.
+hrid: { prefix: INS }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  location: { type: string, max_length: 200, description: "Where it is, such as a room." }
+display:
+  title: "{{ name }}"
