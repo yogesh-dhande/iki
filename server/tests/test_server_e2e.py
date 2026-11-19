@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-from real_server import app_role, free_port, manage, serve, server_env
+from real_server import answer, app_role, free_port, manage, serve, server_env
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -84,11 +84,13 @@ def test_server_serves_probes_logs_json_and_exports_traces(
     assert collected.returncode == 0, collected.stdout + collected.stderr
     port = env["IKI_PORT"]
     with serve(env) as server:
-        status, body = get(f"http://127.0.0.1:{port}/healthz/live")
+        status, _ = get(f"http://127.0.0.1:{port}/healthz/live")
         assert status == 200
 
-        status, body = get(f"http://127.0.0.1:{port}/healthz/ready")
-        assert (status, body) == (
+        # Asked until it answers, as kubelet does: its first answer builds the migration
+        # graph, which takes seconds while other checks load the machine.
+        status, ready = answer(f"http://127.0.0.1:{port}/healthz/ready")
+        assert (status, json.loads(ready)) == (
             200,
             {
                 "status": "ok",

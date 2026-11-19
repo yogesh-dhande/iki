@@ -1,21 +1,28 @@
 """The graph at size (ADR 0123): walks over 100,000 entities use the edges' indexes and
-answer quickly.
+read only what they reach.
 
 A lab's graph, made in bulk: 1,000 donors (the first 50 also stand for reagent lots),
 10,000 samples from them, 40,000 aliquots of those and 49,000 results of those, each
 result also naming a lot. A tenth is in a project the viewer can't read. Each walk must
-read the edges by their indexes, never the whole table, and answer within its budget.
+read the edges by their indexes, never the whole table.
+
+That's checked in what Postgres did, not in seconds: every query a walk makes is run
+again under EXPLAIN ANALYZE, and the rows its recursion read from the edges and the
+project links must grow with what the walk reached, not with the tables. A clock
+measures the machine as much as the query, and other checks share both.
 """
 
 # ruff: noqa: S608 - SQL made here, of the test's own literals
 
 import json
-import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
 from django.db import connection, models
+from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
 from test_api_entities import api_as, create
 
@@ -30,8 +37,11 @@ SAMPLE = "acme/protein.Sample"
 ROWS = 100_000
 DONORS, SAMPLES, ALIQUOTS = 1_000, 11_000, 51_000
 LOTS = 50
-#: What a walk may take, at the server.
-BUDGET = 2.0
+#: The tables a walk must read by their indexes: 100,000 rows each, and a lab's millions.
+INDEXED = ("iki_graph_edge", "iki_entity_project")
+#: Rows a walk may read from those tables for each node it reaches: an edge to it and its
+#: project link, a step back to it when its path is drawn. A whole table is 100,000.
+PER_NODE = 5
 
 
 def _sql(statement: str, params: list[Any] | None = None) -> list[tuple[Any, ...]]:
@@ -120,71 +130,105 @@ def lab() -> tuple[World, Project]:
     return world, hidden
 
 
-def _scans(plan: Any) -> set[tuple[str, str]]:
-    """Each (node type, relation) the plan reads."""
-    found: set[tuple[str, str]] = set()
-    stack = [plan]
+def _walking(plan: Any) -> Iterator[dict[str, Any]]:
+    """Each node of the plan that walks: those under its recursive union, which steps from
+    what's reached to what's next. What the query does with the walk's answer is the
+    planner's to choose by size."""
+    stack: list[tuple[Any, bool]] = [(plan, False)]
     while stack:
-        node = stack.pop()
+        node, walking = stack.pop()
         if isinstance(node, dict):
-            if "Relation Name" in node:
-                found.add((node["Node Type"], node["Relation Name"]))
-            stack.extend(node.values())
+            walking = walking or node.get("Node Type") == "Recursive Union"
+            if walking and "Node Type" in node:
+                yield node
+            stack.extend((v, walking) for v in node.values())
         elif isinstance(node, list):
-            stack.extend(node)
-    return found
+            stack.extend((v, walking) for v in node)
 
 
-def _walked(world: World, root: int, direction: str, **kw: Any) -> tuple[float, queries.Reach]:
+#: How the walk's table is made: what makes it is a query of its own, to explain.
+_MADE = "CREATE TEMPORARY TABLE iki_reach ON COMMIT DROP AS "
+
+
+@contextmanager
+def _reads() -> Iterator[dict[str, float]]:
+    """Each (node type, table) of `INDEXED` that the block's walks read, and how many rows:
+    what each found there and what it read past (removed by a filter), for each loop. The
+    queries are run again under EXPLAIN ANALYZE once the block ends, in its transaction,
+    which its temporary tables last for."""
+    read: dict[str, float] = {}
+    with CaptureQueriesContext(connection) as ran:
+        yield read
+    for query in ran.captured_queries:
+        sql = query["sql"].removeprefix(_MADE)
+        if not sql.startswith(("SELECT", "WITH")) or not any(t in sql for t in INDEXED):
+            continue
+        (plan,) = _sql(f"EXPLAIN (ANALYZE, FORMAT JSON) {sql}")[0]
+        for node in _walking(json.loads(plan) if isinstance(plan, str) else plan):
+            if node.get("Relation Name") in INDEXED:
+                rows = sum(
+                    node.get(k, 0)
+                    for k in (
+                        "Actual Rows",
+                        "Rows Removed by Filter",
+                        "Rows Removed by Index Recheck",
+                    )
+                )
+                key = f"{node['Node Type']} {node['Relation Name']}"
+                read[key] = read.get(key, 0) + rows * node.get("Actual Loops", 1)
+
+
+def _read_by_index(read: dict[str, float], reached: int) -> None:
+    assert read, "no walk was run"
+    assert not [k for k in read if k.startswith("Seq Scan")], read
+    assert sum(read.values()) <= PER_NODE * (reached + 1), (reached, read)
+
+
+def _walked(world: World, root: int, direction: str, **kw: Any) -> queries.Reach:
+    """Walks as the graph's API does (ADR 0123): the walk, its count, its first page, what
+    it couldn't show, whether there's more, and the paths to what it found."""
     user = world.users["viewer"]
     q = queries.Query(_id(root), direction, **kw)
-    with search.time_limit():
-        plan = _sql(
-            f"EXPLAIN (FORMAT JSON) {queries.walk(q, queries.reader(user))} SELECT node FROM walk"
-        )
-        scans = _scans(json.loads(plan[0][0]) if isinstance(plan[0][0], str) else plan[0][0])
-        assert ("Seq Scan", "iki_graph_edge") not in scans, scans
-        assert ("Seq Scan", "iki_entity_project") not in scans, scans
-        began = time.perf_counter()
+    with search.time_limit(), _reads() as read:
         found = queries.reach(user, q)
         found.total(), found.page(None, 100), found.hidden(), found.beyond()
         found.paths([n for n, _, _ in found.page(None, 100)])
-        return time.perf_counter() - began, found
+        ((reached,),) = _sql("SELECT count(*) FROM iki_reach")
+    _read_by_index(read, reached)
+    return found
 
 
-def test_walks_over_100k_entities_read_the_indexes_and_answer_quickly(
+def test_walks_over_100k_entities_read_the_indexes_and_only_what_they_reach(
     lab: tuple[World, Project],
 ) -> None:
     world, _ = lab
     # A donor's consent: its 10 samples, their aliquots, their results.
-    took, found = _walked(world, 500, "downstream")
-    assert took < BUDGET, took
+    found = _walked(world, 500, "downstream")
     assert 60 <= found.total() <= 110
     assert found.hidden() == 0
     # A recalled lot: about a thousand results, and nothing past them.
-    took, found = _walked(world, 7, "downstream")
-    assert took < BUDGET, took
+    found = _walked(world, 7, "downstream")
     assert 800 <= found.total() <= 1100
     assert found.beyond() is False
     # What a result depends on: an aliquot, a sample, a donor and a lot, unless hidden.
-    took, found = _walked(world, 99_999, "upstream")
-    assert took < BUDGET, took
+    found = _walked(world, 99_999, "upstream")
     assert 1 <= found.total() + found.hidden() <= 4
     # Everything a lot touched, as far as it goes.
-    took, _ = _walked(world, 3, "downstream", depth=30)
-    assert took < BUDGET, took
+    _walked(world, 3, "downstream", depth=30)
 
 
-def test_a_search_across_100k_entities_answers_quickly(lab: tuple[World, Project]) -> None:
+def test_a_search_across_100k_entities_reads_only_what_it_finds(
+    lab: tuple[World, Project],
+) -> None:
     world, _ = lab
     api = api_as(world, "viewer")
     # A donor the viewer reads, as all that comes of it (a tenth of each layer is hidden,
     # by its number's last digit: here none of it).
     where = {"field": "downstream", "op": "of", "value": str(_id(505))}
     body = {"type": SAMPLE, "where": where, "limit": 100}
-    began = time.perf_counter()
-    answer = api.post("/entities/search", body)
-    took = time.perf_counter() - began
+    with _reads() as read:
+        answer = api.post("/entities/search", body)
     assert answer.status_code == 200, answer.content[:300]
-    assert 40 <= len(answer.json()["items"]) <= 100
-    assert took < BUDGET * 2, took
+    found = len(answer.json()["items"])
+    assert 40 <= found <= 100
+    _read_by_index(read, found)

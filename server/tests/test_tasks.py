@@ -20,7 +20,7 @@ from django.db import transaction
 from django.tasks import TaskResultStatus, task_backends
 from django.tasks.exceptions import InvalidTask, TaskResultDoesNotExist
 from django.utils import timezone
-from real_server import app_role, free_port, server_env
+from real_server import NOT_ANSWERING, STARTUP, app_role, free_port, server_env
 from task_fixtures import (
     add,
     attempt_number,
@@ -348,13 +348,14 @@ def test_the_runner_process_runs_tasks_answers_probes_and_stops_on_sigterm(
     runner_process: tuple[subprocess.Popen[str], int], tmp_path: Path
 ) -> None:
     proc, port = runner_process
-    deadline = time.monotonic() + 30
+    # Starting is importing Django and every plugin, which takes as long as a server's.
+    deadline = time.monotonic() + STARTUP
     while True:
         try:
             status, body = _get(port, "/healthz/ready")
             break
         # Starting, or slow to answer while the machine is busy (as under xdist).
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
+        except NOT_ANSWERING:
             assert proc.poll() is None, proc.stdout.read() if proc.stdout else ""
             assert time.monotonic() < deadline, "the runner never answered its probes"
             time.sleep(0.2)
@@ -365,8 +366,9 @@ def test_the_runner_process_runs_tasks_answers_probes_and_stops_on_sigterm(
 
     proof = tmp_path / "ran"
     touch.enqueue(str(proof))
+    ran_by = time.monotonic() + 30
     while not proof.exists():
-        assert time.monotonic() < deadline + 30, "the task never ran"
+        assert time.monotonic() < ran_by, "the task never ran"
         time.sleep(0.1)
 
     stopped = time.monotonic()

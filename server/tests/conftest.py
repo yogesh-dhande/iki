@@ -91,6 +91,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
+    """Keeps each phase's report on the test (``rep_setup``, ``rep_call``), so a fixture's
+    teardown can say more when the test failed (the browser tests' pages do)."""
+    report = yield
+    setattr(item, f"rep_{report.when}", report)
+    return report
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     opted = {
         "scale": (
@@ -265,6 +274,41 @@ def django_db_setup(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
             "WHERE datname = current_database() AND pid <> pg_backend_pid()"
         )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _empties_past_late_requests() -> Iterator[None]:
+    """Empties the database after a transactional test once the real servers and runners
+    it started have finished what they were doing (`real_server.quiet`): a page closed, or
+    a worker killed, leaves its last requests running on the server, and one still in a
+    transaction when the TRUNCATE starts deadlocks with it.
+
+    A runner polls by itself, so a request can still start between the two. Postgres then
+    ends one side of the deadlock: if it's the flush, it waits for quiet again and goes
+    again, which is safe, since what was rolled back made no change. Without it, the next
+    test starts on this one's rows."""
+    from django.db import OperationalError
+    from django.test.testcases import TransactionTestCase
+    from real_server import quiet
+
+    flush = vars(TransactionTestCase)["_fixture_teardown"]
+
+    def after_quiet(self: TransactionTestCase) -> None:
+        for attempt in range(1, 6):
+            quiet()
+            try:
+                flush(self)
+            except Exception as error:
+                cause = error.__cause__ or error
+                deadlocked = isinstance(cause, OperationalError) and "deadlock" in str(cause)
+                if not deadlocked or attempt == 5:
+                    raise
+            else:
+                return
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(TransactionTestCase, "_fixture_teardown", after_quiet)
+        yield
 
 
 def synced_objects() -> dict[str, list[str]]:
