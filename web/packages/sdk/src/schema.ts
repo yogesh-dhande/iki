@@ -11409,10 +11409,10 @@ export interface components {
         SequenceViewerOut: {
             /**
              * Alphabet
-             * @description What it's a sequence of: bases or amino acids.
+             * @description What it's a sequence of: DNA's bases, RNA's (U, not T) or amino acids.
              * @enum {string}
              */
-            alphabet: "dna" | "protein";
+            alphabet: "dna" | "rna" | "protein";
             /**
              * Features
              * @description A json field of regions along it (type, start, end, name, strand), or null.

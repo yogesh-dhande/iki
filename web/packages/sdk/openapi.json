@@ -15759,9 +15759,10 @@
       "SequenceViewerOut": {
         "properties": {
           "alphabet": {
-            "description": "What it's a sequence of: bases or amino acids.",
+            "description": "What it's a sequence of: DNA's bases, RNA's (U, not T) or amino acids.",
             "enum": [
               "dna",
+              "rna",
               "protein"
             ],
             "title": "Alphabet",

@@ -39,6 +39,24 @@ def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
     ]
 
 
+def test_a_sequence_viewer_says_what_its_sequence_is_of() -> None:
+    """DNA's bases, RNA's (with U, which the viewer counts in nt) or amino acids, by the
+    field's format: no first-party type has RNA yet, so a plugin's would be the first."""
+    from types import SimpleNamespace
+
+    from iki_server.api.entities import _viewer_out
+    from iki_spec.model import Viewer
+
+    for format_, alphabet in (
+        ("dna_sequence", "dna"),
+        ("rna_sequence", "rna"),
+        ("protein_sequence", "protein"),
+    ):
+        form = SimpleNamespace(fields=lambda f=format_: {"bases": SimpleNamespace(format=f)})
+        shown = _viewer_out(form, Viewer(viewer="sequence", label="Sequence", sequence="bases"))  # type: ignore[arg-type]
+        assert shown["alphabet"] == alphabet
+
+
 # --- The structure viewer's frame ---------------------------------------------------------------
 
 

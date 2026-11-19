@@ -732,8 +732,11 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
     "sequence": (
         (
             "sequence",
-            "a DNA or protein sequence",
-            lambda f: f.type == "string" and f.format in ("dna_sequence", "protein_sequence"),
+            "a DNA, RNA or protein sequence",
+            lambda f: (
+                f.type == "string"
+                and f.format in ("dna_sequence", "rna_sequence", "protein_sequence")
+            ),
         ),
         ("features", "a json field", lambda f: f.type == "json"),
     ),

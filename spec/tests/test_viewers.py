@@ -21,6 +21,7 @@ schema_version: 1
 hrid: {{ prefix: PLS }}
 fields:
   bases: {{ type: string, format: dna_sequence }}
+  transcript: {{ type: string, format: rna_sequence }}
   name: {{ type: string }}
   features: {{ type: json }}
   model: {{ type: file, media_types: [chemical/x-mmcif, chemical/x-pdb] }}
@@ -62,6 +63,12 @@ def test_a_sequence_viewer_names_its_sequence_and_features(tmp_path: Path) -> No
     assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
 
 
+def test_a_sequence_viewer_shows_rna_too(tmp_path: Path) -> None:
+    """An RNA field (ACGU, and IUPAC's ambiguity codes) is a sequence, as DNA's is."""
+    result = made(tmp_path, "[{ viewer: sequence, sequence: transcript }]")
+    assert result.problems == []
+
+
 def test_a_viewer_can_name_its_tab(tmp_path: Path) -> None:
     plugin = made(tmp_path, "[{ viewer: sequence, sequence: bases, label: Map }]").plugin
     assert plugin is not None
@@ -75,7 +82,7 @@ def test_its_fields_must_exist_and_be_what_it_shows(tmp_path: Path) -> None:
     plain = made(tmp_path, "[{ viewer: sequence, sequence: name }]")
     assert codes(plain) == ["viewer-field"]
     assert plain.problems[0].message == (
-        "`name` isn't a DNA or protein sequence, which a sequence viewer's `sequence` shows."
+        "`name` isn't a DNA, RNA or protein sequence, which a sequence viewer's `sequence` shows."
     )
     features = made(tmp_path, "[{ viewer: sequence, sequence: bases, features: name }]")
     assert codes(features) == ["viewer-field"]

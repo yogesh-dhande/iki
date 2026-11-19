@@ -1173,15 +1173,17 @@ display:
     - { viewer: sequence, sequence: residues, tracks: [{ field: hydropathy }] }
 ```
 
-| Viewer      | Fields                                                                                                                                                                                                                                                                  |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`.   |
-| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                         |
-| `alignment` | `alignment`: a file field whose `media_types` are FASTA (`chemical/seq-aa-fasta`, `chemical/seq-na-fasta`, `text/plain`). `rows` (optional): a list of references, the sequences headed by their HRIDs. `reference` (optional): a reference, the row pinned at the top. |
+| Viewer      | Fields                                                                                                                                                                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `sequence`: a string with format `dna_sequence`, `rna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`. |
+| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                                       |
+| `alignment` | `alignment`: a file field whose `media_types` are FASTA (`chemical/seq-aa-fasta`, `chemical/seq-na-fasta`, `text/plain`). `rows` (optional): a list of references, the sequences headed by their HRIDs. `reference` (optional): a reference, the row pinned at the top.               |
 
-The sequence viewer shows the residues in rows of 60, in groups of 10, with
-each feature as a bar under the residues it covers, coloured by its kind and
-pointing the way its strand runs, and lists the features in a table. A
+The sequence viewer shows the residues in rows of 60, in groups of 10, as
+they're stored (an RNA's U stays U), with its length in bp for DNA, nt for RNA
+and residues for a protein, and each feature as a bar under the residues it
+covers, coloured by its kind and pointing the way its strand runs, and lists
+the features in a table. A
 feature whose end comes before its start wraps the origin of a circular
 sequence. Each track is drawn under the residues, a bar per residue above or
 below a baseline, on a scale from its field's schema's `minimum` and

@@ -209,7 +209,8 @@ function SequenceViewer({
     };
   }, [shown, onCapture]);
   const field = type.fields.find((f) => f.name === viewer.sequence);
-  const unit = viewer.alphabet === "dna" ? "bp" : "residues";
+  // A DNA's length is in base pairs, an RNA's, single-stranded, in nucleotides.
+  const unit = UNITS[viewer.alphabet];
   if (!sequence) {
     return <p className="muted">It has no {field?.label.toLowerCase() ?? "sequence"} yet.</p>;
   }
@@ -262,6 +263,9 @@ function SequenceViewer({
 
 /** The sequence in rows of 60, in groups of 10, with each row's features under it. Rows
  * off screen aren't drawn, so a genome reads as quickly as a primer. */
+/** How a sequence's length is counted, by what it's a sequence of. */
+const UNITS: Record<Viewer["alphabet"], string> = { dna: "bp", rna: "nt", protein: "residues" };
+
 function Residues({
   sequence,
   features,

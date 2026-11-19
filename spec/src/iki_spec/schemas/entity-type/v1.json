@@ -204,7 +204,7 @@
               "viewer": true,
               "label": true,
               "sequence": {
-                "description": "The field it shows: a string with format `dna_sequence` or `protein_sequence`.",
+                "description": "The field it shows: a string with format `dna_sequence`, `rna_sequence` or `protein_sequence`.",
                 "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
               },
               "features": {

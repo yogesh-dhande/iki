@@ -3533,8 +3533,8 @@ class SecretOut(TypedDict):
 
 
 class SequenceViewerOut(TypedDict):
-    #: What it's a sequence of: bases or amino acids.
-    alphabet: Literal['dna', 'protein']
+    #: What it's a sequence of: DNA's bases, RNA's (U, not T) or amino acids.
+    alphabet: Literal['dna', 'rna', 'protein']
     #: A json field of regions along it (type, start, end, name, strand), or null.
     features: str | None
     #: What its tab is called.

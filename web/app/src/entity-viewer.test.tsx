@@ -167,6 +167,32 @@ describe("the sequence viewer", () => {
     expect(legend).toHaveTextContent("highest 0.6 at 5");
   });
 
+  it("shows an RNA as it's stored, U and all, its length in nucleotides", async () => {
+    // A plugin's type: Iki's own have no RNA yet.
+    const TRANSCRIPT = {
+      ...PLASMID,
+      name: "acme/rna.Transcript",
+      plugin: "acme/rna",
+      label: "Transcript",
+      label_plural: "Transcripts",
+      hrid_prefix: "RNA",
+      viewers: [{ ...PLASMID.viewers[0], alphabet: "rna" as const, features: null }],
+    };
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, TRANSCRIPT]);
+    answer(
+      "GET /api/v1/entities/RNA-000001",
+      entity({
+        hrid: "RNA-000001",
+        type: "acme/rna.Transcript",
+        values: { name: "mRNA", bases: "AUGGCCUAA" },
+      }),
+    );
+    await renderApp("/entities/RNA-000001/viewers/sequence/");
+    expect(await screen.findByText("9 nt")).toBeInTheDocument();
+    expect(screen.getByRole("figure", { name: /^Bases of/ })).toHaveTextContent("AUGGCCUAA");
+  });
+
   it("leaves out features it can't draw", async () => {
     onPlasmid([{ type: "CDS", start: 0, end: 500 }, "junk"]);
     await renderApp("/entities/DNA-000001/viewers/sequence/");

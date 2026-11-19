@@ -290,8 +290,8 @@ class SequenceViewerOut(Schema):
     )
     label: str = Field(description="What its tab is called.")
     sequence: str = Field(description="The field holding the sequence.")
-    alphabet: Literal["dna", "protein"] = Field(
-        description="What it's a sequence of: bases or amino acids."
+    alphabet: Literal["dna", "rna", "protein"] = Field(
+        description="What it's a sequence of: DNA's bases, RNA's (U, not T) or amino acids."
     )
     features: str | None = Field(
         description="A json field of regions along it (type, start, end, name, strand), or null."
@@ -951,6 +951,10 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
     }
 
 
+#: What a sequence viewer's field is a sequence of, by its format.
+ALPHABETS = {"dna_sequence": "dna", "rna_sequence": "rna", "protein_sequence": "protein"}
+
+
 def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
     if viewer.viewer == "structure":
         return {"viewer": "structure", "label": viewer.label, "structure": viewer.structure}
@@ -967,7 +971,7 @@ def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
         "viewer": "sequence",
         "label": viewer.label,
         "sequence": viewer.sequence,
-        "alphabet": "protein" if spec is not None and spec.format == "protein_sequence" else "dna",
+        "alphabet": ALPHABETS.get((spec.format or "") if spec is not None else "", "dna"),
         "features": viewer.features or None,
         "tracks": [_track_out(form, t) for t in viewer.tracks],
     }
