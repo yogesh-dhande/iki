@@ -701,6 +701,52 @@ def test_a_packed_jobs_worker_downloads_every_packed_runs_files(world: World, s3
     problem(pod.report(job, f"files/{_stored(world, 'other.pdb')}"), 404, "not_found")
 
 
+def _packed_download_queries(world: World, abl: dict[str, Any], structures: int) -> int:
+    """The queries each download takes, for a packed job of ``structures`` runs, each on a
+    structure of its own with a file of its own."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    editor = api_as(world, "editor")
+    held = []
+    for n in range(structures):
+        file_id = _stored(world, f"abl-{structures}-{n}.pdb")
+        values = {"structure": file_id, "method": "xray", "chains": [abl["id"]]}
+        made = create(editor, world.project, values, "acme/protein.ProteinStructure")
+        assert made.status_code == 201, made.content
+        held.append(made.json()["id"])
+    launched = editor.post(
+        f"/actions/{RELAX}/runs/batch",
+        {"project": str(world.project.pk), "each": "structure", "entities": held},
+    )
+    assert launched.status_code == 201, launched.content
+    for run in ActionRun.objects.filter(batch__hrid=launched.json()["batch"]["hrid"]):
+        run.spec = {**run.spec, "batchable": structures}
+        run.save(update_fields=["spec"])
+    pod = worker(world)
+    job = pod.lease().json()
+    assert len(job["pack"]) == structures
+    counts = set()
+    for file_id in job["files"]:
+        with CaptureQueriesContext(connection) as queries:
+            got = pod.report(job, f"files/{file_id}")
+        assert got.status_code == 200, got.content
+        counts.add(len(queries))
+    (count,) = counts
+    pod.report(job, "fail", reason="failed", message="Done counting.")
+    return count
+
+
+def test_a_download_takes_as_many_queries_however_many_files_the_job_lists(
+    world: World, s3: Any
+) -> None:
+    """The job keeps the files its run input listed: staging N files reads no history, so
+    it takes N downloads of the same few queries each."""
+    abl = protein(api_as(world, "editor"), world.project)
+    few = _packed_download_queries(world, abl, 2)
+    assert _packed_download_queries(world, abl, 12) == few
+
+
 def test_a_jobs_worker_downloads_the_files_its_included_references_hold(
     world: World, s3: Any
 ) -> None:
