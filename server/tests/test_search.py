@@ -279,18 +279,36 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
         (
             {
                 "type": "acme/protein.Protein",
-                # 10⁴⁰⁰ K is past what a float holds.
+                # 10³⁹⁶ K is past what a float holds.
                 "where": {
                     "field": "temperature_optimum",
                     "op": "lt",
-                    "value": {"value": 1, "unit": "10*400.K"},
+                    "value": {"value": 1, "unit": "10*99.10*99.10*99.10*99.K"},
                 },
             },
             [
                 {
                     "pointer": "#/where/value",
-                    "detail": "has a unit Iki can't use here: 1 `10*400.K` has no value in "
-                    "`Cel`: it's beyond what a number can hold.",
+                    "detail": "has a unit Iki can't use here: 1 `10*99.10*99.10*99.10*99.K` has "
+                    "no value in `Cel`: it's beyond what a number can hold.",
+                },
+            ],
+        ),
+        (
+            {
+                "type": "acme/protein.Protein",
+                # Refused before it's worked out: 10¹⁰⁰⁰⁰⁰⁰⁰⁰ would take hours and gigabytes.
+                "where": {
+                    "field": "temperature_optimum",
+                    "op": "lt",
+                    "value": {"value": 1, "unit": "10*1000000000.K"},
+                },
+            },
+            [
+                {
+                    "pointer": "#/where/value",
+                    "detail": "has a unit Iki can't use here: `1000000000` is too large an "
+                    "exponent: a unit's are at most 99.",
                 },
             ],
         ),

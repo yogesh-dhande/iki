@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from fractions import Fraction
-from functools import cache
+from functools import cache, lru_cache
 from importlib.resources import files
 
 __all__ = [
@@ -48,6 +48,15 @@ BASE_UNITS = ("m", "s", "g", "rad", "K", "C", "cd")
 
 # Longest accepted code. Real codes are short; this bounds parsing work.
 MAX_LENGTH = 200
+#: The largest power a unit may be raised to, as in `10*23` or `m3`. Real units stay well
+#: inside it; with MAX_FACTOR_BITS, it bounds the arithmetic a code can ask for.
+MAX_EXPONENT = 99
+#: The most bits a unit's exact factor may take, its numerator's or its denominator's.
+#: A double holds at most about 2**1024, so a unit whose factor is past that by far
+#: couldn't convert a value anyway.
+MAX_FACTOR_BITS = 4096
+#: How many distinct codes stay parsed. Codes come from people's input, so it's bounded.
+CACHED = 4096
 
 
 class UnitError(ValueError):
@@ -306,8 +315,9 @@ def _atom_symbol(code: str, table: _Table) -> str | None:
 
 def convert(value: float, source: str | Unit, target: str | Unit) -> float:
     """Convert `value` between units. Raises UnitError if they measure different things,
-    or if the value has none in the target unit: past what a float holds (1 `10*400.g` in
-    `g`), or outside a special unit's function (0 `mol/L` has no `[pH]`)."""
+    or if the value has none in the target unit: past what a float holds (1
+    `10*99.10*99.10*99.10*99.g` in `g`), or outside a special unit's function (0 `mol/L`
+    has no `[pH]`)."""
     a = source if isinstance(source, Unit) else parse(source)
     b = target if isinstance(target, Unit) else parse(target)
     if not a.is_commensurable(b):
@@ -430,7 +440,7 @@ def parse(code: str) -> Unit:
     return _parse(code)
 
 
-@cache
+@lru_cache(maxsize=CACHED)
 def _parse(code: str) -> Unit:
     return _Parser(code).main()
 
@@ -550,7 +560,7 @@ class _Parser:
         # the rest reads left to right, so /s.m is s⁻¹·m, not 1/(s·m).
         if self.peek() == "/":
             self.pos += 1
-            return self.term(_Term.one().combine(self.component(), -1))
+            return self.term(self.bounded(_Term.one().combine(self.component(), -1), 0))
         return self.term()
 
     def term(self, first: _Term | None = None) -> _Term:
@@ -558,7 +568,10 @@ class _Parser:
         while self.peek() in (".", "/") and self.peek():
             operator = self.peek()
             self.pos += 1
-            result = result.combine(self.component(), 1 if operator == "." else -1)
+            start = self.pos
+            result = self.bounded(
+                result.combine(self.component(), 1 if operator == "." else -1), start
+            )
         return result
 
     def component(self) -> _Term:
@@ -605,12 +618,14 @@ class _Parser:
                     f"`{digits}.{self.code[self.pos :]}`.",
                     start,
                 )
-            return _Term(Fraction(int(digits)), [0] * len(BASE_UNITS), {}).power(exponent)
+            return self.power(
+                _Term(Fraction(int(digits)), [0] * len(BASE_UNITS), {}), exponent, start
+            )
         symbol = self.read_symbol()
         exponent_match = _EXPONENT.search(symbol)
         exponent = 1
         if exponent_match and exponent_match.start() > 0:
-            exponent = int(exponent_match.group())
+            exponent = self.bound(exponent_match.group(), start)
             symbol = symbol[: exponent_match.start()]
         return self.annotatable(symbol, start, exponent)
 
@@ -624,7 +639,7 @@ class _Parser:
                     f"The special unit `{symbol}` can't be raised to a power.",
                     start,
                 )
-            term = term.power(exponent)
+            term = self.power(term, exponent, start)
         return term
 
     def exponent(self) -> int:
@@ -637,7 +652,41 @@ class _Parser:
             if sign:
                 raise self.fail("A sign needs digits after it, as in `10*-3`.", start)
             return 1
-        return int(sign + self.read_digits())
+        return self.bound(sign + self.read_digits(), start)
+
+    def bound(self, digits: str, start: int) -> int:
+        """An exponent, if it's within MAX_EXPONENT."""
+        # Its digits are few (MAX_LENGTH), so reading them is cheap; raising to them isn't.
+        exponent = int(digits)
+        if abs(exponent) > MAX_EXPONENT:
+            raise self.fail(
+                f"`{digits}` is too large an exponent: a unit's are at most {MAX_EXPONENT}.",
+                start,
+            )
+        return exponent
+
+    def power(self, term: _Term, exponent: int, start: int) -> _Term:
+        """``term`` to the power ``exponent``, if its factor stays within MAX_FACTOR_BITS:
+        checked before it's worked out."""
+        bits = max(term.factor.numerator.bit_length(), term.factor.denominator.bit_length())
+        if bits * abs(exponent) > MAX_FACTOR_BITS:
+            raise self.too_large(start)
+        return term.power(exponent)
+
+    def bounded(self, term: _Term, start: int) -> _Term:
+        """``term``, if its factor is within MAX_FACTOR_BITS. Each part of it was, so working
+        it out was cheap."""
+        factor = term.factor
+        if max(factor.numerator.bit_length(), factor.denominator.bit_length()) > MAX_FACTOR_BITS:
+            raise self.too_large(start)
+        return term
+
+    def too_large(self, start: int) -> UnitError:
+        return self.fail(
+            "The unit's size is too large to work with: no unit a value is measured in comes "
+            "near it.",
+            start,
+        )
 
     def read_digits(self) -> str:
         start = self.pos

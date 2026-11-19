@@ -116,10 +116,10 @@ def test_units_that_measure_different_things_dont_convert() -> None:
 @pytest.mark.parametrize(
     ("value", "source", "target", "beyond"),
     [
-        # Past what a float holds: 10⁴⁰⁰ g, or a gram in units of 10⁻⁴⁰⁰ g.
-        (1, "10*400.g", "g", "a number"),
-        (1, "g", "10*-400.g", "a number"),
-        (1, "10*400.g", "10*-400.g", "a number"),
+        # Past what a float holds: 10³⁹⁶ g, or a gram in units of 10⁻³⁹⁶ g.
+        (1, "10*99.10*99.10*99.10*99.g", "g", "a number"),
+        (1, "g", "10*-99.10*-99.10*-99.10*-99.g", "a number"),
+        (1, "10*99.10*99.g", "10*-99.10*-99.g", "a number"),
         # Outside a special unit's function: no concentration has a pH of 0 mol/L, or below.
         (0, "mol/L", "[pH]", "that unit"),
         (-1e-7, "mol/L", "[pH]", "that unit"),
@@ -392,3 +392,44 @@ def test_common_units_convert_within_their_kind() -> None:
 
 def test_daltons_read_as_labs_write_them() -> None:
     assert (units.symbol("u"), units.symbol("ku")) == ("Da", "kDa")
+
+
+@pytest.mark.parametrize(
+    ("code", "at"),
+    [
+        ("10*100", 3),
+        ("10^-100", 3),
+        ("km100", 0),
+        ("mg-1000000", 0),
+        ("2+100", 1),
+        ("m.s100", 2),
+        ("10*1000000000", 3),
+    ],
+)
+def test_an_exponent_past_99_is_refused_before_its_worked_out(code: str, at: int) -> None:
+    with pytest.raises(UnitError) as raised:
+        parse(code)
+    assert "too large an exponent: a unit's are at most 99." in raised.value.message
+    assert raised.value.position == at
+
+
+def test_exponents_up_to_99_are_units() -> None:
+    assert parse("10*99").factor == 10**99
+    assert parse("10*-99").factor == Fraction(1, 10**99)
+    assert parse("m99").dimension[0] == 99
+
+
+def test_a_unit_whose_size_no_double_could_hold_is_refused() -> None:
+    """Each exponent is within bounds, but together their factor would grow without one."""
+    parse(".".join(["10*99"] * 8))  # 10^792: large, but within bounds
+    with pytest.raises(UnitError) as raised:
+        parse(".".join(["10*99"] * 13))
+    assert "too large to work with" in raised.value.message
+    with pytest.raises(UnitError):
+        parse("/".join(["10*99"] * 15))
+
+
+def test_parsing_keeps_a_bounded_number_of_units() -> None:
+    for n in range(units.CACHED + 10):
+        parse(f"{n + 1}.m")
+    assert units._parse.cache_info().currsize <= units.CACHED
