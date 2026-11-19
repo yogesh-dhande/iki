@@ -16,13 +16,14 @@ from allauth.socialaccount.models import SocialAccount
 from api_client import Api, problem
 from django.db import connection, transaction
 from django.db.utils import ProgrammingError
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from fake_idp import FakeIdP
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_oauth import bearer, signed_in_token
 from test_runs import world
-from test_states import ANALYST, QA, REVIEWER, roles
+from test_states import ANALYST, QA, REVIEWER, roles, set_
 
 from iki_server.accounts import service_accounts
 from iki_server.accounts.models import IdentityProvider, UserSession
@@ -854,3 +855,30 @@ def test_only_readers_see_signatures(lab: World) -> None:
     ):
         assert api_as(lab, "outsider").get(path).status_code == 404, path
         assert api_as(lab, "viewer").get(path).status_code == 200, path
+
+
+# --- History --------------------------------------------------------------------------------------
+
+
+def _history_queries(lab: World, ref: str, cycles: int) -> int:
+    """Signs the lot into review and sends it back ``cycles`` times, then counts the queries
+    a page of its revisions takes."""
+    for _ in range(cycles):
+        signed(lab, "editor", ref, "in_review")
+        set_(lab, "admin", ref, "status", "open", reason="More data")
+    api = api_as(lab, "viewer")
+    with CaptureQueriesContext(connection) as queries:
+        answer = api.get(f"/entities/{ref}/revisions", limit=100)
+    assert answer.status_code == 200, answer.content
+    items = answer.json()["items"]
+    changed = [i for i in items if i["kind"] == "state_changed"]
+    assert len(changed) == Revision.objects.filter(entity_id=ref, kind="state_changed").count()
+    assert all(s["present"] for i in changed for s in i["state"]["signatures"])
+    return len(queries)
+
+
+def test_a_page_of_signed_history_takes_as_many_queries_however_long_it_is(lab: World) -> None:
+    """Its state changes' type and signatures are found for the whole page at once."""
+    made = lot(lab)
+    few = _history_queries(lab, made["id"], 1)
+    assert _history_queries(lab, made["id"], 6) == few
