@@ -37,6 +37,7 @@ __all__ = [
     "common_alternatives",
     "convert",
     "parse",
+    "scale_and_offset",
 ]
 
 UCUM_VERSION = "2.2"
@@ -82,10 +83,18 @@ def _slope_from_degrees(x: float) -> float:
     return 100 * math.tan(math.radians(x))
 
 
+#: The special units' functions that are an offset (x + c) of a unit that scales from zero, so
+#: values convert to and from other units by a scale and an offset. The rest (logarithms,
+#: tangents, square roots) don't: dB and pH aren't linear in what they measure.
+_AFFINE = {"Cel": Fraction("273.15"), "degF": Fraction("459.67"), "degRe": Fraction("218.52")}
+
+
+def _offset(c: Fraction) -> _Function:
+    return _Function(lambda x: x + float(c), lambda x: x - float(c))
+
+
 _FUNCTIONS: dict[str, _Function] = {
-    "Cel": _Function(lambda x: x + 273.15, lambda x: x - 273.15),
-    "degF": _Function(lambda x: x + 459.67, lambda x: x - 459.67),
-    "degRe": _Function(lambda x: x + 218.52, lambda x: x - 218.52),
+    **{name: _offset(c) for name, c in _AFFINE.items()},
     "pH": _Function(lambda x: 10**-x, lambda x: -math.log10(x)),
     "ln": _Function(math.exp, math.log),
     "lg": _Function(lambda x: 10**x, math.log10),
@@ -193,7 +202,8 @@ class Unit:
     A value in this unit times `factor` is the same quantity in base units,
     whose exponents are `dimension` (in `BASE_UNITS` order). Arbitrary units,
     such as international units (`[IU]`), only compare with themselves, so
-    they are kept apart in `arbitrary`.
+    they are kept apart in `arbitrary`, by their exponents: 0 where they cancel,
+    since a ratio of them (`[IU]/[IU]`) is still arbitrary (UCUM §25).
     """
 
     code: str
@@ -268,6 +278,10 @@ def _term_symbol(token: str, table: _Table) -> str:
     assert match is not None  # noqa: S101 - the pattern matches anything
     unit, exponent = match["unit"], match["exponent"] or ""
     note = f" ({match['note'][1:-1]})" if match["note"] else ""
+    if unit.isdigit() and exponent[:1] in ("+", "-"):
+        # A positive integer with a signed exponent is a power of it (UCUM §9): 2-1 is 2⁻¹,
+        # half, and 2+10 is 2¹⁰, 1,024, not a sum or a difference.
+        return unit + exponent.removeprefix("+").translate(_SUPERSCRIPTS) + note
     printed = _atom_symbol(unit, table)
     if printed is None:
         # Digits that are part of the atom (10*3, say) aren't an exponent of nothing.
@@ -319,6 +333,43 @@ def convert(value: float, source: str | Unit, target: str | Unit) -> float:
             position=0,
         )
     return converted
+
+
+def scale_and_offset(source: str | Unit, target: str | Unit) -> tuple[float, float] | None:
+    """The scale and offset that convert every value between two units (`target value =
+    scale · source value + offset`), or None when nothing does: they measure different
+    things, or one is a special unit whose function isn't a scale and an offset, as pH and
+    decibels (logarithms) and degrees of slope (a tangent) aren't.
+
+    Which they are follows from the units' definitions, not from sampled values, so a
+    logarithmic pair whose values at a few points happen to lie near a line isn't taken
+    for a linear one.
+
+        >>> scale_and_offset("Cel", "[degF]")
+        (1.8, 32.0)
+        >>> scale_and_offset("dB[SPL]", "MPa") is None
+        True
+    """
+    a = source if isinstance(source, Unit) else parse(source)
+    b = target if isinstance(target, Unit) else parse(target)
+    if not a.is_commensurable(b):
+        return None
+    first, second = _affine(a), _affine(b)
+    if first is None or second is None:
+        return None
+    # A value x of a is the magnitude (x·s + c)·r; that magnitude in b is y = (m/r' - c')/s'.
+    (s, c, r), (s2, c2, r2) = first, second
+    return float(s * r / (r2 * s2)), float((c * r / r2 - c2) / s2)
+
+
+def _affine(unit: Unit) -> tuple[Fraction, Fraction, Fraction] | None:
+    """A unit as a scale, an offset and a factor, exactly, if it's one (`scale_and_offset`)."""
+    if unit._special is None:
+        return Fraction(1), Fraction(0), unit.factor
+    special = unit._special
+    if special.function not in _AFFINE:
+        return None
+    return special.scale, _AFFINE[special.function], special.reference.factor
 
 
 _ONE = Unit("1", Fraction(1), (0,) * len(BASE_UNITS))
@@ -424,7 +475,11 @@ class _Term:
         return _Term(
             self.factor * other.factor**sign,
             [a + sign * b for a, b in zip(self.dimension, other.dimension, strict=True)],
-            {k: v for k, v in arbitrary.items() if v},
+            # UCUM 2.2 §25 ■1: a term with an arbitrary unit in it is arbitrary itself, even
+            # when its exponents cancel. [IU]/[IU] is a ratio within one assay, which the
+            # code can't say is an ordinary ratio, so it keeps [IU] (at the power 0) and
+            # compares only with ratios of [IU].
+            arbitrary,
             self.special or other.special,
             components=self.components + other.components,
         )

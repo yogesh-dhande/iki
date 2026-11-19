@@ -17,7 +17,6 @@
 - Entities you can't read answer 404, as if they didn't exist.
 """
 
-import math
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -1263,23 +1262,18 @@ def _input_units(unit: str | None, display_unit: str | None) -> list[dict[str, s
 def _display(unit: str | None, display_unit: str | None) -> dict[str, float | None]:
     """How to show a quantity in its display unit, when that's a scale and an offset.
 
-    Pages convert without a units table of their own. Units that don't convert
-    linearly (degrees of slope, or a concentration as pH) are shown in the field's own
-    unit.
+    Pages convert without a units table of their own. Units that don't convert by a scale
+    and an offset (decibels, a concentration as pH, degrees of slope) are shown in the
+    field's own unit: which do is the units' definitions' to say (`units.scale_and_offset`),
+    not a few sampled values', which a logarithm can lie close to a line at.
     """
     none: dict[str, float | None] = {"display_scale": None, "display_offset": None}
     if unit is None or display_unit is None or display_unit == unit:
         return none
-    try:
-        at = [units.convert(x, unit, display_unit) for x in (0.0, 1.0, 2.0)]
-    except units.UnitError:
-        # A scale and an offset convert every value, so one that doesn't convert (0 mol/L
-        # has no pH) says there's none.
+    found = units.scale_and_offset(unit, display_unit)
+    if found is None:
         return none
-    scale, offset = at[1] - at[0], at[0]
-    if not math.isclose(at[2], 2 * scale + offset, rel_tol=1e-9, abs_tol=1e-12):
-        return none
-    return {"display_scale": scale, "display_offset": offset}
+    return {"display_scale": found[0], "display_offset": found[1]}
 
 
 @router.get(

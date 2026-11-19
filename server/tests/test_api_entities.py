@@ -477,6 +477,15 @@ def test_a_display_unit_thats_no_scale_is_shown_in_the_fields_own(world: World) 
     )
     assert temperature["display_scale"] == pytest.approx(1)
     assert temperature["display_offset"] == pytest.approx(-273.15)
+    # A sound pressure level is 2 lg of a pressure (UCUM Table 20): 200 dB[SPL] is
+    # 20 µPa · 10^(200/20) = 0.2 MPa. Its values at 0, 1 and 2 dB lie within 1e-12 MPa of
+    # a line, but it isn't one, so no scale is given that would show 200 dB as 5e-10 MPa.
+    loudness = field_out(
+        "loudness",
+        SpecField(name="loudness", type="quantity", unit="dB[SPL]", display_unit="MPa"),
+        "acme/protein",
+    )
+    assert (loudness["display_scale"], loudness["display_offset"]) == (None, None)
 
 
 def test_entities_name_what_their_values_refer_to(world: World, other: Project) -> None:

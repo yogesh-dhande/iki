@@ -211,6 +211,77 @@ def test_arbitrary_units_never_convert_to_one_another() -> None:
     assert convert(1000, "m[IU]", "[IU]") == pytest.approx(1)
 
 
+@pytest.mark.parametrize("ratio", ["[IU]/[IU]", "[arb'U]/[arb'U]", "[IU].mL/[IU]", "m[IU]/[IU]"])
+def test_a_ratio_of_arbitrary_units_stays_arbitrary(ratio: str) -> None:
+    # UCUM 2.2 §25 ■1: "Any term involving arbitrary units" is itself arbitrary, even when
+    # its exponents cancel. [IU]/[IU] is a ratio within one assay; the code alone can't
+    # say it's an ordinary ratio, so it isn't 100 %, or 1.
+    unit = parse(ratio)
+    assert not unit.is_dimensionless
+    for ordinary in ("1", "%", "mL", "[ppm]"):
+        assert not unit.is_commensurable(parse(ordinary))
+        with pytest.raises(UnitError, match="measure different things"):
+            convert(1, ratio, ordinary)
+    # A ratio of one arbitrary unit isn't one of another.
+    assert not parse("[IU]/[IU]").is_commensurable(parse("[arb'U]/[arb'U]"))
+    # Ratios of the same arbitrary unit still convert, by their prefixes.
+    assert convert(1, "m[IU]/[IU]", "[IU]/[IU]") == pytest.approx(1e-3)
+    assert convert(1, "[IU]/[IU]", "[IU]/[IU]") == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "expected"),
+    [
+        ("mL", "uL", (1000, 0)),
+        ("mg/mL", "g/L", (1, 0)),
+        # Degrees convert by a scale and an offset: °F = 1.8 °C + 32 (NIST SP 811, B.9).
+        ("Cel", "[degF]", (1.8, 32)),
+        ("[degF]", "Cel", (5 / 9, -160 / 9)),
+        ("Cel", "K", (1, 273.15)),
+        ("[degRe]", "Cel", (1.25, 0)),
+    ],
+)
+def test_linear_pairs_have_a_scale_and_an_offset(
+    source: str, target: str, expected: tuple[float, float]
+) -> None:
+    found = units.scale_and_offset(source, target)
+    assert found == pytest.approx(expected, rel=1e-15, abs=1e-12)
+    # …which give what converting does.
+    assert found is not None
+    for value in (-40.0, 0.0, 37.0, 1e6):
+        assert found[0] * value + found[1] == pytest.approx(
+            convert(value, source, target), rel=1e-12, abs=1e-9
+        )
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "value", "expected"),
+    [
+        # UCUM Table 20: dB[SPL] is 2 lg of a pressure relative to 20 µPa, so 200 dB is
+        # 20 µPa · 10^(200/20) = 0.2 MPa: nothing a scale and an offset give, though three
+        # values of it lie within 1e-12 MPa of a line.
+        ("dB[SPL]", "MPa", 200, 0.2),
+        ("dB[SPL]", "Pa", 94, 20e-6 * 10 ** (94 / 20)),
+        # pH is minus lg of a concentration in mol/L: 1e-7 mol/L is pH 7, and 0 has none.
+        ("mol/L", "[pH]", 1e-7, 7),
+        ("[pH]", "mol/L", 7, 1e-7),
+        ("%[slope]", "deg", 100, 45),
+        # A bel of a field quantity, such as a voltage, is 2 lg of it: 1 B[V] is √10 V.
+        ("B[V]", "V", 1, 10**0.5),
+    ],
+)
+def test_nonlinear_pairs_have_no_scale_and_offset(
+    source: str, target: str, value: float, expected: float
+) -> None:
+    assert units.scale_and_offset(source, target) is None
+    assert convert(value, source, target) == pytest.approx(expected, rel=1e-9)
+
+
+def test_units_that_dont_convert_have_no_scale_and_offset() -> None:
+    assert units.scale_and_offset("mg", "mL") is None
+    assert units.scale_and_offset("[IU]/[IU]", "%") is None
+
+
 @pytest.mark.parametrize("code", ["0", "00", "0.m", "m/0", "0+2", "10*3.0"])
 def test_zero_is_not_a_unit(code: str) -> None:
     # §8 allows a *positive* integer in place of a unit; 0 would map every value to 0.
@@ -282,6 +353,14 @@ def test_parsed_units_are_cached_and_equal() -> None:
         ("g{total}", "g (total)"),
         ("[pH]", "pH"),
         ("not-a-unit", "not-a-unit"),
+        # UCUM 2.2 §9: a signed exponent on a positive integer is a power of it, so 2-1 is
+        # 2⁻¹ (½) and 2+10 is 2¹⁰ (1,024), not 2 minus 1 or 2 plus 10.
+        ("2-1.m", "2⁻¹·m"),
+        ("2+10.m", "2¹⁰·m"),
+        ("10+3.m", "10³·m"),
+        ("10-3.g/L", "10⁻³·g/L"),
+        # Without a sign, the digits are the number: twenty-three metres.
+        ("23.m", "23·m"),
     ],
 )
 def test_units_print_as_people_write_them(code: str, printed: str) -> None:
