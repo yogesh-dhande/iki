@@ -177,10 +177,102 @@ def test_resumed_it_imports_the_predicted_structure(
     assert create["type"] == "iki/protein.ProteinStructure"
     assert create["values"]["method"] == "predicted"
     assert create["values"]["chains"] == [PROTEIN]
+    # Its chain, so its secondary structure can be assigned by chain.
+    assert create["values"]["chain_ids"] == ["A"]
     assert create["values"]["structure"]["$file"] == "predicted.pdb"
     assert (where / "out" / "predicted.pdb").read_text() == PDB
+    # Where it's from and how it was made (ADR 0106); the version FoldCloud reports is in
+    # the run's record of its calls, not here.
+    assert create["origin"] == {
+        "source": "FoldCloud",
+        "id": "job-1",
+        "made": {
+            "kind": "computational",
+            "method": "Predicted by FoldCloud",
+            "software": [{"name": "FoldCloud fold-2"}],
+        },
+    }
     # The answer came with the resume: it called nothing.
     assert foldcloud[0].requests == []
+
+
+#: Crambin's first ten residues (PDB 1CRN, CC0 1.0), chain A.
+CRAMBIN = (Path(__file__).parent / "data" / "crambin.pdb").read_text()
+
+
+@pytest.mark.parametrize(
+    ("pdb", "chain_ids"),
+    [
+        (CRAMBIN, ["A"]),
+        # A homodimer of it: chains A and B, each the protein.
+        (
+            CRAMBIN.replace(
+                "TER",
+                "TER\n"
+                + "\n".join(
+                    line[:21] + "B" + line[22:]
+                    for line in CRAMBIN.splitlines()
+                    if line.startswith("ATOM")
+                ),
+            ),
+            ["A", "B"],
+        ),
+        # Two models of it: the first's chains.
+        (
+            "MODEL        1\n"
+            + CRAMBIN.replace("END\n", "ENDMDL\nMODEL        2\n")
+            + CRAMBIN.replace(" A ", " C ").replace("END\n", "ENDMDL\nEND\n"),
+            ["A"],
+        ),
+    ],
+)
+def test_a_predicted_structure_has_each_chain_its_file_has(
+    tmp_path: Path, foldcloud: tuple[StandIn, Tunnel], pdb: str, chain_ids: list[str]
+) -> None:
+    answer = {"id": "job-1", "status": "succeeded", "model": "fold-2", "output": {"pdb": pdb}}
+    resume = {
+        "api": "foldcloud",
+        "job": "job-1",
+        "state": {"protein": PROTEIN, "hrid": "PRT-000001"},
+        "status": "succeeded",
+        "answer": answer,
+        "parked_at": "2026-11-18T10:00:00Z",
+    }
+    done, where = ran(tmp_path, foldcloud, _run(resume=resume))
+    assert done.returncode == 0, done.stderr
+    (create,) = json.loads((where / "output.json").read_text())["creates"]
+    assert create["values"]["chain_ids"] == chain_ids
+    assert create["values"]["chains"] == [PROTEIN] * len(chain_ids)
+
+
+def test_a_predicted_structure_without_chain_ids_says_so(
+    tmp_path: Path, foldcloud: tuple[StandIn, Tunnel]
+) -> None:
+    blank = "".join(
+        line[:21] + " " + line[22:] + "\n"
+        for line in CRAMBIN.splitlines()
+        if line.startswith("ATOM")
+    )
+    answer = {"id": "job-1", "status": "succeeded", "model": "fold-2", "output": {"pdb": blank}}
+    resume = {
+        "api": "foldcloud",
+        "job": "job-1",
+        "state": {"protein": PROTEIN, "hrid": "PRT-000001"},
+        "status": "succeeded",
+        "answer": answer,
+        "parked_at": "2026-11-18T10:00:00Z",
+    }
+    done, where = ran(tmp_path, foldcloud, _run(resume=resume))
+    assert done.returncode == 0, done.stderr
+    output = json.loads((where / "output.json").read_text())
+    (create,) = output["creates"]
+    assert "chain_ids" not in create["values"]
+    assert create["values"]["chains"] == [PROTEIN]
+    assert {
+        "level": "warning",
+        "text": "FoldCloud's file names no chain, so the structure has no chain IDs: its "
+        "secondary structure can't be assigned by chain.",
+    } in output["messages"]
 
 
 def test_what_the_api_refuses_fails_the_run_saying_why(tmp_path: Path) -> None:

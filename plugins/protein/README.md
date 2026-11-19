@@ -26,7 +26,8 @@ of proteins, two or many.
   - Its identity is its file, registered as a protein's is. Its method,
     resolution and chains are its entry's, and so is its PDB ID, a registry
     fact only its registrars change once it's set.
-  - It keeps its PDB ID, title, method, resolution and, for a PDB entry, its
+  - It keeps its PDB ID, title, method, resolution (and, for one determined
+    by several methods, each one's, in `resolutions`), for a PDB entry its
     first release, and the protein each of its chains is (`chains`, in the
     order of `chain_ids`).
   - DSSP gives each chain's secondary structure, residue by residue, the
@@ -72,7 +73,8 @@ they list none.
   its link, when it was fetched and its SHA-256. It reaches only
   `rest.uniprot.org`, through the deployment's egress proxy.
 - **`fetch_structures`**: fetches PDB entries by ID (up to 100, such as
-  `4HHB`, or wwPDB's extended form, `pdb_00004hhb`) from RCSB in mmCIF, and registers each as a structure, with the
+  `4HHB`, or wwPDB's extended form, `pdb_00004hhb`, or an entry that has
+  only that, `pdb_1001ba3c`) from RCSB in mmCIF, and registers each as a structure, with the
   proteins its chains are. Each records the entry, its revision, its link,
   when it was fetched and the file's SHA-256. It reaches only
   `files.rcsb.org`.
@@ -100,7 +102,10 @@ they list none.
   it, unrounded, so a workflow's threshold compares the true share (899 of 999
   is under 90%). Similar columns are those the matrix scores above zero, as
   EMBOSS counts them, so X with X is identical but not similar. U, O and J,
-  which the matrices lack, are aligned as X, and counted by their own letters.
+  which the matrices lack, are aligned (and scored) as X, but counted by their
+  own letters: U with U, O with O or J with J is identical and also similar,
+  as a residue is to itself, so WWUWW with itself is 100% similar, where
+  WWXWW, with the same score, is 80%.
   A local alignment with nothing scoring above zero is none: the run says so
   and creates no alignment. It keeps the alignment as two artifacts
   ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
@@ -133,7 +138,11 @@ they list none.
   place it has no observation of, beyond its ends. Other tools reading aligned
   FASTA take that `.` for a residue, so it keeps `alignment-standard.fasta` too,
   with `-` for both, and each read's header, in both, says where it lies on the
-  protein (`; on PRT-000001 1–200`).
+  protein (`; on PRT-000001 1–200`). A codon that could be some residues but not
+  others, such as AAN (K or N), is `X` in its row, and the row's header ends
+  `possible=21:KN`, each such column (from 1) with what it could be, so the
+  viewer counts a K-or-N where the protein has A as the difference the run
+  reports, and an `NNN` as saying nothing.
 
 Aligning reads to a protein: reads are read and trimmed as the dna plugin's
 `align_reads` does (the protein plugin has its own copy of that code, and a
@@ -179,12 +188,16 @@ Properties are Biopython's ProtParam, which follows ExPASy's:
 - **Instability index**: Guruprasad's. Above 40, a protein is probably
   unstable in a test tube.
 
-Each needs residues it has values for, and a final stop is left out. All
-take the 20 standard amino acids. Molecular weight also takes selenocysteine
+Each needs residues it has values for, and the stops at its end are left out
+(`M**` is M, as it is to its identity). All take the 20 standard amino acids. Molecular weight also takes selenocysteine
 (U), pyrrolysine (O) and J (I or L, which weigh the same); the isoelectric
 point and extinction coefficients also take J, as neither I nor L is charged
 or absorbs at 280 nm. For B, Z, X, an inner stop, or a residue a property has
-no value for, the run warns which residue left which properties out.
+no value for, the run warns which residue left which properties out. An
+isoelectric point past pH 0 to 14, which the model gives only for a run of one
+charged residue (120 arginines: 14.08), isn't saved, and the run says why:
+past pH 14 is over 1 M hydroxide, where the model's pK values don't hold. The
+other properties are.
 
 Translation uses NCBI's genetic codes (1, the standard code, by default). A
 codon with ambiguous bases becomes the amino acid every reading of it gives,
@@ -195,7 +208,9 @@ code's start codons, and gives methionine (so a bacterial GTG start is M, not
 V), its last a stop, with no other stop and no bases left over. In codes 27,
 28 and 31, a stop codon can also code for an amino acid, so only its place
 says which: those codes can't stop at the first stop codon, and a frame keeps
-such codons as amino acids, saying so of a last one that could have ended it.
+such codons as amino acids, saying so of a last one that could have ended it,
+an ambiguous one too (TAR in code 28 is TAA or TAG, so Q or a stop; TRA is
+TAA or TGA, so Q, W or a stop, and is kept as X).
 A DNA sequence that gives no residues (no whole codon, only stops, or a stop
 first), or isn't the complete coding sequence asked for, fails its own run
 and the rest go on.
@@ -208,7 +223,12 @@ an `iki/core.Organism`, made the first time an import meets it
 ([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
 NCBI's (`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) name the
 organism in brackets without its ID, which a name can't be told by, so it's left
-out and the run says so. A record with a stop inside
+out and the run says so. An organism keeps the name its source gives, such as
+UniProt's `Escherichia coli (strain K12)` for NCBI's `Escherichia coli K-12`,
+until a registrar corrects it; NCBI's brackets for a genus it hasn't placed
+(`[Clostridium] scindens`) and quotes for an informal name (`'Nostoc
+azollae' 0708`) are kept. A name it can't keep (one that runs over lines)
+leaves the organism its NCBI Taxonomy ID, and the run says so. A record with a stop inside
 it, a gap, or a letter that isn't an amino acid's code fails the whole import,
 and the run says which record and why, so nothing is half imported.
 
@@ -230,11 +250,16 @@ P07550 at residues 8–237 and 398–500, P00720 at 238–397), is none of them:
 protein gets no accession, organism or gene, its description lists each with
 its residues, and the run says so. A PDB ID is kept as its four characters
 (`4HHB`), the same entry's extended ID (`pdb_00004hhb`) included; an entry with
-only an extended ID keeps that (`PDB_10021ABC`). A structure's release is its
+only an extended ID, `pdb_` and eight letters or digits as the PDBx/mmCIF
+dictionary gives it, keeps that (`PDB_1001BA3C`). A structure's release is its
 PDB entry's first revision; a file that isn't a PDB entry's, such as an
 AlphaFold DB model, has none, as its revisions are the model's. A resolution
 is read as CIF writes numbers, with any standard uncertainty in brackets left
-off (`2.10(5)` is 2.10 Å). Other polymers
+off (`2.10(5)` is 2.10 Å). A structure determined by several methods, such as
+3KCO, refined jointly against neutron (1.8 Å) and X-ray (1.53 Å) data, keeps
+each method's resolution from its own refinement (`_refine.pdbx_refine_id`)
+in `resolutions`; its method and resolution are the first method's, as the
+file lists them, and the run says so. Other polymers
 (DNA, RNA, D-peptides) and ligands are left out, and the run says so. A file
 with no protein chains, or that isn't mmCIF or PDB, fails the run, which says
 why. An entry the PDB doesn't have, or has made obsolete, fails the fetch.
@@ -251,7 +276,13 @@ version without a leading `v`, and a model's global quality metrics
 or names a method that isn't one of wwPDB's, says nothing. Its proteins'
 origins don't say: their sequences weren't made by the experiment or the
 model. A ModelCIF file's proteins take their organism, gene and UniProt
-accession from its target (`_ma_target_ref_db_details`), and a file without
+accession from its target (`_ma_target_ref_db_details`), each from one
+reference, never mixed: the one marked primary (`is_primary`), or else the
+UniProt reference's accession and gene, and the organism its references agree
+on. References that disagree, such as ModelArchive's ma-bak-cepc-0001, whose
+UniProt entry is of strain YJM789 and its OrthoDB entry of YJM1573, leave the
+protein without an organism, and the run says so. An organism given by its
+NCBI Taxonomy ID without a name is still that organism. A file without
 chain IDs in `_entity_poly` takes them from its residues.
 
 A sequence record doesn't say how its sequence was made, so proteins imported

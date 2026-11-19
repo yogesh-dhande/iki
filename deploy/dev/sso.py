@@ -1641,10 +1641,16 @@ def foldcloud(alice: requests.Session, project: dict[str, Any], protein: dict[st
         if (
             values.get("method") != "predicted"
             or values.get("chains") != [entry_of(protein)]
+            # The fake's helix is chain A, so its secondary structure can be by chain.
+            or values.get("chain_ids") != ["A"]
             or values.get("name") != f"{protein['hrid']}, predicted by fold-2"
             or not values.get("structure")
         ):
             fail(f"{run['hrid']} made a structure with {values}")
+        origins = api_call(alice, "GET", f"/entities/{made[0]['entity']}/origins").json()
+        said = [o for o in origins if o["source"] == "FoldCloud"]
+        if not said or (said[-1]["made"] or {}).get("software") != [{"name": "FoldCloud fold-2"}]:
+            fail(f"{run['hrid']}'s structure doesn't say FoldCloud's fold-2 made it: {origins}")
         calls = api_call(alice, "GET", f"/runs/{run['id']}/api-calls?limit=100").json()["items"]
         submitted = [c for c in calls if c["kind"] == "call"]
         finished = [c for c in calls if c["kind"] == "poll" and c["usage"]]

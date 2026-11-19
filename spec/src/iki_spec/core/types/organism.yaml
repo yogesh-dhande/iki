@@ -7,7 +7,7 @@ kind: EntityType
 name: Organism
 label: Organism
 label_plural: Organisms
-schema_version: 1
+schema_version: 2
 description: >-
   A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a
   sequence, a strain or a sample is from.
@@ -26,11 +26,17 @@ fields:
     type: string
     registry: fact
     max_length: 255
-    # NCBI's scientific name: one line, starting with a letter or digit
-    # (Homo sapiens, Escherichia coli K-12, synthetic construct).
-    pattern: "^[A-Za-z0-9][^\\t\\r\\n]*$"
+    # A scientific name as NCBI writes them: one line, starting with a letter or
+    # digit (Homo sapiens, Escherichia coli K-12, synthetic construct), a [
+    # where NCBI hasn't placed the genus ([Clostridium] scindens), or a ' for an
+    # informal name ('Nostoc azollae' 0708).
+    pattern: "^[A-Za-z0-9\\['][^\\t\\r\\n]*$"
     indexed: true
-    description: Its scientific name in the NCBI Taxonomy.
+    description: >-
+      Its scientific name, as the file or database it was first imported from
+      gives it, such as UniProt's Escherichia coli (strain K12) for NCBI's
+      Escherichia coli K-12, until a registrar corrects it. Its NCBI Taxonomy
+      ID, not its name, is what it is.
   rank:
     type: string
     registry: fact

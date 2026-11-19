@@ -44,7 +44,11 @@ ACCESSION = re.compile(
 )
 #: UniProt's `KEY=value` fields, after the protein's name.
 UNIPROT_FIELDS = re.compile(r" (OS|OX|GN|PE|SV)=")
-ORGANISM_IN_BRACKETS = re.compile(r"^(?P<description>.*?)\s*\[(?P<organism>[^\[\]]+)\]$")
+#: NCBI's organism in brackets at a header's end, which may itself hold NCBI's brackets
+#: for an unplaced genus: [[Clostridium] scindens].
+ORGANISM_IN_BRACKETS = re.compile(
+    r"^(?P<description>.*?)\s*\[(?P<organism>(?:[^\[\]]|\[[^\[\]]*\])+)\]$"
+)
 #: The most records one run imports.
 MAX_RECORDS = 10_000_000
 #: Up to these many (and bytes of them), creates go in output.json; past them, in a file.
@@ -53,6 +57,12 @@ INLINE_BYTES = 1_000_000
 CREATES_FILE = "creates.ndjson"
 MAX_MESSAGES = 99
 LIMITS = {"name": 255, "description": 10_000, "gene": 100}
+
+
+#: A name an organism's scientific_name takes (iki/core.Organism): one line, from a letter or
+#: a digit, or NCBI's [ for a genus it hasn't placed ([Clostridium] scindens) or ' for an
+#: informal name ('Nostoc azollae' 0708).
+SCIENTIFIC_NAME = re.compile(r"[A-Za-z0-9\['][^\t\r\n]{0,254}")
 
 
 class UnreadableError(Exception):
@@ -86,7 +96,7 @@ class Organism:
 
     def create(self) -> dict[str, Any]:
         values: dict[str, Any] = {"taxon_id": self.taxon_id}
-        if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", self.name):
+        if SCIENTIFIC_NAME.fullmatch(self.name):
             values["scientific_name"] = self.name
         # A name only fills an entry that has none: an old file may give a taxon's old name.
         fills = ["scientific_name"] if "scientific_name" in values else []
@@ -172,6 +182,12 @@ def organism_of(record: Record, name: str, taxon: str | int | None) -> Organism 
     one without its ID (as NCBI's FASTA headers do), which can't be told from its name."""
     text = str(taxon or "").strip()
     if text.isdigit() and 0 < int(text) < 10**10:
+        if name.strip() and not SCIENTIFIC_NAME.fullmatch(name.strip()):
+            record.warnings.append(
+                f"{record.label}: its organism's name, {name.strip()[:200]}, isn't one an "
+                f"organism's scientific name can be, so its organism has only its NCBI "
+                f"Taxonomy ID, {text}."
+            )
         return Organism(int(text), name.strip())
     if name.strip():
         record.warnings.append(

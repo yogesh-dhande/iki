@@ -26,7 +26,11 @@ It shows what such a plugin needs
   submits it and parks (`{"park": ...}` in its output). The run waits without
   holding a worker; Iki polls the job, or FoldCloud calls back, signed, on
   `IKI_API_FOLDCLOUD_CALLBACK_URL`. Once it's done, the script runs again
-  with `resume` in its input and imports the predicted structure.
+  with `resume` in its input and imports the predicted structure: its
+  origin names the model FoldCloud's answer gives (ADR 0106), and its chain
+  IDs are the file's, so DSSP can assign each chain's secondary structure.
+  The model's version is in the run's record of its calls, not on the
+  structure: the resumed script gets the poll's answer, not its headers.
 
 A deployment sets `fold_api_host`, the key and the webhook secret
 (`iki__example_models.FOLDCLOUD_WEBHOOK_SECRET`), and prices the calls with an

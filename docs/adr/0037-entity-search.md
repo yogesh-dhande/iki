@@ -27,12 +27,16 @@ tree of conditions:
 ```json
 {
   "all": [
-    { "field": "organism", "op": "eq", "value": "Homo sapiens" },
+    { "field": "organism", "op": "eq", "value": "TAX-000001" },
     { "field": "molecular_weight", "op": "gte", "value": { "value": 50, "unit": "ku" } },
     { "not": { "field": "summary", "op": "matches", "value": "fragment" } }
   ]
 }
 ```
+
+Here `organism` is a reference to an Organism entry (ADR 0140), so it's
+compared with that entry's HRID or ID, such as `TAX-000001` for Homo
+sapiens, not with a name.
 
 A structure rather than a query language: clients build it without
 escaping, agents produce it reliably, it's validated with a pointer to the

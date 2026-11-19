@@ -4,7 +4,7 @@ kind: EntityType
 name: ProteinStructure
 label: Protein structure
 label_plural: Protein structures
-schema_version: 2
+schema_version: 3
 description: >-
   A three-dimensional structure of one or more proteins: an experimental one,
   from the PDB or a lab's own, or a prediction. Two with the same file are the
@@ -28,24 +28,51 @@ fields:
     label: PDB ID
     max_length: 12
     indexed: true
-    pattern: "^([0-9][A-Z0-9]{3}|PDB_[0-9]{4}[0-9][A-Z0-9]{3})$"
+    pattern: "^([0-9][A-Z0-9]{3}|PDB_[0-9A-Z]{8})$"
     description: >-
       Its PDB entry, such as 4HHB, or an entry that has only wwPDB's extended
-      ID, such as PDB_10021ABC. An entry with both is kept as its four
-      characters: PDB_00004HHB is 4HHB.
+      ID, PDB_ and eight letters or digits, such as PDB_1001BA3C. An entry with
+      both is kept as its four characters: PDB_00004HHB is 4HHB.
   method:
     type: enum
     registry: derived
     values: [xray, nmr, cryo_em, electron_crystallography, neutron, predicted, other]
     indexed: true
-    description: How it was determined.
+    description: >-
+      How it was determined: for a structure determined by several methods,
+      such as a joint X-ray and neutron structure, the first its file lists,
+      with each in resolutions.
   resolution:
     type: quantity
     registry: derived
     unit: Ao
     min: 0
     indexed: true
-    description: For diffraction and cryo-EM, the highest resolution its data reached.
+    description: >-
+      For diffraction and cryo-EM, the highest resolution its data reached: for
+      a structure determined by several methods, its method's.
+  resolutions:
+    type: list
+    registry: derived
+    label: Resolution by method
+    max_items: 20
+    items:
+      type: row
+      fields:
+        method:
+          type: enum
+          values: [xray, nmr, cryo_em, electron_crystallography, neutron, predicted, other]
+          required: true
+          description: The method.
+        resolution:
+          type: quantity
+          unit: Ao
+          min: 0
+          description: The highest resolution its refinement reached, if the file says.
+    description: >-
+      For a structure determined by several methods, such as a joint X-ray and
+      neutron structure, each one's resolution, from its own refinement, in the
+      order its file lists them.
   chains:
     type: list
     registry: derived

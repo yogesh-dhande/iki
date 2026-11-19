@@ -17,6 +17,9 @@ export interface AlignmentRow {
   residues: number;
   /** Its first residue's number in its own sequence: 1, or the start of a `name/4-7` header. */
   start: number;
+  /** Whether its header names the part of its sequence it is, as `name/1-4` does: then its
+   * residues may be only part of it, even from 1. */
+  spanned: boolean;
 }
 
 export type Alphabet = "nucleotide" | "protein";

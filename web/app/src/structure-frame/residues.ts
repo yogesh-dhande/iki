@@ -7,7 +7,10 @@
  * (`_atom_site.pdbx_PDB_ins_code`): 35, 35A and 35B are three residues, as in Kabat's
  * numbering of a long CDR. A selection is saved as ranges of residues in each chain's
  * order, and restored by comparing (number, insertion code), so saving 35A restores 35A
- * alone, not 35 to 35B.
+ * alone, not 35 to 35B. Where a chain's numbering doesn't rise in its order, as in
+ * chymotrypsin numbering (thrombin's light chain in 1PPB runs 1H, 1G, … 1A, 1, 2), a range
+ * stops before it would take in a residue that isn't selected: 1 and 2 are saved as 1 and
+ * 2, which restores them alone, not 1A to 1H with them.
  */
 
 import { OrderedSet } from "molstar/lib/mol-data/int.js";
@@ -17,7 +20,7 @@ import { AlignSequences } from "molstar/lib/mol-model/sequence/alignment/sequenc
 import {
   StructureElement,
   StructureProperties,
-  type Structure,
+  Structure,
 } from "molstar/lib/mol-model/structure.js";
 import { getPositionTable } from "molstar/lib/mol-model/structure/structure/util/superposition.js";
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder.js";
@@ -49,8 +52,41 @@ function before(a: { number: number; insertion: string }, b: typeof a): boolean 
   return a.number < b.number || (a.number === b.number && a.insertion < b.insertion);
 }
 
+/** Whether residue `r` is from `start` to `end` in the numbering, as `spanTest` finds it. */
+function within(r: Residue, start: Residue, end: Residue): boolean {
+  return !before(r, start) && !before(end, r);
+}
+
+/** Each chain's residues, in its order, where its numbering doesn't rise along it: only
+ * there can a range of numbers take in residues outside the stretch it was saved from. */
+function unorderedChains(structure: Structure): Map<string, Residue[]> {
+  const chains = new Map<string, Map<number, Residue>>();
+  StructureElement.Loci.forEachLocation(Structure.toStructureElementLoci(structure), (location) => {
+    const chain = StructureProperties.chain.auth_asym_id(location);
+    const index = StructureProperties.residue.key(location);
+    const residues = chains.get(chain) ?? new Map<number, Residue>();
+    chains.set(chain, residues);
+    if (residues.has(index)) return;
+    residues.set(index, {
+      chain,
+      number: StructureProperties.residue.auth_seq_id(location),
+      insertion: StructureProperties.residue.pdbx_PDB_ins_code(location).trim(),
+      index,
+    });
+  });
+  const out = new Map<string, Residue[]>();
+  for (const [chain, residues] of chains) {
+    const ordered = [...residues.values()].sort((a, b) => a.index - b.index);
+    if (ordered.some((r, i) => i > 0 && !before(ordered[i - 1] ?? r, r))) {
+      out.set(chain, ordered);
+    }
+  }
+  return out;
+}
+
 /** The residues a selection covers, as ranges: a range runs on while the next residue
- * selected is the next of its chain and comes after it in the numbering. */
+ * selected is the next of its chain, comes after it in the numbering, and no residue
+ * outside the range's stretch of the chain falls in its numbers. */
 export function spansOf(loci: StructureElement.Loci): Span[] {
   const seen = new Map<string, Residue>();
   StructureElement.Loci.forEachLocation(loci, (location) => {
@@ -65,28 +101,30 @@ export function spansOf(loci: StructureElement.Loci): Span[] {
   const residues = [...seen.values()].sort((a, b) =>
     a.chain === b.chain ? a.index - b.index : a.chain < b.chain ? -1 : 1,
   );
-  const spans: (Span & { last: Residue })[] = [];
+  const unordered = unorderedChains(loci.structure);
+  /** Whether a range from `first` to `last` would take in a residue outside them. */
+  const strays = (first: Residue, last: Residue) =>
+    (unordered.get(first.chain) ?? []).some(
+      (r) => (r.index < first.index || r.index > last.index) && within(r, first, last),
+    );
+  const runs: { first: Residue; last: Residue }[] = [];
   for (const residue of residues) {
-    const span = spans[spans.length - 1];
+    const run = runs[runs.length - 1];
     if (
-      span?.chain === residue.chain &&
-      span.last.index === residue.index - 1 &&
-      before(span.last, residue)
+      run?.last.chain === residue.chain &&
+      run.last.index === residue.index - 1 &&
+      before(run.last, residue) &&
+      !strays(run.first, residue)
     ) {
-      span.last = residue;
+      run.last = residue;
     } else {
-      spans.push({
-        chain: residue.chain,
-        start: residue.number,
-        end: residue.number,
-        last: residue,
-      });
-      const made = spans[spans.length - 1];
-      if (made && residue.insertion) made.start_insertion = residue.insertion;
+      runs.push({ first: residue, last: residue });
     }
   }
-  return spans.slice(0, MAX_SPANS).map(({ last, ...span }) => ({
-    ...span,
+  return runs.slice(0, MAX_SPANS).map(({ first, last }) => ({
+    chain: first.chain,
+    start: first.number,
+    ...(first.insertion ? { start_insertion: first.insertion } : {}),
     end: last.number,
     ...(last.insertion ? { end_insertion: last.insertion } : {}),
   }));
@@ -122,7 +160,9 @@ export function spanTest(span: Span): Expression {
 
 /** How one chain superposes on another, as Mol*'s alignAndSuperpose does it: residues
  * paired by aligning their sequences (BLOSUM62 for proteins), then the RMSD over the
- * pairs. `residues` is how many pairs the fit used, not either chain's length. */
+ * pairs. `residues` is how many residues the fit paired, each once, however many
+ * alternate locations its atom has (Ile11 A and B in 4AR3 are one), not either chain's
+ * length. */
 export interface Fit {
   rmsd: number;
   bTransform: Mat4;
@@ -147,7 +187,17 @@ export function fit(reference: StructureElement.Loci, moving: StructureElement.L
     a: getPositionTable(StructureElement.Loci(reference.structure, [a]), pairs),
     b: getPositionTable(StructureElement.Loci(moving.structure, [b]), pairs),
   });
-  return { rmsd: done.rmsd, bTransform: done.bTransform, residues: pairs };
+  const residues = Math.min(residuesOf(reference.structure, a), residuesOf(moving.structure, b));
+  return { rmsd: done.rmsd, bTransform: done.bTransform, residues };
+}
+
+/** How many residues an element's atoms are of: an atom's alternate locations are one. */
+function residuesOf(structure: Structure, element: StructureElement.Loci["elements"][number]) {
+  const seen = new Set<number>();
+  StructureElement.Loci.forEachLocation(StructureElement.Loci(structure, [element]), (location) => {
+    seen.add(StructureProperties.residue.key(location));
+  });
+  return seen.size;
 }
 
 /** The structure a selection's loci are of, for tests and callers that need it. */

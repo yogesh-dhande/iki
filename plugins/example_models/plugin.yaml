@@ -2,13 +2,14 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/example_models
-version: 0.1.0
+version: 0.2.0
 title: Example hosted models
 description: >-
   Predicts protein structures with a model behind an outside API: each run
   sends a protein's sequence to the API, waits for its job without holding a
-  worker, and imports the structure it predicts, with the model and version
-  the API says made it. A starting point for a plugin that calls a hosted
+  worker, and imports the structure it predicts, with the model that made
+  it; the run's record of each call keeps the version the API reported. A
+  starting point for a plugin that calls a hosted
   model, such as a structure predictor, a language model or an ADMET
   service.
 license: Apache-2.0

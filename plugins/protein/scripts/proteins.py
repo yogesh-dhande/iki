@@ -20,9 +20,11 @@ Properties are Biopython's ProtParam, which follows ExPASy's ProtParam tool:
   last four residues have none (null), as ProtScale draws none for them;
 - instability index: Guruprasad's dipeptide weights (1990).
 
-Each property needs residues it has values for, and a final stop (*) is left out of
-them. All take the 20 standard amino acids. Molecular weight also takes selenocysteine
-(U) and pyrrolysine (O), whose masses are known, and J (I or L, which weigh the same).
+Each property needs residues it has values for, and the stops (*) at its end are left
+out of them (M** is M, as it is to its identity). An isoelectric point past pH 0 to 14,
+which the model gives only for a run of one charged residue, isn't saved, saying why.
+All take the 20 standard amino acids. Molecular weight also takes selenocysteine (U) and
+pyrrolysine (O), whose masses are known, and J (I or L, which weigh the same).
 The isoelectric point and extinction coefficients also take J: neither I nor L is
 charged or absorbs at 280 nm. For any other residue, or a stop inside it, the run warns
 which residue left which properties out.
@@ -36,7 +38,7 @@ codon must be one of the code's start codons, which gives methionine; its last, 
 which is left out; with no other stop and no bases left over. In three codes (27, 28
 and 31) a stop codon can also code for an amino acid, so only where it is says which:
 a frame in them keeps such codons as amino acids, and says so of a last one that could
-have ended it, and can't stop at the first stop codon.
+have ended it (an ambiguous one, such as TAR, too), and can't stop at the first stop codon.
 """
 
 from __future__ import annotations
@@ -122,7 +124,8 @@ def isoelectric_point(residues: str) -> float:
 def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
     """Its properties, and a warning when some couldn't be computed."""
     sequence = sequence.upper()
-    residues = sequence.removesuffix("*")
+    # Stops at its end end it, however many (M** is M, as its identity is).
+    residues = sequence.rstrip("*")
     values: dict[str, Any] = {"length": len(residues.replace("*", ""))}
     if not residues.replace("*", ""):
         return values, "It has no residues, so only its length was set."
@@ -149,8 +152,9 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
             values |= {name: compute[fields[0]]()[name] for name in fields}
         else:
             stopped.setdefault(found, []).append(label)
+    beyond = _beyond_scale(values)
     if not stopped:
-        return values, None
+        return values, beyond
     said = []
     for (position, residue), labels in sorted(stopped.items(), key=lambda item: item[0][0]):
         what = "a stop (*)" if residue == "*" else residue
@@ -159,9 +163,23 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
         said.append(f"its {listed} {has} no value for {what} at residue {position}")
     text = "; ".join(said)
     many = sum(len(labels) for labels in stopped.values()) > 1
+    warning = f"{text[0].upper()}{text[1:]}, so {'they weren' if many else 'it wasn'}'t computed."
+    return values, f"{warning} {beyond}" if beyond else warning
+
+
+def _beyond_scale(values: dict[str, Any]) -> str | None:
+    """Takes out an isoelectric point past pH 0 to 14, saying why; the other properties are
+    kept. Bjellqvist's model gives one only for a run of one charged residue, such as 120
+    arginines (14.08): past pH 14 is over 1 M hydroxide, where Henderson-Hasselbalch's
+    charges and the pK values, measured by focusing proteins in gels, don't hold."""
+    found = values.get("isoelectric_point")
+    if found is None or 0 <= found <= 14:
+        return None
+    del values["isoelectric_point"]
+    side = "above 14" if found > 14 else "below 0"
     return (
-        values,
-        f"{text[0].upper()}{text[1:]}, so {'they weren' if many else 'it wasn'}'t computed.",
+        f"Its isoelectric point by Bjellqvist's model would be pH {found:.2f}, {side}, "
+        "where the model's pK values don't hold, so it wasn't saved."
     )
 
 
@@ -197,6 +215,36 @@ def dual(table: int) -> dict[str, str]:
     acid each is elsewhere (NCBI's codes 27, 28 and 31)."""
     found = code(table)
     return {c: found.forward_table[c] for c in found.stop_codons if c in found.forward_table}
+
+
+#: The bases each IUPAC code stands for (IUBMB, 1985).
+IUPAC = {
+    "A": "A", "C": "C", "G": "G", "T": "T", "U": "T",
+    "R": "AG", "Y": "CT", "S": "CG", "W": "AT", "K": "GT", "M": "AC",
+    "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG", "N": "ACGT",
+}  # fmt: skip
+
+
+def could_end(codon: str, table: int) -> str:
+    """If a codon could be, by its bases (an IUPAC code being any it stands for), one of the
+    code's codons that are a stop or an amino acid by where they are (codes 27, 28 and 31),
+    the amino acids it could be, such as Q, or Q, W for TRA in code 28; else empty."""
+    if len(codon) != 3:
+        return ""
+    either = dual(table)
+    found = code(table)
+    readings = [
+        a + b + c
+        for a in IUPAC.get(codon[0], "")
+        for b in IUPAC.get(codon[1], "")
+        for c in IUPAC.get(codon[2], "")
+    ]
+    if not any(each in either for each in readings):
+        return ""
+    residues = sorted(
+        {found.forward_table[each] for each in readings if each in found.forward_table}
+    )
+    return ", ".join(residues)
 
 
 def frame_of(bases: str, strand: str, frame: int) -> Seq:
@@ -285,14 +333,16 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
         else:
             whole = str(frame_of(bases, strand, frame))
             last = whole[: len(whole) - len(whole) % 3][-3:]
-            if not cds and last in either:
+            could = could_end(last, table)
+            if not cds and could:
+                kept = sequence[-1]
                 messages.append(
                     {
                         "level": "info",
                         "text": (
-                            f"{label}'s last codon in {where}, {last}, is {either[last]} or a "
-                            f"stop in genetic code {table}, so it was kept as {either[last]}: "
-                            "translate it as a complete coding sequence to end it there."
+                            f"{label}'s last codon in {where}, {last}, is {could} or a stop "
+                            f"in genetic code {table}, so it was kept as {kept}: translate "
+                            "it as a complete coding sequence to end it there."
                         ),
                         "entity": entity["id"],
                     }

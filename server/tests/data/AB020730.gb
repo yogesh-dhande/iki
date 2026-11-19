@@ -1,0 +1,60 @@
+LOCUS       AB020730                1459 bp    DNA     linear   BCT 30-SEP-2026
+DEFINITION  [Clostridium] scindens gene for 16S rRNA, partial sequence,
+            strain:JCM 10421 I-10.
+ACCESSION   AB020730
+VERSION     AB020730.1
+KEYWORDS    16S ribosomal RNA.
+SOURCE      [Clostridium] scindens
+  ORGANISM  [Clostridium] scindens
+            Bacteria; Bacillati; Bacillota; Clostridia; Lachnospirales;
+            Lachnospiraceae.
+REFERENCE   1
+  AUTHORS   Kitahara,M., Takamine,F., Imamura,T. and Benno,Y.
+  TITLE     Assignment of Eubacterium sp. VPI 12708 and related strains with
+            high bile acid 7alpha-dehydroxylating activity to Clostridium
+            scindens and proposal of Clostridium hylemonae sp. nov., isolated
+            from human faeces
+  JOURNAL   Int J Syst Evol Microbiol 50 Pt 3, 971-978 (2000)
+   PUBMED   10843034
+REFERENCE   2  (bases 1 to 1459)
+  AUTHORS   Kitahara,M., Sakamoto,M. and Ohkuma,M.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (02-DEC-1998) Contact:Mitsuo Sakamoto RIKEN BioResource
+            Research Center, Microbe Division/Japan Collection of
+            Microorganisms; 3-1-1 Koyadai, Tsukuba, Ibaraki 305-0074, Japan
+FEATURES             Location/Qualifiers
+     source          1..1459
+                     /organism="[Clostridium] scindens"
+                     /mol_type="genomic DNA"
+                     /strain="JCM 10421 I-10"
+                     /db_xref="taxon:29347"
+     rRNA            <1..>1459
+                     /product="16S ribosomal RNA"
+ORIGIN      
+        1 gctggcggcg tgcctaacac atgcaagtcg aacgaagcgc ctggccccga cttcttcgga
+       61 acgaggagcc ttgcgactga gtggcggacg ggtgagtaac gcgtgggcaa cctgccttgc
+      121 actgggggat aacagccaga aatggctgct aataccgcat aagaccgaaa gccgcatggc
+      181 gcggcggcca aagccccggc ggtgcaagat gggcccgcgt ctgattaggt agttggcggg
+      241 gtaacggccc accaagccga cgatcagtag ccgacctgag agggtgaccg gccacattgg
+      301 gactgagaca cggcccagac tcctacggga ggcagcagtg gggaatattg cacaatgggg
+      361 gaaaccctga tgcagcgacg ccgcgtgaag gatgaagtat ttcggtatgt aaacttctat
+      421 cagcagggaa gaagatgacg gtacctgact aagaagcccc ggctaactac gtgccagcag
+      481 ccgcggtaat acgtaggggg caagcgttat ccggatttac tgggtgtaaa gggagcgtag
+      541 acggcgatgc aagccagatg tgaaagcccg gggctcaacc ccgggactgc atttggaact
+      601 gcgtggctgg agtgtcggag aggcaggcgg aattcctagt gtagcggtga aatgcgtaga
+      661 tattaggagg aacaccagtg gcgaaggcgg cctgctggac gatgactgac gttgaggctc
+      721 gaaagcgtgg ggagcaaaca ggattagata ccctggtagt ccacgccgta aacgatgact
+      781 actaggtgtc gggtggcaag gccattcggt gccgcagcaa acgcaataag tagtccacct
+      841 gggaagtacg ttcgcaagaa tgaaactcaa aggaattgac ggggacccgc acaagcggtg
+      901 gagcatgtgg tttaattcga agcaacgcga aagaacctta cctgatcttg acatcccgat
+      961 gccaaagcgc gtaacgcgct ctttcttcgg aacatcggtg acaggtggtg catggttgtc
+     1021 gtcagctcgt gtcgtgagat gttgggttaa gtcccgcaac gagcgcaacc cctatcttca
+     1081 gtagccagca ttatggatgg gcactctgga gagactgcca gggagaacct ggaggaaggt
+     1141 ggggatgacg tcaaatcatc atgcccctta tgaccagggc tacacacgtg ctacaatggc
+     1201 gtaaacaaag ggaggcgaac ccgcgaggtg gggcaaatcc caaaaataac gtctcagttc
+     1261 ggattgtagt ctgcaactcg actacatgaa gctggaatcg ctagtaatcg cgaatcagaa
+     1321 tgtcgcggtg aatacgttcc cgggtcttgt acacaccgcc cgtcacacca tgggagtcag
+     1381 taacgcccga agccggtgac ccaacccgta aggagggagc cgtcgaaggt gggaccntaa
+     1441 ctngggtgaa gtcgtaaca
+//
+

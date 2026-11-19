@@ -1,0 +1,261 @@
+# Categories of RCSB PDB entry 3KCO (CC0 1.0), as wwPDB's mmCIF gives them, without its
+# coordinates: D-xylose isomerase refined jointly against neutron and X-ray data.
+data_3KCO
+_entry.id 3KCO
+_struct.entry_id 3KCO
+_struct.title
+;Room temperature neutron structure of D-Xylose Isomerase in complex with two Ni2+ cations and d12-D-glucose in the linear form (refined jointly with X-ray structure 3KBN)
+;
+_struct.pdbx_model_details ?
+_struct.pdbx_CASP_flag ?
+_struct.pdbx_model_type_details ?
+loop_
+_exptl.entry_id
+_exptl.method
+_exptl.crystals_number
+3KCO 'NEUTRON DIFFRACTION' 1
+3KCO 'X-RAY DIFFRACTION' ?
+loop_
+_refine.pdbx_refine_id
+_refine.entry_id
+_refine.ls_number_reflns_obs
+_refine.ls_number_reflns_all
+_refine.pdbx_ls_sigma_I
+_refine.pdbx_ls_sigma_F
+_refine.pdbx_data_cutoff_high_absF
+_refine.pdbx_data_cutoff_low_absF
+_refine.pdbx_data_cutoff_high_rms_absF
+_refine.ls_d_res_low
+_refine.ls_d_res_high
+_refine.ls_percent_reflns_obs
+_refine.ls_R_factor_obs
+_refine.ls_R_factor_all
+_refine.ls_R_factor_R_work
+_refine.ls_R_factor_R_free
+_refine.ls_R_factor_R_free_error
+_refine.ls_R_factor_R_free_error_details
+_refine.ls_percent_reflns_R_free
+_refine.ls_number_reflns_R_free
+_refine.ls_number_parameters
+_refine.ls_number_restraints
+_refine.occupancy_min
+_refine.occupancy_max
+_refine.correlation_coeff_Fo_to_Fc
+_refine.correlation_coeff_Fo_to_Fc_free
+_refine.B_iso_mean
+_refine.aniso_B[1][1]
+_refine.aniso_B[2][2]
+_refine.aniso_B[3][3]
+_refine.aniso_B[1][2]
+_refine.aniso_B[1][3]
+_refine.aniso_B[2][3]
+_refine.solvent_model_details
+_refine.solvent_model_param_ksol
+_refine.solvent_model_param_bsol
+_refine.pdbx_solvent_vdw_probe_radii
+_refine.pdbx_solvent_ion_probe_radii
+_refine.pdbx_solvent_shrinkage_radii
+_refine.pdbx_ls_cross_valid_method
+_refine.details
+_refine.pdbx_starting_model
+_refine.pdbx_method_to_determine_struct
+_refine.pdbx_isotropic_thermal_model
+_refine.pdbx_stereochemistry_target_values
+_refine.pdbx_stereochem_target_val_spec_case
+_refine.pdbx_R_Free_selection_details
+_refine.pdbx_overall_ESU_R_Free
+_refine.overall_SU_ML
+_refine.overall_SU_B
+_refine.ls_redundancy_reflns_obs
+_refine.B_iso_min
+_refine.B_iso_max
+_refine.overall_SU_R_Cruickshank_DPI
+_refine.overall_SU_R_free
+_refine.ls_wR_factor_R_free
+_refine.ls_wR_factor_R_work
+_refine.overall_FOM_free_R_set
+_refine.overall_FOM_work_R_set
+_refine.pdbx_overall_phase_error
+_refine.pdbx_overall_ESU_R
+_refine.pdbx_diffrn_id
+_refine.pdbx_TLS_residual_ADP_flag
+_refine.pdbx_overall_SU_R_free_Cruickshank_DPI
+_refine.pdbx_overall_SU_R_Blow_DPI
+_refine.pdbx_overall_SU_R_free_Blow_DPI
+'NEUTRON DIFFRACTION' 3KCO 27031 37568 ? 3 ? ? ? 20 1.8 ? ? ? 0.273 0.294 ? ? 5.1 1388 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 3CWH 'MOLECULAR REPLACEMENT' ? 'ENGH AND HUBER' ? RANDOM ? ? ? ? ? ? ? ? ? ? ? ? ? ? 1 ? ? ? ?
+'X-RAY DIFFRACTION' 3KCO ? ? ? 3 ? ? ? 20 1.53 ? ? ? 0.199 0.211 ? ? 5.1 3281 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 3CWH 'MOLECULAR REPLACEMENT' ? ? ? RANDOM ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
+_reflns.entry_id 3KCO
+_reflns.observed_criterion_sigma_I 1.7
+_reflns.observed_criterion_sigma_F 3
+_reflns.d_resolution_low 20
+_reflns.d_resolution_high 1.8
+_reflns.number_obs 27031
+_reflns.number_all 37568
+_reflns.percent_possible_obs 72
+_reflns.pdbx_Rmerge_I_obs ?
+_reflns.pdbx_Rsym_value 0.236
+_reflns.pdbx_netI_over_sigmaI 4.0
+_reflns.B_iso_Wilson_estimate ?
+_reflns.pdbx_redundancy 3.2
+_reflns.R_free_details ?
+_reflns.limit_h_max ?
+_reflns.limit_h_min ?
+_reflns.limit_k_max ?
+_reflns.limit_k_min ?
+_reflns.limit_l_max ?
+_reflns.limit_l_min ?
+_reflns.observed_criterion_F_max ?
+_reflns.observed_criterion_F_min ?
+_reflns.pdbx_chi_squared ?
+_reflns.pdbx_scaling_rejects ?
+_reflns.pdbx_ordinal 1
+_reflns.pdbx_diffrn_id 1
+loop_
+_entity.id
+_entity.type
+_entity.src_method
+_entity.pdbx_description
+_entity.formula_weight
+_entity.pdbx_number_of_molecules
+_entity.pdbx_ec
+_entity.pdbx_mutation
+_entity.pdbx_fragment
+_entity.details
+1 polymer man 'Xylose isomerase' 43283.297 1 5.3.1.5 ? ? 'THE PROTEIN WAS PURCHASED FROM HAMPTON RESEARCH'
+2 non-polymer syn 'NICKEL (II) ION' 58.693 3 ? ? ? ?
+3 non-polymer man D-glucose 180.156 1 ? ? ? ?
+4 water nat water 18.015 309 ? ? ? ?
+_entity_poly.entity_id 1
+_entity_poly.type 'polypeptide(L)'
+_entity_poly.nstd_linkage no
+_entity_poly.nstd_monomer no
+_entity_poly.pdbx_seq_one_letter_code
+;MNYQPTPEDRFTFGLWTVGWQGRDPFGDATRRALDPVESVRRLAELGAHGVTFHDDDLIPFGSSDSEREEHVKRFRQALD
+DTGMKVPMATTNLFTHPVFKDGGFTANDRDVRRYALRKTIRNIDLAVELGAETYVAWGGREGAESGGAKDVRDALDRMKE
+AFDLLGEYVTSQGYDIRFAIEPKPNEPRGDILLPTVGHALAFIERLERPELYGVNPEVGHEQMAGLNFPHGIAQALWAGK
+LFHIDLNGQNGIKYDQDLRFGAGDLRAAFWLVDLLESAGYSGPRHFDFKPPRTEDFDGVWASAAGCMRNYLILKERAAAF
+RADPEVQEALRASRLDELARPTAADGLQALLDDRSAFEEFDVDAAAARGMAFERLDQLAMDHLLGARG
+;
+_entity_poly.pdbx_seq_one_letter_code_can
+;MNYQPTPEDRFTFGLWTVGWQGRDPFGDATRRALDPVESVRRLAELGAHGVTFHDDDLIPFGSSDSEREEHVKRFRQALD
+DTGMKVPMATTNLFTHPVFKDGGFTANDRDVRRYALRKTIRNIDLAVELGAETYVAWGGREGAESGGAKDVRDALDRMKE
+AFDLLGEYVTSQGYDIRFAIEPKPNEPRGDILLPTVGHALAFIERLERPELYGVNPEVGHEQMAGLNFPHGIAQALWAGK
+LFHIDLNGQNGIKYDQDLRFGAGDLRAAFWLVDLLESAGYSGPRHFDFKPPRTEDFDGVWASAAGCMRNYLILKERAAAF
+RADPEVQEALRASRLDELARPTAADGLQALLDDRSAFEEFDVDAAAARGMAFERLDQLAMDHLLGARG
+;
+_entity_poly.pdbx_strand_id A
+_entity_poly.pdbx_target_identifier ?
+_entity_src_gen.entity_id 1
+_entity_src_gen.pdbx_src_id 1
+_entity_src_gen.pdbx_alt_source_flag sample
+_entity_src_gen.pdbx_seq_type ?
+_entity_src_gen.pdbx_beg_seq_num ?
+_entity_src_gen.pdbx_end_seq_num ?
+_entity_src_gen.gene_src_common_name ?
+_entity_src_gen.gene_src_genus ?
+_entity_src_gen.pdbx_gene_src_gene xylA
+_entity_src_gen.gene_src_species ?
+_entity_src_gen.gene_src_strain ?
+_entity_src_gen.gene_src_tissue ?
+_entity_src_gen.gene_src_tissue_fraction ?
+_entity_src_gen.gene_src_details ?
+_entity_src_gen.pdbx_gene_src_fragment ?
+_entity_src_gen.pdbx_gene_src_scientific_name 'Streptomyces rubiginosus'
+_entity_src_gen.pdbx_gene_src_ncbi_taxonomy_id 1929
+_entity_src_gen.pdbx_gene_src_variant ?
+_entity_src_gen.pdbx_gene_src_cell_line ?
+_entity_src_gen.pdbx_gene_src_atcc ?
+_entity_src_gen.pdbx_gene_src_organ ?
+_entity_src_gen.pdbx_gene_src_organelle ?
+_entity_src_gen.pdbx_gene_src_cell ?
+_entity_src_gen.pdbx_gene_src_cellular_location ?
+_entity_src_gen.host_org_common_name ?
+_entity_src_gen.pdbx_host_org_scientific_name ?
+_entity_src_gen.pdbx_host_org_ncbi_taxonomy_id ?
+_entity_src_gen.host_org_genus ?
+_entity_src_gen.pdbx_host_org_gene ?
+_entity_src_gen.pdbx_host_org_organ ?
+_entity_src_gen.host_org_species ?
+_entity_src_gen.pdbx_host_org_tissue ?
+_entity_src_gen.pdbx_host_org_tissue_fraction ?
+_entity_src_gen.pdbx_host_org_strain ?
+_entity_src_gen.pdbx_host_org_variant ?
+_entity_src_gen.pdbx_host_org_cell_line ?
+_entity_src_gen.pdbx_host_org_atcc ?
+_entity_src_gen.pdbx_host_org_culture_collection ?
+_entity_src_gen.pdbx_host_org_cell ?
+_entity_src_gen.pdbx_host_org_organelle ?
+_entity_src_gen.pdbx_host_org_cellular_location ?
+_entity_src_gen.pdbx_host_org_vector_type ?
+_entity_src_gen.pdbx_host_org_vector ?
+_entity_src_gen.host_org_details ?
+_entity_src_gen.expression_system_id ?
+_entity_src_gen.plasmid_name ?
+_entity_src_gen.plasmid_details ?
+_entity_src_gen.pdbx_description ?
+_struct_ref.id 1
+_struct_ref.db_name UNP
+_struct_ref.db_code XYLA_STRRU
+_struct_ref.pdbx_db_accession P24300
+_struct_ref.entity_id 1
+_struct_ref.pdbx_seq_one_letter_code
+;MNYQPTPEDRFTFGLWTVGWQGRDPFGDATRRALDPVESVRRLAELGAHGVTFHDDDLIPFGSSDSEREEHVKRFRQALD
+DTGMKVPMATTNLFTHPVFKDGGFTANDRDVRRYALRKTIRNIDLAVELGAETYVAWGGREGAESGGAKDVRDALDRMKE
+AFDLLGEYVTSQGYDIRFAIEPKPNEPRGDILLPTVGHALAFIERLERPELYGVNPEVGHEQMAGLNFPHGIAQALWAGK
+LFHIDLNGQNGIKYDQDLRFGAGDLRAAFWLVDLLESAGYSGPRHFDFKPPRTEDFDGVWASAAGCMRNYLILKERAAAF
+RADPEVQEALRASRLDELARPTAADGLQALLDDRSAFEEFDVDAAAARGMAFERLDQLAMDHLLGARG
+;
+_struct_ref.pdbx_align_begin 1
+_struct_ref.pdbx_db_isoform ?
+_struct_ref_seq.align_id 1
+_struct_ref_seq.ref_id 1
+_struct_ref_seq.pdbx_PDB_id_code 3KCO
+_struct_ref_seq.pdbx_strand_id A
+_struct_ref_seq.seq_align_beg 1
+_struct_ref_seq.pdbx_seq_align_beg_ins_code ?
+_struct_ref_seq.seq_align_end 388
+_struct_ref_seq.pdbx_seq_align_end_ins_code ?
+_struct_ref_seq.pdbx_db_accession P24300
+_struct_ref_seq.db_align_beg 1
+_struct_ref_seq.pdbx_db_align_beg_ins_code ?
+_struct_ref_seq.db_align_end 388
+_struct_ref_seq.pdbx_db_align_end_ins_code ?
+_struct_ref_seq.pdbx_auth_seq_align_beg 1
+_struct_ref_seq.pdbx_auth_seq_align_end 388
+loop_
+_pdbx_audit_revision_history.ordinal
+_pdbx_audit_revision_history.data_content_type
+_pdbx_audit_revision_history.major_revision
+_pdbx_audit_revision_history.minor_revision
+_pdbx_audit_revision_history.revision_date
+1 'Structure model' 1 0 2010-06-16
+2 'Structure model' 1 1 2011-07-13
+3 'Structure model' 1 2 2011-07-27
+4 'Structure model' 1 3 2018-04-25
+5 'Structure model' 1 4 2018-06-20
+6 'Structure model' 1 5 2020-07-29
+7 'Structure model' 1 6 2024-02-21
+8 'Structure model' 1 7 2024-04-03
+loop_
+_software.name
+_software.classification
+_software.version
+_software.citation_id
+_software.pdbx_ordinal
+_software.date
+_software.type
+_software.location
+_software.language
+PCS 'data collection' software ? 1 ? ? ? ?
+nCNS refinement . ? 2 ? ? ? ?
+d*TREK 'data reduction' 'MODIFIED FOR NEUTRON' ? 3 ? ? ? ?
+LAUENORM 'data scaling' 'MODIFIED FOR NEUTRON' ? 4 ? ? ? ?
+nCNS phasing . ? 5 ? ? ? ?
+loop_
+_database_2.database_id
+_database_2.database_code
+_database_2.pdbx_database_accession
+_database_2.pdbx_DOI
+PDB 3KCO pdb_00003kco 10.2210/pdb3kco/pdb
+RCSB RCSB055825 ? ?
+WWPDB D_1000055825 ? ?

@@ -56,12 +56,42 @@ def submit(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def chain_ids(pdb: str) -> list[str]:
+    """The chains of a PDB file's first model, in the order its atoms are: each ATOM or
+    HETATM record's chain ID (column 22), stopping at its first ENDMDL."""
+    found: dict[str, None] = {}
+    for line in pdb.splitlines():
+        if line.startswith("ENDMDL"):
+            break
+        if line.startswith(("ATOM  ", "HETATM")) and len(line) > 21 and line[21].strip():
+            found[line[21]] = None
+    return list(found)
+
+
 def finish(run: dict[str, Any]) -> dict[str, Any]:
     resume = run["resume"]
     answer = resume["answer"] or call("GET", f"/v1/predictions/{resume['job']}")
     pdb = answer["output"]["pdb"]
     Path(os.environ["IKI_OUT_DIR"], "predicted.pdb").write_text(pdb)
     model = answer.get("model", run["params"]["model"])
+    protein = resume["state"]["protein"]
+    # One protein in, so each chain FoldCloud returns is it: one, or a multimer's copies.
+    chains = chain_ids(pdb)
+    messages = [
+        {
+            "level": "info",
+            "text": f"Predicted by {model}, as FoldCloud's job {resume['job']}. The version "
+            "FoldCloud reported is in the run's record of its calls.",
+        }
+    ]
+    if not chains:
+        messages.append(
+            {
+                "level": "warning",
+                "text": "FoldCloud's file names no chain, so the structure has no chain IDs: "
+                "its secondary structure can't be assigned by chain.",
+            }
+        )
     return {
         "creates": [
             {
@@ -70,16 +100,23 @@ def finish(run: dict[str, Any]) -> dict[str, Any]:
                     "structure": {"$file": "predicted.pdb", "media_type": "chemical/x-pdb"},
                     "name": f"{resume['state']['hrid']}, predicted by {model}",
                     "method": "predicted",
-                    "chains": [resume["state"]["protein"]],
+                    "chains": [protein] * len(chains) if chains else [protein],
+                    **({"chain_ids": chains} if chains else {}),
+                },
+                # Where it's from, and how it was made (ADR 0106): by FoldCloud's model, as
+                # its answer says.
+                "origin": {
+                    "source": "FoldCloud",
+                    "id": str(resume["job"])[:255],
+                    "made": {
+                        "kind": "computational",
+                        "method": "Predicted by FoldCloud",
+                        "software": [{"name": f"FoldCloud {model}"[:100]}],
+                    },
                 },
             }
         ],
-        "messages": [
-            {
-                "level": "info",
-                "text": f"Predicted by {model}, as FoldCloud's job {resume['job']}.",
-            }
-        ],
+        "messages": messages,
     }
 
 

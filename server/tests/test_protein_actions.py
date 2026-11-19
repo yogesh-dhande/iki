@@ -15,10 +15,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from iki_spec import schemas
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "protein" / "scripts"
+ORGANISM = Path(__file__).resolve().parents[2] / "spec/src/iki_spec/core/types/organism.yaml"
 #: Human haemoglobin's alpha chain (UniProt P69905).
 #: Human ubiquitin (UniProt P0CG48's first 76 residues).
 UBIQUITIN = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
@@ -307,6 +309,45 @@ def test_the_isoelectric_point_is_where_bjellqvists_charge_is_zero_however_acidi
     assert [found[k]["isoelectric_point"] for k in "012"] == [3.08, 12.95, 6.56]
 
 
+def test_an_isoelectric_point_beyond_ph_14_isnt_saved_but_the_rest_are(tmp_path: Path) -> None:
+    found, messages = properties(tmp_path, "R" * 120, "R" * 10)
+    # Bisection of Biopython's IsoelectricPoint.charge_at_pH (Bjellqvist's pK values) puts
+    # R120's charge at zero at pH 14.0756, past the scale its pK values were measured on.
+    # The rest are ProtParam's: 120 x 156.1875 + 18.0153 = 18760.30 Da (Biopython's
+    # average residue masses), GRAVY -4.5 (Kyte-Doolittle R), instability index
+    # 10 / 120 x 119 x 58.28 = 577.94 (Guruprasad's R-R weight).
+    assert "isoelectric_point" not in found["0"]
+    assert {
+        k: found["0"][k] for k in ("length", "molecular_weight", "gravy", "instability_index")
+    } == {
+        "length": 120,
+        "molecular_weight": 18760.3,
+        "gravy": -4.5,
+        "instability_index": 577.94,
+    }
+    assert found["0"]["extinction_coefficient_reduced"] == 0
+    assert [(m["level"], m["entity"][-1], m["text"]) for m in messages] == [
+        (
+            "warning",
+            "0",
+            "Its isoelectric point by Bjellqvist's model would be pH 14.08, above 14, where the "
+            "model's pK values don't hold, so it wasn't saved.",
+        )
+    ]
+    # R10's, 12.95, is within it.
+    assert found["1"]["isoelectric_point"] == 12.95
+
+
+def test_stops_at_the_end_are_all_left_out(tmp_path: Path) -> None:
+    found, messages = properties(tmp_path, "M**", "M*", "M")
+    # Methionine alone: 131.1926 + 18.0153 = 149.21 Da (Biopython's average masses), pI 5.28.
+    assert found["0"] == found["1"] == found["2"]
+    assert found["0"]["length"] == 1
+    assert found["0"]["molecular_weight"] == 149.21
+    assert found["0"]["isoelectric_point"] == 5.28
+    assert messages == []
+
+
 def test_selenocysteine_pyrrolysine_and_j_keep_the_properties_they_have_values_for(
     tmp_path: Path,
 ) -> None:
@@ -498,6 +539,37 @@ def test_a_frame_says_its_last_codon_could_have_been_a_stop(tmp_path: Path) -> N
     assert cds["messages"] == []
 
 
+@pytest.mark.parametrize(
+    ("table", "bases", "kept", "could"),
+    [
+        # NCBI code 28 (Condylostoma): TAA and TAG are Q, TGA is W, each also a stop.
+        # TAR is TAA or TAG: Q or a stop.
+        (28, "ATGTAR", "MQ", "Q"),
+        # TRA is TAA (Q) or TGA (W): not one amino acid, but a stop either way.
+        (28, "ATGTRA", "MX", "Q, W"),
+        # NCBI code 31 (Blastocrithidia): TAA and TAG are E, or a stop.
+        (31, "ATGTAR", "ME", "E"),
+    ],
+)
+def test_an_ambiguous_last_codon_says_it_could_have_been_a_stop(
+    tmp_path: Path, table: int, bases: str, kept: str, could: str
+) -> None:
+    _, frame = translated(
+        tmp_path, [entity(1, bases=bases, name="pCiliate")], table=table, to_stop=False
+    )
+    assert frame is not None
+    assert frame["creates"][0]["values"]["sequence"] == kept
+    assert [m["text"] for m in frame["messages"]] == [
+        f"pCiliate's last codon in frame +1, {bases[3:]}, is {could} or a stop in genetic code "
+        f"{table}, so it was kept as {kept[-1]}: translate it as a complete coding sequence to "
+        "end it there."
+    ]
+    # A last codon that's only ever an amino acid says nothing: TGG is W in each.
+    _, plain = translated(tmp_path, [entity(1, bases="ATGTGG")], table=table, to_stop=False)
+    assert plain is not None
+    assert plain["messages"] == []
+
+
 def test_a_genetic_code_ncbi_doesnt_use_fails_the_run(tmp_path: Path) -> None:
     result, output = translated(tmp_path, [entity(1, bases="ATG")], table=7)
     assert result.returncode == 1
@@ -593,6 +665,57 @@ def test_other_headers_give_a_name_a_description_and_an_organism_in_brackets(
         "Record 1 (NP_000549.1): its organism, Homo sapiens, has no NCBI Taxonomy ID, so "
         "it's left out.",
         "Record 2 (X_Y): its organism, Mus musculus, has no NCBI Taxonomy ID, so it's left out.",
+    ]
+
+
+def test_an_organisms_name_is_the_one_its_file_gives_not_ncbis(tmp_path: Path) -> None:
+    """UniProt P0A7G6 (RecA) names taxon 83333 Escherichia coli (strain K12), where NCBI's
+    Taxonomy calls it Escherichia coli K-12: the name kept is the file's, filling only an
+    entry that has none, and the Organism type says so rather than calling it NCBI's."""
+    text = (
+        ">sp|P0A7G6|RECA_ECOLI Protein RecA OS=Escherichia coli (strain K12) OX=83333 "
+        "GN=recA PE=1 SV=2\nMAIDENKQKA\n"
+    )
+    organism = imported(tmp_path, text)[1]["creates"][0]  # type: ignore[index]
+    assert organism == {
+        "type": "iki/core.Organism",
+        "key": "taxon:83333",
+        "values": {"taxon_id": 83333, "scientific_name": "Escherichia coli (strain K12)"},
+        "fills": ["scientific_name"],
+    }
+    described = yaml.safe_load(ORGANISM.read_text())["fields"]["scientific_name"]["description"]
+    assert "NCBI Taxonomy." not in described
+    assert "first imported" in described
+
+
+def test_organisms_keep_ncbis_brackets_and_quotes(tmp_path: Path) -> None:
+    text = (
+        # UniProt M1RNJ8 (ATH1_CANGB), its organism by the name NCBI gave taxon 5478 before
+        # moving it to Nakaseomyces glabratus.
+        ">sp|M1RNJ8|ATH1_CANGB Periplasmic/secreted acid trehalase ATH1 "
+        "OS=[Candida] glabrata OX=5478 GN=ATH1 PE=1 SV=1\nMGFKDKILFW\n"
+        # UniProt P0DP26, mouse calmodulin.
+        ">sp|P0DP26|CALM1_MOUSE Calmodulin-1 OS=Mus musculus OX=10090 GN=Calm1 PE=1 SV=1\n"
+        "MADQLTEEQI\n"
+        ">tr|A0A0|X_Y A protein OS='Nostoc azollae' 0708 OX=551115\nMKV\n"
+        # NCBI's WP_507980491.1 (fetched 2026-11-19): its organism in brackets, holding
+        # NCBI's own for a genus it hasn't placed, and no taxon ID.
+        ">WP_507980491.1 phage tail family protein [[Clostridium] scindens]\nMIEIKYVCSN\n"
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [c["values"] for c in output["creates"] if c["type"] == "iki/core.Organism"] == [
+        {"taxon_id": 5478, "scientific_name": "[Candida] glabrata"},
+        {"taxon_id": 10090, "scientific_name": "Mus musculus"},
+        {"taxon_id": 551115, "scientific_name": "'Nostoc azollae' 0708"},
+    ]
+    last = made(output)[-1]["values"]
+    assert last["description"] == "phage tail family protein"
+    assert "organism" not in last
+    assert [m["text"] for m in output["messages"]] == [
+        "Record 4 (WP_507980491.1): its organism, [Clostridium] scindens, has no NCBI "
+        "Taxonomy ID, so it's left out."
     ]
 
 

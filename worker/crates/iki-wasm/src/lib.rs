@@ -190,6 +190,9 @@ pub struct Row {
     /// word ends `/start-end` (as Jalview and Pfam write a part of a sequence) and that
     /// span is as long as its residues.
     pub start: usize,
+    /// Whether its header names the part of its sequence it is (`name/1-4`), even from 1:
+    /// then its residues are that span, not necessarily the whole sequence.
+    pub spanned: bool,
 }
 
 /// An alignment's rows, and how well each of its columns is conserved.
@@ -278,10 +281,11 @@ fn consensus(column: &[u8]) -> (u8, usize) {
     }
 }
 
-/// A header's first word, and the number of its first residue: `name/4-7` is residues 4 to
-/// 7 of `name`, when that's as many residues as the row has; anything else is the whole of
-/// a sequence, from 1.
-fn numbered(id: &str, residues: usize) -> (String, usize) {
+/// A header's first word, the number of its first residue, and whether it named its span:
+/// `name/4-7` is residues 4 to 7 of `name`, when that's as many residues as the row has,
+/// as `name/1-4` is residues 1 to 4, which may be only part of it; anything else is the
+/// whole of a sequence, from 1.
+fn numbered(id: &str, residues: usize) -> (String, usize, bool) {
     if let Some((name, span)) = id.rsplit_once('/')
         && let Some((first, last)) = span.split_once('-')
         && let (Ok(first), Ok(last)) = (first.parse::<usize>(), last.parse::<usize>())
@@ -290,9 +294,9 @@ fn numbered(id: &str, residues: usize) -> (String, usize) {
         && last >= first
         && last - first + 1 == residues
     {
-        return (name.to_owned(), first);
+        return (name.to_owned(), first, true);
     }
-    (id.to_owned(), 1)
+    (id.to_owned(), 1, false)
 }
 
 /// The records as an alignment, if they're one: two or more rows, all the same length.
@@ -329,13 +333,14 @@ pub fn layout(records: &[Record], declared: Option<Alphabet>) -> Option<Alignmen
         .iter()
         .map(|r| {
             let residues = r.residues.bytes().filter(|&b| !is_gap(b)).count();
-            let (id, start) = numbered(&r.id, residues);
+            let (id, start, spanned) = numbered(&r.id, residues);
             Row {
                 id,
                 description: r.description.clone(),
                 aligned: r.residues.clone(),
                 residues,
                 start,
+                spanned,
             }
         })
         .collect();
@@ -699,6 +704,20 @@ mod tests {
         .unwrap_or_else(|| unreachable!());
         assert_eq!(aligned.rows[0].id, "PRT-1");
         assert_eq!(aligned.rows[0].start, 4);
+        assert!(aligned.rows[0].spanned);
+        // From 1, it's still a part: WQWY/1-4 of the ten-residue WQWYAAAAAA, as a local
+        // alignment writes it.
+        let local = layout(&records(">T/1-4\nWQWY\n>Q/1-4\nWQWY\n>whole\nWQWY\n"), None)
+            .unwrap_or_else(|| unreachable!());
+        assert_eq!(
+            (
+                local.rows[0].id.as_str(),
+                local.rows[0].start,
+                local.rows[0].spanned
+            ),
+            ("T", 1, true)
+        );
+        assert!(!local.rows[2].spanned);
         // A span that isn't as long as the row's residues is part of its name.
         let named =
             layout(&records(">a/1-9\nWQWY\n>b\nWQWY\n"), None).unwrap_or_else(|| unreachable!());
