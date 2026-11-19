@@ -3,12 +3,14 @@
  * the browser session. Events carry ids and counts, never content; they
  * update the bell's count and refresh the notification queries, and My work.
  *
- * - Each `ready`, the first included, refreshes the inbox. Only from then on
- *   does every change come as an event: the page reads what it shows while
- *   the stream opens, and something sent in between is in `ready`'s count but
- *   comes as no event. The browser also reconnects by itself when a stream
- *   ends (server restarts end them, and each lasts at most 30 minutes), and
- *   something may have been missed meanwhile.
+ * - Each `ready`, the first included, refreshes the inbox and My work. Only
+ *   from then on does every change come as an event: the page reads what it
+ *   shows while the stream opens, and something sent in between is in
+ *   `ready`'s count but comes as no event. The browser also reconnects by
+ *   itself when a stream ends (server restarts end them, and each lasts at
+ *   most 30 minutes), and something may have been missed meanwhile.
+ * - `resync` says the server dropped events this tab hadn't read yet: the
+ *   notifications and My work are read again, as on `ready`.
  * - A tab hidden for a while closes its stream and reopens it when shown, so
  *   background tabs don't hold a connection each.
  * - Leaving the page closes its stream then, not when the browser gets round to
@@ -80,6 +82,7 @@ export function useLiveUpdates(enabled: boolean): void {
       stream.addEventListener("ready", (event: MessageEvent<string>) => {
         setUnread(parse(event));
         void refresh();
+        void refresh(WORK);
       });
       stream.addEventListener("notification", (event: MessageEvent<string>) => {
         setUnread(parse(event));
@@ -92,6 +95,7 @@ export function useLiveUpdates(enabled: boolean): void {
       stream.addEventListener("resync", (event: MessageEvent<string>) => {
         setUnread(parse(event));
         void refresh(NOTIFICATIONS);
+        void refresh(WORK);
       });
       // Someone's work changed (ADR 0122): My work, and the records on it, read again.
       stream.addEventListener("work", () => {
