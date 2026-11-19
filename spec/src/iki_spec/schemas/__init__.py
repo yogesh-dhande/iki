@@ -168,6 +168,10 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
     if validator in ("additionalProperties", "unevaluatedProperties"):
         allowed = sorted(_allowed_keys(error.schema))
         for name in _unexpected(error):
+            refused = _REFUSED_KEYS.get((str(path[-1]) if path else "", name))
+            if refused is not None:
+                yield SchemaIssue((*path, name), refused[0], hint=refused[1], at_key=True)
+                continue
             yield SchemaIssue(
                 (*path, name),
                 f"`{name}` isn't allowed here{_in(where)}.",
@@ -213,6 +217,19 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         )
         return
     yield SchemaIssue(path, f"`{where}`: {_plain(error)}")
+
+
+#: Keys a manifest might reasonably try that are refused on purpose, by the key they'd be
+#: under: what to say instead of "isn't allowed here", and the hint.
+_REFUSED_KEYS = {
+    ("setup", "apis"): (
+        "Setup builds can't call outside APIs: a build belongs to the deployment, so there's "
+        "no project to approve an API for, nobody to consent to what's sent, and no project "
+        "to bill (ADR 0141).",
+        "Drop it. A setup downloads its data, such as a model's weights, from the host that "
+        "serves the files: list it under `network`.",
+    ),
+}
 
 
 # --- Wording ---------------------------------------------------------------------------

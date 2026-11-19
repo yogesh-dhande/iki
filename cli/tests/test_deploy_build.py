@@ -451,6 +451,66 @@ def test_local_plugins_are_for_development(
     assert "LOCAL = True" in (out / "iki_installed_plugins" / "__init__.py").read_text()
 
 
+def test_a_setup_build_cant_download_from_an_outside_apis_host(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A setup build belongs to the deployment, so it can't call an outside API (ADR 0141).
+    Where a setting gives the host it downloads from, only the deployment's build knows it's
+    another plugin's API's, and refuses it there."""
+    directory = tmp_path / "dev"
+    (directory / "settings").mkdir(parents=True)
+    for name in ("dna", "protein", "structure_prediction"):
+        shutil.copytree(PLUGINS / name, tmp_path / name)
+    prediction = tmp_path / "structure_prediction"
+    manifest = prediction / "plugin.yaml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            "settings:\n",
+            "settings:\n  weights_host:\n    type: string\n    format: hostname\n"
+            "    required: true\n",
+        )
+    )
+    environment = prediction / "environments" / "alphafold-gpu.yaml"
+    environment.write_text(
+        environment.read_text().replace(
+            "network: [storage.googleapis.com]", "network: ['{settings.weights_host}']"
+        )
+    )
+    assert main(["plugin", "makemigrations", str(tmp_path / "dna"), "--no-input"]) == 0
+    withs = ["--with", str(tmp_path / "dna")]
+    assert main(["plugin", "makemigrations", str(tmp_path / "protein"), *withs, "--no-input"]) == 0
+    withs += ["--with", str(tmp_path / "protein")]
+    assert main(["plugin", "makemigrations", str(prediction), *withs, "--no-input"]) == 0
+    (directory / "settings" / "dna.yaml").write_text("ncbi_email: a@b.org\n")
+    (directory / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: acme/dna, local: ../dna, state: active, settings: settings/dna.yaml}\n"
+        "  - {name: acme/protein, local: ../protein, state: active}\n"
+        "  - {name: acme/prediction, local: ../structure_prediction, state: active,"
+        " settings: settings/prediction.yaml}\n"
+    )
+    out = tmp_path / "out"
+    build = ["deploy", "build", str(directory), "-o", str(out), "--allow-local"]
+    # acme/protein's FoldCloud is at fold.models.example.
+    (directory / "settings" / "prediction.yaml").write_text("weights_host: fold.models.example\n")
+    capsys.readouterr()
+    assert main(build) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(
+        "error: acme/prediction's alphafold-gpu setup downloads from fold.models.example, which "
+        "is acme/protein.fold's host (FoldCloud, an outside API). Setup builds can't call "
+        "outside APIs"
+    )
+    assert "  hint: give the setting another host" in err
+    assert not out.exists()
+    # Another host builds, and the setup reaches the host the setting gives.
+    (directory / "settings" / "prediction.yaml").write_text("weights_host: weights.example.org\n")
+    assert main(build) == 0
+    built = json.loads((out / "iki_plugin_acme__prediction" / "manifest.json").read_text())
+    setup = built["plugin"]["environments"]["alphafold-gpu"]
+    assert setup["setup_network"] == ["weights.example.org"]
+
+
 def test_only_replaces_a_previous_build(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     directory = tmp_path / "dev"
     directory.mkdir()

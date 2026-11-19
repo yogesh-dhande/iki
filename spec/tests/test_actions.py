@@ -908,6 +908,45 @@ def test_what_an_action_sends_is_checked(tmp_path: Path, action: str, code: str)
     assert only(make(tmp_path, action, files={"plugin.yaml": PLUGIN + API}), code)
 
 
+def test_a_setup_build_cant_call_an_outside_api(tmp_path: Path) -> None:
+    """A setup build belongs to the deployment: no project to approve an API for, nobody to
+    consent, none to bill (ADR 0141). So it may neither name an API nor download from one's
+    host, given as it is or by the same setting."""
+    vm = action(runs_on="{ tier: vm, environment: gpu }")
+    volumes = "volumes:\n  weights: { size: 100Gi, mount: /weights, populated_by: setup }\n"
+    files = {"plugin.yaml": PLUGIN + API, "setup.sh": ""}
+    fine = "setup: { script: setup.sh, network: [weights.example.org] }\n"
+    assert codes(make(tmp_path, vm + USES, GPU + volumes + fine, files=files)) == []
+    to_api = fine.replace("weights.example.org", "fold.example.com")
+    message = only(
+        make(tmp_path, vm + USES, GPU + volumes + to_api, files=files), "setup-calls-api"
+    )
+    assert message.startswith(
+        "`fold.example.com` is FoldCloud's host, an outside API, and setup builds can't call "
+        "outside APIs"
+    )
+    by_setting = PLUGIN + "settings:\n  fold_host: { type: string, format: hostname }\n"
+    by_setting += API.replace("host: fold.example.com", "host: '{settings.fold_host}'")
+    setting = fine.replace("weights.example.org", "'{settings.fold_host}'")
+    found = make(
+        tmp_path, vm + USES, GPU + volumes + setting, files={**files, "plugin.yaml": by_setting}
+    )
+    assert codes(found) == ["setup-calls-api"]
+    unknown = fine.replace("weights.example.org", "'{settings.weights_host}'")
+    found = make(tmp_path, vm + USES, GPU + volumes + unknown, files=files)
+    assert codes(found) == ["network-unknown-setting"]
+    assert found.problems[0].path == ("setup", "network", 0)
+    # Naming an API under the setup is refused, saying why rather than only that it's unknown.
+    named = "setup:\n  script: setup.sh\n  apis: { fold: {} }\n"
+    found = make(tmp_path, vm + USES, GPU + volumes + named, files=files)
+    # (The environment doesn't load, so the action can't find it.)
+    assert codes(found) == ["unknown-environment", "schema"]
+    problem = found.problems[1]
+    assert problem.path == ("setup", "apis")
+    assert problem.message.startswith("Setup builds can't call outside APIs: a build belongs")
+    assert problem.hint is not None and problem.hint.endswith("list it under `network`.")
+
+
 def test_an_action_calls_only_its_plugins_apis(tmp_path: Path) -> None:
     result = make(
         tmp_path, ACTION + USES.replace("fold:", "folds:"), files={"plugin.yaml": PLUGIN + API}

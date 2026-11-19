@@ -21,6 +21,7 @@ from iki_cli.fetch import FetchError, fetch
 from iki_cli.plugin import _missing_dependencies, write_problems
 from iki_codegen import REGISTRY
 from iki_codegen import build as build_apps
+from iki_codegen.build import with_hosts
 from iki_spec import compute as compute_spec
 from iki_spec import naming
 from iki_spec.lockfile import FILENAME, Lock, LockedPlugin, load_lock, lock_to_dict
@@ -174,7 +175,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         ):
             return 1
         settings = _settings(lock, fetched, err)
-        if settings is None:
+        if settings is None or not _setups_call_no_apis(fetched, settings, err):
             return 1
         compute = _compute(lock, fetched, err)
         if compute is None:
@@ -354,6 +355,37 @@ def _settings(lock: Lock, fetched: list[_Fetched], err: TextIO) -> dict[str, dic
             continue
         out[item.entry.name] = values
     return out if ok else None
+
+
+def _setups_call_no_apis(
+    fetched: list[_Fetched], settings: dict[str, dict[str, Any]], err: TextIO
+) -> bool:
+    """That no setup build downloads from an outside API's host, as the deployment's settings
+    give both (ADR 0141). A build belongs to the deployment, so there's no project to approve
+    the API for, nobody to consent to what's sent and no project to bill; and through the
+    egress proxy it would reach the API unrecorded, without its key. `iki plugin validate`
+    catches a plugin's own hosts; only here are hosts a setting gives, and other plugins'
+    APIs, known."""
+    plugins = [with_hosts(f.plugin, settings.get(f.entry.name, {})) for f in fetched if f.plugin]
+    apis = {api.host: api for p in plugins for api in p.apis.values() if api.host}
+    ok = True
+    for plugin in plugins:
+        for environment in plugin.environments.values():
+            for host in environment.setup_network:
+                api = apis.get(host)
+                if api is None:
+                    continue
+                ok = False
+                err.write(
+                    f"error: {plugin.name}'s {environment.name} setup downloads from {host}, "
+                    f"which is {api.qualified_name}'s host ({api.label}, an outside API). "
+                    "Setup builds can't call outside APIs: a build belongs to the deployment, "
+                    "so there's no project to approve it for and none to bill (ADR 0141).\n"
+                    "  hint: give the setting another host, or drop it from the setup's "
+                    "`network`: a setup downloads its data, such as a model's weights, from "
+                    "the host that serves the files.\n"
+                )
+    return ok
 
 
 def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.Compute | None:

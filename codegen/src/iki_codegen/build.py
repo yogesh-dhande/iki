@@ -102,15 +102,15 @@ def conflicts(plugins: Sequence[Plugin]) -> list[str]:
     return problems
 
 
-#: A host in an action's ``network`` that a setting gives.
+#: A host in an action's or a setup's ``network`` that a setting gives.
 SETTING_HOST = re.compile(r"\{settings\.([a-z][a-z0-9_]*)\}")
 
 
 def with_hosts(plugin: Plugin, values: Mapping[str, Any]) -> Plugin:
-    """`plugin` with each ``{settings.<name>}`` in its actions' ``network``, and as an outside
-    API's ``host`` (ADR 0130), replaced by the host the deployment set. A network entry left
-    unset is dropped: its runs reach nothing there. An API left unset has no host, and its
-    actions can't run until the deployment sets one."""
+    """`plugin` with each ``{settings.<name>}`` in its actions' ``network``, its setups'
+    ``network``, and as an outside API's ``host`` (ADR 0130), replaced by the host the
+    deployment set. A network entry left unset is dropped: its runs reach nothing there. An
+    API left unset has no host, and its actions can't run until the deployment sets one."""
 
     def host(entry: str) -> str:
         match = SETTING_HOST.fullmatch(entry)
@@ -136,7 +136,11 @@ def with_hosts(plugin: Plugin, values: Mapping[str, Any]) -> Plugin:
         )
         for name, action in plugin.actions.items()
     }
-    return dataclasses.replace(plugin, actions=actions, apis=apis)
+    environments = {
+        name: dataclasses.replace(environment, setup_network=hosts(environment.setup_network))
+        for name, environment in plugin.environments.items()
+    }
+    return dataclasses.replace(plugin, actions=actions, apis=apis, environments=environments)
 
 
 def _components(plugin: Plugin, source: Path | None, package: Path) -> None:

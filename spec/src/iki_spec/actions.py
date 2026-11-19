@@ -437,6 +437,7 @@ class _Rules:
                         (*path, "populated_by"),
                         hint="Add `setup: { script: setup/fill.sh }`.",
                     )
+        self.setup_network(env, source)
         if env.setup_script is not None:
             self.file(env.setup_script, source, ("setup", "script"))
             if not filled:
@@ -447,6 +448,28 @@ class _Rules:
                     ("setup",),
                     key=True,
                     severity=Severity.WARNING,
+                )
+
+    def setup_network(self, env: Environment, source: Document) -> None:
+        """The hosts a setup build downloads from. None may be an outside API's: a build
+        belongs to the deployment, so there's no project to approve the API for, nobody to
+        consent to what's sent, and no project to bill (ADR 0141)."""
+        apis = {api.host: api for api in self.plugin.apis.values() if api.host}
+        for index, host in enumerate(env.setup_network):
+            at: Path = ("setup", "network", index)
+            if host.startswith("{settings."):
+                self.network_setting(host.removeprefix("{settings.")[:-1], source, index, at)
+            api = apis.get(host)
+            if api is not None:
+                self.add(
+                    "setup-calls-api",
+                    f"`{host}` is {api.label}'s host, an outside API, and setup builds can't "
+                    "call outside APIs: a build belongs to the deployment, so there's no "
+                    "project to approve it for and none to bill (ADR 0141).",
+                    source,
+                    at,
+                    hint="Drop it. A setup downloads its data, such as a model's weights, "
+                    "from the host that serves the files.",
                 )
 
     # Actions ------------------------------------------------------------------------------------
@@ -834,15 +857,18 @@ class _Rules:
                 hint="Drop `deterministic`, unless what it fetches is pinned by version.",
             )
 
-    def network_setting(self, name: str, source: Document, index: int) -> None:
+    def network_setting(
+        self, name: str, source: Document, index: int, path: Path | None = None
+    ) -> None:
         """A host in `network` the deployment gives: a plugin setting that holds a hostname."""
+        at: Path = path or ("network", index)
         setting = self.plugin.settings.get(name)
         if setting is None:
             self.add(
                 "network-unknown-setting",
                 f"The plugin has no setting `{name}`.",
                 source,
-                ("network", index),
+                at,
                 hint=schemas._did_you_mean(name, list(self.plugin.settings))
                 or "Declare it under `settings:` in plugin.yaml, with `format: hostname`.",
             )
@@ -851,7 +877,7 @@ class _Rules:
                 "network-setting-not-hostname",
                 f"`{name}` isn't a host name, so a run can't reach it.",
                 source,
-                ("network", index),
+                at,
                 hint=f"Give `{name}` `type: string` and `format: hostname`.",
             )
 
