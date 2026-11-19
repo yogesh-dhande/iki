@@ -25,8 +25,12 @@ plugins:
   - { name: acme/dna, local: ../plugins/dna, state: active, settings: settings/dna.yaml }
   - { name: acme/protein, local: ../plugins/protein, state: active }
 EOF
-uv run --frozen iki deploy build "$work/deployment" --output "$work/server" \
-  --workers "$work/worker" --allow-local
+# A config checkout can generate its worker bundle with private file modes.
+(
+  umask 077
+  uv run --frozen iki deploy build "$work/deployment" --output "$work/server" \
+    --workers "$work/worker" --allow-local
+)
 docker build -f deploy/worker.Dockerfile --build-arg IKI_WORKER_IMAGE="$base" \
   -t iki-worker-deployment:ci "$work/worker"
 
@@ -40,7 +44,7 @@ echo "ok: micromamba for conda environments"
 prefix=/opt/iki/envs/acme__protein/protein-tools
 check "test \"\$($prefix/bin/python -c 'import sys; print(sys.prefix)')\" = $prefix"
 echo "ok: acme/protein.protein-tools is built, with its own Python"
-check 'test -f /opt/iki/plugins/plugins.json && test -f /opt/iki/plugins/acme__protein/scripts/properties.py'
+check 'cat /opt/iki/plugins/plugins.json /opt/iki/plugins/acme__protein/scripts/properties.py >/dev/null'
 echo "ok: the plugins' code and plugins.json"
 if check 'touch /opt/iki/plugins/x || touch /opt/iki/envs/x' 2>/dev/null; then
   echo "FAIL: the worker can change plugin code or environments" >&2
