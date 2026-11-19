@@ -1,8 +1,9 @@
 /**
- * A project's entities, as a grid: one type's fields as columns, or every
+ * A project's records, as a grid: one type's fields as columns, or every
  * type's IDs. Rows are drawn only as they scroll into view, and more are
  * fetched before the end is reached, so a project of a million entities
- * scrolls like one of ten.
+ * scrolls like one of ten. The Entities tab shows all of them; the Requests
+ * tab (ADR 0132) the same grid, held to its requests by fixed conditions.
  */
 
 import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -25,10 +26,11 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
-import type { Showing } from "../entities";
-import { filterable, HRID, sortable, UPDATED, type Filter } from "../filters";
+import type { EntitySearch, Showing } from "../entities";
+import { filterable, HRID, sentToField, sortable, UPDATED, type Filter } from "../filters";
 import { problemOf } from "../api";
 import { usePageTitle } from "../layout";
+import { sentToQuery } from "../requests";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
 import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-filters";
 import { MAX_BATCH } from "../runs";
@@ -92,7 +94,19 @@ function Tick({
   );
 }
 
-function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[] {
+/** Which of a request's sides (ADR 0132) a grid shows as columns. */
+export interface SideColumns {
+  /** Show them even without a type: a grid of requests of any type. */
+  always?: boolean;
+  /** Leave out one: "asked_by" or "sent_to", which a grid's fixed conditions already say. */
+  omit?: string;
+}
+
+function columnsFor(
+  type: EntityType | undefined,
+  types: EntityType[],
+  shown: SideColumns = {},
+): Column[] {
   const id: Column = {
     key: "hrid",
     label: "ID",
@@ -109,6 +123,24 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
     label: "Type",
     cell: (e) => typeLabel(types, e.type),
   };
+  // A request between projects (ADR 0132): who asked, and the service it went to.
+  const sides: Column[] = (
+    type?.request || shown.always
+      ? [
+          {
+            key: "asked_by",
+            label: "Asked by",
+            cell: (e: Entity) => e.request?.asking_project?.name ?? "",
+          },
+          {
+            key: "sent_to",
+            label: "Sent to",
+            cell: (e: Entity) =>
+              e.request?.service?.name ?? <span className="muted">Not sent yet</span>,
+          },
+        ]
+      : []
+  ).filter((c) => c.key !== shown.omit);
   const updated: Column = {
     key: "updated",
     label: "Last changed",
@@ -121,7 +153,7 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
       label: "Title",
       cell: (e) => (e.title === e.hrid ? "" : e.title),
     };
-    return [id, kind, name, updated];
+    return [id, kind, name, ...sides, updated];
   }
   const fields: Column[] = type.fields.map((f: FieldDef) => ({
     key: `field:${f.name}`,
@@ -157,7 +189,7 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
   // A record's state fields (ADR 0125), beside its ID: the first thing a lab asks of it.
   const states = fields.filter((_, index) => type.fields[index]?.type === "state");
   const rest = fields.filter((_, index) => type.fields[index]?.type !== "state");
-  return [id, ...(type.subtypes.length ? [kind] : []), ...states, ...rest, updated];
+  return [id, ...(type.subtypes.length ? [kind] : []), ...sides, ...states, ...rest, updated];
 }
 
 function unitOf(field: FieldDef): string {
@@ -167,16 +199,92 @@ function unitOf(field: FieldDef): string {
   return field.unit_symbol ?? field.unit ?? "";
 }
 
+/** The project's entities: every type, its collections and saved searches. */
 export function ProjectEntities() {
   const project = useProject();
   const search = useSearch({ from: "/projects/$slug/entities" });
   const navigate = useNavigate({ from: "/projects/$slug/entities" });
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === search.type);
-  const show = search.show ?? "current";
   usePageTitle(`${type ? type.label_plural : "Entities"} · ${project.name}`);
+  // Requests (ADR 0132) are found by the service they were sent to: this project, as a
+  // service, or one it sent requests to.
+  const sentTo = useQuery({ ...sentToQuery(project.id), enabled: project.can.read }).data ?? [];
+  const requests = type ? Boolean(type.request) : types.some((t) => t.request);
+  return (
+    <EntityGrid
+      project={project}
+      types={types}
+      search={search}
+      change={(update, replace) => {
+        void navigate({ search: update, ...(replace ? { replace } : {}) });
+      }}
+      extra={requests ? [sentToField([project, ...sentTo.filter((p) => p.id !== project.id)])] : []}
+      library
+    />
+  );
+}
 
-  const fields = filterable(type);
+/** What a grid is of, besides the project: its fixed conditions and the types it offers. */
+export interface GridScope {
+  /** Conditions every search adds, which its filters don't show: a service's queue, say. */
+  fixed?: Filter[];
+  /** The types it offers, each with its subtypes; all of them if not given. */
+  choices?: EntityType[];
+  /** What it calls its records without a type: "entity" and "entities" if not given. */
+  noun?: { one: string; many: string };
+  /** Built-in fields it filters by besides the type's: the service a request went to. */
+  extra?: FieldDef[];
+  /** A request's sides (ADR 0132), as columns. */
+  sides?: SideColumns;
+  /** What it says with nothing to show: `narrowed` when a search or filter found none. */
+  empty?: (narrowed: boolean) => string;
+  /** The project's library: its collections, saved searches and new entities. */
+  library?: boolean;
+  /** Offer making a new record of its type. */
+  making?: boolean;
+}
+
+/**
+ * A grid of a project's records, from the search in its page's address (`search`), which
+ * it changes with `change`. The Entities tab shows everything; the Requests tab (ADR 0132)
+ * a service's queue, or the requests a project sent, each through `fixed` conditions.
+ */
+export function EntityGrid({
+  project,
+  types,
+  search,
+  change,
+  fixed = [],
+  choices = types,
+  noun: plural = { one: "entity", many: "entities" },
+  extra = [],
+  sides,
+  empty,
+  library = false,
+  making = library,
+}: GridScope & {
+  project: Project;
+  types: EntityType[];
+  search: EntitySearch;
+  change: (update: (prev: EntitySearch) => EntitySearch, replace?: boolean) => void;
+}) {
+  const navigate = ({
+    search: update,
+    replace,
+  }: {
+    search: (prev: EntitySearch) => EntitySearch;
+    replace?: boolean;
+  }) => {
+    change(update, replace);
+  };
+  // With one type to offer, it's that type's grid.
+  const only = choices.length === 1 ? choices[0] : undefined;
+  const offered = new Set(choices.flatMap((t) => [t.name, ...t.subtypes]));
+  const type = types.find((t) => t.name === search.type && offered.has(t.name)) ?? only;
+  const show = search.show ?? "current";
+
+  const fields = filterable(type, extra);
   const filters = search.filters ?? [];
   const sort = fields.some((f) => f.name === search.sort && sortable(f)) ? search.sort : undefined;
   const narrowed = Boolean(search.q) || filters.length > 0;
@@ -187,10 +295,10 @@ export function ProjectEntities() {
     type: type?.name,
     archived: show === "all" ? undefined : show === "archived",
     q: search.q,
-    filters,
+    filters: [...fixed, ...filters],
     sort,
     descending: sort ? search.desc : undefined,
-    collection: search.collection,
+    collection: library ? search.collection : undefined,
   };
   // Plugins' components that show this type's results another way (ADR 0117).
   const components = useQuery(componentsQuery).data ?? [];
@@ -198,13 +306,13 @@ export function ProjectEntities() {
   const shownAs = views.find((v) => v.component.name === search.view);
   const list = useInfiniteQuery({ ...entitiesQuery(filter), enabled: !shownAs });
   const applyFilters = (next: Filter[]) => {
-    void navigate({
+    navigate({
       search: (prev) => ({ ...prev, filters: next.length ? next : undefined }),
       replace: true,
     });
   };
   const sortBy = (field: string, direction: Direction) => {
-    void navigate({
+    navigate({
       search: (prev) => ({
         ...prev,
         sort: direction === "none" ? undefined : field,
@@ -266,7 +374,7 @@ export function ProjectEntities() {
       />
     ),
   };
-  const columns = [...(selectable ? [select] : []), ...columnsFor(type, types)];
+  const columns = [...(selectable ? [select] : []), ...columnsFor(type, types, sides)];
 
   const scroller = useRef<HTMLDivElement>(null);
   // TanStack Virtual hands back functions that read its live state, so the React Compiler
@@ -290,10 +398,11 @@ export function ProjectEntities() {
   const captionId = useId();
   const template = columns.map((c) => c.width ?? "minmax(9rem, 1fr)").join(" ");
   const minWidth = `${String(columns.filter((c) => !c.width).length * 9 + (selectable ? 2.75 : 0))}rem`;
+  // The types it offers and their subtypes, an abstract one as any of its kinds.
   const typeOptions = [
-    { value: "", label: "All types" },
+    { value: "", label: `All ${plural.many}` },
     ...types
-      .filter((t) => !t.abstract || t.subtypes.length)
+      .filter((t) => offered.has(t.name) && (!t.abstract || t.subtypes.length))
       .map((t) => ({ value: t.name, label: t.abstract ? `${t.label} (any kind)` : t.label }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
@@ -302,28 +411,31 @@ export function ProjectEntities() {
   const noun = type
     ? inSentence(one ? type.label : type.label_plural)
     : one
-      ? "entity"
-      : "entities";
+      ? plural.one
+      : plural.many;
+  const makeable = type && !type.abstract && !type.detached ? type : undefined;
 
   return (
     <>
       <div className="toolbar">
-        <SelectField
-          label="Type"
-          value={type?.name ?? ""}
-          options={typeOptions}
-          onChange={(value) => {
-            // Other types have other fields: their filters and sort don't carry over.
-            void navigate({
-              search: (prev) => ({
-                type: value || undefined,
-                show: prev.show,
-                q: prev.q,
-                collection: prev.collection,
-              }),
-            });
-          }}
-        />
+        {only ? null : (
+          <SelectField
+            label="Type"
+            value={type?.name ?? ""}
+            options={typeOptions}
+            onChange={(value) => {
+              // Other types have other fields: their filters and sort don't carry over.
+              navigate({
+                search: (prev) => ({
+                  type: value || undefined,
+                  show: prev.show,
+                  q: prev.q,
+                  collection: prev.collection,
+                }),
+              });
+            }}
+          />
+        )}
         <SelectField<Showing>
           label="Show"
           value={show}
@@ -333,7 +445,7 @@ export function ProjectEntities() {
             { value: "all", label: "Current and archived" },
           ]}
           onChange={(value) => {
-            void navigate({
+            navigate({
               search: (prev) => ({ ...prev, show: value === "current" ? undefined : value }),
             });
           }}
@@ -349,7 +461,7 @@ export function ProjectEntities() {
                 : "ID or name"
           }
           onSearch={(q) => {
-            void navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
+            navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
           }}
         />
         {views.length ? (
@@ -361,7 +473,7 @@ export function ProjectEntities() {
               ...views.map((v) => ({ value: v.component.name, label: v.label })),
             ]}
             onChange={(value) => {
-              void navigate({ search: (prev) => ({ ...prev, view: value || undefined }) });
+              navigate({ search: (prev) => ({ ...prev, view: value || undefined }) });
             }}
           />
         ) : null}
@@ -383,21 +495,21 @@ export function ProjectEntities() {
             </Link>
           </p>
         ) : null}
-        {project.can.edit && !project.archived && !search.collection ? (
+        {library && project.can.edit && !project.archived && !search.collection ? (
           <SaveAsCollection project={project} search={search} />
         ) : null}
-        {project.can.edit && !project.archived ? (
+        {making && project.can.edit && !project.archived && (library || makeable) ? (
           <Link
             to="/projects/$slug/entities/new/"
             params={{ slug: project.slug }}
-            search={type && !type.abstract && !type.detached ? { type: type.name } : {}}
+            search={makeable ? { type: makeable.name } : {}}
             className={`${buttonClass("primary")} toolbar-end`}
           >
-            New {type && !type.abstract && !type.detached ? inSentence(type.label) : "entity"}
+            New {makeable ? inSentence(makeable.label) : "entity"}
           </Link>
         ) : null}
       </div>
-      {search.collection ? (
+      {!library ? null : search.collection ? (
         <CollectionBanner reference={search.collection} project={project} />
       ) : (
         <SavedSearches project={project} search={search} />
@@ -427,13 +539,15 @@ export function ProjectEntities() {
       {!shownAs && list.isPending ? <Loading label="Loading entities…" /> : null}
       {!shownAs && list.isSuccess && rows.length === 0 ? (
         <p className="empty">
-          {search.collection
-            ? `No members you can read${narrowed || type ? " match" : ""}.`
-            : narrowed
-              ? `No ${type ? inSentence(type.label_plural) : "entities"} in this project match.`
-              : type
-                ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
-                : "No entities in this project yet."}
+          {empty
+            ? empty(narrowed || show !== "current")
+            : filter.collection
+              ? `No members you can read${narrowed || type ? " match" : ""}.`
+              : narrowed
+                ? `No ${type ? inSentence(type.label_plural) : "entities"} in this project match.`
+                : type
+                  ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
+                  : "No entities in this project yet."}
         </p>
       ) : null}
       {!shownAs && rows.length ? (

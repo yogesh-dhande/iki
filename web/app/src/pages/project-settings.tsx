@@ -20,6 +20,7 @@ import {
 } from "../ui";
 import { Exports } from "./project-exports";
 import { Imports } from "./project-imports";
+import { Intake } from "./project-intake";
 import { useProject } from "./project-overview";
 
 function usePatchProject(project: Project) {
@@ -54,6 +55,7 @@ export function ProjectSettings() {
           </p>
         </section>
         {project.can.change_registry ? <RegistrySetting project={project} /> : null}
+        {project.can.read ? <Intake project={project} /> : null}
       </div>
     );
   }
@@ -63,6 +65,7 @@ export function ProjectSettings() {
       <RegistrySetting project={project} />
       <Dashboard project={project} />
       <Sharing project={project} />
+      <Intake project={project} />
       {project.can.export ? <Exports project={project} /> : null}
       {project.can.import_bundles && !project.archived ? <Imports project={project} /> : null}
       {project.archived ? <Restore project={project} /> : <Archive project={project} />}

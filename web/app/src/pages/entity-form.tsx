@@ -51,6 +51,7 @@ import { usePageTitle } from "../layout";
 import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
 import { APP_TYPE } from "../apps";
 import { createdMessage } from "../registries";
+import { fieldLabels, isServiceField, writableFields } from "../requests";
 
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
@@ -86,8 +87,31 @@ function encodeAll(
   return { values, errors };
 }
 
+/** For a request between projects (ADR 0132), the fields the form leaves to the other side,
+ * and whose they are. */
+function otherSide(type: EntityType, entity?: Entity): string | null {
+  const sides = entity?.request;
+  const service = sides?.service_fields ?? type.request?.service_fields;
+  if (!service) return null;
+  const offered = new Set(writableFields(type, entity).map((f) => f.name));
+  const left = formFields(type).filter((f) => !offered.has(f.name));
+  if (!left.length) return null;
+  const labels = fieldLabels(
+    type,
+    left.map((f) => f.name),
+  );
+  const asker = sides?.asking_project?.name ?? "The project that asks";
+  if (!sides?.service) {
+    return `${labels} ${left.length === 1 ? "is" : "are"} for the service it’s sent to: it fills ${left.length === 1 ? "it" : "them"} in once it’s sent.`;
+  }
+  return sides.yours.includes("service")
+    ? `${labels} ${left.length === 1 ? "is" : "are"} ${asker}’s: its Editors change ${left.length === 1 ? "it" : "them"}.`
+    : `${labels} ${left.length === 1 ? "is" : "are"} ${sides.service.name}’s: it fills ${left.length === 1 ? "it" : "them"} in.`;
+}
+
 function Fields({
   type,
+  fields,
   types,
   drafts,
   setDraft,
@@ -96,15 +120,22 @@ function Fields({
   locked,
   projectId,
   creating = false,
+  others,
 }: {
   type: EntityType;
+  /** The fields to offer: for a request, only its reader's side's. */
+  fields: FieldDef[];
+  /** What the form leaves to someone else, and why. */
+  others?: string | null;
   types: EntityType[];
   drafts: Drafts;
   setDraft: (name: string, draft: Draft) => void;
   errors: Record<string, string>;
   notes: Record<string, string>;
   locked: Set<string>;
-  projectId: string;
+  /** The project a field's people and files are from: for a request's service fields (ADR
+   * 0132), the service's. */
+  projectId: string | ((field: FieldDef) => string);
   /** A new record's: its state fields start in their initial states. */
   creating?: boolean;
 }) {
@@ -115,7 +146,7 @@ function Fields({
   const keptFrom = [...new Set(kept.map((f) => f.plugin))].join(", ");
   return (
     <>
-      {formFields(type).map((field) => (
+      {fields.map((field) => (
         <FieldInput
           key={field.name}
           field={field}
@@ -128,7 +159,7 @@ function Fields({
           error={errors[`values/${field.name}`]}
           note={notes[field.name]}
           disabled={locked.has(field.name)}
-          projectId={projectId}
+          projectId={typeof projectId === "string" ? projectId : projectId(field)}
         />
       ))}
       {computed.length ? (
@@ -152,6 +183,7 @@ function Fields({
           {kept.length === 1 ? "it keeps its value" : "they keep their values"}.
         </p>
       ) : null}
+      {others ? <p className="muted">{others}</p> : null}
     </>
   );
 }
@@ -378,9 +410,10 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
   const form = useForm(create.error);
   const label = inSentence(type.label);
   const registers = type.identity.length > 0;
+  // A new request is its project's alone: the service's fields wait until it's sent.
+  const fields = writableFields(type);
 
   function send() {
-    const fields = formFields(type);
     const { values, errors } = encodeAll(type, fields, drafts);
     if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     // Blank fields are left out, so the type's defaults apply.
@@ -425,6 +458,14 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
         >
           <Fields
             type={type}
+            fields={fields}
+            others={
+              type.request
+                ? [otherSide(type), "Once it’s made, send it to a service from its page."]
+                    .filter(Boolean)
+                    .join(" ")
+                : null
+            }
             types={types}
             drafts={drafts}
             setDraft={(name, draft) => {
@@ -524,7 +565,8 @@ function EditEntityForm({
   const [reason, setReason] = useState("");
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [unchanged, setUnchanged] = useState(false);
-  const fields = formFields(type);
+  // For a request between projects (ADR 0132), only the reader's side's fields.
+  const fields = writableFields(type, opened);
   // Set once, or a registry entry's value: only its registrars change a fact (ADR 0115).
   const locked = new Set(
     fields
@@ -661,6 +703,8 @@ function EditEntityForm({
         <form {...form.props} onSubmit={submit}>
           <Fields
             type={type}
+            fields={fields}
+            others={otherSide(type, opened)}
             types={types}
             drafts={drafts}
             setDraft={(name, draft) => {
@@ -673,7 +717,12 @@ function EditEntityForm({
             })}
 
             locked={locked}
-            projectId={opened.owner_project?.id ?? ""}
+            projectId={(field) => {
+              const sides = opened.request;
+              return sides?.service && isServiceField(sides, field.name)
+                ? sides.service.id
+                : (opened.owner_project?.id ?? "");
+            }}
           />
           {hold ? (
             <HoldReason

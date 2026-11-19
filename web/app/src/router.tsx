@@ -28,6 +28,7 @@ import {
   validateNewEntitySearch,
 } from "./entities";
 import { validateLineageSearch } from "./lineage";
+import { validateRequestsSearch } from "./requests";
 import { validateWorkSearch, Work } from "./pages/work";
 import { entryQuery } from "./registries";
 
@@ -74,6 +75,10 @@ const ProjectMembers = lazyRouteComponent(
 const ProjectEntities = lazyRouteComponent(
   () => import("./pages/project-entities"),
   "ProjectEntities",
+);
+const ProjectRequestsPage = lazyRouteComponent(
+  () => import("./pages/project-requests"),
+  "ProjectRequestsPage",
 );
 const entityFormPages = () => import("./pages/entity-form");
 const runPages = () => import("./pages/runs");
@@ -222,6 +227,16 @@ const projectEntitiesRoute = createRoute({
   validateSearch: validateEntitySearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: ProjectEntities,
+});
+
+const projectRequestsRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "requests",
+  // ?side=received|sent: the requests sent to it as a service, or those it sent (ADR 0132);
+  // the rest as the entities grid's.
+  validateSearch: validateRequestsSearch,
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: ProjectRequestsPage,
 });
 
 const projectEntityNewRoute = createRoute({
@@ -516,6 +531,7 @@ const routeTree = rootRoute.addChildren([
       projectOverviewRoute,
       projectMembersRoute,
       projectEntitiesRoute,
+      projectRequestsRoute,
       projectEntityNewRoute,
       projectRunsRoute,
       projectRunNewRoute,

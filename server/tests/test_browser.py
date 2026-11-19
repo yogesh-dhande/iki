@@ -1828,8 +1828,13 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
     dialog = page.get_by_role("dialog", name="Lab roles for Viewer")
     qa = dialog.get_by_role("checkbox", name="QA", exact=True)
     qa.wait_for()
-    # What needs it, of each type that names it: here, the rules tests' batches, then these.
+    # What needs it, of each type that names it: here, the requests' types, the rules tests'
+    # batches, then these.
     needs = dialog.get_by_text("Needed to approve “Weigh” in Release, then weigh; ")
+    needs = needs.filter(
+        has_text="; to set Status to Submitted, Delivered or Declined on assay requests; to "
+        "set Review to Released on assay results; "
+    )
     needs.filter(
         has_text="to set Status to Open or Released on lots; to sign “QA approval” to set Status "
         "to Approved on lots; to sign “Responsibility” to set Status to Released on lots; to set "
@@ -1904,6 +1909,173 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     page.get_by_role("link", name="History").click()
     page.get_by_text("Status set to Reviewed, from In testing by Editor").wait_for()
     page.get_by_text("“Bench 4”").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
+def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
+    open_as: Any, world: World
+) -> None:
+    """Requests between projects (ADR 0132): a core facility's Admin chooses what it takes,
+    a project's Editor sends it an assay request with a sample, for good, and the core's
+    technician finds it in its queue and changes only the core's fields. Each card by its
+    heading, and by role, never by label (Firefox; see above)."""
+    from iki_server.entities import services as entities
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
+    for name, role in (("core_admin", ProjectRole.ADMIN), ("tech", ProjectRole.EDITOR)):
+        user = User.objects.create_user(f"{name}@example.com", name.replace("_", " ").title())
+        world.users[name] = user
+        ProjectMembership.objects.create(project=core, user=user, role=role)
+    editor = world.users["editor"]
+    LabRoleGrant.objects.create(
+        membership=world.project.memberships.get(user=editor),
+        role="acme/protein.analyst",
+        granted_by=world.users["admin"],
+    )
+    permissions.forget(editor)
+    lot = entities.create(editor, "acme/protein.Sample", world.project, {"label": "Lot 7"})
+    lot_hrid = Entity.objects.get(pk=lot.entity.pk).hrid
+    made = entities.create(
+        editor,
+        "acme/protein.AssayRequest",
+        world.project,
+        {"title": "Purity of the kinases", "samples": [str(lot.entity.pk)]},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+
+    # The core's Admin takes assay requests from every project in its registry.
+    page: Page = open_as("core_admin", f"/projects/{core.slug}/settings/")
+    heading = page.get_by_role("heading", name="Requests it takes")
+    heading.wait_for()
+    card = page.locator("section", has=heading)
+    card.get_by_role("checkbox", name="Assay request").check()
+    card.get_by_role("radio", name=re.compile("^Every project in the")).check()
+    assert_clean(page)
+    card.get_by_role("button", name="Save").click()
+    page.get_by_text(re.compile("^Protein Core takes assay requests from every project")).wait_for()
+    page.context.close()
+
+    # The asking project's Editor sends it, with its sample.
+    page = open_as("editor", f"/entities/{hrid}/")
+    heading = page.get_by_role("heading", name="Request", exact=True)
+    heading.wait_for()
+    card = page.locator("section", has=heading)
+    card.get_by_text("Not sent yet").wait_for()
+    card.get_by_role("link", name=lot_hrid).wait_for()
+    page.get_by_role("heading", name="The service’s values").wait_for()
+    assert_clean(page)
+    card.get_by_role("button", name="Send to a service…").click()
+    dialog = page.get_by_role("alertdialog", name=f"Send {hrid} to a service")
+    assert dialog.get_by_role("radio", name=re.compile("^Protein Core")).is_checked()
+    dialog.get_by_text("It can’t be taken back").wait_for()
+    assert_clean(page)
+    dialog.get_by_role("textbox", name=re.compile("^Reason")).fill("Q4 batch")
+    dialog.get_by_role("button", name="Send to Protein Core").click()
+    page.get_by_text(f"Sent {hrid} to Protein Core.").wait_for()
+    card.get_by_role("list", name="What it sent").get_by_role("link", name=lot_hrid).wait_for()
+    assert card.get_by_role("button", name="Send to a service…").count() == 0
+    page.get_by_role("heading", name="Protein Core’s values").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+    # The core's technician finds it in the core's queue, its Requests tab, with what it sent.
+    page = open_as("tech", f"/projects/{core.slug}/")
+    heading = page.get_by_role("heading", name="Requests", exact=True)
+    heading.wait_for()
+    assert_clean(page)
+    page.locator("section", has=heading).get_by_role(
+        "link", name="Requests sent to Protein Core"
+    ).click()
+    tabs = page.get_by_role("navigation", name="Project")
+    tab = tabs.get_by_role("link", name="Requests", exact=True)
+    tab.wait_for()
+    assert tab.get_attribute("aria-current") == "page"
+    assert tabs.get_by_role("link", name="Entities").get_attribute("aria-current") is None
+    grid = page.get_by_role("table", name="1 assay request", exact=True)
+    grid.get_by_role("link", name=hrid).wait_for()
+    assert_clean(page)
+    # By the project that asked: the core can't open it, but it's named.
+    page.get_by_role("button", name=re.compile("^Filters")).click()
+    filters = page.get_by_role("region", name="Filters")
+    filters.get_by_role("button", name="Add a filter").click()
+    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Asked by")
+    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Kinase Atlas")
+    grid = page.get_by_role("table", name="1 assay request match")
+    grid.get_by_role("link", name=hrid).wait_for()
+    assert_clean(page)
+    grid.get_by_role("link", name=hrid).click()
+    heading = page.get_by_role("heading", name="Request", exact=True)
+    heading.wait_for()
+    card = page.locator("section", has=heading)
+    card.get_by_role("list", name="What it sent").get_by_role("link", name=lot_hrid).wait_for()
+    assert_clean(page)
+    # It edits the core's fields alone.
+    page.get_by_role("link", name="Edit", exact=True).click()
+    page.get_by_role("combobox", name=re.compile("^Priority")).select_option("urgent")
+    assert page.get_by_role("textbox", name=re.compile("^Title")).count() == 0
+    page.get_by_text("are Kinase Atlas’s: its Editors change them.").wait_for()
+    assert_clean(page)
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text(f"Saved revision 2 of {hrid}.").wait_for()
+    # What it sent opens for the core: it can read it now.
+    card.get_by_role("list", name="What it sent").get_by_role("link", name=lot_hrid).click()
+    page.get_by_role("heading", name=lot_hrid, level=1).wait_for()
+    page.context.close()
+
+
+def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
+    open_as: Any, world: World
+) -> None:
+    """The asking side of requests (ADR 0132): a project's Requests tab lists the requests it
+    sent, each with its service and status, filtered by service. By role, never by label
+    (Firefox; see above)."""
+    from iki_server.entities import requests
+    from iki_server.entities import services as entities
+
+    core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
+    editor = world.users["editor"]
+    requests.set_intake(
+        core,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    sent = entities.create(
+        editor, "acme/protein.AssayRequest", world.project, {"title": "Purity of the kinases"}
+    )
+    request = Entity.objects.get(pk=sent.entity.pk)
+    requests.submit(editor, request, core, expected_revision=request.revision)
+    draft = entities.create(
+        editor, "acme/protein.AssayRequest", world.project, {"title": "Not sent yet"}
+    )
+    draft_hrid = Entity.objects.get(pk=draft.entity.pk).hrid
+
+    page: Page = open_as("editor", f"/projects/{world.project.slug}/")
+    tabs = page.get_by_role("navigation", name="Project")
+    tabs.get_by_role("link", name="Requests", exact=True).click()
+    tab = tabs.get_by_role("link", name="Requests", exact=True)
+    page.wait_for_url(re.compile(r"/requests/"))
+    assert tab.get_attribute("aria-current") == "page"
+    # Only what it sent: not the request it hasn't sent yet.
+    grid = page.get_by_role("table", name="1 assay request", exact=True)
+    row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=request.hrid))
+    row.get_by_role("cell", name="Protein Core", exact=True).wait_for()
+    row.get_by_role("cell", name="Submitted", exact=True).wait_for()
+    assert grid.get_by_role("link", name=draft_hrid).count() == 0
+    page.get_by_text(f"The requests {world.project.name} sent to services.").wait_for()
+    assert_clean(page)
+
+    page.get_by_role("button", name=re.compile("^Filters")).click()
+    filters = page.get_by_role("region", name="Filters")
+    filters.get_by_role("button", name="Add a filter").click()
+    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Sent to")
+    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Protein Core")
+    grid = page.get_by_role("table", name="1 assay request match")
+    grid.get_by_role("link", name=request.hrid).wait_for()
     assert_clean(page)
     page.context.close()
 

@@ -15,6 +15,7 @@ urlpatterns: list[URLPattern] = [
     path("projects/<slug:slug>/members/", app, name="project_members"),
     path("projects/<slug:slug>/entities/", app, name="project_entities"),
     path("projects/<slug:slug>/entities/new/", app, name="project_entity_new"),
+    path("projects/<slug:slug>/requests/", app, name="project_requests"),
     path("projects/<slug:slug>/runs/", app, name="project_runs"),
     path("projects/<slug:slug>/runs/new/", app, name="project_run_new"),
     path("projects/<slug:slug>/workflows/", app, name="project_workflows"),

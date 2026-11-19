@@ -96,7 +96,7 @@ It shows the parts of Iki such a plugin needs:
   facility to test samples of a protein. The project asking writes its
   title, samples, analyses, the date it needs them by, and instructions,
   then sends it to a core that takes analysis requests from it (a core's
-  Admins choose which projects, under Settings → Intake). It goes with its
+  Admins choose which projects, under Settings → Requests it takes). It goes with its
   samples and protein, and the core reads those and nothing else of the
   project's. The core writes only its own fields: `status` (Submitted,
   Accepted, In progress, Delivered or Declined), `priority`, `scheduled_on`,
@@ -104,7 +104,9 @@ It shows the parts of Iki such a plugin needs:
   the core's project; the project asking sets everything else, and its own
   `standing` (Open, or Withdrawn, with why). Neither side can write the
   other's, through the API, a run, an import or SQL. The core's queue is
-  every request sent to it, in its grid, search (`sent_to`) and My work.
+  its Requests tab ("Sent to us"), by status, assignee and the project that
+  asked, and on its people's My work; the project asking follows what it
+  sent there too ("We sent"), by status and core.
 - An **`AnalysisResult`** (`ANR-…`) is what the core measured, the core's
   own: its analyst records it as a Draft, a reviewer sets it Reviewed, and
   QA Released, signing for it (21 CFR Part 11). Released, it goes back to

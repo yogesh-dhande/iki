@@ -19,6 +19,8 @@ import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
 import { PluginSections } from "./plugin-sections";
 import { ProjectNotifications } from "./project-notifications";
+import { ProjectRequests } from "./project-intake";
+import { useRequestSides } from "../requests";
 import { Badge, Button, Loading, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
@@ -32,6 +34,7 @@ const tab = { "aria-current": "page" } as const;
 /** The project's heading and tabs, shared by its pages. */
 export function ProjectTabs() {
   const project = useProject();
+  const sides = useRequestSides(project);
   return (
     <>
       <PageHeader
@@ -60,6 +63,12 @@ export function ProjectTabs() {
         {project.can.read ? (
           <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
             Entities
+          </Link>
+        ) : null}
+        {/* For a service, or a project that asks one (ADR 0132). */}
+        {sides.received || sides.sent ? (
+          <Link to="/projects/$slug/requests/" params={{ slug: project.slug }} activeProps={tab}>
+            Requests
           </Link>
         ) : null}
         {project.can.read ? (
@@ -179,6 +188,8 @@ export function ProjectOverview() {
       ) : (
         <NotAMember project={project} />
       )}
+      {/* What it takes as a service, and its queue (ADR 0132). */}
+      {project.can.read ? <ProjectRequests project={project} /> : null}
       {/* What plugins' components find in the project (ADR 0117). */}
       {project.can.read ? <PluginSections kind="project.page" project={project} /> : null}
       {project.can.read ? <ProjectCosts project={project} /> : null}

@@ -125,14 +125,64 @@ const LINEAGE_FIELDS = new Map<string, "derived_from" | "used_for">([
   ["upstream", "used_for"],
 ]);
 
-/** What a grid can filter by: every entity's ID and times, its state fields (ADR 0125),
- * who it's assigned to, the type's other fields, how each was made, and its lineage. */
-export function filterable(type: EntityType | undefined): FieldDef[] {
+/** A built-in field naming a project, chosen from `projects` by ID, as the API takes it;
+ * each choice is labelled with its project's name, as a state field's are with their
+ * states'. `optional`: it may be unset, and offers "is set" and "is empty" too. */
+function projectField(
+  name: string,
+  label: string,
+  projects: readonly { id: string; name: string }[],
+  optional: boolean,
+): FieldDef {
+  return {
+    ...builtIn(name, label, "enum"),
+    required: !optional,
+    values: projects.map((p) => p.id),
+    states: projects.map((p) => ({
+      name: p.id,
+      label: p.name,
+      description: null,
+      set_by: [],
+      locks: false,
+      reason: null,
+      signatures: [],
+    })),
+  };
+}
+
+/** The service a request was sent to (ADR 0132), from `projects`: a service's queue is the
+ * requests sent to it. Unless `sent`, it may be unset: not sent yet. */
+export function sentToField(
+  projects: readonly { id: string; name: string }[],
+  sent = false,
+): FieldDef {
+  return projectField("sent_to", "Sent to", projects, !sent);
+}
+
+/** The project that asked for a request (ADR 0132), which owns it, from `projects`. */
+export function askedByField(projects: readonly { id: string; name: string }[]): FieldDef {
+  return projectField("owner_project", "Asked by", projects, false);
+}
+
+/** What a grid can filter by: every entity's ID and times, built-in fields it's given
+ * (`extra`, such as the service a request was sent to), its state fields (ADR 0125), who
+ * it's assigned to, the type's other fields, how each was made, and its lineage. */
+export function filterable(type: EntityType | undefined, extra: FieldDef[] = []): FieldDef[] {
   const fields = type?.fields ?? [];
   const states = fields.filter((f) => f.type === "state");
   const rest = fields.filter((f) => f.type !== "state");
   const assigned = fields.some((f) => f.assignment) ? [ASSIGNED, NEEDS_REASSIGNING] : [];
-  return [HRID, ...states.map(asEnum), ...assigned, ...rest, CREATED, UPDATED, MADE, LINEAGE];
+  return [
+    HRID,
+    ...extra,
+    ...states.map(asEnum),
+    ...assigned,
+    ...rest,
+    CREATED,
+    UPDATED,
+    MADE,
+    LINEAGE,
+  ];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
@@ -220,10 +270,15 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
   const presence: [Op, string][] =
     field.required || field.type === "making" || field.type === "lineage"
       ? []
-      : [
-          ["set", "is set"],
-          ["unset", "is empty"],
-        ];
+      : field.plugin === "iki/core" && field.name === "sent_to"
+        ? [
+            ["set", "is any service"],
+            ["unset", "is none: not sent yet"],
+          ]
+        : [
+            ["set", "is set"],
+            ["unset", "is empty"],
+          ];
   return [...own, ...presence].map(([value, label]) => ({ value, label }));
 }
 

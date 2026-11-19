@@ -48,6 +48,7 @@ import {
 
 import { entryRevisionQuery, entryRevisionsQuery, REGISTRY_MARK } from "../registries";
 import { usePageTitle } from "../layout";
+import { isServiceField } from "../requests";
 import { APP_TYPE, entityAppsQuery } from "../apps";
 import { VIEW_TYPE } from "../views";
 import { AppPanel, AppSpec } from "./app";
@@ -56,6 +57,7 @@ import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
 import { EntityHolds } from "./entity-holds";
 import { EntitySignatures } from "./entity-signatures";
+import { EntityRequest, ResultNote } from "./entity-request";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityWatch } from "./entity-watch";
@@ -905,6 +907,11 @@ export function EntityOverview() {
   const entryFields = entry ? fields.filter((f) => f.registry) : [];
   const own = entry ? fields.filter((f) => !f.registry) : fields;
   const project = entity.owner_project?.name ?? "This project";
+  // A request between projects (ADR 0132): the asking project's values, then the service's.
+  const sides = entity.request;
+  const asker = sides?.asking_project?.name ?? project;
+  const asked = sides ? own.filter((f) => !isServiceField(sides, f.name)) : own;
+  const served = sides ? own.filter((f) => isServiceField(sides, f.name)) : [];
   return (
     <>
       <EntityTabs entity={entity} type={type} />
@@ -925,6 +932,8 @@ export function EntityOverview() {
         </div>
       ) : null}
       {!entity.archived ? <EntityHolds entity={entity} /> : null}
+      {type?.result ? <ResultNote entity={entity} type={type} /> : null}
+      {type && sides ? <EntityRequest entity={entity} type={type} /> : null}
       {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
       {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
       <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />
@@ -947,15 +956,29 @@ export function EntityOverview() {
       ) : null}
       <section className="card" aria-labelledby="values-title">
         <h2 className="section-title" id="values-title">
-          {entry ? `${project}’s values` : "Values"}
+          {entry ? `${project}’s values` : sides ? `${asker}’s values` : "Values"}
         </h2>
         {entry ? (
           <p className="muted">
             {project}’s own record of {entry.hrid}. Other projects with it keep their own.
           </p>
         ) : null}
-        <ValueList fields={own} entity={entity} provenance={provenance} marks={false} />
+        <ValueList fields={asked} entity={entity} provenance={provenance} marks={false} />
       </section>
+      {/* A request's service fills in its own fields (ADR 0132). */}
+      {sides && served.length ? (
+        <section className="card" aria-labelledby="service-values-title">
+          <h2 className="section-title" id="service-values-title">
+            {sides.service ? `${sides.service.name}’s values` : "The service’s values"}
+          </h2>
+          <p className="muted">
+            {sides.service
+              ? `${sides.service.name}, the service it’s sent to, fills these in.`
+              : "The service it’s sent to fills these in, once it’s sent."}
+          </p>
+          <ValueList fields={served} entity={entity} provenance={provenance} marks={false} />
+        </section>
+      ) : null}
       {collection ? <CollectionMembers entity={entity} types={types} /> : null}
       {app ? <AppSpec app={entity} /> : null}
       <section className="card" aria-labelledby="details-title">
