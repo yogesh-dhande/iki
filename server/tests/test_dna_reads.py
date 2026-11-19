@@ -185,7 +185,7 @@ def test_a_trace_is_trimmed_aligned_and_its_difference_named(tmp_path: Path) -> 
     assert read_row == "." * 100 + "".join(read) + "." * 300
     assert texts(output)[:2] == [
         "The reads cover 101–300 of pTEST's 600 bases (33.3%). Not covered: 1–100, 301–600.",
-        f"Differences from DNA-000001: {PLASMID[150]}151{swapped} (clone1_M13F Q40).",
+        f"Differences from DNA-000001: g.151{PLASMID[150]}>{swapped} (clone1_M13F Q40).",
     ]
     assert output["metrics"] == {
         "reads": 1,
@@ -233,35 +233,53 @@ def test_reads_on_the_other_strand_with_gaps_are_named_in_the_references_numberi
         + "." * 200
     )
     differences = texts(output)[1]
-    assert f"{gone + 1}del{PLASMID[gone]} (rev1)" in differences
-    assert f"{added}_{added + 1}insT (rev1 Q40)" in differences
+    assert f"g.{gone + 1}del (rev1)" in differences
+    assert f"g.{added}_{added + 1}insT (rev1 Q40)" in differences
 
 
 @pytest.mark.parametrize(
-    ("reference", "at", "bases", "named"),
+    ("reference", "at", "bases", "circular", "named"),
     [
-        # An A inserted anywhere in AAA is a duplication of its last.
-        ("CGAAATC", 2, "A", "5dupA"),
-        ("CGAAATC", 5, "A", "5dupA"),
+        # HGVS (hgvs-nomenclature.org, DNA duplication and insertion): the 3' rule, and a
+        # duplication named without its bases (g.5dup, not g.5dupA). An A inserted anywhere
+        # in AAA is a duplication of its last.
+        ("CGAAATC", 2, "A", False, "g.5dup"),
+        ("CGAAATC", 5, "A", False, "g.5dup"),
         # Two bases repeating the two before them.
-        ("CGTATAC", 6, "TA", "5_6dup"),
-        # Inserted between two bases unlike it.
-        ("CGAAATC", 1, "T", "1_2insT"),
+        ("CGTATAC", 6, "TA", False, "g.5_6dup"),
+        # Inserted between two bases unlike it: the two adjacent places, then the bases.
+        ("CGAAATC", 1, "T", False, "g.1_2insT"),
+        # At a linear sequence's end: a copy of its last base is a duplication; anything
+        # else stays inside it, before the last base, not beyond it.
+        ("CCGA", 3, "A", False, "g.4dup"),
+        ("CCGA", 3, "AT", False, "g.3_4insAT"),
+        # A circular genomic reference is `o.` (HGVS's reference sequence types), and its
+        # first base follows its last: an A before the first after ...GA is a duplication
+        # of the first, the 3'-most A; a T there lies between the last and the first.
+        ("ACGA", 3, "A", True, "o.1dup"),
+        ("ACGA", 3, "A", False, "g.4dup"),
+        ("GACC", 0, "T", True, "o.4_1insT"),
     ],
 )
 def test_insertions_are_named_as_hgvs_names_them(
-    reference: str, at: int, bases: str, named: str
+    reference: str, at: int, bases: str, circular: bool, named: str
 ) -> None:
     reads = script()
-    assert reads.insertion(reference, at, bases) == named
+    assert reads.insertion(reference, at, bases, circular) == named
 
 
 def test_deletions_move_3_prime_in_repeated_bases() -> None:
     reads = script()
-    assert reads.deletion("CGAAATC", 2, 2) == "5delA"
+    # HGVS (DNA deletion): named without the bases deleted, g.5del, not g.5delA.
+    assert reads.deletion("CGAAATC", 2, 2) == "g.5del"
     # TA from TATA: the last two, 5 and 6.
-    assert reads.deletion("CGTATAC", 2, 3) == "5_6del"
-    assert reads.deletion("CGAAATC", 1, 1) == "2delG"
+    assert reads.deletion("CGTATAC", 2, 3) == "g.5_6del"
+    assert reads.deletion("CGAAATC", 1, 1) == "g.2del"
+    # On a circular reference, one with the last base and the first is named from the one
+    # to the other, as HGVS's deletion recommendation allows for o. and m.
+    assert reads.deletion("GACT", 3, 0, circular=True) == "o.4_1del"
+    # And it moves on round the origin: an A from the AA across it is the first.
+    assert reads.deletion("ACGA", 3, 3, circular=True) == "o.1del"
 
 
 def test_a_read_across_a_circular_references_origin_aligns_in_one_piece(tmp_path: Path) -> None:
@@ -293,6 +311,74 @@ def test_a_read_across_a_circular_references_origin_aligns_in_one_piece(tmp_path
     assert standard == PLASMID[:100] + "-" * 400 + PLASMID[-100:]
     assert header.endswith("; on DNA-000001 1–100, 501–600")
     assert texts(output)[-1].startswith("In alignment.fasta, the alignment's file, a read's `.`")
+
+
+#: pUC19 as GenBank L09137.2 has it (NCBI nuccore, fetched 2026-11-19, FASTA): 2,686 bases,
+#: circular (its LOCUS says so), from TCGCGCGTTT to ...CCCTTTCGTC.
+PUC19 = "".join((Path(__file__).parent / "data" / "L09137.2.fasta").read_text().splitlines()[1:])
+
+
+def test_differences_from_puc19_are_named_as_hgvs_names_them(tmp_path: Path) -> None:
+    """A read of pUC19's bases 151-450 with one change of each kind, each named by HGVS's
+    DNA recommendations (hgvs-nomenclature.org): `o.` for a plasmid, a circular genomic
+    reference; deletions and duplications without their bases; the 3' rule; and two changed
+    bases side by side as one deletion-insertion, not two substitutions."""
+    assert len(PUC19) == 2686
+    # The bases at the places changed, counting from 1, as the record has them.
+    assert PUC19[200] == "C"  # 201
+    assert PUC19[219:225] == "GAAAAT"  # 221-224 are AAAA
+    assert PUC19[250:252] == "CA"  # 251-252
+    assert PUC19[316:323] == "AGGGGGA"  # 318-322 are GGGGG
+    assert PUC19[395:401] == "GAATTC"  # 396-401, its EcoRI site
+    read = (
+        PUC19[150:200]
+        + "T"  # 201 C to T
+        + PUC19[201:220]
+        + PUC19[221:250]  # one of 221-224's As gone
+        + "TG"  # 251-252 CA to TG
+        + PUC19[252:322]
+        + "G"  # a sixth G after 318-322's five
+        + PUC19[322:400]
+        + "G"  # a G inside EcoRI's site, between its T (400) and C (401)
+        + PUC19[400:450]
+    )
+
+    _, output = run(
+        tmp_path, {"r1.fasta": f">r1\n{read}\n".encode()}, bases=PUC19, topology="circular"
+    )
+
+    assert output is not None
+    assert texts(output)[1] == (
+        "Differences from DNA-000001: o.201C>T (r1); o.224del (r1); o.251_252delinsTG (r1); "
+        "o.322dup (r1); o.400_401insG (r1)."
+    )
+    assert output["metrics"]["differences"] == 5
+
+
+def test_a_read_across_the_origin_lies_across_anothers_insertion_there(tmp_path: Path) -> None:
+    """Two reads round pUC19's origin, its last 35 bases and its first 35: one as the
+    plasmid has them, one with an A between its last base (2686, C) and its first (1, T).
+    The first reads on from 2686 to 1, so where the other has the A it has nothing, `-`,
+    which says the A isn't there; `.`, no observation, would hide that."""
+    plain = PUC19[-35:] + PUC19[:35]
+    extra = PUC19[-35:] + "A" + PUC19[:35]
+
+    _, output = run(
+        tmp_path,
+        {"ori.fasta": f">plain\n{plain}\n>extra\n{extra}\n".encode()},
+        bases=PUC19,
+        topology="circular",
+    )
+
+    assert output is not None
+    middle = "." * (2686 - 70)
+    assert [row for _, row in rows(tmp_path)] == [
+        "-" + PUC19,
+        "-" + PUC19[:35] + middle + PUC19[-35:],
+        "A" + PUC19[:35] + middle + PUC19[-35:],
+    ]
+    # HGVS's insertion takes two adjacent places, and on a circle the last and the first are.
+    assert texts(output)[1] == "Differences from DNA-000001: o.2686_1insA (extra)."
 
 
 def test_uncalled_bases_cover_nothing_and_hide_no_difference(tmp_path: Path) -> None:
@@ -338,7 +424,7 @@ def test_an_ambiguous_read_base_that_cant_be_the_references_is_a_difference(
 
     assert output is not None
     assert texts(output)[1:3] == [
-        "Differences from DNA-000001: R31Y (disjoint).",
+        "Differences from DNA-000001: g.31R>Y (disjoint).",
         "Where DNA-000001 is ambiguous, the reads have: R31A (resolving).",
     ]
 

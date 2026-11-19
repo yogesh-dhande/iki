@@ -11,6 +11,15 @@ kinds; D1.3's heavy chain is a mouse's; lysozyme has no antibody domain. `long_h
 trastuzumab's VH with three residues more in CDR-H1, which Kabat's numbering puts at H35A
 to H35C. cAb-Lys3 is a camel VHH (PDB 1MEL, chain A, with its tag) whose four cysteines
 make two disulphides, the conserved one and one from CDR1 to CDR3.
+
+The long CDR-H3s are PDB entries' heavy chains, their variable domains as RCSB's FASTA
+gives them (rcsb.org/fasta/entry, fetched 2026-11-19), to the end of FR4 (VTVSS): bovine
+BLV1H12's (PDB 4K3D, chain H; Wang et al., Cell 153:1379, 2013), whose CDR-H3 is 63
+residues by IMGT's definition, between Cys104 and Trp118 (61 by Kabat's); bovine B11's
+(PDB 5IHU, chain H; Stanfield et al., Sci Immunol 1:aaf7962, 2016), 65 by IMGT's, as many as
+ANARCI numbers with one letter for each insertion (A to Z either side of the loop's top,
+then AA); and human PG9's (PDB 3U4E, chain
+H; McLellan et al., Nature 480:336, 2011), 30 by IMGT's, 28 by Kabat's.
 """
 
 import json
@@ -47,6 +56,19 @@ SEQUENCES = {
     "cab_lys3": (
         "DVQLQASGGGSVQAGGSLRLSCAASGYTIGPYCMGWFRQAPGKEREGVAAINMGGGITYYADSVKGRFTISQDNAKNTVYLL"
         "MNSLEPEDTAIYYCAADSTIYASYYECGHGLSTGGYGYDSWGQGTQVTVSSGRYPYDVPDYGSGRA"
+    ),
+    "blv1h12": (
+        "QVQLRESGPSLVKPSQTLSLTCTASGFSLSDKAVGWVRQAPGKALEWLGSIDTGGNTGYNPGLKSRLSITKDNSKSQVSLSVSSV"
+        "TTEDSATYYCTSVHQETKKYQSCPDGYRERSDCSNRPACGTSDCCRVSVFGNCLTTLPVSYSYTYNYEWHVDVWGQGLLVTVSS"
+    ),
+    "b11": (
+        "QVQLRESGPSLVKPSQTLSLTCTASGFSLSDKAVGWVRQAPGKALEWLGSIDTGGTAGYNPGLKTRLSITKDNSKSQVSLTVSSV"
+        "ATEDSATYYCVTVYQKTTQKKNCPDDYTECYGGACDGTGCCSGSCGGASACRDWWPYRSICSSDNTYTYEFHVDAWGQGLLVTV"
+        "SS"
+    ),
+    "pg9": (
+        "QRLVESGGGVVQPGSSLRLSCAASGFDFSRQGMHWVRQAPGQGLEWVAFIKYDGSEKYHADSVWGRLSISRDNSKDTLYLQMNSL"
+        "RVEDTATYFCVREAGGPDYRNGYNYYDFYDGYYNYHYMDVWGKGTTVTVSS"
     ),
     "lysozyme": (
         "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"

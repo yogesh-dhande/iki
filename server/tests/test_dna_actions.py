@@ -47,7 +47,13 @@ def test_composition_counts_gc_among_bases_whose_pairing_is_known(tmp_path: Path
 @pytest.mark.parametrize(
     ("bases", "tm"),
     [
-        # As Biopython 1.85 gives them: Tm_NN with DNA_NN3, Na=50 mM, 50 nM primer, saltcorr=5.
+        # As Biopython 1.88 gives them: Tm_NN with DNA_NN3 (SantaLucia 1998), Na=50,
+        # saltcorr=5, and 50 nM of strands in all, SantaLucia's CT: dnac1=25, dnac2=25 (nM
+        # of each), and for GCGCGC, which pairs with itself, selfcomp=True, dnac1=50.
+        # By hand, from SantaLucia's table 2 for M13 reverse: ΔH -184.4 kcal/mol, ΔS
+        # -500.7 cal/K/mol, -526.06 at 50 mM Na+ (+0.368 x 23 x ln 0.05), so Tm =
+        # -184400 / (-526.06 + 1.987 ln(50e-9 / 4)) - 273.15 = 54.84 °C. At 50 nM of
+        # each strand (CT 100 nM) it would be 55.64.
         ("AGCGGATAACAATTTCACACAGGA", 54.8),  # M13 reverse
         ("GTAAAACGACGGCCAGT", 49.2),  # M13 forward (-20)
         ("TAATACGACTCACTATAGGG", 44.6),  # T7 promoter
@@ -397,6 +403,21 @@ def test_an_organism_keeps_ncbis_brackets(tmp_path: Path) -> None:
     assert output["messages"] == []
 
 
+def test_a_record_with_fewer_bases_than_its_locus_says_fails_the_import(tmp_path: Path) -> None:
+    """AB020730.1 again, its LOCUS line saying 1459 bp (NCBI's record has 1,459 bases: 24
+    full lines of 60, then 19). With one line of its ORIGIN gone but its `//` kept, it
+    would be registered under AB020730.1 as a sequence 60 bases short of it."""
+    text = (Path(__file__).parent / "data" / "AB020730.gb").read_text(encoding="utf-8")
+    line = next(x for x in text.splitlines(keepends=True) if x.startswith("      661 "))
+    result, output = imported(tmp_path, text.replace(line, ""))
+    assert result.returncode == 1
+    assert output is None  # nothing is half imported
+    assert result.stdout.splitlines()[-1] == (
+        "::error seqs.txt: Record 1 (AB020730) has 1399 bases, but its LOCUS line says it "
+        "has 1459: is its ORIGIN cut short?"
+    )
+
+
 @pytest.mark.parametrize(
     ("taxon", "name"),
     [
@@ -682,6 +703,11 @@ def test_a_few_records_go_in_output_json(tmp_path: Path) -> None:
         (
             GENBANK.replace("//\n", ""),
             "seqs.txt: Record 1 doesn't end with '//': is the file cut short?",
+        ),
+        (
+            GENBANK.replace("60 bp", "59 bp"),
+            "seqs.txt: Record 1 (pDemo) has 60 bases, but its LOCUS line says it has 59: "
+            "is its LOCUS line wrong?",
         ),
         # GenBank's ms-: mixed strands, which neither single nor double would say. As
         # either, it would be registered as another molecule.

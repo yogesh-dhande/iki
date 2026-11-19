@@ -24,9 +24,8 @@ RECORDED = Path(__file__).parent / "data" / "anarci.json"
 SEQUENCES: dict[str, str] = json.loads(RECORDED.read_text())["sequences"]
 EXTENSION = SCRIPT.parents[1] / "types" / "protein.yaml"
 #: What the extension says `variable_domains` holds, so the script's output is checked by it.
-DOMAINS = Draft202012Validator(
-    yaml.safe_load(EXTENSION.read_text())["fields"]["variable_domains"]["schema"]
-)
+FIELDS: dict[str, Any] = yaml.safe_load(EXTENSION.read_text())["fields"]
+DOMAINS = Draft202012Validator(FIELDS["variable_domains"]["schema"])
 
 FAKE = """\
 import json, os
@@ -97,6 +96,10 @@ def run(
     assert not list(schemas.check("run-output", output))
     for update in output["updates"]["protein"]:
         DOMAINS.validate(update["values"]["variable_domains"])
+        # Each value fits its field, or the server refuses the run's every update.
+        for name, value in update["values"].items():
+            if isinstance(value, str) and "max_length" in FIELDS[name]:
+                assert len(value) <= FIELDS[name]["max_length"], (name, len(value))
     return result, output
 
 
@@ -303,6 +306,110 @@ def test_a_vhh_and_a_lambda_chain(tmp_path: Path) -> None:
     # germline is what says its species.
     assert (lam["chain_type"], lam["species"], lam["cdr_l3"]) == ("lambda", "human", "SSYTSSSTLV")
     assert (lam["light_v_gene"], lam["light_germline_identity"]) == ("IGLV2-14*01", 100.0)
+
+
+def imgt_cdr3(sequence: str) -> str:
+    """CDR3-IMGT by its definition (Lefranc et al. 2003; IMGT's FR-IMGT and CDR-IMGT
+    definitions): positions 105-117, between the domain's second cysteine, Cys104 (of
+    FR3's YYC or YFC), and Trp118 (of FR4's WGQG or WGKG). Found here by those motifs,
+    not by ANARCI."""
+    cys = max(sequence.rfind("YYC"), sequence.rfind("YFC")) + 2
+    trp = max(sequence.find("WGQG"), sequence.find("WGKG"))
+    return sequence[cys + 1 : trp]
+
+
+def imgt_cdr3_numbers(length: int) -> list[str]:
+    """IMGT's numbers for a CDR3 of `length` over 13, in order along the chain: 105-111,
+    then the positions IMGT adds at the loop's top in the order 112.1, 111.1, 112.2, 111.2
+    and so on (IMGT's unique numbering for V domains), so 111.1 onwards, then 112.n down to
+    112.1, then 112-117. ANARCI writes 111.1 as 111A."""
+    extra = length - 13
+    top_112, top_111 = (extra + 1) // 2, extra // 2
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return (
+        [str(n) for n in range(105, 112)]
+        + [f"111{letters[i]}" for i in range(top_111)]
+        + [f"112{letters[i]}" for i in reversed(range(top_112))]
+        + [str(n) for n in range(112, 118)]
+    )
+
+
+def cdr3_numbers(values: dict[str, Any], low: int, high: int) -> list[str]:
+    (domain,) = values["variable_domains"]
+    return [f"{n}{code}" for n, code, _ in domain["numbering"] if low <= n <= high]
+
+
+def test_ultralong_cdr_h3s_are_numbered_and_kept_whole_in_imgts_scheme(tmp_path: Path) -> None:
+    """Bovine BLV1H12's CDR-H3 (PDB 4K3D) is 63 residues by IMGT's definition and B11's
+    (PDB 5IHU) 65, as long as natural ones go; human PG9's (PDB 3U4E) 30."""
+    chains = ("blv1h12", "b11", "pg9")
+    assert [len(imgt_cdr3(SEQUENCES[c])) for c in chains] == [63, 65, 30]
+    assert imgt_cdr3(SEQUENCES["blv1h12"]) == (
+        "TSVHQETKKYQSCPDGYRERSDCSNRPACGTSDCCRVSVFGNCLTTLPVSYSYTYNYEWHVDV"
+    )
+    _, output = run(tmp_path, [protein(i, SEQUENCES[c]) for i, c in enumerate(chains, 1)])
+
+    updates = output["updates"]["protein"]
+    assert [u["entity"][-1] for u in updates] == ["1", "2", "3"]
+    for chain, update in zip(chains, updates, strict=True):
+        values = update["values"]
+        assert values["chain_type"] == "heavy"
+        assert values["cdr_h3"] == imgt_cdr3(SEQUENCES[chain])
+        # Every residue is numbered, the CDR's by IMGT's rule for long ones: B11's 52
+        # more than 13 take 111A to 111Z and 112Z to 112A, every single letter.
+        assert cdr3_numbers(values, 105, 117) == imgt_cdr3_numbers(len(values["cdr_h3"]))
+        (domain,) = values["variable_domains"]
+        assert "".join(aa for _, _, aa in domain["numbering"]) == SEQUENCES[chain]
+    assert output["messages"] == []
+
+
+def test_a_cdr_too_long_for_kabats_numbering_leaves_its_chain_as_it_was(tmp_path: Path) -> None:
+    """Kabat's numbering puts a CDR-H3's insertions at H100 (H100A, H100B, ...): ANARCI
+    numbers PG9's 28 residues (H95-H102, by Kabat's definition) so, but not BLV1H12's 61,
+    for which it has too few insertion codes, and gives it no numbers at all. Saved without
+    them, BLV1H12 would be a heavy chain with no CDRs; it's left as it was, and PG9, in the
+    same run, is numbered."""
+    _, output = run(
+        tmp_path,
+        [protein(1, SEQUENCES["blv1h12"], "BLV1H12"), protein(2, SEQUENCES["pg9"])],
+        scheme="kabat",
+    )
+
+    (update,) = output["updates"]["protein"]
+    assert update["entity"][-1] == "2"
+    values = update["values"]
+    assert values["cdr_h3"] == imgt_cdr3(SEQUENCES["pg9"])[2:] == "EAGGPDYRNGYNYYDFYDGYYNYHYMDV"
+    assert cdr3_numbers(values, 95, 102) == (
+        [str(n) for n in range(95, 101)]
+        + [f"100{letter}" for letter in "ABCDEFGHIJKLMNOPQRST"]
+        + ["101", "102"]
+    )
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "BLV1H12 was left as it was: ANARCI found a heavy variable domain at "
+            "residues 1-169 but couldn't number it in the kabat scheme, which hasn't the "
+            "insertion codes for a CDR so long. The imgt scheme numbers longer ones.",
+            "entity": "00000000-0000-0000-0000-000000000001",
+        }
+    ]
+
+
+def test_a_cdr_definition_whose_numbering_cant_take_the_cdr_leaves_the_cdrs_empty(
+    tmp_path: Path,
+) -> None:
+    """Numbered in IMGT's scheme, BLV1H12 is a heavy chain; Kabat's CDRs are read in
+    Kabat's numbering, which ANARCI can't give it, so they're left empty, saying so."""
+    _, output = run(tmp_path, [protein(1, SEQUENCES["blv1h12"], "BLV1H12")], cdr_definition="kabat")
+
+    (update,) = output["updates"]["protein"]
+    assert update["values"]["chain_type"] == "heavy"
+    assert update["values"]["cdr_h3"] is None
+    assert "cdrs" not in update["values"]["variable_domains"][0]
+    assert [m["text"] for m in output["messages"]] == [
+        "BLV1H12: ANARCI couldn't number a domain in the kabat numbering Kabat's CDRs are "
+        "defined in, so its CDRs are left empty."
+    ]
 
 
 def test_a_protein_without_an_antibody_domain_is_left_as_it_was(tmp_path: Path) -> None:

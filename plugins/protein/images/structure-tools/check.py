@@ -14,12 +14,25 @@ mkdssp gives when it reads the PDB file itself, residue by residue (its classic 
 names each by chain, number and insertion code), and a residue SEQRES has but the file
 doesn't must be `?`.
 
+Then a deposited structure with sheets: green fluorescent protein, PDB 1EMA (Ormö et al.,
+Science 273:1392, 1996), an eleven-stranded beta-barrel round a central helix, as RCSB
+served its mmCIF (1EMA.cif.gz here, files.rcsb.org, 2026-11-19, its SHA-256 pinned; PDB
+data are CC0 1.0).
+Through the plugin, each residue's letter and accessibility must be mkdssp's own (its
+classic output, reading the file itself: ACC, in Å², which it rounds to whole ones), the
+shares and the summed surface must be what those residues give, and every residue of the
+eleven strands the depositors annotated (_struct_sheet_range) must be in a strand, and of
+their helices (_struct_conf) in a helix. The shares and surface are pinned too, so a new
+mkdssp that measures differently fails here first.
+
     docker run --rm -v "$PWD/plugins/protein/images/structure-tools:/check:ro" \
         -v "$PWD/plugins/protein/scripts:/scripts:ro" IMAGE python -I /check/check.py
 """
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 import math
 import subprocess
 import sys
@@ -29,6 +42,12 @@ from pathlib import Path
 import numpy as np
 
 LENGTH = 20
+GFP = Path(__file__).with_name("1EMA.cif.gz")
+GFP_SHA256 = "f0ee6a1440be2cfded2cd472b369a15e0bb19ed0973c17400628314a45daa0e4"
+#: What mkdssp 4.4 measures of 1EMA's chain A: 225 residues assigned (its authors' 2-229,
+#: but for the chromophore, CRO 66, which it leaves out), 117 in strands, 22 in helices,
+#: 10,331.7 Å² in all.
+GFP_MEASURED = {"helix_fraction": 9.8, "strand_fraction": 52.0, "accessible_surface_area": 10331.7}
 PHI, PSI, OMEGA = -57.8, -47.0, 180.0
 # Bond lengths (Å) and angles (degrees).
 N_CA, CA_C, C_N, C_O = 1.458, 1.525, 1.329, 1.231
@@ -178,6 +197,100 @@ def through_the_plugin(tmp: Path) -> list[str]:
     return said
 
 
+def deposited() -> str:
+    """GFP (1EMA) through the plugin, checked against mkdssp's own reading of it and the
+    secondary structure its depositors annotated."""
+    if hashlib.sha256(GFP.read_bytes()).hexdigest() != GFP_SHA256:
+        sys.exit(f"{GFP.name} isn't the file RCSB served: its SHA-256 differs.")
+    sys.path.insert(0, "/scripts")
+    import secondary
+    import structures
+
+    with tempfile.TemporaryDirectory() as tmp:
+        given = Path(tmp, "1EMA.cif")
+        given.write_bytes(gzip.decompress(GFP.read_bytes()))
+        entity = {"hrid": "PST-GFP", "values": {"chain_ids": ["A"]}}
+        values, notes = secondary.annotate(entity, {"path": str(given)}, Path(tmp))
+        (letters,) = values["secondary_structure"]
+        block = structures.gemmi.cif.read(str(given)).sole_block()
+        annotated = structures.gemmi.cif.read(str(Path(tmp, "PST-GFP-dssp.cif"))).sole_block()
+        by_author = classic_rows(given)
+        # mkdssp's classic output names residues by their authors' numbers: after the
+        # chromophore (CRO 66, for 65-67), 1EMA's run two ahead of their places.
+        polymer = structures.gemmi.read_structure(str(given))[0]["A"].get_polymer()
+        place = {(r.seqid.num, r.seqid.icode.strip()): r.label_seq for r in polymer}
+        theirs = {place[key]: found for key, found in by_author.items()}
+    # The plugin's file and its letters, by the residue's place in the sequence.
+    measured = {
+        int(r["label_seq_id"]): float(r["accessibility"])
+        for r in structures.rows(
+            annotated, "_dssp_struct_summary.", ["label_asym_id", "label_seq_id", "accessibility"]
+        )
+        if r["label_asym_id"] == "A"
+    }
+    if sorted(measured) != sorted(theirs):
+        sys.exit(f"1EMA: the plugin's residues {sorted(measured)} aren't mkdssp's {sorted(theirs)}")
+    for seq, (code, accessibility) in theirs.items():
+        if letters[seq - 1] != code or abs(measured[seq] - accessibility) > 0.5:
+            sys.exit(
+                f"1EMA residue {seq}: the plugin has {letters[seq - 1]} and {measured[seq]} Å², "
+                f"mkdssp {code} and {accessibility} Å²"
+            )
+    codes = [code for code, _ in theirs.values()]
+    expected = {
+        "helix_fraction": round(100 * sum(c in "HGI" for c in codes) / len(codes), 1),
+        "strand_fraction": round(100 * sum(c in "EB" for c in codes) / len(codes), 1),
+        "accessible_surface_area": round(sum(measured.values()), 1),
+    }
+    found = {k: values.get(k) for k in expected}
+    if found != expected or found != GFP_MEASURED or notes:
+        sys.exit(f"1EMA: the plugin gave {found} ({notes}), mkdssp's residues {expected}")
+    annotated_by_depositors = [
+        (
+            "strand",
+            "E",
+            structures.rows(
+                block, "_struct_sheet_range.", ["beg_label_seq_id", "end_label_seq_id"]
+            ),
+        ),
+        (
+            "helix",
+            "HGI",
+            structures.rows(block, "_struct_conf.", ["beg_label_seq_id", "end_label_seq_id"]),
+        ),
+    ]
+    for kind, allowed, ranges in annotated_by_depositors:
+        for r in ranges:
+            first, last = int(r["beg_label_seq_id"]), int(r["end_label_seq_id"])
+            if set(letters[first - 1 : last]) - set(allowed):
+                sys.exit(f"1EMA's {kind} {first}-{last} is {letters[first - 1 : last]!r}")
+    strands = len(annotated_by_depositors[0][2])
+    return (
+        f"GFP (1EMA): {found['strand_fraction']}% strand, {found['helix_fraction']}% helix, "
+        f"{found['accessible_surface_area']} Å², as mkdssp gives each residue; its "
+        f"{strands} deposited strands all E"
+    )
+
+
+def classic_rows(given: Path) -> dict[tuple[int, str], tuple[str, float]]:
+    """mkdssp's classic output of a file it reads itself: chain A's residues' letters (`-`
+    for none, as the plugin writes it) and accessibility (ACC), by their authors' numbers
+    and insertion codes."""
+    out = given.with_suffix(".dssp")
+    subprocess.run(  # noqa: S603 - mkdssp from the image, on a file made here
+        ["mkdssp", "--output-format", "dssp", str(given), str(out)],  # noqa: S607 - the image's
+        capture_output=True,
+        check=True,
+    )
+    lines = out.read_text(encoding="ascii").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("  #  RESIDUE"))
+    return {
+        (int(line[5:10]), line[10].strip()): (line[16].strip() or "-", float(line[34:38]))
+        for line in lines[start + 1 :]
+        if line[13] != "!" and line[11] == "A"
+    }
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         given = Path(tmp, "helix.pdb")
@@ -198,6 +311,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         for line in through_the_plugin(Path(tmp)):
             print(f"The plugin's DSSP of the helix as a PDB file {line}")
+    print(deposited())
 
 
 if __name__ == "__main__":

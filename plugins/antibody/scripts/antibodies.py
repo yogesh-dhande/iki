@@ -127,15 +127,24 @@ def _check_chains(
             "isotype are."
         )
     heavy_domains = _domains(heavy) or []
-    heavy_kinds = sorted({d["chain"] for d in heavy_domains})
-    wanted = {"vhh": ["H"], "scfv": ["H", "K/L"]}.get(form, ["H"])
-    kinds = ["K/L" if k in ("K", "L") else k for k in heavy_kinds]
-    if sorted(set(kinds)) != wanted or (form == "vhh" and len(heavy_domains) != 1):
-        what = {"vhh": "one heavy variable domain", "scfv": "a heavy and a light variable domain"}
+    # Each domain, counted: a tandem scFv's chain (blinatumomab's) has two heavy and two
+    # light domains, a DVD-Ig's heavy chain two heavy ones, and neither is these formats.
+    kinds = sorted("K/L" if d["chain"] in ("K", "L") else d["chain"] for d in heavy_domains)
+    wanted = ["H", "K/L"] if form == "scfv" else ["H"]
+    if kinds != wanted:
+        scfv = form == "scfv"
+        what = "a heavy and a light variable domain" if scfv else "one heavy variable domain"
+        found = ", ".join(d["chain"] for d in heavy_domains) or "none"
+        more = len(heavy_domains) > len(wanted)
         raise RefusedError(
-            f"The {'chain' if form in SINGLE else 'heavy chain'} of "
-            f"{_noun(form)} has {what.get(form, 'a heavy variable domain')}, and numbering "
-            f"found {', '.join(heavy_kinds) or 'none'} in {_label(heavy)}."
+            f"The {'chain' if form in SINGLE else 'heavy chain'} of {_noun(form)} has {what}, "
+            f"and numbering found {found} in {_label(heavy)}"
+            + (
+                ", in that order. A chain of more variable domains (a tandem scFv, a "
+                "DVD-Ig's) is format other."
+                if more
+                else "."
+            )
         )
     if light is not None:
         light_domains = _domains(light) or []
@@ -143,6 +152,12 @@ def _check_chains(
             raise RefusedError(
                 f"{_label(light)} isn't a light chain: numbering found "
                 f"{', '.join(sorted({d['chain'] for d in light_domains}))} domains in it."
+            )
+        if len(light_domains) > 1:
+            raise RefusedError(
+                f"{_label(light)} has {len(light_domains)} light variable domains, and the "
+                f"light chain of {_noun(form)} has one. A chain of more (a DVD-Ig's) is "
+                "format other."
             )
         light_after = _after(light, light_domains)
         if form in VARIABLE_ONLY and light_after >= CONSTANT_DOMAIN:

@@ -8,9 +8,11 @@ so nothing is half imported.
 GenBank records give their name, definition, accession and version, organism (by the
 NCBI Taxonomy ID in its main source feature: its entry is made the first time, ADR 0140),
 topology, strandedness (if LOCUS says ss-DNA or ds-DNA; ms-, mixed, fails the import) and
-features. A feature's location is kept as its first and last base and its strand, with its
-parts when it has several (`join(...)`, or `order(...)`, kept as its operator), lies between
-two bases (`5^6`), or has partial ends (`<1`, `>99`, kept on its parts); such locations
+features. Its ORIGIN must have as many bases as LOCUS says (`5028 bp`), or the import
+fails: a record missing a line of them would be another molecule under its accession. A
+feature's location is kept as its first and last base and its strand, with its parts when
+it has several (`join(...)`, or `order(...)`, kept as its operator), lies between two
+bases (`5^6`), or has partial ends (`<1`, `>99`, kept on its parts); such locations
 keep GenBank's own text in the `location` qualifier too. A record of several source
 features is of the one marked /focus or /transgenic, or else the one spanning it all; the
 others are kept as features. Features on other records (`J00194.1:100..202`) are left out,
@@ -249,6 +251,12 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
     named = " ".join(sections.get("VERSION", []) or sections.get("ACCESSION", [])).split()
     accession = named[0] if named else ""
     bases = clean_bases(label, "".join(origin))
+    declared = declared_length(locus[2:])
+    if declared is not None and declared != len(bases):
+        raise UnreadableError(
+            f"{label} has {len(bases)} bases, but its LOCUS line says it has {declared}: "
+            + ("is its ORIGIN cut short?" if len(bases) < declared else "is its LOCUS line wrong?")
+        )
     parsed = _parse_features(features)
     organism_line = _organism(sections.get("SOURCE", []))
     source = _primary_source(record, parsed, organism_line, len(bases))
@@ -281,6 +289,16 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
                 f"{source.taxon}."
             )
     return record
+
+
+def declared_length(locus: list[str]) -> int | None:
+    """How many bases LOCUS says the record has (`5028 bp`), if it says. GenBank gives it
+    for every record, and the ORIGIN must have that many: a record missing a line of its
+    bases would otherwise be registered, under its accession, as a molecule it isn't."""
+    for number, unit in itertools.pairwise(locus):
+        if unit == "bp" and number.isdigit():
+            return int(number)
+    return None
 
 
 #: LOCUS's molecule types (INSDC): DNA, RNA, or a kind of RNA, maybe with ss-, ds- or ms-.

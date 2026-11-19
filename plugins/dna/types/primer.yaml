@@ -32,7 +32,9 @@ fields:
     indexed: true
     description: >-
       Its melting temperature (Tm) by SantaLucia's nearest-neighbour model, at
-      50 mM Na+ and 50 nM primer, with no Mg2+ or dNTPs.
+      50 mM Na+ with no Mg2+ or dNTPs, and 50 nM of strands in all
+      (SantaLucia's CT): 25 nM each of the primer and its complement, or 50 nM
+      of a primer that pairs with itself.
   vendor: { type: string, max_length: 200 }
   order_number: { type: string, max_length: 100 }
 display:
