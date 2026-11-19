@@ -47,7 +47,7 @@ from iki_server.runs.models import (
     RunUpload,
 )
 from iki_server.runs.services import TIER_PERMISSIONS, is_a
-from iki_spec import schemas
+from iki_spec import outputs, schemas
 from iki_spec.model import Action, Creates, Software, action_from_dict
 
 __all__ = [
@@ -238,12 +238,34 @@ def _creates_file(check: Check, given: object) -> UUID | None:
     return file_id
 
 
-def pointer(*parts: object) -> str:
-    """A JSON pointer into the output, as problems name where they are."""
-    return "#/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in parts)
-
-
+pointer = outputs.pointer
 _pointer = pointer
+
+
+class _Installed:
+    """:class:`outputs.Types`, from the types this deployment has installed."""
+
+    def is_a(self, type_name: str, wanted: str) -> bool:
+        return is_a(type_name, wanted)
+
+    def ref_fields(self, type_name: str) -> frozenset[str]:
+        if type_name not in registry.types():
+            return frozenset()  # as its create then reports
+        return frozenset(
+            name
+            for name, f in shape(type_name).fields().items()
+            if f.type == "ref"
+            or (f.type == "list" and f.items is not None and f.items.type == "ref")
+        )
+
+    def fillable(self, type_name: str) -> tuple[frozenset[str], frozenset[str]] | None:
+        if type_name not in registry.types():
+            return None
+        form = shape(type_name)
+        return frozenset(identity_of(form.entity_type)), frozenset(form.entry_fields())
+
+
+INSTALLED = _Installed()
 
 
 # --- Checking against the action ---------------------------------------------------------------
@@ -385,18 +407,8 @@ def _creates(check: Check, given: list[Mapping[str, Any]]) -> list[_Create]:
     out: list[_Create] = []
     for index, item in enumerate(given):
         at = ("creates", index)
-        for name, key, where in created_refs(item):
-            if key not in keys:
-                check.error(
-                    _pointer(*at, "values", name, *where),
-                    f"No earlier create has the key {key!r}: a create can refer only to "
-                    "those before it.",
-                )
+        outputs.keys(item, at, keys, INSTALLED, check.error)
         create = _create(check, item, at, counts)
-        if "key" in item:
-            if item["key"] in keys:
-                check.error(_pointer(*at, "key"), f"Another create has the key {item['key']!r}.")
-            keys.add(item["key"])
         if create is not None:
             out.append(create)
     return out
@@ -405,36 +417,7 @@ def _creates(check: Check, given: list[Mapping[str, Any]]) -> list[_Create]:
 def created_refs(item: Mapping[str, Any]) -> list[tuple[str, str, tuple[int, ...]]]:
     """Each ``{"$create": key}`` in a create's ref fields (and lists of refs): (field, key,
     list index if any)."""
-    found: list[tuple[str, str, tuple[int, ...]]] = []
-    refs = _ref_fields(item.get("type"))
-    for name, value in (item.get("values") or {}).items():
-        if name not in refs:
-            continue
-        if _is_created_ref(value):
-            found.append((name, value["$create"], ()))
-        elif isinstance(value, list):
-            found.extend(
-                (name, v["$create"], (i,)) for i, v in enumerate(value) if _is_created_ref(v)
-            )
-    return found
-
-
-def _ref_fields(type_name: object) -> set[str]:
-    """Its type's ref fields and lists of refs; none if it isn't installed (as its create
-    then reports)."""
-    if not isinstance(type_name, str) or type_name not in registry.types():
-        return set()
-    return {
-        name
-        for name, f in shape(type_name).fields().items()
-        if f.type == "ref" or (f.type == "list" and f.items is not None and f.items.type == "ref")
-    }
-
-
-def _is_created_ref(value: object) -> bool:
-    return (
-        isinstance(value, dict) and set(value) == {"$create"} and isinstance(value["$create"], str)
-    )
+    return outputs.created_refs(item, INSTALLED)
 
 
 def check_line(
@@ -461,29 +444,10 @@ def _create(
     counts: dict[int, int] | None,
 ) -> _Create | None:
     """``counts``: how many of each declared effect so far; None for a creates file."""
-    found = next(
-        ((n, c) for n, c in enumerate(check.action.creates) if is_a(item["type"], c.type)),
-        None,
-    )
+    found = outputs.declared(check.action, item, at, counts, INSTALLED, check.error)
     if found is None:
-        allowed = ", ".join(c.type for c in check.action.creates) or "nothing"
-        check.error(
-            _pointer(*at, "type"),
-            f"The action doesn't declare that it creates {item['type']} (it creates: {allowed}).",
-        )
         return None
-    number, effect = found
-    if effect.cardinality == "one":
-        if counts is None:
-            check.error(
-                _pointer(*at),
-                f"The action creates at most one {effect.type} per run: give it in `creates`.",
-            )
-            return None
-        counts[number] = counts.get(number, 0) + 1
-        if counts[number] > 1:
-            check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
-            return None
+    _, effect = found
     if counts is None:
         if "key" in item:
             check.error(
@@ -501,7 +465,7 @@ def _create(
         _no_files(check, _pointer(*at), item["type"], item["values"])
     else:
         _check_files(check, _pointer(*at), item["type"], item["values"])
-    fills = _fills(check, at, item)
+    fills = outputs.fills(item, at, INSTALLED, check.error)
     parents = _parents(check, effect, item.get("derived_from"), at)
     origin = _origin(check, at, item["origin"]) if "origin" in item else None
     made_with = _made_with(check, at, item.get("made_with"))
@@ -518,30 +482,6 @@ def _create(
         made_with,
         fills,
     )
-
-
-def _fills(check: Check, at: tuple[object, ...], item: Mapping[str, Any]) -> frozenset[str]:
-    """The fields a create's ``fills`` names: each one of its values, and its entry's."""
-    names = frozenset(item.get("fills", ()))
-    if not names or item["type"] not in registry.types():
-        return names
-    form = shape(item["type"])
-    entry = form.entry_fields()
-    own = identity_of(form.entity_type)
-    for number, name in enumerate(item.get("fills", ())):
-        if name not in item["values"]:
-            check.error(_pointer(*at, "fills", number), f"It gives no value for `{name}`.")
-        elif name in own:
-            check.error(
-                _pointer(*at, "fills", number),
-                f"`{name}` is its identity, which an entry registered already has.",
-            )
-        elif name not in entry:
-            check.error(
-                _pointer(*at, "fills", number),
-                f"`{name}` isn't its registry entry's, so there's nothing to fill.",
-            )
-    return names
 
 
 def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:

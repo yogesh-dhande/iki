@@ -14,10 +14,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
-from iki_spec import action_tests, schemas
+from iki_spec import action_tests, outputs, schemas
 from iki_spec.action_tests import ActionTest
 from iki_spec.builtin import core_plugin
-from iki_spec.model import EntityType, Plugin
+from iki_spec.model import EntityType, Extension, Plugin
 
 #: How much of a failing command's log is shown.
 LOG_LINES = 20
@@ -107,9 +107,14 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         return 1
     plugin = result.plugin
     assert plugin is not None  # noqa: S101 - _load returns loaded plugins
-    types = _types(args.dependencies, err)
-    if types is None:
+    found = _types(args.dependencies, err)
+    if found is None:
         return 1
+    types, extensions = found
+    installed = outputs.SpecTypes(
+        {**types, **{t.qualified_name: t for t in plugin.types.values()}},
+        [*extensions, *plugin.extensions],
+    )
     loaded = action_tests.load_tests(directory, plugin, types)
     if not loaded.ok:
         sources = {p.file: directory / p.file for p in loaded.problems if p.file}
@@ -122,7 +127,7 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         worker = _worker(args.worker, err)
         if worker is None:
             return 1
-        failed = not _action_tests(tests, plugin, types, directory, worker, out)
+        failed = not _action_tests(tests, plugin, types, installed, directory, worker, out)
     elif not args.upgrade_from:
         matching = f" matching {args.select}" if args.select else ""
         out.write(
@@ -152,6 +157,7 @@ def _action_tests(
     tests: list[ActionTest],
     plugin: Plugin,
     types: dict[str, EntityType],
+    installed: outputs.Types,
     directory: Path,
     worker: Path,
     out: TextIO,
@@ -163,7 +169,7 @@ def _action_tests(
     failed = 0
     settings = _defaults(plugin)
     for test in tests:
-        took, problems, log = _run_one(test, plugin, types, directory, settings, worker)
+        took, problems, log = _run_one(test, plugin, types, installed, directory, settings, worker)
         mark = "ok    " if not problems else "FAILED"
         out.write(f"  {mark}  {test.name}  ({took:.1f}s)\n")
         if problems:
@@ -179,11 +185,16 @@ def _action_tests(
     return not failed
 
 
-def _types(dependencies: Sequence[Path], err: TextIO) -> dict[str, EntityType] | None:
-    """Every type the plugin can see: its dependencies' and the core plugin's."""
+def _types(
+    dependencies: Sequence[Path], err: TextIO
+) -> tuple[dict[str, EntityType], list[Extension]] | None:
+    """Every type the plugin can see, its dependencies' and the core plugin's, and their
+    extensions."""
     from iki_cli.plugin import _load
 
-    found = {t.qualified_name: t for t in core_plugin().types.values()}
+    core = core_plugin()
+    found = {t.qualified_name: t for t in core.types.values()}
+    extensions = list(core.extensions)
     for dependency in dependencies:
         others = [d for d in dependencies if d != dependency]
         result = _load(dependency, others, err)
@@ -191,7 +202,8 @@ def _types(dependencies: Sequence[Path], err: TextIO) -> dict[str, EntityType] |
             return None
         assert result.plugin is not None  # noqa: S101 - _load returns loaded plugins
         found.update({t.qualified_name: t for t in result.plugin.types.values()})
-    return found
+        extensions.extend(result.plugin.extensions)
+    return found, extensions
 
 
 def _worker(given: Path | None, err: TextIO) -> Path | None:
@@ -215,6 +227,7 @@ def _run_one(
     test: ActionTest,
     plugin: Plugin,
     types: dict[str, EntityType],
+    installed: outputs.Types,
     directory: Path,
     settings: dict[str, Any],
     worker: Path,
@@ -242,10 +255,12 @@ def _run_one(
         )
     took = time.monotonic() - started
     log = done.stderr.splitlines()
-    return took, _judge(test, done.returncode, done.stdout, log), log
+    return took, _judge(test, installed, done.returncode, done.stdout, log), log
 
 
-def _judge(test: ActionTest, code: int, stdout: str, log: list[str]) -> list[str]:
+def _judge(
+    test: ActionTest, installed: outputs.Types, code: int, stdout: str, log: list[str]
+) -> list[str]:
     if code == 2:
         return ["iki-worker couldn't run it (see its log)."]
     if code == 130:
@@ -271,7 +286,14 @@ def _judge(test: ActionTest, code: int, stdout: str, log: list[str]) -> list[str
         f"output.json: {issue.message}"
         for issue in schemas.check("run-output", _as_written(output))
     ]
+    well_formed = not problems
     problems += action_tests.effects(test.action, output)
+    if well_formed:
+        # As the server checks them, so a test fails where a real run's output is refused.
+        problems += [
+            f"output.json at {p.pointer}: {p.detail}"
+            for p in outputs.check_creates(test.action, output.get("creates") or [], installed)
+        ]
     if test.output is not None:
         problems += action_tests.compare(test.output, output, test.tolerance)
     return problems

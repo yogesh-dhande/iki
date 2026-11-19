@@ -1,14 +1,15 @@
 """A plugin's action tests (ADR 0093): fixtures checked against it, the run input made from
 each, and outputs compared with what they expect."""
 
+import dataclasses
 import shutil
 from pathlib import Path
 
 import pytest
 
-from iki_spec import action_tests
+from iki_spec import action_tests, outputs
 from iki_spec.builtin import core_plugin
-from iki_spec.model import EntityType, Plugin
+from iki_spec.model import Creates, EntityType, Plugin
 from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).parent / "plugins"
@@ -271,13 +272,46 @@ def test_outputs_may_change_only_what_the_action_declares(
         == []
     )
     assert action_tests.effects(
-        action,
-        {
-            "updates": {"protein": [{"values": {"sequence": "M"}}], "other": []},
-            "creates": [{"type": "acme/protein.Structure"}],
-        },
+        action, {"updates": {"protein": [{"values": {"sequence": "M"}}], "other": []}}
     ) == [
         "It sets sequence on protein, which compute_properties doesn't declare it updates.",
         "It updates other, which compute_properties doesn't declare it updates.",
-        "It creates a acme/protein.Structure, which compute_properties doesn't declare.",
+    ]
+
+
+def test_creates_are_checked_as_the_server_checks_them(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    """A subtype of a type the action creates is one it may create; `fills` names values
+    it gives of its registry entry's; keys are each used once, and referred to after."""
+    _, plugin, types = protein
+    every = outputs.SpecTypes(
+        {**types, **{t.qualified_name: t for t in plugin.types.values()}}, plugin.extensions
+    )
+    action = dataclasses.replace(
+        plugin.actions["fetch_proteins"],
+        creates=(Creates(type="acme/dna.Sequence", cardinality="many"),),
+    )
+    made = [
+        {
+            "type": "acme/protein.Protein",
+            "values": {"sequence": "MKV", "hazard": "bsl1"},
+            "fills": ["hazard"],
+            "key": "p",
+        },
+        {"type": "acme/dna.DNASequence", "values": {"bases": "ACGT"}, "fills": ["topology"]},
+        {"type": "acme/protein.Lot", "values": {}, "key": "p"},
+    ]
+    assert [(p.pointer, p.detail) for p in outputs.check_creates(action, made, every)] == [
+        ("#/creates/1/fills/0", "It gives no value for `topology`."),
+        ("#/creates/2/key", "Another create has the key 'p'."),
+        (
+            "#/creates/2/type",
+            "The action doesn't declare that it creates acme/protein.Lot (it creates: "
+            "acme/dna.Sequence).",
+        ),
+    ]
+    made[1]["values"] = {"bases": "ACGT", "topology": "linear"}
+    assert [p.detail for p in outputs.check_creates(action, made[:2], every)] == [
+        "`topology` isn't its registry entry's, so there's nothing to fill."
     ]

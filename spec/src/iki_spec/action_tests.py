@@ -527,7 +527,8 @@ def _with_ids(values: Any, file_ids: Mapping[str, str]) -> Any:  # noqa: ANN401 
 
 
 def effects(action: Action, output: Mapping[str, Any]) -> list[str]:
-    """What the output changes that its action doesn't declare, as the server would refuse."""
+    """What the output updates that its action doesn't declare, as the server would refuse.
+    What it creates is checked as the server checks it, by :mod:`iki_spec.outputs`."""
     out = []
     declared = {u.input: set(u.fields) for u in action.updates}
     for name, updates in (output.get("updates") or {}).items():
@@ -542,11 +543,6 @@ def effects(action: Action, output: Mapping[str, Any]) -> list[str]:
                     "declare it updates."
                 )
                 break
-    creates = {c.type for c in action.creates}
-    for made in output.get("creates") or ():
-        if made.get("type") not in creates:
-            out.append(f"It creates a {made.get('type')}, which {action.name} doesn't declare.")
-            break
     return out
 
 
