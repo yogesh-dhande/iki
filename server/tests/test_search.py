@@ -1,10 +1,12 @@
 """Searching entities: typed conditions, subtypes, sorting and keyset pages, and limits."""
 
+import re
 from typing import Any
 
 import pytest
 from api_client import Api, problem
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
 from test_api_entities import api_as, create
 
@@ -466,3 +468,34 @@ def test_text_searches_use_their_indexes(world: World, where: search.Search, ind
         cursor.execute(f"EXPLAIN {sql}", params)
         plan = "\n".join(row[0] for row in cursor.fetchall())
     assert index in plan, plan
+
+
+@pytest.mark.parametrize(
+    ("sort", "index"),
+    [
+        ({"sort": "hrid"}, "iki_entity_hrid_sorted"),
+        ({"sort": "hrid", "descending": True}, "iki_entity_hrid_sorted"),
+        ({"sort": "updated_at", "descending": True}, "iki_entity_updated"),
+    ],
+)
+def test_a_page_sorted_by_a_built_in_field_reads_it_in_order_from_an_index(
+    world: World, lab: dict[str, Any], sort: dict[str, Any], index: str
+) -> None:
+    """A page sorted by ID or by when they last changed reads a page's worth of a type's
+    entities in that order, however many there are (ADR 0103). A record shares its entry's
+    ID, so the index holds every entity's, not only the ones kept unique."""
+    wanted = search.Search(type="acme/protein.Protein", project=world.project.pk, **sort)
+    found = search.queryset(world.users["viewer"], wanted)
+    with CaptureQueriesContext(connection) as captured, search.time_limit():
+        rows, _ = search.page(found, wanted, None, 2)
+    assert rows
+    (sql,) = [q["sql"] for q in captured.captured_queries if "ORDER BY" in q["sql"]]
+    with connection.cursor() as cursor:
+        # Tables this small would be scanned and sorted: leave the planner only an order
+        # an index reads.
+        for kind in ("seqscan", "sort", "incremental_sort"):
+            cursor.execute(f"SET LOCAL enable_{kind} = off")
+        cursor.execute("EXPLAIN " + sql.replace("%", "%%"))
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+    assert index in plan, plan
+    assert not re.search(rf"Sort Key: .*\b{sort['sort']}\b", plan), plan
