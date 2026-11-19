@@ -7,8 +7,14 @@ from one tube at once take turns: the second sees what the first left. The datab
 refuses a balance below zero whatever writes it.
 
 Amounts are exact decimals in their type's unit. What's asked for in another unit is
-converted exactly (UCUM's factors are fractions), or through the record's concentration
-for a mass asked of a volume, or a volume of a mass, and rounded to 12 places.
+converted exactly (UCUM's factors are fractions), and refused if the record's 12 places
+can't hold it exactly (0.4 pL of a record kept in L would be 0 L), so both sides of a
+transfer are the same quantity. A mass asked of a volume, or a volume of a mass, goes
+through the record's concentration, rounded to 12 places, and is refused if that's 0.
+
+Pooling changes what a record holds, so a transfer into a record with a concentration
+sets it to what the pool's is: the solute of both over their volume, when the record it
+came from has a concentration too, and unknown when it hasn't.
 """
 
 from __future__ import annotations
@@ -118,7 +124,7 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
     target, source = units.parse(wanted.unit), units.parse(given.unit)
     exact = Fraction(given.value)
     if source.is_commensurable(target):
-        return _rounded(exact * source.factor / target.factor)
+        return _exactly(entity, wanted.unit, exact * source.factor / target.factor, given)
     if wanted.concentration is not None:
         if values is None:
             from iki_server.entities import services
@@ -135,10 +141,24 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
         ):
             per = units.parse(f.unit)
             concentration = Fraction(str(held_at)) * per.factor
+            through: Fraction | None = None
             if units.parse(f"({given.unit}).({f.unit})").is_commensurable(target):
-                return _rounded(exact * source.factor * concentration / target.factor)
-            if units.parse(f"({given.unit})/({f.unit})").is_commensurable(target):
-                return _rounded(exact * source.factor / concentration / target.factor)
+                through = exact * source.factor * concentration / target.factor
+            elif units.parse(f"({given.unit})/({f.unit})").is_commensurable(target):
+                through = exact * source.factor / concentration / target.factor
+            if through is not None:
+                value = _rounded(through)
+                if value == 0 and exact > 0:
+                    raise Wrong(
+                        {
+                            "amount": [
+                                f"is {shown(given.value)} {given.unit}, which at "
+                                f"{entity.hrid}'s {f.label.lower()} is less than the "
+                                f"{shown(_QUANTUM)} {wanted.unit} its amount is kept to."
+                            ]
+                        }
+                    )
+                return value
         if f is not None and f.unit is not None and not held_at:
             raise Wrong(
                 {
@@ -225,7 +245,20 @@ def transfer(
                     ]
                 }
             )
-        into = _rounded(Fraction(out) * here.factor / there.factor)
+        moved = Fraction(out) * here.factor / there.factor
+        into = _rounded(moved)
+        if Fraction(into) != moved:
+            raise Wrong(
+                {
+                    "amount": [
+                        f"is {shown(out)} {here.code} of {source.hrid}, which is "
+                        f"{_decimal(moved)} {there.code}: {target.hrid}'s amount, kept in "
+                        f"{there.code} to {PLACES} decimal places, can't hold that exactly, so "
+                        "neither was changed."
+                    ]
+                }
+            )
+        _pool(user, source, target, out, here, locked[target.pk], reason)
         operation = uuid7()
         sent = _change(
             user,
@@ -507,6 +540,142 @@ def _fields(entity_type: EntityType) -> dict[str, Any]:
     for t in reversed([entity_type, *registry.ancestors(entity_type)]):
         out.update(t.fields)
     return out
+
+
+def _pool(
+    user: User,
+    source: Entity,
+    target: Entity,
+    out: Decimal,
+    here: units.Unit,
+    amount: Amount,
+    reason: str,
+) -> None:
+    """Sets ``target``'s concentration to its pool's, as ``out`` (in ``here``) of
+    ``source`` is moved into it: the solute in both over the volume of both, which a
+    mass draw converts through. Unknown (empty) when ``source``'s concentration isn't
+    recorded, or the amounts can't be put in volumes; ``source``'s, into an empty one.
+    Refused if ``target`` can't take the change, such as when it's locked."""
+    from iki_server.entities import services
+    from iki_server.org.services import Refused
+
+    wanted = spec(target.type)
+    assert wanted is not None  # noqa: S101 - only records with an amount get here
+    if wanted.concentration is None:
+        return
+    field = _fields(registry.types()[target.type])[wanted.concentration]
+    assert field.unit is not None  # noqa: S101 - a concentration is a quantity
+    per = units.parse(field.unit)
+    values = services.current_values_of([target])[target.pk]
+    current = values.get(wanted.concentration)
+    theirs = _concentration(source, per)
+    held = _solution(Fraction(amount.value), units.parse(amount.unit), current, per)
+    added = _solution(Fraction(out), here, theirs, per)
+    pooled: float | None = None
+    if amount.value == 0:
+        pooled = theirs
+    elif held is not None and added is not None:
+        (volume, solute), (more, more_solute) = held, added
+        pooled = float((solute + more_solute) / (volume + more) / per.factor)
+    if pooled == current or (pooled is None and current is None):
+        return
+    unit = field.unit
+    if pooled is None:
+        why = (
+            f"Pooled with {shown(out)} {here.code} of {source.hrid}, whose "
+            f"{field.label.lower()} isn't recorded, so its own isn't known"
+        )
+    else:
+        why = (
+            f"Pooled with {shown(out)} {here.code} of {source.hrid} at {theirs:g} {unit}: "
+            f"{pooled:g} {unit}"
+        )
+    if reason.strip():
+        why = f"{why}. {reason.strip()}"
+    locked = Entity.objects.get(pk=target.pk)
+    try:
+        services.update(
+            user,
+            locked,
+            {wanted.concentration: None if pooled is None else {"value": pooled, "unit": unit}},
+            expected_revision=locked.revision,
+            reason=why,
+        )
+    except (Refused, Invalid) as error:
+        said = (
+            " ".join(m for ms in error.errors.values() for m in ms)
+            if isinstance(error, Invalid)
+            else str(error)
+        )
+        raise Wrong(
+            {
+                "to": [
+                    f"would change {target.hrid}'s {field.label.lower()} to "
+                    f"{'not known' if pooled is None else f'{pooled:g} {unit}'}, the pool's, "
+                    f"which it can't take: {said}"
+                ]
+            }
+        ) from None
+
+
+def _concentration(entity: Entity, per: units.Unit) -> float | None:
+    """``entity``'s concentration, in ``per``'s unit, if its type has one, it's recorded,
+    and it measures what ``per`` does."""
+    from iki_server.entities import services
+
+    wanted = spec(entity.type)
+    if wanted is None or wanted.concentration is None:
+        return None
+    field = _fields(registry.types()[entity.type]).get(wanted.concentration)
+    value = services.current_values_of([entity])[entity.pk].get(wanted.concentration)
+    if field is None or field.unit is None or not isinstance(value, int | float):
+        return None
+    theirs = units.parse(field.unit)
+    if not theirs.is_commensurable(per):
+        return None
+    return float(Fraction(str(value)) * theirs.factor / per.factor)
+
+
+_LITRE = units.parse("L")
+
+
+def _solution(
+    value: Fraction, unit: units.Unit, concentration: float | None, per: units.Unit
+) -> tuple[Fraction, Fraction] | None:
+    """An amount as its volume and its solute, in base units, at ``concentration`` (in
+    ``per``): None when they aren't known."""
+    if concentration is None:
+        return None
+    each = Fraction(str(concentration)) * per.factor
+    if unit.is_commensurable(_LITRE):
+        volume = value * unit.factor
+        return volume, volume * each
+    if each > 0 and units.parse(f"({per.code}).L").is_commensurable(unit):
+        solute = value * unit.factor
+        return solute / each, solute
+    return None
+
+
+def _exactly(entity: Entity, unit: str, exact: Fraction, given: Given) -> Decimal:
+    """``exact``, in ``entity``'s amount's ``unit``, refused if its 12 places can't hold it:
+    0.4 pL of a record kept in L would be 0 L, and 2.5 pL 2 pL."""
+    value = _rounded(exact)
+    if Fraction(value) != exact:
+        raise Wrong(
+            {
+                "amount": [
+                    f"is {shown(given.value)} {given.unit}, which is {_decimal(exact)} {unit}: "
+                    f"{entity.hrid}'s amount, kept in {unit} to {PLACES} decimal places, can't "
+                    "hold that exactly."
+                ]
+            }
+        )
+    return value
+
+
+def _decimal(exact: Fraction) -> str:
+    """An exact quantity as people read it, to the ledger's 80 digits."""
+    return shown(_EXACT.divide(Decimal(exact.numerator), Decimal(exact.denominator)))
 
 
 def _rounded(exact: Fraction) -> Decimal:

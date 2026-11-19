@@ -16,7 +16,7 @@ from test_states import roles, set_
 from iki_server.accounts.models import User
 from iki_server.amounts import services
 from iki_server.amounts.models import Amount, Movement
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
 
@@ -366,3 +366,163 @@ def test_two_people_drawing_at_once_take_turns(world: World) -> None:
         .order_by("created_at")
         .values_list("kind", "reason")
     ) == [("recorded", ""), ("drawn", "first")]
+
+
+def test_pooling_sets_the_concentration_to_the_pools(world: World) -> None:
+    api = api_as(world)
+    weak = sample(
+        world, "S-1", {"value": 1, "unit": "mL"}, concentration={"value": 1, "unit": "mg/mL"}
+    )
+    strong = sample(
+        world, "S-2", {"value": 1, "unit": "mL"}, concentration={"value": 3, "unit": "mg/mL"}
+    )
+    pooled = api.post(
+        f"/entities/{weak['hrid']}/amount/transfer",
+        {"to": strong["hrid"], "amount": {"value": 1, "unit": "mL"}, "reason": "Pooled"},
+    )
+    assert pooled.status_code == 200, pooled.content
+    # 1 mg and 3 mg in 2 mL: 2 mg/mL (IUPAC's mass concentration, solute over volume).
+    after = api.get(f"/entities/{strong['hrid']}").json()
+    assert after["values"]["concentration"] == 2
+    assert after["amount"]["value"] == "2000"
+    # Its revision says why, by whom.
+    revision = Revision.objects.filter(entity_id=strong["id"]).order_by("-number").first()
+    assert revision is not None
+    assert revision.changed_fields == ["concentration"]
+    assert revision.reason == f"Pooled with 1000 uL of {weak['hrid']} at 1 mg/mL: 2 mg/mL. Pooled"
+    assert revision.user_id == world.users["editor"].pk
+    # So a 1 mg draw is 500 uL of it, not the 333.33 uL its old 3 mg/mL would give.
+    drawn = api.post(
+        f"/entities/{strong['hrid']}/amount/draw", {"amount": {"value": 1, "unit": "mg"}}
+    )
+    assert drawn.status_code == 200, drawn.content
+    assert drawn.json()["movement"]["change"] == "-500"
+    # Topped up with a third of a millilitre of buffer, recorded at 0 mg/mL: diluted.
+    buffer = sample(
+        world, "B-1", {"value": 1, "unit": "mL"}, concentration={"value": 0, "unit": "mg/mL"}
+    )
+    topped = api.post(
+        f"/entities/{buffer['hrid']}/amount/transfer",
+        {"to": strong["hrid"], "amount": {"value": 500, "unit": "uL"}},
+    )
+    assert topped.status_code == 200, topped.content
+    # 3 mg in 2 mL: 1.5 mg/mL.
+    assert api.get(f"/entities/{strong['hrid']}").json()["values"]["concentration"] == 1.5
+    # Material whose concentration isn't recorded leaves the pool's unknown, so a mass
+    # isn't converted through the one it had.
+    unknown = sample(world, "S-3", {"value": 1, "unit": "mL"})
+    mixed = api.post(
+        f"/entities/{unknown['hrid']}/amount/transfer",
+        {"to": strong["hrid"], "amount": {"value": 100, "unit": "uL"}},
+    )
+    assert mixed.status_code == 200, mixed.content
+    assert api.get(f"/entities/{strong['hrid']}").json()["values"]["concentration"] is None
+    by_mass = api.post(
+        f"/entities/{strong['hrid']}/amount/draw", {"amount": {"value": 1, "unit": "mg"}}
+    )
+    assert errors(by_mass)["#/amount"].endswith("its concentration, which it hasn't got.")
+    # Into an empty one, it's what came in.
+    empty = sample(world, "S-4")
+    emptied = api.post(
+        f"/entities/{empty['hrid']}/amount/adjust",
+        {"amount": {"value": 0, "unit": "uL"}, "reason": "Empty tube"},
+    )
+    assert emptied.status_code == 200, emptied.content
+    filled = api.post(
+        f"/entities/{buffer['hrid']}/amount/transfer",
+        {"to": empty["hrid"], "amount": {"value": 100, "unit": "uL"}},
+    )
+    assert filled.status_code == 200, filled.content
+    assert api.get(f"/entities/{empty['hrid']}").json()["values"]["concentration"] == 0
+
+
+def test_pooling_into_a_locked_record_that_would_change_it_is_refused(world: World) -> None:
+    api = api_as(world)
+    source = sample(
+        world, "S-1", {"value": 1, "unit": "mL"}, concentration={"value": 1, "unit": "mg/mL"}
+    )
+    target = sample(
+        world, "S-2", {"value": 1, "unit": "mL"}, concentration={"value": 3, "unit": "mg/mL"}
+    )
+    roles(world, editor=("acme/protein.qa",))
+    set_(world, "editor", target["hrid"], "custody", "quarantined", "Contaminated")
+    refused = api.post(
+        f"/entities/{source['hrid']}/amount/transfer",
+        {"to": target["hrid"], "amount": {"value": 1, "unit": "mL"}},
+    )
+    detail = errors(refused)["#/to"]
+    assert detail.startswith(
+        f"would change {target['hrid']}'s concentration to 2 mg/mL, the pool's, which it "
+        "can't take: "
+    )
+    # Nothing moved.
+    assert api.get(f"/entities/{source['hrid']}/amount").json()["value"] == "1000"
+    assert api.get(f"/entities/{target['hrid']}/amount").json()["value"] == "1000"
+    # The same concentration leaves it as it is, so that may be pooled.
+    same = sample(
+        world, "S-3", {"value": 1, "unit": "mL"}, concentration={"value": 3, "unit": "mg/mL"}
+    )
+    kept = api.post(
+        f"/entities/{same['hrid']}/amount/transfer",
+        {"to": target["hrid"], "amount": {"value": 1, "unit": "mL"}},
+    )
+    assert kept.status_code == 200, kept.content
+    assert api.get(f"/entities/{target['hrid']}/amount").json()["value"] == "2000"
+
+
+def test_what_its_unit_cant_hold_exactly_isnt_moved(world: World) -> None:
+    api = api_as(world)
+    # A sample kept in uL, to 12 places (1 aL), and a lot kept in mL (to 1 fL).
+    source = sample(world, "S-1", {"value": 10, "unit": "uL"})
+    made = create(
+        api,
+        world.project,
+        {"label": "Lot 7"},
+        "acme/protein.Lot",
+        amount={"value": 1, "unit": "mL"},
+    )
+    assert made.status_code == 201, made.content
+    lot = made.json()
+    # 0.4 fL is 4e-13 mL (UCUM: 1 uL = 1e-3 mL), which the lot's 12 places would make 0 mL,
+    # and 2.5 fL 2e-12 mL: the source would lose what the lot didn't gain.
+    for value, exact in (("0.0000000004", "0.0000000000004"), ("0.0000000025", "0.0000000000025")):
+        moved = api.post(
+            f"/entities/{source['hrid']}/amount/transfer",
+            {"to": lot["hrid"], "amount": {"value": value, "unit": "uL"}},
+        )
+        assert errors(moved) == {
+            "#/amount": f"is {value} uL of {source['hrid']}, which is {exact} mL: "
+            f"{lot['hrid']}'s amount, kept in mL to 12 decimal places, can't hold that "
+            "exactly, so neither was changed."
+        }
+    assert api.get(f"/entities/{source['hrid']}/amount").json()["value"] == "10"
+    assert api.get(f"/entities/{lot['hrid']}/amount").json()["value"] == "1"
+    assert not Movement.objects.filter(kind__in=("transferred_out", "transferred_in")).exists()
+    # Nor is a draw that would take nothing from the lot.
+    drawn = api.post(
+        f"/entities/{lot['hrid']}/amount/draw", {"amount": {"value": "0.4", "unit": "fL"}}
+    )
+    assert errors(drawn) == {
+        "#/amount": f"is 0.4 fL, which is 0.0000000000004 mL: {lot['hrid']}'s amount, kept in "
+        "mL to 12 decimal places, can't hold that exactly."
+    }
+    # A whole femtolitre is fine, either way.
+    assert (
+        api.post(
+            f"/entities/{source['hrid']}/amount/transfer",
+            {"to": lot["hrid"], "amount": {"value": "0.000000001", "unit": "uL"}},
+        ).status_code
+        == 200
+    )
+    assert api.get(f"/entities/{lot['hrid']}/amount").json()["value"] == "1.000000000001"
+    # A mass converted through a concentration rounds to 12 places, but not to nothing.
+    dilute = sample(
+        world, "S-2", {"value": 10, "unit": "uL"}, concentration={"value": 1, "unit": "mg/mL"}
+    )
+    tiny = api.post(
+        f"/entities/{dilute['hrid']}/amount/draw", {"amount": {"value": "1e-16", "unit": "mg"}}
+    )
+    assert errors(tiny) == {
+        "#/amount": f"is 0.0000000000000001 mg, which at {dilute['hrid']}'s concentration is "
+        "less than the 0.000000000001 uL its amount is kept to."
+    }
