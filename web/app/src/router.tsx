@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
+import { meQuery, projectQuery, queryClient, rolesQuery, watchQuery } from "./api";
 import { outsideApisQuery } from "./outside-apis";
 import { Layout } from "./layout";
 import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
@@ -22,6 +22,7 @@ import { Home } from "./pages/home";
 import { componentsQuery } from "./components";
 import {
   entityQuery,
+  savedSearchesQuery,
   typesQuery,
   validateEntityPageSearch,
   validateEntitySearch,
@@ -235,7 +236,19 @@ const projectEntitiesRoute = createRoute({
   path: "entities",
   // ?type=iki/dna.DNASequence: one type and its subtypes; ?show=archived|all.
   validateSearch: validateEntitySearch,
-  loader: ({ context }) => context.queryClient.query(typesQuery),
+  // All the toolbar and the rows above the grid show, before they're drawn: nothing there
+  // arrives late and moves what someone is reaching for.
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(typesQuery),
+      // Plugins' other views of the results, and the project's saved searches: the page
+      // shows without them if they can't be listed.
+      context.queryClient.query(componentsQuery).catch(() => undefined),
+      context.queryClient
+        .query(projectQuery(params.slug))
+        .then((project) => context.queryClient.query(savedSearchesQuery(project.id)))
+        .catch(() => undefined),
+    ]),
   component: ProjectEntities,
 });
 
@@ -245,7 +258,13 @@ const projectRequestsRoute = createRoute({
   // ?side=received|sent: the requests sent to it as a service, or those it sent (ADR 0132);
   // the rest as the entities grid's.
   validateSearch: validateRequestsSearch,
-  loader: ({ context }) => context.queryClient.query(typesQuery),
+  // Its grid's toolbar draws once, as the entities grid's does: with the plugins' other
+  // views of the results, if they can be listed.
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.query(typesQuery),
+      context.queryClient.query(componentsQuery).catch(() => undefined),
+    ]),
   component: ProjectRequestsPage,
 });
 
@@ -379,7 +398,14 @@ const entityRoute = createRoute({
       // An HRID that several of the reader's projects have a record of: the page asks
       // which, as an answer rather than an error.
       context.queryClient.query(entityQuery(params.ref, deps.project)).then(
-        () => null,
+        // Whether the reader watches it, so its actions are all in place when they show:
+        // a button arriving later would move the others along.
+        async (entity) => {
+          if (entity.owner_project) {
+            await context.queryClient.query(watchQuery(entity.id)).catch(() => undefined);
+          }
+          return null;
+        },
         (error: unknown) => {
           const records = choicesIn(error);
           if (records) return records;

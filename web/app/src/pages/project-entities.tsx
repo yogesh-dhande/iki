@@ -555,9 +555,7 @@ export function EntityGrid({
       </div>
       {!library ? null : search.collection ? (
         <CollectionBanner reference={search.collection} project={project} />
-      ) : (
-        <SavedSearches project={project} search={search} />
-      )}
+      ) : null}
       {filtersOpen ? (
         <FilterPanel
           key={type?.name ?? ""}
@@ -570,6 +568,9 @@ export function EntityGrid({
           onApply={applyFilters}
         />
       ) : null}
+      {/* Below the filters: it shows once the search is narrowed, and mustn't move the
+          filters being changed. */}
+      {!library || search.collection ? null : <SavedSearches project={project} search={search} />}
       {shownAs ? (
         <ShownAs
           key={shownAs.component.name}

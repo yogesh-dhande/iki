@@ -24,9 +24,16 @@ from django.conf import settings
 from django.test import Client
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
-from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    Frame,
+    Page,
+    Playwright,
+    sync_playwright,
+)
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from real_server import Server, app_role, manage, run_tasks, serve, server_env
+from real_server import Server, app_role, manage, quiet, run_tasks, serve, server_env
 
 from iki_server.accounts.models import User
 from iki_server.entities.models import Entity
@@ -47,6 +54,23 @@ WATCH_CSP = """
 window.__cspViolations = [];
 document.addEventListener("securitypolicyviolation", (event) => {
   window.__cspViolations.push(`${event.effectiveDirective} ${event.blockedURI}`);
+});
+"""
+
+# Records where each click landed and whether anything cancelled it: when a click does
+# nothing, what it hit says why.
+WATCH_CLICKS = """
+window.__clicks = [];
+window.addEventListener("click", (event) => {
+  const t = event.target instanceof Element ? event.target : null;
+  const link = t?.closest("a, button");
+  window.__clicks.push({
+    at: [Math.round(event.clientX), Math.round(event.clientY)],
+    target: t ? `${t.tagName.toLowerCase()}.${t.className}` : String(event.target),
+    in: link ? `${link.tagName.toLowerCase()} "${link.textContent.trim().slice(0, 40)}"` : null,
+    cancelled: event.defaultPrevented,
+    when: Math.round(performance.now()),
+  });
 });
 """
 
@@ -95,35 +119,6 @@ def _require(what: bool, message: str) -> None:
     if os.environ.get("CI"):
         pytest.fail(message)
     pytest.skip(message)
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _flush_past_late_requests() -> Iterator[None]:
-    """Retries the flush after each test when it deadlocks with a request the server took
-    after the pages closed (see `quiet`). Postgres rolls back one side, so trying again
-    is safe; without it, the next test starts on this one's rows."""
-    from django.db import OperationalError
-    from django.test.testcases import TransactionTestCase
-
-    flush = vars(TransactionTestCase)["_fixture_teardown"]
-
-    def retrying(self: TransactionTestCase) -> None:
-        for attempt in range(5):
-            try:
-                flush(self)
-            except Exception as error:
-                cause = error.__cause__ or error
-                if not isinstance(cause, OperationalError) or "deadlock" not in str(cause):
-                    raise
-                if attempt == 4:
-                    raise
-                quiet()
-            else:
-                return
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(TransactionTestCase, "_fixture_teardown", retrying)
-        yield
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -218,6 +213,86 @@ def world(server: Server) -> World:
 
 #: Errors each page logged (uncaught exceptions and console errors).
 PAGE_ERRORS: dict[Page, list[str]] = {}
+#: Requests each page made that failed, and why ("GET /x: net::ERR_ABORTED"). Not errors in
+#: themselves (a page cancels what it no longer needs), but what a failure is said with.
+FAILED_REQUESTS: dict[Page, list[str]] = {}
+#: Requests each page has sent and had no answer to yet, and when each was sent.
+IN_FLIGHT: dict[Page, dict[Any, tuple[float, str]]] = {}
+#: Where each page has been: each address it loaded or the app moved it to.
+VISITED: dict[Page, list[str]] = {}
+
+
+def watch(page: Page) -> Page:
+    """Records what goes wrong on the page, from now on: its errors in `PAGE_ERRORS`,
+    which `assert_clean` checks, its failed requests in `FAILED_REQUESTS`, and what it's
+    still waiting for in `IN_FLIGHT`. `what_happened` says it all when a test fails."""
+    errors: list[str] = []
+    failed: list[str] = []
+    waiting: dict[Any, tuple[float, str]] = {}
+
+    def done(request: Any) -> None:
+        waiting.pop(request, None)
+
+    def fail(request: Any) -> None:
+        done(request)
+        failed.append(f"{request.method} {request.url}: {request.failure}")
+
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("request", lambda r: waiting.__setitem__(r, (time.monotonic(), f"{r.method} {r.url}")))
+    page.on("requestfinished", done)
+    page.on("requestfailed", fail)
+
+    # A console error says a request failed, but not which: this does.
+    def answered(response: Any) -> None:
+        if response.status >= 500:
+            failed.append(f"{response.request.method} {response.url}: {response.status}")
+
+    page.on("response", answered)
+    visited: list[str] = []
+    page.on("framenavigated", lambda f: visited.append(f.url) if f == page.main_frame else None)
+    VISITED[page] = visited
+    PAGE_ERRORS[page] = errors
+    FAILED_REQUESTS[page] = failed
+    IN_FLIGHT[page] = waiting
+    return page
+
+
+#: What in a server's log says something went wrong in it.
+_WRONG = re.compile(r"Traceback|\"level\": \"(?:error|critical)\"|\"status\": 5\d\d\b")
+
+
+def went_wrong(server: Server, since: int) -> str:
+    """What went wrong in the server since it had printed `since` lines, for a report."""
+    lines = server.output[since:]
+    found = [i for i, line in enumerate(lines) if _WRONG.search(line)]
+    # A traceback's lines follow its first.
+    shown = sorted({j for i in found for j in range(i, min(i + 30, len(lines)))})
+    return "".join(lines[j] for j in shown[-200:]) or "nothing"
+
+
+def what_happened(page: Page) -> str:
+    """The page's errors, its failed requests, and those it's still waiting for: what a
+    page that didn't get where a test expected is to be judged by."""
+    now = time.monotonic()
+    waiting = [f"{what} ({now - sent:.1f}s)" for sent, what in IN_FLIGHT.get(page, {}).values()]
+    try:
+        clicks = page.evaluate("window.__clicks")
+    except Exception as error:  # it's only for the report
+        clicks = repr(error)
+    return (
+        f"{page.url}\n  went through: {VISITED.get(page)}\n  errors: {PAGE_ERRORS.get(page)}"
+        f"\n  failed requests: {FAILED_REQUESTS.get(page)}\n  requests not yet answered: "
+        f"{waiting}\n  clicks: {clicks}"
+    )
+
+
+def shown(page: Page) -> None:
+    """Waits for the page's heading: the app has started and drawn the page."""
+    try:
+        page.locator("h1").first.wait_for()
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(f"No heading was drawn. {what_happened(page)}") from error
 
 
 def session_cookie(user: User) -> str:
@@ -227,8 +302,11 @@ def session_cookie(user: User) -> str:
 
 
 @pytest.fixture
-def open_as(browser: Browser, server: Server, world: World) -> Iterator[Any]:
+def open_as(
+    browser: Browser, server: Server, world: World, request: pytest.FixtureRequest
+) -> Iterator[Any]:
     contexts: list[BrowserContext] = []
+    since = len(server.output)
 
     def open_as(principal: str, path: str, color_scheme: str = "light") -> Page:
         context = browser.new_context(base_url=server.url, color_scheme=color_scheme)  # type: ignore[arg-type]
@@ -239,39 +317,21 @@ def open_as(browser: Browser, server: Server, world: World) -> Iterator[Any]:
             [{"name": "iki_session", "value": session_cookie(user), "url": server.url}]
         )
         context.add_init_script(WATCH_CSP)
-        page = context.new_page()
-        errors: list[str] = []
-        page.on("pageerror", lambda error: errors.append(str(error)))
-        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-        PAGE_ERRORS[page] = errors
+        context.add_init_script(WATCH_CLICKS)
+        page = watch(context.new_page())
         page.goto(path)
-        page.locator("h1").first.wait_for()
+        shown(page)
         return page
 
     yield open_as
+    call = getattr(request.node, "rep_call", None)
+    if call is not None and call.failed:
+        seen = "\n".join(what_happened(page) for context in contexts for page in context.pages)
+        request.node.add_report_section("teardown", "the pages", seen)
+        request.node.add_report_section("teardown", "the server", went_wrong(server, since))
     for context in contexts:
         context.close()
     quiet()
-
-
-def quiet(timeout: float = 10) -> None:
-    """Waits for the server to finish what the pages asked of it. Closing a page doesn't
-    stop its requests on the server, and one still in a transaction when the test's
-    database is flushed deadlocks with it."""
-    from django.db import connection
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
-                " AND pid <> pg_backend_pid() AND backend_type = 'client backend'"
-                " AND state <> 'idle'"
-            )
-            (busy,) = cursor.fetchone()
-        if not busy:
-            return
-        time.sleep(0.05)
 
 
 def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
@@ -285,7 +345,7 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     in every browser.
     """
     assert page.evaluate("window.__cspViolations") == [], page.url
-    assert PAGE_ERRORS[page] == [], page.url
+    assert PAGE_ERRORS[page] == [], (page.url, FAILED_REQUESTS.get(page))
     browser = page.context.browser
     if not axe_in_firefox and browser and browser.browser_type.name == "firefox":
         return
@@ -733,10 +793,13 @@ def browser_name(browser: Browser) -> str:
 
 
 @pytest.fixture
-def tasks(server: Server) -> Iterator[Server]:
+def tasks(server: Server, request: pytest.FixtureRequest) -> Iterator[Server]:
     """A task runner beside the server, for work done after the request (checking uploads)."""
     with run_tasks(server.env) as runner:
         yield runner
+        call = getattr(request.node, "rep_call", None)
+        if call is not None and call.failed:
+            request.node.add_report_section("teardown", "the task runner", went_wrong(runner, 0))
 
 
 def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: Server) -> None:
@@ -1199,6 +1262,37 @@ WEBGL = """() => {
 }"""
 
 
+#: How long the structure viewer gives Mol* to start, and a margin (SHOW_TIMEOUT_MS in
+#: web/app/src/pages/structure-viewer.tsx): by then the page has said it's drawn, can't
+#: be, or failed, so a wait this long ends with the page's own answer.
+MOL_STAR_STARTS = 60_000 + 10_000
+
+
+def drawn_in_mol_star(page: Page, names: str) -> Frame | None:
+    """Waits for the page to draw ``names`` in Mol*, through each of its steps, and returns
+    Mol*'s frame once it has; or None if this browser can't draw 3D, as the page says.
+
+    First the files are read ("Reading …"), then Mol* starts in its frame ("Drawing …"),
+    and then the frame is shown, or the page says why not. Waiting for "Drawing …" to go
+    is no signal by itself: while the files are still being read it isn't there yet."""
+    cant = page.get_by_text("This browser can’t draw 3D structures")
+    failed = page.locator(".alert-error")
+    # The frame is made once the files are read, as Mol* starts.
+    page.locator("iframe.structure-frame").or_(cant).or_(failed).first.wait_for()
+    page.get_by_text(f"Drawing {names}…").wait_for(state="detached", timeout=MOL_STAR_STARTS)
+    assert not failed.count(), failed.all_inner_texts()
+    if cant.count():
+        return None
+    # The frame's element, then its page: under load, WebKit can list a frame before it's
+    # loaded, so `page.frames` isn't to be read for it.
+    frame = page.locator("iframe.structure-frame").element_handle().content_frame()
+    assert frame is not None
+    frame.wait_for_url("**/viewers/structure/")
+    # The page says it's shown when Mol* says so, once it has drawn its canvas.
+    frame.locator("canvas").first.wait_for()
+    return frame
+
+
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_a_structure_in_mol_star_in_its_frame(
     open_as: Any,
@@ -1232,22 +1326,16 @@ def test_a_structure_in_mol_star_in_its_frame(
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
     page.get_by_role("link", name="Structure", exact=True).click()
     page.get_by_role("link", name="Download crambin.pdb").wait_for()
-    frame_element = page.locator("iframe.structure-frame")
-    frame_element.wait_for()
-    # Mol* has drawn it once the page stops saying it's drawing.
-    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
-    if page.get_by_text("This browser can’t draw 3D structures").count():
+    frame = drawn_in_mol_star(page, "crambin.pdb")
+    if frame is None:
         # Some browsers can't draw 3D at all (no GPU, WebGL off): the page says so, in place
         # of the frame, and offers the file to open elsewhere.
         assert browser_name == "firefox", f"{browser_name} has no WebGL"
         assert not page.locator("iframe.structure-frame").count()
         assert_clean(page)
         return
-    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
     assert frame.evaluate(WEBGL)
-    shown = page.frame_locator("iframe.structure-frame")
-    shown.locator("canvas").first.wait_for()
-    shown.get_by_text("Sequence of").first.wait_for()
+    frame.get_by_text("Sequence of").first.wait_for()
     assert_clean(page)
 
     # A saved view keeps where the camera is, and opens on its revision.
@@ -1257,8 +1345,7 @@ def test_a_structure_in_mol_star_in_its_frame(
     dialog.get_by_role("button", name="Save view").click()
     page.wait_for_url(re.compile(r"/entities/VIEW-\d+/$"))
     page.get_by_text(f"Revision 1 of {hrid}, as the view saved it.").wait_for()
-    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
-    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
+    assert drawn_in_mol_star(page, "crambin.pdb")
     saved = entities.current_values_of([Entity.objects.get(type="iki/core.View")])
     (state,) = [v["state"] for v in saved.values()]
     assert set(state) == {"version", "camera", "targets"} and state["version"] == 2
@@ -1268,12 +1355,8 @@ def test_a_structure_in_mol_star_in_its_frame(
     page.get_by_role("link", name="Crambin, N-terminus").wait_for()
 
     # Mol* can't read Iki's cookies, storage or page, or call the API as the person.
-    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
-    # The frame's element, then its page: under load, WebKit can list it before it's loaded.
-    handle = page.locator("iframe.structure-frame").element_handle()
-    frame = handle.content_frame() if handle else None
+    frame = drawn_in_mol_star(page, "crambin.pdb")
     assert frame is not None
-    frame.wait_for_url("**/viewers/structure/")
     assert frame.evaluate(SANDBOX_PROBES) == ISOLATED
     frame.evaluate("() => { location.href = 'about:blank'; }")
     page.get_by_role("alert").get_by_text(
@@ -1338,15 +1421,10 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
     hrid = Entity.objects.get(pk=view.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/")
     page.get_by_role("list", name="Structures").wait_for()
-    page.locator("iframe.structure-frame").wait_for(timeout=60_000)
-    page.get_by_text("Drawing crambin.pdb and moved.pdb…").wait_for(
-        state="detached", timeout=60_000
-    )
-    if page.get_by_text("This browser can’t draw 3D structures").count():
+    if drawn_in_mol_star(page, "crambin.pdb and moved.pdb") is None:
         assert browser_name == "firefox", f"{browser_name} has no WebGL"
         assert_clean(page)
         return
-    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
     page.get_by_role("button", name="Superpose on first").click()
     said = page.locator(".messages").get_by_text(re.compile(r"^moved"))
     said.wait_for(timeout=60_000)
@@ -1363,11 +1441,7 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
 
     # It opens as it was saved, moved as it was.
     page.reload()
-    page.locator("iframe.structure-frame").wait_for(timeout=60_000)
-    page.get_by_text("Drawing crambin.pdb and moved.pdb…").wait_for(
-        state="detached", timeout=60_000
-    )
-    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
+    assert drawn_in_mol_star(page, "crambin.pdb and moved.pdb")
     page.get_by_role("button", name="Save the view").click()
     # Saved as it opened: nothing moved, so there may be nothing new to keep.
     page.get_by_text(re.compile(rf"^Saved {hrid}, revision [23]\.$")).wait_for()

@@ -19,7 +19,15 @@ from typing import Any
 
 import pytest
 from playwright.sync_api import Browser
-from test_browser import browser, browser_name, playwright  # noqa: F401 - fixtures
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from test_browser import (  # noqa: F401 - fixtures
+    FAILED_REQUESTS,
+    PAGE_ERRORS,
+    browser,
+    browser_name,
+    playwright,
+    watch,
+)
 
 from iki_server.web import frames
 
@@ -112,14 +120,20 @@ def test_draws_a_compound_from_its_smiles_reaching_nothing(
         "values": {"smiles": "CC(=O)Oc1ccccc1C(=O)O", "name": "aspirin"},
     }
     context = browser.new_context()
-    page = context.new_page()
+    # Its console errors and failed requests are for saying why, if it fails: Firefox
+    # logs its own favicon request, which the frame's policy blocks, as one.
+    page = watch(context.new_page())
     requests: list[str] = []
     page.on("request", lambda request: requests.append(request.url))
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(f"{frame_server}/frame#{urllib.parse.quote(json.dumps(entity))}")
     image = page.get_by_role("img", name="The structure of aspirin: CC(=O)Oc1ccccc1C(=O)O")
-    image.wait_for(timeout=60_000)
+    try:
+        image.wait_for(timeout=60_000)
+    except PlaywrightTimeoutError as error:
+        # Say why: an error, or the module (RDKit in it) never arriving.
+        raise AssertionError((PAGE_ERRORS[page], FAILED_REQUESTS[page])) from error
     page.wait_for_function(
         "() => { const i = document.querySelector('small-molecule-depiction')"
         ".shadowRoot.querySelector('img'); return i.complete && i.naturalWidth > 0; }",
