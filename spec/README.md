@@ -236,7 +236,8 @@ An entry keeps its values as first registered. A record of it made from
 values spelled otherwise (from another origin, on the other strand, in
 another order) keeps them as given on its first revision (`submitted`), and
 the features a sequence viewer shows along that sequence are placed along
-the entry's.
+the entry's, each of their parts too, written as INSDC's feature table
+writes them there ([`iki_spec.features`](src/iki_spec/features.py)).
 
 [`iki_spec.identity`](src/iki_spec/identity.py) implements it.
 

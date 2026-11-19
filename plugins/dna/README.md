@@ -98,7 +98,9 @@ strand: the viewer draws and counts those, not what lies between them, so
 the order they're read (a reverse-strand join's last first); a feature with
 parts on both strands is `mixed`; one crosses a circle's origin only when
 that's the shorter way round its parts. Such locations, and fuzzy ends (`<1`,
-`>99`), keep GenBank's own text in a `location` qualifier too. Features on
+`>99`), keep GenBank's own text in a `location` qualifier too; a record
+registered from another origin or the other strand has its features, their
+parts and that text placed along its entry's sequence (ADR 0138). Features on
 other records, or whose location isn't on the sequence, are left out, and
 the run says so. The organism is the taxon its source feature names
 (`/db_xref="taxon:9606"`), an `iki/core.Organism` the import makes the first

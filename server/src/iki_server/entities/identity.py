@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from iki_server.entities import registry
+from iki_spec.features import place_feature
 from iki_spec.identity import Placement, identity_hash, kind_of, place
 from iki_spec.model import EntityType, Field
 
@@ -108,7 +109,7 @@ def placed(
 ) -> dict[str, Any]:
     """``given``, with the features along each sequence it spells other than its entry
     placed along the entry's (ADR 0138): a sequence viewer's features, which count from
-    the sequence's first base on its given strand."""
+    the sequence's first base on its given strand, and each of their parts."""
     owner = registry.identity_owner(entity_type)
     if owner is None or not spelled:
         return dict(given)
@@ -127,27 +128,9 @@ def placed(
         if found is None or found == Placement():
             continue
         length = len(text)
-        out[viewer.features] = [_feature(x, found, length) for x in features]
-    return out
-
-
-def _feature(feature: Any, placement: Placement, length: int) -> Any:  # noqa: ANN401 - JSON
-    """A feature (``start`` and ``end`` counting from 1, ``strand``) placed."""
-    if not isinstance(feature, dict):
-        return feature
-    start, end = feature.get("start"), feature.get("end")
-    if not isinstance(start, int) or not isinstance(end, int) or length == 0:
-        return feature
-    out = dict(feature)
-    first, last = placement.position(start, length), placement.position(end, length)
-    if placement.reverse:
-        # Read from the other strand, it runs the other way.
-        out["start"], out["end"] = last, first
-        strand = feature.get("strand")
-        if strand in ("forward", "reverse"):
-            out["strand"] = "reverse" if strand == "forward" else "forward"
-    else:
-        out["start"], out["end"] = first, last
+        out[viewer.features] = [
+            place_feature(x, found, length, circular=kind.circular) for x in features
+        ]
     return out
 
 

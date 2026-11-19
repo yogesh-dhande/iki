@@ -271,8 +271,9 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
 ) -> None:
     """ADR 0138, F-056: a circular duplex registered again rotated, or as its other strand,
     finds its registry entry, which keeps the bases as first registered; the record keeps
-    them as given, and its features are placed along the entry's. A single-stranded circle
-    with the same bases is another molecule."""
+    them as given, and its features are placed along the entry's, each of a joined
+    feature's parts too. A single-stranded circle with the same bases is another
+    molecule."""
     out = tmp_path / "build"
     built = iki("plugin", "build", PLUGINS / "dna", "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
@@ -293,17 +294,35 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
             ProjectMembership.objects.create(project=p, user=alice, role=ProjectRole.EDITOR)
 
         def make(where, bases, **values):
-            values = {"topology": "circular", "features": [ori], **values}
+            values = {"topology": "circular", "features": [ori, cds], **values}
             return services.create(alice, "iki/dna.DNASequence", where, {"bases": bases, **values})
 
         # AAGTCCGATT, with an origin of replication on its bases 3 to 6 (GTCC).
         ori = {"type": "rep_origin", "start": 3, "end": 6, "strand": "forward"}
+        # And a joined feature across the origin: TT, AA, then TC (9..10, 1..2, 4..5).
+        def joined(start, end, strand, location, *parts):
+            return {
+                "type": "CDS",
+                "start": start,
+                "end": end,
+                "strand": strand,
+                "parts": [{"start": a, "end": b, "strand": strand} for a, b in parts],
+                "qualifiers": {"location": location},
+            }
+
+        cds = joined(9, 5, "forward", "join(9..10,1..2,4..5)", (9, 10), (1, 2), (4, 5))
         first = make(project, "aagtccgatt")
         # From its fifth base: CCGATTAAGT. Its ori is bases 9, 10, 1 and 2.
         ori = {"type": "rep_origin", "start": 9, "end": 2, "strand": "forward"}
+        # Its joined feature is 5..8 (TTAA, one stretch here), then T at 10 and C at 1.
+        cds = joined(5, 1, "forward", "join(5..8,10,1)", (5, 8), (10, 10), (1, 1))
         rotated = make(others[0], "CCGATTAAGT")
         # Its other strand, 5' to 3': AATCGGACTT. Its ori is GGAC, on the reverse strand.
         ori = {"type": "rep_origin", "start": 5, "end": 8, "strand": "reverse"}
+        # Its joined feature is on the reverse strand, read 2..1, 10..9, then 7..6.
+        cds = joined(
+            6, 2, "reverse", "complement(join(6..7,9..10,1..2))", (1, 2), (9, 10), (6, 7)
+        )
         flipped = make(others[1], "AATCGGACTT")
         # The same bases as one strand is another molecule.
         single = make(others[2], "AAGTCCGATT", strandedness="single")
@@ -329,7 +348,19 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
     # The entry keeps its bases as first given, lower case and all.
     assert result["bases"] == ["aagtccgatt", "aagtccgatt"]
     ori = {"type": "rep_origin", "start": 3, "end": 6, "strand": "forward"}
-    assert result["features"] == [[ori], [ori]]
+    cds = {
+        "type": "CDS",
+        "start": 9,
+        "end": 5,
+        "strand": "forward",
+        "parts": [
+            {"start": 9, "end": 10, "strand": "forward"},
+            {"start": 1, "end": 2, "strand": "forward"},
+            {"start": 4, "end": 5, "strand": "forward"},
+        ],
+        "qualifiers": {"location": "join(9..10,1..2,4..5)"},
+    }
+    assert result["features"] == [[ori, cds], [ori, cds]]
     assert result["submitted"] == [None, {"bases": "CCGATTAAGT"}, {"bases": "AATCGGACTT"}]
 
 
