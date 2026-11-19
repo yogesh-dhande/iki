@@ -342,7 +342,10 @@ fn main() -> ExitCode {
             directory,
         } => finish(shared::publish(&from, &root, &directory)),
         Command::Host(config) => finish(host::host(&config)),
-        Command::SlurmStep(dir) => finish(Err(slurm::step::run(&dir))),
+        Command::SlurmStep(dir) => match slurm::step::run(&dir) {
+            Ok(status) => slurm::step::exit_as(status),
+            Err(error) => finish(Err(error)),
+        },
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
         Command::Unknown(arg) => write_or_fail(

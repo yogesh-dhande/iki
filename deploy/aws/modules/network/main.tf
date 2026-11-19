@@ -153,6 +153,12 @@ resource "aws_vpc_endpoint" "s3" {
   tags              = merge(local.tags, { Name = "${var.name}-s3" })
 }
 
+# The ranges S3 answers at through it. Pods' NetworkPolicy names these: a policy names
+# addresses, not services. AWS adds ranges now and then, and each apply reads them again.
+data "aws_ec2_managed_prefix_list" "s3" {
+  id = aws_vpc_endpoint.s3.prefix_list_id
+}
+
 resource "aws_security_group" "endpoints" {
   count       = length(var.interface_endpoints) > 0 ? 1 : 0
   name        = "${var.name}-endpoints"

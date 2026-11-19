@@ -29,7 +29,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -698,11 +698,20 @@ def _cancelled(job: Job) -> bool:
     return not runs.filter(cancel_requested_at__isnull=True).exists()
 
 
+class Beat(NamedTuple):
+    """What a heartbeat answers."""
+
+    lease_expires_at: datetime
+    #: The run's been cancelled: the worker should stop its command and report ``cancelled``.
+    cancel_requested: bool
+    #: How much of the log the server has: where a restarted worker sends from.
+    log_offset: int
+
+
 def heartbeat(
     worker: Worker, job_id: uuid.UUID, token: uuid.UUID, state: str | None = None
-) -> tuple[datetime, bool]:
-    """Renews the lease, and moves the job on to `state`. Returns the new expiry, and whether
-    the run's been cancelled (the worker should stop its command and report ``cancelled``)."""
+) -> Beat:
+    """Renews the lease, and moves the job on to `state`."""
     with transaction.atomic():
         job = held(worker, job_id, token)
         fields = ["lease_expires_at"]
@@ -722,7 +731,7 @@ def heartbeat(
                 live.changed(member.run_id)
         job.lease_expires_at = timezone.now() + lease_ttl(worker)
         job.save(update_fields=fields)
-        return job.lease_expires_at, _cancelled(job)
+        return Beat(job.lease_expires_at, _cancelled(job), job.log_size)
 
 
 def progress(

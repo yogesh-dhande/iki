@@ -52,3 +52,8 @@ output "s3_prefix_list_id" {
   description = "The S3 gateway endpoint's prefix list, for security groups that let pods or machines reach S3."
   value       = aws_vpc_endpoint.s3.prefix_list_id
 }
+
+output "s3_cidrs" {
+  description = "That prefix list's ranges: where pods reach S3 (the chart's networkPolicy.egress.objectStorage)."
+  value       = sort([for e in data.aws_ec2_managed_prefix_list.s3.entries : e.cidr])
+}

@@ -15,6 +15,16 @@ mock_provider "aws" {
   mock_data "aws_iam_policy_document" {
     defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
   }
+  # S3's ranges in eu-west-1, as its gateway endpoint's prefix list holds them.
+  mock_data "aws_ec2_managed_prefix_list" {
+    defaults = {
+      entries = [
+        { cidr = "52.218.0.0/17", description = "" },
+        { cidr = "3.5.64.0/21", description = "" },
+        { cidr = "52.92.40.0/21", description = "" },
+      ]
+    }
+  }
   # The provider checks ARNs it's given, so mocked ones must look real.
   mock_resource "aws_cloudwatch_log_group" {
     defaults = { arn = "arn:aws:logs:eu-west-1:123456789012:log-group:/aws/vpc/iki-test/flow-logs" }
@@ -137,6 +147,13 @@ run "aws_services_are_reached_inside_the_vpc" {
   assert {
     condition     = contains(keys(aws_vpc_endpoint.interface), "eks-auth")
     error_message = "EKS Pod Identity needs the eks-auth endpoint."
+  }
+}
+
+run "pods_reach_s3_at_its_endpoints_ranges" {
+  assert {
+    condition     = output.s3_cidrs == tolist(["3.5.64.0/21", "52.218.0.0/17", "52.92.40.0/21"])
+    error_message = "s3_cidrs should be the S3 gateway endpoint's prefix list's ranges."
   }
 }
 

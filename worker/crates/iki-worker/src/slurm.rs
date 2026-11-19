@@ -17,8 +17,10 @@
 //! used, which the server prices it by; its results go up from the login node.
 //!
 //! The worker can restart while its jobs wait and run: their leases outlast it, and each
-//! job's directory keeps what it needs (`slurm.json`) to pick the job up again. A job
-//! whose lease went elsewhere meanwhile is `scancel`led.
+//! job's directory keeps what it needs (`slurm.json`) to pick the job up again, and how
+//! far its log has reached the server (`log.json`), to carry on from there. A job whose
+//! lease went elsewhere meanwhile is `scancel`led; one whose server can't be reached waits
+//! until it can say.
 
 pub mod commands;
 pub mod image;
@@ -33,7 +35,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use iki_protocol::{FailInReason, HeartbeatInState, RunInput, RunInputJobSlurm, fill, paths};
+use iki_protocol::{
+    FailInReason, HeartbeatIn, HeartbeatInState, HeartbeatOut, RunInput, RunInputJobSlurm, fill,
+    paths,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{self, Api, Error};
@@ -162,6 +167,8 @@ struct Kept {
 }
 
 const KEPT: &str = "slurm.json";
+/// How far the job's log has reached the server (`logs::Marks`).
+const LOG_MARKS: &str = "log.json";
 /// The batch script's note of how the command exited, for a cluster without accounting.
 const EXIT: &str = "exit";
 
@@ -169,6 +176,32 @@ fn keep(dirs: &Dirs, kept: &Kept) -> Result<(), String> {
     let bytes = serde_json::to_vec(kept).map_err(|e| e.to_string())?;
     write_private(&dirs.root.join(KEPT), &bytes, 0o600)
         .map_err(|e| format!("Couldn't note the job in its directory: {e}"))
+}
+
+/// Keeps how far the job's log has reached the server in its directory, before each
+/// chunk is sent.
+fn keep_log_marks(host: &Job, dirs: &Dirs) {
+    let path = dirs.root.join(LOG_MARKS);
+    let job = host.id.clone();
+    host.keep_log_marks(move |marks| {
+        let written = serde_json::to_vec(marks)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| write_private(&path, &bytes, 0o600));
+        if let Err(error) = written {
+            say::warn(
+                "Couldn't note how far a job's log has gone.",
+                &[("job", &job), ("detail", &error)],
+            );
+        }
+    });
+}
+
+/// The marks a job's directory keeps, if it has any.
+fn log_marks(dirs: &Dirs) -> logs::Marks {
+    std::fs::read(dirs.root.join(LOG_MARKS))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
 }
 
 // --- Asking after every job at once --------------------------------------------------------
@@ -451,6 +484,8 @@ fn submit(cluster: &Arc<Cluster>, raw: &serde_json::Value) -> Ended {
         input.job.heartbeat_every,
         false,
     );
+    let dirs = cluster.dirs(&input.job.id);
+    keep_log_marks(&held.job, &dirs);
     say::info(
         "Leased a job for the cluster.",
         &[
@@ -468,7 +503,6 @@ fn submit(cluster: &Arc<Cluster>, raw: &serde_json::Value) -> Ended {
                 .into(),
         )));
     };
-    let dirs = cluster.dirs(&input.job.id);
     let plugin_dir = dirs.root.join("plugin");
     let plan = Plan {
         input: &input,
@@ -496,8 +530,9 @@ fn submit(cluster: &Arc<Cluster>, raw: &serde_json::Value) -> Ended {
             slurm_id: Some(id),
             ..kept.clone()
         };
+        let from = Following { read: 0, was: None };
         Ok(watch(
-            cluster, host, &plan, &placed, &dirs, &kept, said, mask,
+            cluster, host, &plan, &placed, &dirs, &kept, from, said, mask,
         ))
     });
     see_through(cluster, held, &dirs, report)
@@ -542,6 +577,7 @@ fn start(
     .map_err(failed)?;
     let (program, args) = job::command_line(plan).map_err(failed)?;
     let (env, secrets) = step_environment(dirs, input);
+    let mask = job::hidden(&input.job);
     let step = step::Step {
         apptainer: cluster.settings.tools.apptainer.clone(),
         image: pulled.sif,
@@ -561,7 +597,7 @@ fn start(
     write(step::STEP, serde_json::to_vec(&step))?;
     write(
         step::SECRETS,
-        serde_json::to_vec(&step::Secrets { env: secrets }),
+        serde_json::to_vec(&step::Secrets { env: secrets, mask }),
     )?;
     let script = dirs.root.join("job.sh");
     let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"));
@@ -738,18 +774,23 @@ fn report(host: &Job, fields: &serde_json::Value) {
     }
 }
 
-/// Reads a file another process is writing, as it grows, until `done`.
+/// Reads a file another process is writing, from `from`, as it grows, until `done`.
 struct Tail {
     path: PathBuf,
+    from: u64,
     file: Option<std::fs::File>,
     done: Arc<AtomicBool>,
 }
 
 impl Read for Tail {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::Seek;
         loop {
             if self.file.is_none() {
                 self.file = std::fs::File::open(&self.path).ok();
+                if let Some(file) = &mut self.file {
+                    file.seek(std::io::SeekFrom::Start(self.from))?;
+                }
             }
             let finished = self.done.load(Ordering::SeqCst);
             if let Some(file) = &mut self.file {
@@ -765,6 +806,14 @@ impl Read for Tail {
     }
 }
 
+/// Where following a job starts: how much of its log file the server has, and what it
+/// was doing when the worker last saw it.
+#[derive(Clone, Copy)]
+struct Following {
+    read: u64,
+    was: Option<Phase>,
+}
+
 /// Follows the Slurm job until it ends: renews nothing itself (the job's heartbeats do),
 /// but says what Slurm reports, streams its log, and cancels it when the run is
 /// cancelled or its lease goes elsewhere. The worker stopping leaves it running.
@@ -776,6 +825,7 @@ fn watch(
     placed: &RunInputJobSlurm,
     dirs: &Dirs,
     kept: &Kept,
+    from: Following,
     said: &Arc<Mutex<Option<String>>>,
     mask: &logs::Mask,
 ) -> Ran {
@@ -784,14 +834,16 @@ fn watch(
     let reading = {
         let tail = Tail {
             path: dirs.root.join("log"),
+            from: from.read,
             file: None,
             done: Arc::clone(&done),
         };
         let (host, said, mask) = (Arc::clone(host), Arc::clone(said), mask.clone());
-        thread::spawn(move || job::read_lines(host.as_ref(), tail, &said, &mask))
+        thread::spawn(move || job::read_lines(host.as_ref(), tail, from.read, &said, &mask))
     };
     cluster.poller.track(&id);
     let mut last: Option<Queued> = None;
+    let mut was = from.was;
     let mut cancelled = false;
     let watched = loop {
         if cluster.interrupted.load(Ordering::SeqCst)
@@ -816,7 +868,8 @@ fn watch(
         match cluster.poller.seen(&id) {
             Some(Seen::Queued(queued)) => {
                 if last.as_ref() != Some(&queued) {
-                    seen(host, &queued, last.as_ref());
+                    seen(host, &queued, was);
+                    was = Some(commands::phase(&queued.state));
                     last = Some(queued);
                 }
             }
@@ -854,8 +907,8 @@ enum Watched {
     Detached,
 }
 
-/// Says what changed of the job as `squeue` lists it.
-fn seen(host: &Job, queued: &Queued, last: Option<&Queued>) {
+/// Says what changed of the job as `squeue` lists it, since it was last seen doing `was`.
+fn seen(host: &Job, queued: &Queued, was: Option<Phase>) {
     let mut fields = serde_json::json!({});
     if commands::STATES.contains(&queued.state.as_str()) {
         fields["state"] = queued.state.clone().into();
@@ -870,7 +923,6 @@ fn seen(host: &Job, queued: &Queued, last: Option<&Queued>) {
     {
         fields["started_at"] = commands::rfc3339(started).into();
     }
-    let was = last.map(|q| commands::phase(&q.state));
     if commands::phase(&queued.state) == Phase::Running && was != Some(Phase::Running) {
         host.state(HeartbeatInState::Running);
         host.line(&format!(
@@ -1103,6 +1155,30 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
         .slurm_id
         .clone()
         .or_else(|| slurm.named(&kept.name).ok().flatten());
+    // Whether its lease is still the worker's: only the server can say.
+    let beat = match reclaim(&cluster.api, kept, &cluster.interrupted) {
+        Reclaimed::Held(beat) => Some(beat),
+        Reclaimed::Unsure => None,
+        // It runs on, to be picked up when the worker next starts.
+        Reclaimed::Stopping => return Ended::Done,
+        Reclaimed::Gone(error) => {
+            // Its lease lapsed while the worker was away, and the run went on without it.
+            say::info(
+                "A job's lease lapsed while the worker was stopped; cancelling it on the \
+                 cluster.",
+                &[("job", &kept.job), ("detail", &error)],
+            );
+            if let Some(id) = &found {
+                let _ = slurm.cancel(id);
+            }
+            cluster.clean(&dirs);
+            return if matches!(error, Error::Unauthorized(_)) {
+                Ended::Unauthorized
+            } else {
+                Ended::Done
+            };
+        }
+    };
     // Its heartbeats say what it's doing from the first: waiting, or (running or ended)
     // on its nodes.
     let waiting = found
@@ -1121,19 +1197,13 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
         kept.heartbeat_every,
         false,
     );
-    if let Err(error) = held.job.renew() {
-        // Its lease lapsed while the worker was away, and the run went on without it.
-        say::info(
-            "A job's lease lapsed while the worker was stopped; cancelling it on the cluster.",
-            &[("job", &kept.job), ("detail", &error)],
-        );
-        if let Some(id) = &found {
-            let _ = slurm.cancel(id);
-        }
-        let ended = held.detach();
-        cluster.clean(&dirs);
-        return ended;
-    }
+    // The log carries on where the server's copy ends, from that point in the file.
+    let mark = log_marks(&dirs).resume_at(
+        beat.as_ref()
+            .map(|b| u64::try_from(b.log_offset).unwrap_or(0)),
+    );
+    held.job.resume_log(mark);
+    keep_log_marks(&held.job, &dirs);
     let raw = std::fs::read(&dirs.input)
         .ok()
         .and_then(|t| serde_json::from_slice::<serde_json::Value>(&t).ok());
@@ -1168,12 +1238,77 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
         timeout: Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600)),
     };
     let host = Arc::clone(&held.job);
+    // It's hidden in what the job prints on its node (`step`); the worker hides what it
+    // can again here: the attempt's credentials, from its input.
     let report = job::conclude(&host, &plan, &dirs, |host, said, mask| {
+        let from = Following {
+            read: mark.read,
+            was: (!waiting).then_some(Phase::Running),
+        };
         Ok(watch(
-            cluster, host, &plan, &placed, &dirs, &kept, said, mask,
+            cluster, host, &plan, &placed, &dirs, &kept, from, said, mask,
         ))
     });
     see_through(cluster, held, &dirs, report)
+}
+
+/// What the server says of a job's lease when the worker picks the job up again.
+#[derive(Debug)]
+enum Reclaimed {
+    /// It's still the worker's.
+    Held(HeartbeatOut),
+    /// The server refused to say: the job is followed, and its heartbeats ask again.
+    Unsure,
+    /// It went elsewhere, or the server no longer takes the worker's token.
+    Gone(Error),
+    /// The worker is stopping before the server could say.
+    Stopping,
+}
+
+/// Renews a job's lease when the worker picks it up again, asking until the server says:
+/// a server that can't be reached now, or is busy, says nothing of the lease, and the
+/// job runs on meanwhile.
+fn reclaim(api: &Api, kept: &Kept, interrupted: &AtomicBool) -> Reclaimed {
+    let path = fill(paths::JOBS_HEARTBEAT, &[&kept.job]);
+    let body = HeartbeatIn {
+        lease_token: kept.lease_token.clone(),
+        state: None,
+    };
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let answer = api
+            .post::<_, HeartbeatOut>(&path, &body)
+            .and_then(|beat| beat.ok_or_else(|| Error::Transient("It had no answer.".into())));
+        match answer {
+            Ok(beat) => return Reclaimed::Held(beat),
+            Err(error @ (Error::Stale(_) | Error::Unauthorized(_))) => {
+                return Reclaimed::Gone(error);
+            }
+            Err(Error::Refused { detail, .. }) => {
+                say::warn(
+                    "The server refused a job's heartbeat; following it anyway.",
+                    &[("job", &kept.job), ("detail", &detail)],
+                );
+                return Reclaimed::Unsure;
+            }
+            Err(Error::Transient(_)) if interrupted.load(Ordering::SeqCst) => {
+                return Reclaimed::Stopping;
+            }
+            Err(Error::Transient(detail)) => {
+                let wait = api::backoff(attempt);
+                say::warn(
+                    "Couldn't renew a job's lease after starting again; trying again.",
+                    &[
+                        ("job", &kept.job),
+                        ("detail", &detail),
+                        ("in_seconds", &wait.as_secs()),
+                    ],
+                );
+                pause(wait, interrupted);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1218,6 +1353,97 @@ mod tests {
             ("IKI_SLURM_MAX_JOBS", "0"),
         ]);
         assert!(zero.unwrap_err().contains("IKI_SLURM_MAX_JOBS"));
+    }
+
+    /// A server that answers each request with the next of `answers` (status and body),
+    /// then the last again, and counts them.
+    fn answering(answers: Vec<(u16, serde_json::Value)>) -> (Api, Arc<AtomicUsize>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some((k, v)) = line.split_once(':')
+                        && k.eq_ignore_ascii_case("content-length")
+                    {
+                        length = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                let _ = reader.read_exact(&mut body);
+                let n = counted.fetch_add(1, Ordering::SeqCst);
+                let (status, answer) = answers[n.min(answers.len() - 1)].clone();
+                let answer = answer.to_string();
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        (Api::new(&url, "token"), calls)
+    }
+
+    fn kept() -> Kept {
+        Kept {
+            job: "0190a1b2-0000-7000-8000-000000000001".into(),
+            lease_token: "0190a1b2-0000-7000-8000-000000000002".into(),
+            name: "iki-RUN-000001-1".into(),
+            slurm_id: Some("42".into()),
+            heartbeat_every: 20,
+        }
+    }
+
+    #[test]
+    fn a_restarted_worker_keeps_its_job_through_a_server_that_cant_answer_yet() {
+        let busy = serde_json::json!({"detail": "Service unavailable"});
+        let beat = serde_json::json!({
+            "lease_expires_at": "2026-11-19T10:10:00Z", "cancel_requested": false,
+            "log_offset": 812,
+        });
+        let (api, calls) = answering(vec![(503, busy.clone()), (429, busy), (200, beat)]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
+        assert!(
+            matches!(&reclaimed, Reclaimed::Held(beat) if beat.log_offset == 812),
+            "{reclaimed:?}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn a_restarted_worker_lets_go_of_a_job_only_when_the_server_says_its_lease_is_gone() {
+        let stale = serde_json::json!({"code": "stale_lease", "detail": "Not yours."});
+        let (api, _) = answering(vec![(500, serde_json::json!({})), (409, stale)]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
+        assert!(
+            matches!(reclaimed, Reclaimed::Gone(Error::Stale(_))),
+            "{reclaimed:?}"
+        );
+        let (api, _) = answering(vec![(401, serde_json::json!({}))]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
+        assert!(
+            matches!(reclaimed, Reclaimed::Gone(Error::Unauthorized(_))),
+            "{reclaimed:?}"
+        );
+        // Refused for another reason: the lease may still be its own, so it's followed.
+        let (api, _) = answering(vec![(422, serde_json::json!({"detail": "No."}))]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
+        assert!(matches!(reclaimed, Reclaimed::Unsure), "{reclaimed:?}");
+        // A worker stopping before the server answers leaves its job running.
+        let (api, _) = answering(vec![(503, serde_json::json!({}))]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(true));
+        assert!(matches!(reclaimed, Reclaimed::Stopping), "{reclaimed:?}");
     }
 
     #[test]

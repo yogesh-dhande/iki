@@ -146,6 +146,14 @@ print(s.recv(200).split(b'\r\n')[0].decode())") || fail "a worker pod cannot rea
   fail "the egress proxy answered a CONNECT without credentials with: $refused"
 if probe iki-egress-proxy 3128; then fail "web pod reached the egress proxy; only workers do"; fi
 pass "workers reach the internet only through the egress proxy, which wants a run's credentials"
+worker_probe() { # as probe, from a worker pod, as a run's command would
+  worker_python "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('$1', $2)))"
+}
+worker_probe iki-web 8000 || fail "a worker pod cannot reach the server (the web pods)"
+worker_probe seaweedfs 8333 || fail "a worker pod cannot reach object storage (SeaweedFS)"
+if worker_probe keycloak.iki.localhost 8080; then fail "a worker pod reached Keycloak; workers reach only the server, storage and the proxy"; fi
+if worker_probe iki-db-rw 5432; then fail "a worker pod reached Postgres; workers never reach the database"; fi
+pass "workers reach the server and object storage, and not the identity provider or the database"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)

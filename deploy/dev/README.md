@@ -113,6 +113,8 @@ The dev cluster is deliberately close to production:
   non-root, drops all capabilities, and uses a RuntimeDefault seccomp profile.
 - The chart's NetworkPolicies are enforced (kindnet), so Iki pods can reach
   only DNS, Postgres, the OTLP collector and (web pods only) Keycloak.
+  Workers and run pods reach only the server, object storage and the
+  egress proxy (ADR 0155).
 - Every credential is random, generated per cluster by `up.sh`, and never
   written to the repo.
 - Every image and the CloudNativePG chart are pinned by digest.

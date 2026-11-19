@@ -65,6 +65,15 @@ With `internal = true`, ExternalDNS too: it names the internal ALB
 pods and the VM tier's machines reach Iki at its URL from inside
 (`internal_dns`; turn that off if your own DNS already does).
 
+Backend workers and container-tier run pods reach only the server, S3 at
+its gateway endpoint's ranges, and the egress proxy
+([ADR 0155](../../../docs/adr/0155-workers-and-runs-reach-only-the-server-storage-and-the-proxy.md)).
+With an internal ALB, the server is in the private subnets. An
+internet-facing ALB's addresses change, so OpenTofu can't name them: with
+one, set `networkPolicy.egress.server.to` in `values-production.yaml` to
+addresses that reach the server, such as an ingress controller's in the
+cluster, or the chart won't render workers.
+
 ```console
 out external_dns_values | helm install external-dns external-dns/external-dns \
   --namespace kube-system -f -

@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use iki_protocol::{SetupFinishIn, SetupFinishInOutcome, SetupFinishOut, SetupInput, fill, paths};
 
 use super::{
-    Ended, Job, Signals, Stop, base_environment, clip, create_private_dir, describe, exit,
-    heartbeats, proxy_environment, read_lines, sender, signal_group, stop,
+    Ended, Job, LogMarks, Signals, Stop, base_environment, clip, create_private_dir, describe,
+    exit, heartbeats, proxy_environment, read_lines, sender, signal_group, stop,
 };
 use crate::api::{self, Api, Error};
 use crate::config::Config;
@@ -105,6 +105,7 @@ pub fn run(
         signals: Signals::default(),
         log: Log::default(),
         progress: Mutex::new(None),
+        log_marks: LogMarks::default(),
     });
     say::info(
         "Leased a setup build.",
@@ -376,7 +377,7 @@ fn execute(
             mask.clone(),
         );
         thread::spawn(move || {
-            read_lines(job.as_ref(), stream, &said, &mask);
+            read_lines(job.as_ref(), stream, 0, &said, &mask);
             let _ = done.send(());
         });
     }
@@ -655,6 +656,7 @@ mod tests {
             signals: Signals::default(),
             log: Log::default(),
             progress: Mutex::new(None),
+            log_marks: LogMarks::default(),
         })
     }
 
