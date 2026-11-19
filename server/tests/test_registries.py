@@ -229,6 +229,41 @@ def test_a_fact_is_set_once_and_then_only_by_a_registrar(world: World, rival: Pr
     problem(outsider.get(f"/entries/{mine['hrid']}/revisions/99"), 404, "not_found")
 
 
+def test_a_fixed_fact_is_given_once_and_never_changed(world: World, rival: Project) -> None:
+    """A fixed fact (ADR 0142) is set once, by whoever registers the entry or first gives it,
+    and then no one changes it: not a holder, not a registrar. A wrong one is superseded."""
+    editor, outsider = api_as(world, "editor"), api_as(world, "outsider")
+    mine = create(editor, world.project, {"sequence": SEQUENCE, "standard": "WHO-1"}).json()
+    assert mine["values"]["standard"] == "WHO-1"
+    # Registering it with another is refused, without saying what it is.
+    refused = problem(
+        create(outsider, rival, {"sequence": SEQUENCE, "standard": "NIST-2"}),
+        422,
+        "validation_failed",
+    )
+    assert "WHO-1" not in str(refused)
+    assert "fixed" in str(refused["errors"]) and "supersedes" in str(refused["errors"])
+    # With the same one, or none, it's the same entry.
+    same = create(outsider, rival, {"sequence": SEQUENCE, "standard": "WHO-1"})
+    assert same.status_code == 201 and same.json()["entry"]["id"] == mine["entry"]["id"]
+    # A registrar can't change it either, though they change other facts.
+    curator = registrar(world)
+    seen = curator.get(f"/entries/{mine['hrid']}")
+    changed = problem(
+        curator.patch(
+            f"/entries/{mine['hrid']}",
+            {"values": {"standard": "NIST-2"}, "reason": "Typo"},
+            headers={"If-Match": seen["ETag"]},
+        ),
+        422,
+        "validation_failed",
+    )
+    assert "supersedes" in str(changed["errors"])
+    types = {t["name"]: t for t in editor.get("/entity-types").json()}
+    standard = next(f for f in types[PROTEIN]["fields"] if f["name"] == "standard")
+    assert (standard["registry"], standard["immutable"]) == ("fact", True)
+
+
 def test_a_derived_value_is_the_entrys(world: World, rival: Project) -> None:
     editor = api_as(world, "editor")
     made = create(editor, world.project, {"sequence": SEQUENCE}).json()

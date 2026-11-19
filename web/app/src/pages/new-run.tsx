@@ -55,6 +55,8 @@ import {
 } from "../ui";
 import { useProject } from "./project-overview";
 
+const AND = new Intl.ListFormat("en", { type: "conjunction" });
+
 export type Input = Action["inputs"][number];
 
 interface Launch {
@@ -490,11 +492,9 @@ function RunForm({
     return `its ${labels.join(", ")} on the ${inSentence(input?.label ?? u.input)}`;
   });
   const makes = action.creates.map((c) =>
-    inSentence(
-      c.cardinality === "many"
-        ? (types.find((t) => t.name === c.type)?.label_plural ?? c.type)
-        : typeLabel(types, c.type),
-    ),
+    c.cardinality === "many"
+      ? inSentence(types.find((t) => t.name === c.type)?.label_plural ?? c.type)
+      : `one ${inSentence(typeLabel(types, c.type))}`,
   );
 
   return (
@@ -529,7 +529,7 @@ function RunForm({
           </li>
         ) : null}
         {changes.length ? <li>It changes {changes.join("; ")}.</li> : null}
-        {makes.length ? <li>It makes new {makes.join(", ")}.</li> : null}
+        {makes.length ? <li>It makes new {AND.format(makes)}.</li> : null}
         {action.network.length ? (
           <li>It can reach {action.network.join(", ")} on the internet.</li>
         ) : action.apis.length ? null : (

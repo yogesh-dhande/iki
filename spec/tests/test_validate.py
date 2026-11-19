@@ -872,11 +872,21 @@ def test_registry_fields(tmp_path: Path) -> None:
         ("{ type: string, registry: fact }", "registry-fact-free-text"),
         ("{ type: enum, values: [a], registry: fact, required: true }", "registry-fact-required"),
         ("{ type: int, registry: fact, computed: true }", "registry-fact-computed"),
-        ("{ type: int, registry: fact, immutable: true }", "registry-fact-immutable"),
     ],
 )
 def test_registry_facts_are_curated_values(tmp_path: Path, spec: str, code: str) -> None:
     assert codes(make(tmp_path, IDENTIFIED + f"  x: {spec}\n")) == [code]
+
+
+def test_a_fixed_fact_may_be_required(tmp_path: Path) -> None:
+    """A fixed fact (ADR 0142) is given when its entry is registered and never changes, so
+    it may be required: a monomer's structure, which what's registered against it reads."""
+    fixed = "  x: { type: enum, values: [a], registry: fact, immutable: true, required: true }\n"
+    result = make(tmp_path, IDENTIFIED + fixed)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.types["acme/lab.Assay"].fields["x"]
+    assert (found.registry, found.immutable, found.required) == ("fact", True, True)
 
 
 def test_registry_fields_need_an_identity(tmp_path: Path) -> None:

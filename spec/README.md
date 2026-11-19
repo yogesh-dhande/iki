@@ -63,7 +63,7 @@ parts are 2 to 30 lower-case letters, digits and single underscores, starting
 with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
-  `iki/antibody`, `iki/small_molecule` and `iki/example_lims`. No other
+  `iki/antibody`, `iki/small_molecule`, `iki/oligo` and `iki/example_lims`. No other
   plugin may use it, or a namespace starting with `iki_`
   (`reserved-namespace`), and a lockfile takes an `iki/...` plugin only from
   Iki's repository.
@@ -166,7 +166,11 @@ A field marked `registry` is the entry's, the same for every project:
   a number, a date, a reference to another entry, or a string or list of
   strings with a `pattern` (never free text). Whoever registers it may set it
   while it's empty; after that only the registry's registrars change it, with a
-  reason, audited and told to every project with a record of it.
+  reason, audited and told to every project with a record of it. A fact with
+  `immutable: true` is fixed: given once, then changed by no one, not even a
+  registrar, and it may be `required`. It's for what other entries are
+  registered against, such as a HELM monomer's structure: a wrong one is
+  superseded ([ADR 0143](../docs/adr/0143-a-registry-fact-can-be-fixed.md)).
 
 Only the type that declares the identity, or an extension of it, has registry
 fields, and they refer only to other entries. Everything else (a
@@ -820,8 +824,18 @@ heavy}}`, or `components.part:PRT-000001 components.role:heavy` in the
 web app's search box.
 
 String formats, checked by the database too: `dna_sequence`,
-`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
-`uri` and `hostname` (a DNS name in lower case, such as `lims.example.org`). A `pattern` must work in both Python and PostgreSQL, so it can't use
+`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `helm`,
+`email`, `uri` and `hostname` (a DNS name in lower case, such as
+`lims.example.org`). `helm` is HELM 2, the Pistoia Alliance's notation for
+macromolecules (version 2.04 of its specification), such as
+`RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`: the database checks its shape, Iki
+reads the rest with iki-wasm, as browsers do, and says what's wrong and at
+which character. An identity reads it in its canonical form ([ADR
+0144](../docs/adr/0144-canonical-helm-is-an-identity.md)): monomer IDs in
+brackets only when they're longer than one character, repeats of a fixed
+count written out, the members of a list in order, without annotations, the
+polymers in order and numbered from 1, and the connections in order, each
+from its lesser end. HELM 1 is read too, as HELM 2. A `pattern` must work in both Python and PostgreSQL, so it can't use
 lookarounds, named groups, backreferences, inline flags or possessive
 quantifiers.
 

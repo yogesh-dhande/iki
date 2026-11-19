@@ -1125,6 +1125,7 @@ def actions() -> None:
     reads_aligned(alice, project)
     proteins(alice, project)
     compounds(alice, project)
+    oligonucleotides(alice, project)
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -1751,6 +1752,48 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"aspirin drawn another way is {compound['hrid']}, reused ({run['hrid']})")
     caffeine = pubchem(alice, project)
     substructure(alice, project, compound, caffeine)
+
+
+#: Nusinersen, by its HELM: 18 2′-MOE nucleotides, every C a 5-methylcytosine, joined by
+#: phosphorothioates. PubChem (CID 131801471) gives C234H340N61O128P17S17, 7127 g/mol.
+NUSINERSEN = (
+    "RNA1{"
+    + "[sP].".join(f"[MOE]({'[5meC]' if b == 'C' else b})" for b in "TCACTTTCATAATGCTGG")
+    + "}$$$$V2.0"
+)
+
+
+def oligonucleotides(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The oligo plugin, in its environment with RDKit: nusinersen registered by its HELM,
+    with the library's monomers it's made of, weighing what PubChem says; then written
+    another way (an annotation, needless brackets), which is the same entry, reused."""
+    action = "iki/oligo.register_oligonucleotide"
+    run = launch(alice, project, action, {}, {"helm": NUSINERSEN, "name": "nusinersen"})
+    made = [e for e in run["effects"] if e["type"] == "iki/oligo.Oligonucleotide"]
+    if len(made) != 1:
+        fail(f"{run['hrid']} ({action}) made {run['effects']}, not one oligonucleotide")
+    oligo = record(alice, made[0]["entity"])
+    got = oligo["values"]
+    expected = ("C234H340N61O128P17S17", "TCACTTTCATAATGCTGG", 18)
+    weight = got.get("molecular_weight")
+    if (got.get("molecular_formula"), got.get("bases"), got.get("length")) != expected or not (
+        isinstance(weight, (int, float)) and abs(weight - 7127.17) < 0.01
+    ):
+        fail(f"{run['hrid']} registered nusinersen as {got}")
+    if len(got.get("monomers") or []) != 6:
+        fail(f"{oligo['hrid']} lists monomers {got.get('monomers')}, not its six")
+    ok(
+        f"{action} registered nusinersen by its HELM as {oligo['hrid']}: "
+        f"{got['molecular_formula']}, {weight} g/mol, from its six monomers ({run['hrid']})"
+    )
+    written = NUSINERSEN.replace("RNA1{[MOE](T)", "RNA1{[MOE]([T])").replace(
+        "}$$$$V2.0", '}"nusinersen"$$$$V2.0'
+    )
+    run = launch(alice, project, action, {}, {"helm": written})
+    again = [e for e in run["effects"] if e["type"] == "iki/oligo.Oligonucleotide"]
+    if [(e["kind"], e["entity"]) for e in again] != [("reused", oligo["id"])]:
+        fail(f"{run['hrid']} made {run['effects']}, not {oligo['hrid']} reused")
+    ok(f"nusinersen's HELM written another way is {oligo['hrid']}, reused ({run['hrid']})")
 
 
 def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:

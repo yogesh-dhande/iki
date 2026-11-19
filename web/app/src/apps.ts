@@ -188,8 +188,8 @@ interface Pending {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
   request: string;
-  /** Templates, or plugins' rules (ADR 0127). */
-  call: "render" | "rules";
+  /** Templates, plugins' rules (ADR 0127), or HELM (ADR 0144). */
+  call: "render" | "rules" | "helm";
 }
 
 /** One worker, kept between renderings and replaced when one runs too long. Requests
@@ -207,6 +207,11 @@ class Renderer {
   /** Plugins' rules' expressions, evaluated in each context (see `rules.ts`). */
   rules(request: string): Promise<unknown> {
     return this.ask(request, "rules");
+  }
+
+  /** HELM strings read (see `helm.ts`). */
+  helm(request: string): Promise<unknown> {
+    return this.ask(request, "helm");
   }
 
   private ask(request: string, call: Pending["call"]): Promise<unknown> {
@@ -266,9 +271,12 @@ class Renderer {
       const found = JSON.parse(data.json) as {
         values?: Rendered[][];
         results?: unknown;
+        readings?: unknown;
         error?: string;
       };
-      const answer = pending.call === "rules" ? found.results : found.values;
+      const answer = { rules: found.results, helm: found.readings, render: found.values }[
+        pending.call
+      ];
       if (answer !== undefined) pending.resolve(answer);
       else pending.reject(new Error(found.error ?? "Expressions failed."));
     }
@@ -292,7 +300,7 @@ class Renderer {
 
 let renderer: Renderer | null = null;
 
-/** The page's one worker for expressions: apps' and rules'. */
+/** The page's one worker for expressions: apps', rules' and HELM's. */
 export function expressionRenderer(): Renderer {
   renderer ??= new Renderer();
   return renderer;

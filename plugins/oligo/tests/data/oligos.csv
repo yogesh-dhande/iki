@@ -1,0 +1,3 @@
+name,helm,description
+plain primer,RNA1{[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)}$$$$V2.0,ACGT as Sigma lists it
+5′-biotin primer,"RNA1{P.[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)}|CHEM1{[5BioTEG]}$RNA1,CHEM1,1:R1-1:R1$$$V2.0",ACGT with biotin-TEG on its 5′ end

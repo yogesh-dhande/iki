@@ -810,6 +810,24 @@ def build() -> MCPServer:
         check again until there are none, then create_app."""
         return answer(await call("POST", "/apps/check", body={"spec": spec}))
 
+    @server.tool(annotations=READ, title="Read HELM")
+    async def read_helm(
+        helm: Annotated[
+            list[str],
+            Field(
+                min_length=1,
+                max_length=100,
+                description="HELM strings, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.",
+            ),
+        ],
+    ) -> CallToolResult:
+        """Reads HELM, the Pistoia Alliance's notation for oligonucleotides, peptides and
+        their conjugates, as a HELM field's value is read: each string's canonical form (what
+        its identity is, so two spellings of one molecule match), its polymers' monomers in
+        order, and its connections, or what's wrong and at which character. Nothing is
+        saved. Read a HELM string before registering it, and put any problem right first."""
+        return answer(await call("POST", "/helm/read", body={"helm": helm}))
+
     @server.tool(annotations=ADD, title="Create an app")
     async def create_app(
         project: Annotated[

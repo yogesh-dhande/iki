@@ -667,6 +667,7 @@ class Protein_Entry(Entity):
     ec_number = models.CharField(max_length=20, null=True)
     chembl_target = models.CharField(max_length=20, null=True, db_index=True)
     hazard = models.TextField(null=True)
+    standard = models.CharField(max_length=20, null=True)
     synonyms = ArrayField(models.CharField(max_length=40), null=True)
 
     class Meta:
@@ -719,6 +720,18 @@ class Protein_Entry(Entity):
                 name='acme__protein_protein__entry__hazard__values',
             ),
             models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('standard'), 1),
+                name='acme__protein_protein__entry__standard__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(standard__regex='[\\r\\n]'),
+                name='acme__protein_protein__entry__standard__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(standard__regex='^(?:^[A-Z0-9-]+$)$'),
+                name='acme__protein_protein__entry__standard__pattern',
+            ),
+            models.CheckConstraint(
                 condition=checks.IsPlainList('synonyms'),
                 name='acme__protein_protein__entry__synonyms__plain_list',
             ),
@@ -758,6 +771,7 @@ class Protein_Entry_History(models.Model):
     ec_number = models.TextField(null=True)
     chembl_target = models.TextField(null=True)
     hazard = models.TextField(null=True)
+    standard = models.TextField(null=True)
     synonyms = ArrayField(models.TextField(), null=True)
 
     class Meta:

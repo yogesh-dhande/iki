@@ -1,0 +1,224 @@
+# Run with `iki plugin test plugins/oligo` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: computed_from_the_monomers_it_lists
+description: >-
+  One registered from its form lists its monomers, and its properties are computed from
+  their structures: d(ApC), ε260 21,200, its one doublet's (Cantor, Warshaw & Shapiro,
+  1970). One whose HELM names a monomer it doesn't list ([G]) is named, and nothing of it
+  computed: its weight would be another molecule's.
+action: compute_oligonucleotide
+inputs:
+  oligonucleotide:
+    - values: { helm: "RNA1{[dR](A)P.[dR](C)}$$$$V2.0" }
+      included:
+        monomers:
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "dR",
+                "name": "2′-Deoxyribose",
+                "role": "sugar",
+                "natural_analogue": "R",
+                "smiles": "[H:1]OC[C@H]1O[C@@H]([OH:3])C[C@@H]1O[H:2]",
+              }
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "A",
+                "name": "Adenine",
+                "role": "base",
+                "natural_analogue": "A",
+                "smiles": "Nc1ncnc2n([H:1])cnc12",
+              }
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "C",
+                "name": "Cytosine",
+                "role": "base",
+                "natural_analogue": "C",
+                "smiles": "Nc1ccn([H:1])c(=O)n1",
+              }
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "P",
+                "name": "Phosphate",
+                "role": "linker",
+                "natural_analogue": "P",
+                "smiles": "OP([OH:1])([OH:2])=O",
+              }
+    - hrid: OLI-000002
+      values: { helm: "RNA1{[dR](A)P.[dR](G)}$$$$V2.0" }
+      included:
+        monomers:
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "dR",
+                "name": "2′-Deoxyribose",
+                "role": "sugar",
+                "natural_analogue": "R",
+                "smiles": "[H:1]OC[C@H]1O[C@@H]([OH:3])C[C@@H]1O[H:2]",
+              }
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "A",
+                "name": "Adenine",
+                "role": "base",
+                "natural_analogue": "A",
+                "smiles": "Nc1ncnc2n([H:1])cnc12",
+              }
+          - values:
+              {
+                "polymer_type": "RNA",
+                "symbol": "P",
+                "name": "Phosphate",
+                "role": "linker",
+                "natural_analogue": "P",
+                "smiles": "OP([OH:1])([OH:2])=O",
+              }
+expect:
+  output:
+    updates:
+      oligonucleotide:
+        - values:
+            bases: AC
+            length: 2
+            molecular_formula: C19H25N8O9P
+            extinction_260: 21200
+            positions:
+              nucleotides:
+                - position: 1
+                  base: A
+                  sugar: { symbol: dR, name: 2′-Deoxyribose, modified: false }
+                  nucleobase: { symbol: A, name: Adenine, modified: false }
+                  linker: { symbol: P, name: Phosphate, modified: false }
+                  others: []
+                - position: 2
+                  base: C
+                  sugar: { symbol: dR, name: 2′-Deoxyribose, modified: false }
+                  nucleobase: { symbol: C, name: Cytosine, modified: false }
+                  linker: null
+                  others: []
+              ends: {}
+    messages:
+      - level: error
+        text: >-
+          OLI-000002's monomers don't include [G], which its HELM names. Register it with
+          Register an oligonucleotide from HELM, which finds its monomers.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_monomers_structure_checked
+description: >-
+  A lab's monomer: one called a sugar without the R3 a base joins at is named, and
+  nothing of it computed; 2′-O-methoxyethylribose, drawn as the library draws it, gets
+  its structure key, attachment points and its formula unjoined, C8H16O6.
+action: compute_monomer
+inputs:
+  monomer:
+    - values:
+        polymer_type: RNA
+        symbol: xR
+        role: sugar
+        name: A sugar without its R3
+        smiles: "O[C@H]1[C@H](O)O[C@H](CO[H:1])[C@H]1O[H:2]"
+    - values:
+        polymer_type: RNA
+        symbol: myMOE
+        role: sugar
+        name: Our MOE
+        smiles: "COCCO[C@H]1[C@H]([OH:3])O[C@H](CO[H:1])[C@H]1O[H:2]"
+expect:
+  output:
+    updates:
+      monomer:
+        - values:
+            structure: bbe45ddb71e35ac0c2e9b832682872cd929b51606a161bb0ec2538146032a7d9
+            attachments: [R1 (H), R2 (H), R3 (OH)]
+            molecular_formula: C8H16O6
+            molecular_weight: 208.21
+    messages:
+      - level: error
+        text: "MON-000001 is a sugar, which joins at R1, R2 and R3; its structure has only R1 and R2."
+  tolerance: 1.0e-4
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: patisiran_as_a_duplex
+description: >-
+  Patisiran's two strands as a duplex: 19 base pairs with a two-nucleotide 3′ overhang
+  on each strand (its dTdTs), and C412H520N148O290P40, 13,424 Da, as the free acid (EMA's
+  EPAR for Onpattro, Table 1).
+action: register_duplex
+inputs:
+  sense:
+    - values:
+        bases: GUAACCAAGAGUAUUCCAUTT
+        molecular_formula: C210H268N76O143P20
+        molecular_weight: 6764.32
+  antisense:
+    - values:
+        bases: AUGGAAUACUCUUGGUUACTT
+        molecular_formula: C202H252N72O147P20
+        molecular_weight: 6660.07
+params: { name: patisiran }
+expect:
+  output:
+    creates:
+      - type: iki/oligo.Duplex
+        values:
+          name: patisiran
+          duplex_length: 19
+          mismatches: 0
+          sense_overhang_5: 0
+          sense_overhang_3: 2
+          antisense_overhang_5: 0
+          antisense_overhang_3: 2
+          molecular_formula: C412H520N148O290P40
+          molecular_weight: 13424.39
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: inclisiran_as_a_duplex
+description: >-
+  Inclisiran's strands: 21 base pairs, blunt at the sense strand's 3′ end, with a
+  two-nucleotide 3′ overhang on the antisense strand, as EMA's EPAR for Leqvio draws
+  them paired (Figure 1).
+action: register_duplex
+inputs:
+  sense:
+    - values: { bases: CUAGACCUGUTUUGCUUUUGU }
+  antisense:
+    - values: { bases: ACAAAAGCAAAACAGGUCUAGAA }
+expect:
+  output:
+    creates:
+      - type: iki/oligo.Duplex
+        values:
+          duplex_length: 21
+          sense_overhang_5: 0
+          sense_overhang_3: 0
+          antisense_overhang_5: 0
+          antisense_overhang_3: 2
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_duplex_with_a_mismatch
+description: >-
+  A 21-mer and its complement with one base changed in the middle: the duplex runs
+  through the mismatch, 21 base pairs with one mismatch, rather than stopping at it.
+action: register_duplex
+inputs:
+  sense:
+    - values: { bases: GCAUCGAUCGAUCGAUCGAUC }
+  antisense:
+    - values: { bases: GAUCGAUCGAGCGAUCGAUGC }
+expect:
+  output:
+    creates:
+      - type: iki/oligo.Duplex
+        values: { duplex_length: 21, mismatches: 1, antisense_overhang_3: 0 }

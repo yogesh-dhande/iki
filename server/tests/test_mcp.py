@@ -172,6 +172,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "split_into_aliquots",
         "describe_apps",
         "check_app",
+        "read_helm",
         "create_app",
         "create_view",
         "preview_app",

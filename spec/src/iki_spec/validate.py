@@ -28,6 +28,7 @@ from iki_spec import (
     apis,
     components,
     conditions,
+    helm,
     naming,
     notifications,
     releases,
@@ -2075,12 +2076,18 @@ class _Semantics:
                 hint="Facts are codes and names with rules, never free text: give it a "
                 "`pattern` (a CAS number's is `^[1-9][0-9]{1,6}-[0-9]{2}-[0-9]$`).",
             )
+        # A fixed fact (ADR 0143) is given when the entry is registered and never changes,
+        # as what other entries were registered against: a monomer's structure. It may be
+        # required. Any other fact is set when it's known, and registrars correct it.
         for flag, why in (
-            ("required", "a fact is set when it's known, not when an entry is registered"),
+            (
+                "required",
+                "a fact is set when it's known, not when an entry is registered, unless it's "
+                "fixed (`immutable: true`)",
+            ),
             ("computed", "a fact is curated, not computed; derived values are `registry: derived`"),
-            ("immutable", "registrars correct facts"),
         ):
-            if getattr(f, flag):
+            if getattr(f, flag) and not (flag == "required" and f.immutable):
                 self.add(
                     f"registry-fact-{flag}",
                     f"Registry facts can't be {flag}: {why}.",
@@ -2879,7 +2886,10 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
             problems.append(f"must be at least {f.min_length} characters long.")
         if f.max_length is not None and len(value) > f.max_length:
             problems.append(f"must be at most {f.max_length} characters long.")
-        if f.format and not matches_format(value, f.format):
+        if f.format == "helm":
+            if (wrong := helm.problem(value)) is not None:
+                problems.append(wrong)
+        elif f.format and not matches_format(value, f.format):
             problems.append(f"isn't a valid {f.format.replace('_', ' ')}.")
         if f.pattern and not pattern_problems(f.pattern) and re.fullmatch(f.pattern, value) is None:
             problems.append(f"doesn't match the pattern `{f.pattern}`.")

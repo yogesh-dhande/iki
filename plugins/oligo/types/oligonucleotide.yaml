@@ -1,0 +1,130 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Oligonucleotide
+label: Oligonucleotide
+label_plural: Oligonucleotides
+extends: iki/core.Sequence
+schema_version: 1
+description: >-
+  A single-stranded oligonucleotide, modified or not, by its HELM: an antisense
+  oligonucleotide, an siRNA's strand, a primer or a probe, with the chemical groups on
+  it. Its canonical HELM is its identity (ADR 0144), so a 5′-biotin primer, or a probe
+  with its FAM and BHQ-1, is a different oligonucleotide from the plain one, and one
+  written two ways is one. Its weight, formula and extinction are computed from its
+  monomers' structures, and its bases are their natural analogues', which a base
+  sequence search finds plain and modified alike by.
+hrid: { prefix: OLI }
+identity: [helm]
+fields:
+  helm:
+    type: string
+    format: helm
+    label: HELM
+    max_length: 100000
+    required: true
+    immutable: true
+    description: >-
+      Its HELM 2: its strand (RNA1, for DNA too) 5′ to 3′, each nucleotide its
+      sugar, base in parentheses, and linker, then the chemical groups on it (CHEM)
+      and their connections, such as
+      RNA1{[MOE]([5meC])[sP].[dR](A)[sP].[dR](G)}$$$$V2.0.
+  monomers:
+    type: list
+    registry: derived
+    items: { type: ref, to: Monomer }
+    max_items: 500
+    description: >-
+      The monomers its HELM names, from the registry: what its weight, formula and
+      extinction are computed from.
+  bases:
+    type: string
+    registry: derived
+    max_length: 600
+    pattern: "^[ACGTUN]*$"
+    computed: true
+    indexed: true
+    description: >-
+      Its bases, 5′ to 3′, each its base's natural analogue: 5-methylcytosine is C,
+      a base with none is N. Its sugars and linkers aren't in it, so a search by
+      bases finds an oligonucleotide plain and modified alike.
+  length:
+    type: quantity
+    registry: derived
+    unit: "{nt}"
+    computed: true
+    indexed: true
+    min: 0
+    description: How many nucleotides it has.
+  molecular_formula:
+    type: string
+    registry: derived
+    max_length: 500
+    computed: true
+    indexed: true
+    description: >-
+      Its formula as the free acid, in Hill order, as the WHO's INN lists give it:
+      every phosphate and phosphorothioate protonated, and a cationic dye's charge
+      taken by one.
+  molecular_weight:
+    type: quantity
+    registry: derived
+    unit: g/mol
+    computed: true
+    indexed: true
+    min: 0
+    description: >-
+      Its average molecular weight as the free acid, from its monomers' structures
+      and CIAAW's abridged standard atomic weights (2021). A sodium salt weighs
+      21.98 g/mol more for each sodium.
+  monoisotopic_mass:
+    type: quantity
+    registry: derived
+    unit: u
+    computed: true
+    min: 0
+    description: >-
+      Its monoisotopic mass as the free acid, from each element's most abundant
+      isotope: what mass spectrometry's deconvoluted neutral mass is compared with.
+  extinction_260:
+    type: quantity
+    registry: derived
+    unit: L/(mol.cm)
+    label: ε260
+    computed: true
+    min: 0
+    description: >-
+      Its molar extinction coefficient at 260 nm as a single strand, by nearest
+      neighbours (ADR 0146), with its dyes' own added. Computed only for natural DNA
+      or RNA, which the parameters describe; empty for one with other sugars or
+      bases, and its note says which.
+  extinction_note:
+    type: text
+    registry: derived
+    label: ε260 note
+    max_length: 2000
+    computed: true
+    description: How its ε260 was computed, or which of its monomers kept it from being.
+  modifications:
+    type: list
+    registry: derived
+    items: { type: string, max_length: 300 }
+    max_items: 200
+    computed: true
+    description: >-
+      What isn't natural DNA or RNA in it, by monomer, with how many, and the
+      groups at its ends: 2′-O-Methoxyethylribose (18), 5′ 6-FAM.
+  positions:
+    type: json
+    registry: derived
+    computed: true
+    description: >-
+      Each nucleotide's sugar, base and linker, 5′ to 3′, and the groups at its ends:
+      what its Chemistry tab draws.
+  purpose:
+    type: enum
+    values: [antisense, siRNA-strand, primer, probe, aptamer, other]
+    indexed: true
+    description: What it's for, as its project uses it.
+display:
+  title: "{{ name or hrid }}"

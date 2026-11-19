@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_oligonucleotides
+label: Import oligonucleotides from a CSV or SDF file
+description: >-
+  Registers each row of a CSV file, or each record of an SDF file, as an
+  oligonucleotide by its HELM, with its properties computed from its monomers. A
+  CSV's first line names its columns: helm, and name and description if it has
+  them. An SDF record gives its HELM as a HELM data item, and its name as a Name
+  item or its title. One registered already is found again.
+inputs:
+  monomers:
+    type: Monomer
+    schema: ">=1"
+    cardinality: many
+    max: 500
+    optional: true
+    label: Your monomers
+    description: >-
+      Monomers its HELM names that aren't in the HELM monomer library the plugin
+      ships, registered by your lab. A library monomer the registry hasn't got yet is
+      registered with it.
+params:
+  file:
+    type: file
+    label: CSV or SDF file
+    required: true
+    media_types: [text/csv, chemical/x-mdl-sdfile, text/plain]
+    max_size: 100MiB
+  on_error:
+    type: enum
+    label: Rows that can't be imported
+    values: [fail, skip]
+    default: fail
+    description: >-
+      Fail: import nothing, and name each row that can't be. Skip: import the
+      rest, and name the rows left out.
+effects:
+  creates:
+    - { type: Monomer, cardinality: many }
+    - { type: Oligonucleotide, cardinality: many }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, import]
+deterministic: true
+metrics:
+  rows: { label: Rows, description: The oligonucleotides the file held. }
+  skipped: { label: Skipped, description: The rows it couldn't import and left out. }
+timeout: 1h

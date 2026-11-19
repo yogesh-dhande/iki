@@ -46,7 +46,7 @@ import {
   type RevisionDetail,
 } from "../entities";
 
-import { entryRevisionQuery, entryRevisionsQuery, REGISTRY_MARK } from "../registries";
+import { entryRevisionQuery, entryRevisionsQuery, FIXED_FACT, REGISTRY_MARK } from "../registries";
 import { usePageTitle } from "../layout";
 import { isServiceField } from "../requests";
 import { APP_TYPE, entityAppsQuery } from "../apps";
@@ -133,6 +133,9 @@ export const KIND: Record<string, string> = {
   state_changed: "State set",
 };
 
+/** The most lines of a JSON value an entity's page shows unfolded. */
+const JSON_LINES_SHOWN = 20;
+
 /** What a revision did: its kind, or for a state change (ADR 0125), which field, from
  * which state to which: “Status set to Approved, from In review”. */
 export function revisionWhat(revision: Revision): string {
@@ -154,6 +157,7 @@ export function useEntity(): { entity: Entity; type: EntityType | undefined; typ
 
 /** Whose a field's value is, for a record of a registry entry (ADR 0115). */
 export function registryNote(field: FieldDef): string | null {
+  if (field.registry === "fact" && field.immutable) return FIXED_FACT;
   return field.registry ? REGISTRY_MARK[field.registry] : null;
 }
 
@@ -274,12 +278,24 @@ export function Value({
     }
     case "text":
       return <span className="preserve-lines">{value as string}</span>;
-    case "json":
-      return (
+    case "json": {
+      const text = JSON.stringify(value, null, 2);
+      const code = (
         <pre className="code">
-          <code>{JSON.stringify(value, null, 2)}</code>
+          <code>{text}</code>
         </pre>
       );
+      // A long value, such as what a viewer or a tab draws, is folded: it would otherwise
+      // fill the page.
+      const lines = text.split("\n").length;
+      if (lines <= JSON_LINES_SHOWN) return code;
+      return (
+        <details className="disclosure">
+          <summary>{`Show its JSON (${lines.toLocaleString()} lines)`}</summary>
+          {code}
+        </details>
+      );
+    }
     default:
       return <>{valueText(field, value, entity)}</>;
   }

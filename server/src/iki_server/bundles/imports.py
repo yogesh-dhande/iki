@@ -571,9 +571,10 @@ class _Planner:
                 continue
             mine = current.get(name)
             if mine is not None and mine != [] and mine != value:
-                return (
-                    f"Its {f.label or name} isn't {here.hrid}'s here: a registry fact only its "
-                    "registrars change."
+                return f"Its {f.label or name} isn't {here.hrid}'s here: a registry fact " + (
+                    "that's fixed: no one changes it."
+                    if f.immutable
+                    else "only its registrars change."
                 )
         return ""
 

@@ -79,6 +79,9 @@ FORMATS: dict[str, str] = {
     "dna_sequence": r"^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$",
     "rna_sequence": r"^[ACGURYSWKMBDHVNacguryswkmbdhvn]*$",
     "protein_sequence": r"^[ACDEFGHIKLMNPQRSTVWYBZXUOJacdefghiklmnpqrstvwybzxuoj*]*$",
+    # HELM 2 (ADR 0144): the database checks its shape, its four sections and version;
+    # iki-wasm reads the rest, as `value_problems` does.
+    "helm": r"^(PEPTIDE|RNA|CHEM|BLOB)[0-9]+[{].*[$].*[$].*[$].*[$](V2[.]0)?$",
     "email": r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
     "uri": r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$",
     # A DNS name in lower case, such as lims.example.com: what an action's `network`

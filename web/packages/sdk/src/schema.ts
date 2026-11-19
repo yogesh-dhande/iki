@@ -1857,6 +1857,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/helm/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read HELM
+         * @description Each HELM string read as a HELM field's value is: canonical, with its polymers'
+         *     monomers and its connections, or why it isn't HELM and where. Nothing is saved.
+         */
+        post: operations["iki_server_api_helm_read_helm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/{import_id}": {
         parameters: {
             query?: never;
@@ -7391,6 +7412,114 @@ export interface components {
              * @description It applies only while this is true.
              */
             when?: string | null;
+        };
+        /** HelmIn */
+        HelmIn: {
+            /**
+             * Helm
+             * @description HELM strings, HELM 2 (ending V2.0) or HELM 1, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.
+             */
+            helm: string[];
+        };
+        /** HelmMonomerOut */
+        HelmMonomerOut: {
+            /**
+             * Branch
+             * @description It's a branch monomer: a nucleotide's base.
+             */
+            branch: boolean;
+            /**
+             * Id
+             * @description Its monomer ID, without brackets, or its SMILES.
+             */
+            id: string;
+            /**
+             * List
+             * @description It's one of several monomers, or a mixture of them.
+             */
+            list: boolean;
+            /**
+             * Position
+             * @description Its position in its polymer, from 1, as connections count.
+             */
+            position: number;
+            /**
+             * Smiles
+             * @description It's given in-line, as SMILES.
+             */
+            smiles: boolean;
+            /**
+             * Unit
+             * @description The unit it's in (its nucleotide, for RNA), from 1.
+             */
+            unit: number;
+        };
+        /** HelmOut */
+        HelmOut: {
+            /**
+             * Readings
+             * @description Each string's reading, in order.
+             */
+            readings: components["schemas"]["HelmReadingOut"][];
+        };
+        /** HelmPolymerOut */
+        HelmPolymerOut: {
+            /**
+             * Ambiguous
+             * @description It has monomers that aren't known, or a list of them, or a repeat of a range of counts.
+             */
+            ambiguous: boolean;
+            /**
+             * Id
+             * @description Its canonical ID, such as RNA1.
+             */
+            id: string;
+            /** Monomers */
+            monomers: components["schemas"]["HelmMonomerOut"][];
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "PEPTIDE" | "RNA" | "CHEM" | "BLOB";
+            /**
+             * Units
+             * @description Its units: its nucleotides, for RNA.
+             */
+            units: number;
+        };
+        /** HelmReadingOut */
+        HelmReadingOut: {
+            /**
+             * At
+             * @description The character that's wrong, from 0.
+             */
+            at?: number | null;
+            /**
+             * Canonical
+             * @description Its canonical form, as an identity reads it. Null if it isn't HELM.
+             */
+            canonical?: string | null;
+            /**
+             * Connections
+             * @description Its connections, canonical.
+             */
+            connections?: string[];
+            /**
+             * Error
+             * @description Why it isn't HELM. Null if it is.
+             */
+            error?: string | null;
+            /**
+             * Polymers
+             * @description Its polymers, in canonical order.
+             */
+            polymers?: components["schemas"]["HelmPolymerOut"][];
+            /**
+             * Version1
+             * @description It was written as HELM 1.
+             * @default false
+             */
+            version1: boolean;
         };
         /**
          * HoldOut
@@ -17089,6 +17218,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_helm_read_helm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HelmIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelmOut"];
                 };
             };
         };

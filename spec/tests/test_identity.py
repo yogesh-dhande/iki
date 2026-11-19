@@ -210,3 +210,19 @@ def test_a_sequence_is_placed_in_the_one_its_identity_found() -> None:
     # A single strand isn't placed on its complement.
     assert place("dna_sequence", "GGACTT", "AAGTCC", circular=True) is None
     assert place("protein_sequence", "mkwv*", "MKWV") == Placement()
+
+
+@pytest.mark.wasm
+def test_helm_is_read_canonical() -> None:
+    """ADR 0144: one molecule written two ways is one identity, a modified one another."""
+    kind = Kind("string", format="helm")
+    same = [
+        "RNA1{[R](A)[sP]'2'.R(C)}$$$$",
+        'RNA1{R(A)[sP].R(A)[sP].R(C)}"an annotation"$$$$V2.0',
+    ]
+    assert {canonical(kind, h) for h in same} == {"RNA1{R(A)[sP].R(A)[sP].R(C)}$$$$V2.0"}
+    assert canonical(kind, "RNA1{R(A)P.R(A)[sP].R(C)}$$$$V2.0") not in {
+        canonical(kind, h) for h in same
+    }
+    with pytest.raises(ValueError, match="Expected a monomer"):
+        canonical(kind, "RNA1{R(A).}$$$$V2.0")

@@ -179,8 +179,16 @@
           ]
         },
         "format": {
-          "description": "A built-in format the value must match, checked by the database.",
-          "enum": ["dna_sequence", "rna_sequence", "protein_sequence", "email", "uri", "hostname"]
+          "description": "A built-in format the value must match, checked by the database. `helm` is HELM 2, the Pistoia Alliance's notation for macromolecules, which an identity reads in its canonical form (ADR 0144).",
+          "enum": [
+            "dna_sequence",
+            "rna_sequence",
+            "protein_sequence",
+            "helm",
+            "email",
+            "uri",
+            "hostname"
+          ]
         },
         "topology": {
           "description": "For a sequence format: the enum field (with a `circular` value) saying whether the sequence is circular, so its identity is the same from any origin (ADR 0138).",

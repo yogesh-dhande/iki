@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_duplex
+label: Register a duplex
+description: >-
+  Registers two strands as a duplex, such as an siRNA's, by their roles: the same
+  strands in the same roles are found again, whichever is given first. Its duplex
+  region, overhangs and mismatches are found from their bases, antiparallel.
+inputs:
+  sense: { type: Oligonucleotide, schema: ">=1", label: Sense strand }
+  antisense: { type: Oligonucleotide, schema: ">=1", label: Antisense strand }
+params:
+  name: { type: string, max_length: 255, label: Name }
+  description: { type: text, max_length: 10000, label: Description }
+effects:
+  creates:
+    - { type: Duplex, derived_from: [sense, antisense] }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, duplex]
+deterministic: true
+timeout: 10m

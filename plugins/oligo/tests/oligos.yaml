@@ -1,0 +1,485 @@
+# Run with `iki plugin test plugins/oligo` (ADR 0093). Each published value is cited
+# where it's from; Iki's are the free acid, from CIAAW's 2021 atomic weights.
+apiVersion: iki/v1
+kind: ActionTest
+name: nusinersen
+description: >-
+  Nusinersen (Spinraza), an 18-mer of 2′-O-methoxyethyl nucleotides with
+  phosphorothioates throughout and every C a 5-methylcytosine: C234H340N61O128P17S17,
+  7127 g/mol as the free acid, monoisotopic 7122.2763 (PubChem CID 131801471); its
+  sodium salt, C234H323N61O128P17S17Na17, is 7501.0 g/mol (EMA's EPAR for Spinraza),
+  which is this with 17 sodiums for 17 hydrogens. Its ε260 isn't computed: no
+  nearest-neighbour parameters describe MOE nucleotides or 5-methylcytosine.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[MOE](T)[sP].[MOE]([5meC])[sP].[MOE](A)[sP].[MOE]([5meC])[sP].[MOE](T)[sP].[MOE](T)[sP].[MOE](T)[sP].[MOE]([5meC])[sP].[MOE](A)[sP].[MOE](T)[sP].[MOE](A)[sP].[MOE](A)[sP].[MOE](T)[sP].[MOE](G)[sP].[MOE]([5meC])[sP].[MOE](T)[sP].[MOE](G)[sP].[MOE](G)}$$$$V2.0"
+  name: nusinersen
+  purpose: antisense
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "TCACTTTCATAATGCTGG"
+          length: 18
+          molecular_formula: "C234H340N61O128P17S17"
+          molecular_weight: 7127.17
+          monoisotopic_mass: 7122.2763
+          modifications:
+            ["2′-O-Methoxyethylribose (18)", "5-Methylcytosine (4)", "Phosphorothioate (17)"]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: fomivirsen
+description: >-
+  Fomivirsen (Vitravene), a 21-mer of DNA with phosphorothioates throughout:
+  C204H263N63O114P20S20, 6682 g/mol, monoisotopic 6677.5886 (PubChem CID 16133810). Its
+  ε260 is by nearest neighbours, its phosphorothioates read as phosphates, and the note
+  says so.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[dR](G)[sP].[dR](C)[sP].[dR](G)[sP].[dR](T)[sP].[dR](T)[sP].[dR](T)[sP].[dR](G)[sP].[dR](C)[sP].[dR](T)[sP].[dR](C)[sP].[dR](T)[sP].[dR](T)[sP].[dR](C)[sP].[dR](T)[sP].[dR](T)[sP].[dR](C)[sP].[dR](T)[sP].[dR](T)[sP].[dR](G)[sP].[dR](C)[sP].[dR](G)}$$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "GCGTTTGCTCTTCTTCTTGCG"
+          molecular_formula: "C204H263N63O114P20S20"
+          molecular_weight: 6682.35
+          monoisotopic_mass: 6677.5886
+          extinction_260: 174300
+          extinction_note: "Single strand, by nearest neighbours: DNA parameters from Cantor, Warshaw & Shapiro (1970). Its 20 phosphorothioate links are read as phosphates: the parameters were measured on phosphodiesters."
+          modifications: ["Phosphorothioate (20)"]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: patisiran_sense_strand
+description: >-
+  Patisiran's (Onpattro) sense strand, RNA with nine 2′-O-methyl nucleotides and a 3′
+  dTdT: C210H268N76O143P20, 6764 Da, monoisotopic 6761 Da, as the free acid (EMA's EPAR
+  for Onpattro, Table 1). It mixes DNA and RNA, so it has no ε260.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{R(G)P.[mR](U)P.R(A)P.R(A)P.[mR](C)P.[mR](C)P.R(A)P.R(A)P.R(G)P.R(A)P.R(G)P.[mR](U)P.R(A)P.[mR](U)P.[mR](U)P.[mR](C)P.[mR](C)P.R(A)P.[mR](U)P.[dR](T)P.[dR](T)}$$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "GUAACCAAGAGUAUUCCAUTT"
+          length: 21
+          molecular_formula: "C210H268N76O143P20"
+          molecular_weight: 6764.32
+          monoisotopic_mass: 6761.0788
+          extinction_note: "Not computed: it mixes DNA and RNA nucleotides, and nearest-neighbour parameters describe only one or the other."
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: patisiran_antisense_strand
+description: >-
+  Patisiran's antisense strand: C202H252N72O147P20, 6660 Da, monoisotopic 6657 Da, as the
+  free acid (EMA's EPAR for Onpattro, Table 1).
+action: register_oligonucleotide
+params:
+  helm: "RNA1{R(A)P.R(U)P.R(G)P.R(G)P.R(A)P.R(A)P.[mR](U)P.R(A)P.R(C)P.R(U)P.R(C)P.R(U)P.R(U)P.R(G)P.R(G)P.R(U)P.[mR](U)P.R(A)P.R(C)P.[dR](T)P.[dR](T)}$$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "AUGGAAUACUCUUGGUUACTT"
+          molecular_formula: "C202H252N72O147P20"
+          molecular_weight: 6660.07
+          monoisotopic_mass: 6656.9209
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: inclisiran_antisense_strand
+description: >-
+  Inclisiran's (Leqvio) antisense strand, 2′-O-methyl and 2′-fluoro nucleotides with
+  two phosphorothioates at each end: C237H291F10N101O134P22S4, 7,698.11 g/mol as the free
+  acid (EMA's EPAR for Leqvio, Table 1).
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[mR](A)[sP].[fR](C)[sP].[mR](A)P.[fR](A)P.[fR](A)P.[fR](A)P.[mR](G)P.[fR](C)P.[mR](A)P.[fR](A)P.[mR](A)P.[fR](A)P.[mR](C)P.[fR](A)P.[mR](G)P.[fR](G)P.[mR](U)P.[fR](C)P.[mR](U)P.[mR](A)P.[mR](G)[sP].[mR](A)[sP].[mR](A)}$$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "ACAAAAGCAAAACAGGUCUAGAA"
+          length: 23
+          molecular_formula: "C237H291F10N101O134P22S4"
+          molecular_weight: 7698.16
+          modifications:
+            ["2′-Fluoro-2′-deoxyribose (10)", "2′-O-Methylribose (13)", "Phosphorothioate (4)"]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: inclisiran_sense_strand_with_galnac
+description: >-
+  Inclisiran's sense strand with its triantennary GalNAc (L96) on a 3′ phosphate:
+  C292H416F2N75O182P21S2, 8,641.40 g/mol as the free acid (EMA's EPAR for Leqvio, Table
+  1). The GalNAc's
+  constitution is the Ionis library's; its sugars' stereochemistry isn't drawn, which
+  weight and formula don't depend on.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[mR](C)[sP].[mR](U)[sP].[mR](A)P.[mR](G)P.[mR](A)P.[mR](C)P.[fR](C)P.[mR](U)P.[fR](G)P.[mR](U)P.[dR](T)P.[mR](U)P.[mR](U)P.[mR](G)P.[mR](C)P.[mR](U)P.[mR](U)P.[mR](U)P.[mR](U)P.[mR](G)P.[mR](U)P}|CHEM1{[3GN3C12hp]}$RNA1,CHEM1,63:R2-1:R1$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: "CUAGACCUGUTUUGCUUUUGU"
+          length: 21
+          molecular_formula: "C292H416F2N75O182P21S2"
+          molecular_weight: 8641.45
+          modifications:
+            [
+              "2′-Fluoro-2′-deoxyribose (2)",
+              "2′-O-Methylribose (18)",
+              "Phosphorothioate (2)",
+              "3′ Triantennary GalNAc (GalNAc3, as L96), on a hydroxyprolinol linker",
+            ]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: dagcgt_by_nearest_neighbours
+description: >-
+  dAGCGT's ε260 by nearest neighbours: 50,200 L/(mol·cm), as ATDBio's Nucleic Acids Book
+  (chapter 13, Ultraviolet absorbance of oligonucleotides) works it out.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[dR](A)P.[dR](G)P.[dR](C)P.[dR](G)P.[dR](T)}$$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values: { bases: AGCGT, length: 5, extinction_260: 50200 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: acgt_with_6_fam
+description: >-
+  5′-6-FAM-ACGT: 1,711.3 g/mol, as Sigma-Aldrich's Oligonucleotide Quantification
+  guide gives it, ACGT's 1,173.83 and the 6-FAM's 537.5 (IDT's 5′ 6-FAM, /56-FAM/). Its
+  ε260 is ACGT's 40,300 (the same guide's) and the 6-FAM's 20,960 (IDT's).
+action: register_oligonucleotide
+params:
+  helm: "RNA1{P.[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)}|CHEM1{[5FAM]}$RNA1,CHEM1,1:R1-1:R1$$$V2.0"
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          bases: ACGT
+          molecular_weight: 1711.3
+          extinction_260: 61260
+          modifications: [5′ 6-FAM (6-carboxyfluorescein on a C6 amino linker)]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_5_10_5_moe_gapmer
+description: >-
+  Mipomersen (Kynamro) designed from its bases: a 5-10-5 gapmer, 2′-MOE wings round a
+  deoxy gap, phosphorothioates throughout, every C a 5-methylcytosine:
+  C230H324N67O122P19S19, 7177.25 g/mol in ChEMBL (CHEMBL2219536), whose atomic weights
+  are older: sulfur at 32.065, not CIAAW's 32.06, is 0.10 of the 0.14 between them. The
+  Kynamro label's sodium salt, C230H305N67O122P19S19Na19, is the same molecule.
+action: design_oligonucleotide
+params:
+  bases: GCCTCAGTCTGCTTCGCACC
+  wings: 5-10-5
+  wing_sugar: MOE
+  sugar: DNA
+  backbone: phosphorothioate
+  methyl_cytosine: true
+  name: mipomersen
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          helm: "RNA1{[MOE](G)[sP].[MOE]([5meC])[sP].[MOE]([5meC])[sP].[MOE](T)[sP].[MOE]([5meC])[sP].[dR](A)[sP].[dR](G)[sP].[dR](T)[sP].[dR]([5meC])[sP].[dR](T)[sP].[dR](G)[sP].[dR]([5meC])[sP].[dR](T)[sP].[dR](T)[sP].[dR]([5meC])[sP].[MOE](G)[sP].[MOE]([5meC])[sP].[MOE](A)[sP].[MOE]([5meC])[sP].[MOE]([5meC])}$$$$V2.0"
+          name: mipomersen
+          molecular_formula: C230H324N67O122P19S19
+          molecular_weight: 7177.11
+          modifications:
+            ["2′-O-Methoxyethylribose (10)", "5-Methylcytosine (9)", "Phosphorothioate (19)"]
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_fam_bhq1_probe
+description: >-
+  A probe with 6-FAM on its 5′ end and BHQ-1 on its 3′: a different oligonucleotide
+  from the plain one, with the same bases. Each adds what IDT lists it adding (6-FAM
+  537.5, BHQ-1 554.5 g/mol), and its ε260 is the strand's by nearest neighbours with
+  theirs (IDT: 20,960 and 8,000) added.
+action: design_oligonucleotide
+params:
+  bases: ACGTACGTAC
+  backbone: phosphodiester
+  five_prime: 6-FAM
+  three_prime: BHQ-1
+  purpose: probe
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          helm: "RNA1{P.[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)P.[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)P.[dR](A)P.[dR](C)P}|CHEM1{[5FAM]}|CHEM2{[BHQ1]}$RNA1,CHEM1,1:R1-1:R1|RNA1,CHEM2,31:R2-1:R1$$$V2.0"
+          bases: ACGTACGTAC
+          molecular_formula: C149H174N45O73P11
+          molecular_weight: 4103.99
+          extinction_260: 129360
+          modifications:
+            - 5′ 6-FAM (6-carboxyfluorescein on a C6 amino linker)
+            - 3′ BHQ-1 (Black Hole Quencher 1)
+          purpose: probe
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_plain_and_a_biotinylated_primer_from_csv
+description: >-
+  ACGT, as Sigma lists it (1173.8 g/mol, ε260 40,300), and the same with biotin-TEG on
+  its 5′ phosphate: two oligonucleotides with the same bases, the second 481.5 g/mol
+  heavier, as IDT lists 5′ biotin-TEG. Each records the row it came from.
+action: import_oligonucleotides
+params:
+  file: { $file: oligos }
+files: { oligos: tests/data/oligos.csv }
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          name: plain primer
+          bases: ACGT
+          molecular_formula: C39H50N15O22P3
+          molecular_weight: 1173.83
+          extinction_260: 40300
+          modifications: []
+        origin: { source: CSV file, id: plain primer }
+      - type: iki/oligo.Oligonucleotide
+        values:
+          name: 5′-biotin primer
+          bases: ACGT
+          molecular_formula: C57H82N18O30P4S
+          molecular_weight: 1655.34
+          extinction_260: 40300
+          modifications: [5′ Biotin-TEG (biotin on a triethylene glycol linker)]
+    metrics: { rows: 2, skipped: 0 }
+  tolerance: 1.0e-6
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_sdf_file_with_a_monomer_nobody_registered
+description: >-
+  An SDF file of HELM: fomivirsen, and an oligonucleotide naming [xyz], which neither
+  the library nor the lab has. Failing on errors, nothing is imported, and the record
+  is named with the monomer it's missing.
+action: import_oligonucleotides
+params:
+  file: { $file: oligos }
+files: { oligos: tests/data/oligos.sdf }
+expect:
+  error: "Row 2: Its HELM names monomers the registry hasn't got: RNA [xyz]."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_sdf_file_skipping_what_it_cant_import
+description: Skipping errors, fomivirsen is imported and the other record named.
+action: import_oligonucleotides
+params:
+  file: { $file: oligos }
+  on_error: skip
+files: { oligos: tests/data/oligos.sdf }
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values: { name: fomivirsen, molecular_formula: C204H263N63O114P20S20 }
+        origin: { source: SDF file, id: fomivirsen }
+    metrics: { rows: 2, skipped: 1 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: symbols_are_compared_exactly
+description: >-
+  [moe] isn't [MOE]: HELM's monomer IDs are case-sensitive, so the run fails, saying
+  which it may have meant.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[moe](A)[sP].[dR](C)}$$$$V2.0"
+expect:
+  error: "[moe] isn't [MOE]: symbols are compared exactly."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_strand_an_oligonucleotide
+description: >-
+  An oligonucleotide is one strand: HELM with two is refused, saying to register each
+  and a duplex of them.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{R(A)P.R(C)}|RNA2{R(G)P.R(U)}$RNA1,RNA2,2:pair-5:pair$$$V2.0"
+expect:
+  error: "An oligonucleotide is one strand: its HELM has 2 RNA polymers."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_mixture_has_no_one_weight
+description: >-
+  A position that's one of several monomers (a degenerate base, written as a HELM
+  list) has no one formula, so it's refused.
+action: register_oligonucleotide
+params:
+  helm: "RNA1{[dR](A,C)P.[dR](G)}$$$$V2.0"
+expect:
+  error: "a molecule's weight and formula need each monomer known"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: the_whole_library
+description: >-
+  The library's 28 monomers, each with its structure key and weight unjoined: ribose
+  (C5H10O5, 150.13 g/mol) among them.
+action: register_monomer_library
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Monomer
+        values:
+          symbol: R
+          role: sugar
+          natural_analogue: R
+          molecular_formula: C5H10O5
+          molecular_weight: 150.13
+          attachments: [R1 (H), R2 (H), R3 (OH)]
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+  tolerance: 1.0e-4

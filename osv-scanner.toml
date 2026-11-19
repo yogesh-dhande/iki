@@ -287,8 +287,8 @@ license.ignore = true
 # and that its authors' names not be used to promote what's made with it. The libraries
 # its wheels bundle (libjpeg, libpng, zlib, libtiff, libwebp, FreeType under its FreeType
 # License, HarfBuzz, lcms2, OpenJPEG, liblzma and the rest) are under permissive licenses,
-# each listed in that LICENSE. RDKit needs it, so the small_molecule plugin's environment
-# installs it unmodified from PyPI. This exception covers pillow alone, not MIT-CMU in
+# each listed in that LICENSE. RDKit needs it, so the small_molecule and oligo plugins'
+# environments install it unmodified from PyPI. This exception covers pillow alone, not MIT-CMU in
 # general.
 
 [[PackageOverrides]]

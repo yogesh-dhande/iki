@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: analyse_new_duplex
+label: Find each new duplex's region and overhangs
+description: >-
+  Finds a duplex's region and overhangs from its strands when it's registered
+  other than by Register a duplex, such as from its form.
+on: entity.registered
+type: Duplex
+run: analyse_duplex
+related:
+  strands: { direction: upstream, depth: 1, edges: [reference] }

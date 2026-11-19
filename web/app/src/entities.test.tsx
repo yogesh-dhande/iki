@@ -527,6 +527,37 @@ describe("an entity's page", () => {
     expect(screen.getByText("(52,341.5 u)")).toBeInTheDocument();
   });
 
+  it("shows a short JSON value, and folds a long one", async () => {
+    withTypes();
+    const json = (name: string, label: string) => field({ name, label, type: "json" });
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        fields: [...PROTEIN.fields, json("ends", "Ends"), json("positions", "Positions")],
+      },
+    ]);
+    const nucleotides = Array.from({ length: 12 }, (_, i) => ({ position: i + 1, base: "A" }));
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({
+        values: {
+          name: "ABL1 kinase",
+          sequence: "MKV",
+          ends: { five: "FAM" },
+          positions: { nucleotides },
+        },
+      }),
+    );
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const { user } = await renderApp("/entities/PRT-000001/");
+    expect(screen.getByText(/"five": "FAM"/)).toBeVisible();
+    const folded = screen.getByText("Show its JSON (52 lines)");
+    expect(screen.getByText(/"position": 12/)).not.toBeVisible();
+    await user.click(folded);
+    expect(screen.getByText(/"position": 12/)).toBeVisible();
+  });
+
   it("links an external ID to its record in the other system", async () => {
     withTypes();
     const lims = field({

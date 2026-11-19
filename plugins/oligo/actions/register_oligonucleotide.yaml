@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_oligonucleotide
+label: Register an oligonucleotide from HELM
+description: >-
+  Registers an oligonucleotide by its HELM, with its bases, length, formula,
+  molecular weight, monoisotopic mass, ε260 and modifications computed from its
+  monomers' structures. One registered already (the same canonical HELM, however
+  it's written) is found again. Each monomer it names is the registry's: one of
+  yours, or one of the HELM monomer library's, registered with it if it isn't yet.
+inputs:
+  monomers:
+    type: Monomer
+    schema: ">=1"
+    cardinality: many
+    max: 500
+    optional: true
+    label: Your monomers
+    description: >-
+      Monomers its HELM names that aren't in the HELM monomer library the plugin
+      ships, registered by your lab. A library monomer the registry hasn't got yet is
+      registered with it.
+params:
+  helm:
+    type: string
+    format: helm
+    label: HELM
+    required: true
+    max_length: 100000
+    description: >-
+      Its strand 5′ to 3′ as RNA1, each nucleotide its sugar, base in parentheses
+      and linker, and any chemical groups on it, such as
+      RNA1{[MOE](G)[sP].[dR](A)[sP].[dR](T)}$$$$V2.0 for a 2′-MOE G then deoxy A and
+      T, with phosphorothioates.
+  name: { type: string, max_length: 255, label: Name }
+  description: { type: text, max_length: 10000, label: Description }
+  purpose:
+    type: enum
+    values: [antisense, siRNA-strand, primer, probe, aptamer, other]
+    label: Purpose
+effects:
+  creates:
+    - { type: Monomer, cardinality: many }
+    - { type: Oligonucleotide }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, register]
+deterministic: true
+timeout: 10m

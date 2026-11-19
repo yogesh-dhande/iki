@@ -50,6 +50,7 @@ import {
   type QuantityDraft,
 } from "./entity-values";
 import { optionLabel } from "./filters";
+import { describeHelm, isProblem, useHelmReading } from "./helm";
 import { media } from "./media";
 import { nameableQuery } from "./people";
 import { upload, uploadError, type Progress } from "./uploads";
@@ -182,7 +183,69 @@ function RowInput(props: InputProps) {
   );
 }
 
-function TextInput({ field, draft, onChange, error, note, disabled, type, itemLabel }: InputProps) {
+function TextInput(props: InputProps) {
+  const schema = propertySchema(props.type, props.field.name);
+  if (schema["x-iki-format"] === "helm") return <HelmInput {...props} />;
+  return <PlainTextInput {...props} />;
+}
+
+/**
+ * A HELM field (ADR 0144): read as it's typed, by the module the server reads it with,
+ * saying what it holds or what's wrong and where. The reading is announced politely, so
+ * a screen reader hears it once typing settles.
+ */
+function HelmInput({ field, draft, onChange, error, note, disabled, itemLabel }: InputProps) {
+  const id = useId();
+  const help = helpText(field, note);
+  const text = (draft as string | null) ?? "";
+  const reading = useHelmReading(text);
+  const problem = reading && isProblem(reading) ? describeHelm(reading) : undefined;
+  const shown = problem ?? error;
+  return (
+    <Shell
+      id={id}
+      label={itemLabel ?? field.label}
+      optional={!field.required}
+      error={shown}
+      help={help}
+      hiddenLabel={itemLabel !== undefined}
+    >
+      <textarea
+        id={id}
+        rows={3}
+        className="input-code"
+        spellCheck={false}
+        autoComplete="off"
+        value={text}
+        disabled={disabled}
+        aria-invalid={shown ? "true" : undefined}
+        aria-describedby={describedBy(
+          shown && `${id}-error`,
+          `${id}-reading`,
+          help && `${id}-help`,
+        )}
+        aria-required={field.required || undefined}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      />
+      <p className="field-help" id={`${id}-reading`} role="status">
+        {reading && !isProblem(reading) ? describeHelm(reading) : ""}
+      </p>
+    </Shell>
+  );
+}
+
+function PlainTextInput({
+  field,
+  draft,
+  onChange,
+  error,
+  note,
+  disabled,
+  type,
+  itemLabel,
+}: InputProps) {
   const id = useId();
   const help = helpText(field, note);
   const schema = propertySchema(type, field.name);

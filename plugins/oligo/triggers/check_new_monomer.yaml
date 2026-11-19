@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: check_new_monomer
+label: Check each new monomer's structure
+description: >-
+  Checks a monomer's structure, and computes its structure key, formula and weight,
+  when it's registered other than by this plugin's actions, such as from its form.
+on: entity.registered
+type: Monomer
+run: compute_monomer
