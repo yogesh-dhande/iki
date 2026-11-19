@@ -160,8 +160,9 @@ class Resolver:
                     "type": MONOMER,
                     "key": _monomer_key(key),
                     "values": values,
-                    # Only what a registrar may correct fills; its structure must match.
-                    "fills": ["name", "source", "extinction_source"],
+                    # Only what a registrar may correct fills, of what it gives; its
+                    # structure must match.
+                    "fills": [n for n in ("name", "source", "extinction_source") if n in values],
                 }
             )
         return out
