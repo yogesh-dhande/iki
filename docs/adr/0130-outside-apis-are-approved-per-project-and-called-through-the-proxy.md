@@ -219,6 +219,10 @@ with the provider's message.
   only the job's ID, so it's done even once the approval is revoked.
 - **Parked runs hold nothing.** They don't count against running or waiting
   quotas, and they're never retried: a resume isn't an attempt that failed.
+- **Each attempt keeps its output.** The parked attempt's says what it
+  waited on, and the resuming attempt's has the results, each as its worker
+  sent it (ADR 0044). The run's output, for its metrics, messages and
+  reproductions, is its last attempt's; a bundle carries each on its attempt.
 - The poller runs in the egress proxy, because it holds the keys and is the
   only thing that reaches the internet. Its replicas take due parks with
   `FOR UPDATE SKIP LOCKED`.

@@ -1420,26 +1420,37 @@ class JobLog(models.Model):
         return f"{self.job_id} @{self.offset}"
 
 
+class RunOutputQuerySet(models.QuerySet["RunOutput"]):
+    def final(self) -> "RunOutputQuerySet":
+        """Each run's output: its latest attempt's, what its command reported last."""
+        return self.order_by("run_id", "-job__attempt").distinct("run_id")
+
+
 class RunOutput(models.Model):
-    """What a run's command reported, as it sent it (ADR 0044). Kept even when its results
-    weren't written, so a rejected run's work isn't lost."""
+    """What an attempt's command reported, as it sent it (ADR 0044). Kept even when its
+    results weren't written, so a rejected run's work isn't lost. A run has one for each
+    attempt that finished its command: one that parked on an outside API's job (ADR 0130)
+    keeps its own, and the attempt that resumes it another. The run's output is its latest
+    attempt's (:meth:`RunOutputQuerySet.final`)."""
 
     APPEND_ONLY = True
 
-    run = models.OneToOneField(
-        ActionRun, primary_key=True, on_delete=models.PROTECT, related_name="output"
+    job = models.OneToOneField(
+        Job, primary_key=True, on_delete=models.PROTECT, related_name="output"
     )
-    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="+")
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="outputs")
     #: The output document (``run-output/v1``), as received.
     document = models.JSONField()
     received_at = models.DateTimeField(db_default=Now())
 
+    objects = RunOutputQuerySet.as_manager()
+
     class Meta:
         db_table = "iki_run_output"
-        db_table_comment = "Each run's output document, as its worker sent it."
+        db_table_comment = "Each attempt's output document, as its worker sent it."
 
     def __str__(self) -> str:
-        return f"output of {self.run_id}"
+        return f"output of {self.job_id}"
 
 
 class EffectKind(models.TextChoices):

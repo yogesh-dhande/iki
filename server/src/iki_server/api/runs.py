@@ -931,7 +931,8 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
     # A run that reused another's results shows that run's metrics and messages.
     sources = {r.pk: r.reused_from_id or r.pk for r in runs}
     documents = {
-        o.run_id: o.document for o in RunOutput.objects.filter(run__in=set(sources.values()))
+        o.run_id: o.document
+        for o in RunOutput.objects.filter(run__in=set(sources.values())).final()
     }
     outputs = {pk: documents[source] for pk, source in sources.items() if source in documents}
     linked = {pk for r in runs for pk in (r.reused_from_id, r.reproduces_id) if pk is not None}

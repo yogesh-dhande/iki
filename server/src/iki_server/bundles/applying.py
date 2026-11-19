@@ -823,6 +823,13 @@ class _Writer:
                 JobLog.objects.create(
                     job=job, offset=0, text=a["log"], created_at=a["finished_at"] or a["queued_at"]
                 )
+            if (output := a["output"]) is not None:
+                RunOutput.objects.create(
+                    job=job,
+                    run=run,
+                    document=output["document"],
+                    received_at=output["received_at"],
+                )
         # Each outside API call, as the source's egress proxy recorded it: provenance, not
         # cost, which was the source deployment's.
         ApiCall.objects.bulk_create(
@@ -849,14 +856,6 @@ class _Writer:
             )
             for c in line.get("api_calls", ())
         )
-        output = line["output"]
-        if output is not None:
-            RunOutput.objects.create(
-                run=run,
-                job_id=output["job"],
-                document=output["document"],
-                received_at=output["received_at"],
-            )
         RunInput.objects.bulk_create(
             RunInput(
                 run=run,

@@ -55,7 +55,9 @@ the run ends `rejected` and nothing is written.
 - `cancelled`, writing nothing, if it was cancelled before it finished.
 
 **The output is kept whatever happens** (`RunOutput`, append-only), so a
-rejected run's work isn't lost.
+rejected run's work isn't lost. It's kept per attempt: an attempt that
+parked on an outside API's job (ADR 0130) keeps its own, and the attempt
+that resumes the run another. The run's output is its last attempt's.
 
 ## Consequences
 

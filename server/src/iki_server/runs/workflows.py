@@ -944,7 +944,9 @@ def _value(run: WorkflowRun, ref: str, runs: Mapping[str, list[ActionRun]]) -> A
     if len(sources) != 1:  # a step whose metrics are read runs once
         return _MISSING
     origin = sources[0].reused_from_id or sources[0].pk
-    document = RunOutput.objects.filter(run_id=origin).values_list("document", flat=True).first()
+    document = (
+        RunOutput.objects.filter(run_id=origin).final().values_list("document", flat=True).first()
+    )
     metrics = (document or {}).get("metrics") or {}
     return metrics.get(parts[3], _MISSING)
 

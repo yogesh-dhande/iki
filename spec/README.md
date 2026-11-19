@@ -2156,7 +2156,7 @@ agents.ndjson      # agents that acted for them (ADR 0072)
 files.ndjson       # the files revisions name, and their SHA-256
 entities.ndjson    # each entity: its revisions, and each table's values at each
 outside.ndjson     # what the values or runs refer to that isn't in it
-runs.ndjson        # the finished runs that made or changed them: inputs, attempts, logs, lineage
+runs.ndjson        # the finished runs that made or changed them: inputs, attempts with their logs and outputs, lineage
 blobs/sha256/<sha> # the bytes of Iki's own files, once each
 bundle.json        # who, when, why, the plugins and schema versions, every member's SHA-256
 bundle.json.sig    # the source deployment's Ed25519 signature of bundle.json

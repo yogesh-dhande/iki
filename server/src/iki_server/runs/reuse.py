@@ -260,7 +260,9 @@ def compare(job: Job, run: ActionRun, document: dict[str, Any]) -> dict[str, Any
     environment's build counts too: the same commit should build the same one."""
     original = run.reproduces
     assert original is not None  # noqa: S101 - only called for reproductions
-    before = RunOutput.objects.filter(run=original).values_list("document", flat=True).first()
+    before = (
+        RunOutput.objects.filter(run=original).final().values_list("document", flat=True).first()
+    )
     contents = _contents([original.pk, run.pk])
     differences: list[dict[str, Any]] = []
     counted = [0]
@@ -361,6 +363,9 @@ def blocked(original: ActionRun, sha: str, version: str) -> str | None:
             f"{original.hrid} ran the {plugin} plugin {original.plugin_version} ({ran}); this "
             f"deployment has {version} ({here}), so it can't be reproduced exactly here."
         )
-    if not RunOutput.objects.filter(run=original).exists():
+    final = (
+        RunOutput.objects.filter(run=original).final().values_list("document", flat=True).first()
+    )
+    if final is None or "park" in final:  # a parked attempt's output says where it waited
         return f"{original.hrid} ended without results to compare with."
     return None

@@ -747,9 +747,13 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
             }
         )
     attempts: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    # Each attempt's output, as its command sent it: one that parked on an outside API's job
+    # (ADR 0130) has its own, and the attempt that resumed it the results.
+    outputs = {o.job_id: o for o in RunOutput.objects.filter(run_id__in=ids)}
     for job in (
         Job.objects.filter(run_id__in=ids).select_related("worker").order_by("attempt", "id")
     ):
+        output = outputs.get(job.pk)
         log = "".join(
             JobLog.objects.filter(job=job).order_by("offset").values_list("text", flat=True)
         )
@@ -771,6 +775,11 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "finished_at": _json(job.finished_at),
                 "error": job.error,
                 "log": log,
+                "output": (
+                    {"document": output.document, "received_at": output.received_at.isoformat()}
+                    if output is not None
+                    else None
+                ),
             }
         )
     # What its outside APIs said they were and answered (ADR 0130): only runs that called any.
@@ -798,7 +807,6 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "usage": a.usage,
             }
         )
-    outputs = {o.run_id: o for o in RunOutput.objects.filter(run_id__in=ids)}
     return [
         _run(
             run,
@@ -810,15 +818,12 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
             **({"made_with": made_with[run.pk]} if run.pk in made_with else {}),
             **({"api_calls": calls[run.pk]} if run.pk in calls else {}),
             attempts=attempts.get(run.pk, []),
-            output=outputs.get(run.pk),
         )
         for run in runs
     ]
 
 
-def _run(
-    run: ActionRun, *, output: RunOutput | None, **parts: list[dict[str, Any]]
-) -> dict[str, Any]:
+def _run(run: ActionRun, **parts: list[dict[str, Any]]) -> dict[str, Any]:
     approval = run.approval
     workflow = run.workflow
     consent = run.consent
@@ -888,15 +893,6 @@ def _run(
         ),
         **agreed,
         **parts,
-        "output": (
-            {
-                "job": str(output.job_id),
-                "document": output.document,
-                "received_at": output.received_at.isoformat(),
-            }
-            if output is not None
-            else None
-        ),
     }
 
 

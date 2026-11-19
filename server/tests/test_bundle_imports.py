@@ -685,8 +685,17 @@ def test_the_database_refuses_an_import_writing_a_requests_service_fields(
 # --- Runs --------------------------------------------------------------------------------
 
 
-def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
-    """A finished run that read ``read`` and made ``made``, as a worker leaves it."""
+def ran(
+    world: World,
+    made: Any,
+    read: Any,
+    *,
+    hrid: str = "RUN-009001",
+    parked: dict[str, Any] | None = None,
+) -> Any:
+    """A finished run that read ``read`` and made ``made``, as a worker leaves it. One that
+    ``parked`` first (ADR 0130) has a parked attempt, with that output, before the one that
+    made it."""
     from django.utils import timezone
 
     from iki_server.runs.models import (
@@ -718,11 +727,23 @@ def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
         started_at=now,
         finished_at=now,
         timeout=600,
-        max_attempts=1,
+        max_attempts=1 if parked is None else 2,
     )
+    if parked is not None:
+        waited = Job.objects.create(
+            run=run,
+            attempt=1,
+            state="parked",
+            project=world.project,
+            tier="backend",
+            environment="acme/protein.python",
+            started_at=now,
+            finished_at=now,
+        )
+        RunOutput.objects.create(run=run, job=waited, document=parked)
     job = Job.objects.create(
         run=run,
-        attempt=1,
+        attempt=1 if parked is None else 2,
         state="succeeded",
         project=world.project,
         tier="backend",
@@ -793,7 +814,7 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     assert run.imported["from"] == "test" and run.imported["inputs"] == []
     (job,) = run.jobs.all()
     assert JobLog.objects.get(job=job).text == "Weighing ABL1\n"
-    assert run.output.document == {"creates": []}
+    assert job.output.document == {"creates": []}
     assert RunInput.objects.filter(run=run).count() == 1
     assert RunEffect.objects.filter(run=run, kind="created").count() == 1
     assert Lineage.objects.filter(run=run).count() == 1
@@ -809,6 +830,34 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     from iki_server.runs import services as run_services
 
     assert run_services._next_hrid() > "RUN-009001"
+
+
+def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: Path) -> None:
+    """A run that parked on an outside API's job and resumed (ADR 0130): each attempt's
+    output comes as its command sent it, and the run's is still its last attempt's."""
+    from iki_server.runs.models import ActionRun, RunOutput
+
+    parking = {"apiVersion": "iki/v1", "kind": "RunOutput", "park": {"api": "fold", "job": "j-1"}}
+
+    def elsewhere() -> list[Any]:
+        read = protein(world, "MKPARKED", name="read")
+        made = protein(world, "MKRESUME", name="made")
+        ran(world, made, read, parked=parking)
+        return [made]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    (line,) = reading_runs(path)  # checked against bundle/v1 as it's read
+    assert [(a["attempt"], a["state"], a["output"]["document"]) for a in line["attempts"]] == [
+        (1, "parked", parking),
+        (2, "succeeded", {"creates": []}),
+    ]
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    run = ActionRun.objects.get(pk=line["id"])
+    kept = RunOutput.objects.filter(run=run).select_related("job")
+    assert {o.job.attempt: o.document for o in kept} == {1: parking, 2: {"creates": []}}
+    assert kept.final().get().job.attempt == 2
 
 
 def reading_runs(path: Path) -> list[dict[str, Any]]:

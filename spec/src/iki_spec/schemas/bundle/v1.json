@@ -683,7 +683,6 @@
         "linked",
         "max_attempts",
         "origins",
-        "output",
         "params",
         "plugin_settings",
         "plugin_sha",
@@ -1300,6 +1299,7 @@
               "finished_at",
               "id",
               "log",
+              "output",
               "owner",
               "queued_at",
               "resources",
@@ -1318,7 +1318,15 @@
                 "minimum": 1
               },
               "state": {
-                "enum": ["cancelled", "failed", "interrupted", "rejected", "succeeded", "timed_out"]
+                "enum": [
+                  "cancelled",
+                  "failed",
+                  "interrupted",
+                  "parked",
+                  "rejected",
+                  "succeeded",
+                  "timed_out"
+                ]
               },
               "tier": {
                 "type": "string",
@@ -1382,33 +1390,31 @@
               "volumes": {
                 "description": "The versions of its environment's volumes it had (ADR 0075).",
                 "type": "object"
+              },
+              "output": {
+                "description": "What its command reported (`run-output/v1`), as its worker sent it, or null if it ended without reporting. An attempt that parked on an outside API's job (ADR 0130) has its own, and the attempt that resumed it the results: the run's output is its last attempt's.",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": ["document", "received_at"],
+                    "properties": {
+                      "document": {
+                        "type": "object"
+                      },
+                      "received_at": {
+                        "$ref": "#/$defs/time"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "additionalProperties": false
           }
-        },
-        "output": {
-          "anyOf": [
-            {
-              "type": "object",
-              "required": ["document", "job", "received_at"],
-              "properties": {
-                "job": {
-                  "$ref": "#/$defs/uuid"
-                },
-                "document": {
-                  "type": "object"
-                },
-                "received_at": {
-                  "$ref": "#/$defs/time"
-                }
-              },
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       },
       "additionalProperties": false

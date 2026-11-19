@@ -30,14 +30,16 @@ from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
 from test_egress import LOOPBACK, PROXY, authorization, connect, serving, until
+from test_files import run_tasks
 from test_oauth import bearer, signed_in_token
+from test_run_results import _upload
 from test_runs import launch, protein
 from test_workers import keep_connection, worker
 
 from iki_server.audit import log as audit
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.org.services import Refused
-from iki_server.runs import api_gateway, budgets, catalog, outside, services
+from iki_server.runs import api_gateway, budgets, catalog, outside, reuse, services
 from iki_server.runs.models import (
     ActionRun,
     ApiApproval,
@@ -49,6 +51,7 @@ from iki_server.runs.models import (
     Job,
     JobState,
     ParkOutcome,
+    RunOutput,
     RunPark,
     RunStatus,
 )
@@ -475,7 +478,7 @@ def _through(
 
 @pytest.mark.django_db(transaction=True)
 def test_a_run_calls_the_api_through_the_proxy_parks_and_resumes(
-    world: World, deployment: Path, stand_in: StandIn, serving: Callable[..., int]
+    world: World, deployment: Path, stand_in: StandIn, serving: Callable[..., int], s3: Any
 ) -> None:
     approve(world)
     made = hosted(world, consent=[API])
@@ -526,24 +529,24 @@ def test_a_run_calls_the_api_through_the_proxy_parks_and_resumes(
     assert (record.api, record.amount, record.currency) == (API, Decimal("0.0200"), "USD")
 
     # It parks: the worker is free, and the run waits on the job.
-    parked = pod.report(
-        job,
-        "complete",
-        output={
-            "apiVersion": "iki/v1",
-            "kind": "RunOutput",
-            "park": {
-                "api": "fold",
-                "job": "job-1",
-                "state": {"protein": made.json()["inputs"][0]["entity"]},
-            },
+    waiting = {"level": "info", "text": "Submitted to FoldCloud as job-1."}
+    parking = {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "park": {
+            "api": "fold",
+            "job": "job-1",
+            "state": {"protein": made.json()["inputs"][0]["entity"]},
         },
-    )
+        "messages": [waiting],
+    }
+    parked = pod.report(job, "complete", output=parking)
     assert parked.json()["run_status"] == RunStatus.PARKED
     assert Job.objects.get(pk=job["job"]["id"]).state == JobState.PARKED
     run = api_as(world).get(f"/runs/{made.json()['hrid']}").json()
     assert run["status"] == "parked"
     assert run["park"]["job"] == "job-1" and run["park"]["outcome"] == ""
+    assert run["messages"] == [{**waiting, "entity": None}]
 
     # A signed callback makes the poller ask now; the job is still running.
     park = RunPark.objects.get()
@@ -595,6 +598,41 @@ def test_a_run_calls_the_api_through_the_proxy_parks_and_resumes(
     assert [c["kind"] for c in calls_page["items"]][:1] == ["call"]
     assert {c["kind"] for c in calls_page["items"]} == {"call", "poll"}
 
+    # The resumed attempt finishes with the structure, through the worker API like the first.
+    upload = _upload(pod, resumed, PDB.encode())
+    run_tasks()  # Iki reads the bytes back
+    upload = pod.report(resumed, f"uploads/{upload['id']}/complete").json()
+    assert upload["state"] == "ready", upload
+    predicted = {"level": "info", "text": "Predicted with fold-2."}
+    results = {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "creates": [
+            {
+                "type": "acme/protein.ProteinStructure",
+                "values": {"structure": str(upload["file"]), "method": "predicted"},
+            }
+        ],
+        "messages": [predicted],
+    }
+    finished = pod.report(resumed, "complete", output=results)
+    assert finished.status_code == 200, finished.content
+    assert finished.json()["run_status"] == RunStatus.SUCCEEDED
+    run = api_as(world).get(f"/runs/{made.json()['hrid']}").json()
+    assert run["status"] == "succeeded", run["error"]
+    assert run["effect_counts"]["created"] == 1
+    # The run's output is its last attempt's; each attempt keeps its own, as it was sent.
+    assert run["messages"] == [{**predicted, "entity": None}]
+    kept = {
+        o.job.attempt: o.document
+        for o in RunOutput.objects.filter(run_id=made.json()["id"]).select_related("job")
+    }
+    assert kept == {1: parking, 2: results}
+    assert [
+        (a["attempt"], a["state"])
+        for a in api_as(world).get(f"/runs/{made.json()['hrid']}/attempts").json()
+    ] == [(1, "parked"), (2, "succeeded")]
+
 
 @pytest.mark.django_db
 def test_a_poll_that_says_the_job_failed_fails_the_run(world: World) -> None:
@@ -619,6 +657,10 @@ def test_a_poll_that_says_the_job_failed_fails_the_run(world: World) -> None:
         "code": "outside_api_failed",
         "message": "FoldCloud says the job failed: The sequence has an unknown residue.",
     }
+    # Its only output says what it waited on: there are no results to reproduce.
+    assert reuse.blocked(run, run.plugin_sha, run.plugin_version) == (
+        f"{run.hrid} ended without results to compare with."
+    )
 
 
 @pytest.mark.django_db
