@@ -1654,7 +1654,10 @@ def foldcloud(alice: requests.Session, project: dict[str, Any], protein: dict[st
             fail(f"{run['hrid']} made a structure with {values}")
         origins = api_call(alice, "GET", f"/entities/{made[0]['entity']}/origins").json()
         said = [o for o in origins if o["source"] == "FoldCloud"]
-        if not said or (said[-1]["made"] or {}).get("software") != [{"name": "FoldCloud fold-2"}]:
+        # The API gives each software its version, empty here: the model's version is in the
+        # run's call record, not on the structure.
+        software = (said[-1]["made"] or {}).get("software") if said else None
+        if [s.get("name") for s in software or []] != ["FoldCloud fold-2"]:
             fail(f"{run['hrid']}'s structure doesn't say FoldCloud's fold-2 made it: {origins}")
         calls = api_call(alice, "GET", f"/runs/{run['id']}/api-calls?limit=100").json()["items"]
         submitted = [c for c in calls if c["kind"] == "call"]
