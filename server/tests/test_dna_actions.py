@@ -304,15 +304,61 @@ def with_feature(location: str, *, length: int = 100, topology: str = "circular"
                 ],
             },
         ),
-        # A plain range, fuzzy or not, is its start and end alone.
-        ("<1..>9", "linear", {"start": 1, "end": 9, "strand": "forward"}),
+        # A plain range is its start and end alone.
+        ("1..9", "linear", {"start": 1, "end": 9, "strand": "forward"}),
         ("complement(7)", "linear", {"start": 7, "end": 7, "strand": "reverse"}),
+        # INSDC's < and >: an end beyond the base it names, so 2..9 is only what's known.
+        (
+            "<2..>9",
+            "linear",
+            {
+                "start": 2,
+                "end": 9,
+                "strand": "forward",
+                "parts": [
+                    {
+                        "start": 2,
+                        "end": 9,
+                        "strand": "forward",
+                        "partial_start": True,
+                        "partial_end": True,
+                    }
+                ],
+            },
+        ),
+        # SV40's VP1 along its other strand, partial at its 5' end (its start, read 3' to 5').
+        (
+            "complement(2651..>3745)",
+            "circular",
+            {
+                "start": 2651,
+                "end": 3745,
+                "strand": "reverse",
+                "parts": [{"start": 2651, "end": 3745, "strand": "reverse", "partial_end": True}],
+            },
+        ),
+        # INSDC's order(): found in that order, nothing said of joining them.
+        (
+            "order(2..4,10..12)",
+            "linear",
+            {
+                "start": 2,
+                "end": 12,
+                "strand": "forward",
+                "operator": "order",
+                "parts": [
+                    {"start": 2, "end": 4, "strand": "forward"},
+                    {"start": 10, "end": 12, "strand": "forward"},
+                ],
+            },
+        ),
     ],
 )
 def test_a_features_parts_say_where_it_lies(
     tmp_path: Path, location: str, topology: str, expected: dict[str, Any]
 ) -> None:
-    result, output = imported(tmp_path, with_feature(location, topology=topology))
+    length = 5243 if "3745" in location else 100
+    result, output = imported(tmp_path, with_feature(location, topology=topology, length=length))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
     (feature,) = made(output)[0]["values"]["features"]
@@ -320,12 +366,14 @@ def test_a_features_parts_say_where_it_lies(
     assert feature == {"type": "misc_feature", **expected}
 
 
-@pytest.mark.parametrize("location", ["5^7", "100^1", "1.5", "join(1..5,200..210)"])
+@pytest.mark.parametrize(
+    "location", ["5^7", "100^1", "1.5", "join(1..5,200..210)", "join(1..2,order(3..4,5..6))"]
+)
 def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
     tmp_path: Path, location: str
 ) -> None:
     # 5^7 isn't between neighbours; 100^1 is only on a circle; 1.5 (one base somewhere
-    # in 1 to 5) is too vague to draw.
+    # in 1 to 5) is too vague to draw; INSDC doesn't let join and order nest.
     result, output = imported(tmp_path, with_feature(location, topology="linear"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
@@ -344,9 +392,8 @@ def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
         ("mRNA", "single"),
         ("RNA", "single"),
         ("ds-RNA", "double"),
-        # Plain DNA, or mixed strands, doesn't say: the field's default stands.
+        # Plain DNA doesn't say: the field's default stands.
         ("DNA", None),
-        ("ms-DNA", None),
     ],
 )
 def test_locus_says_how_many_strands_the_molecule_has(
@@ -357,6 +404,100 @@ def test_locus_says_how_many_strands_the_molecule_has(
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
     assert made(output)[0]["values"].get("strandedness") == strandedness
+
+
+SOURCE = """\
+     source          1..60
+                     /organism="synthetic construct"
+                     /mol_type="other DNA"
+                     /db_xref="taxon:32630"
+"""
+
+
+def sources(*blocks: str) -> str:
+    """GENBANK with these source features in place of its one."""
+    return GENBANK.replace(SOURCE, "".join(blocks))
+
+
+def source(location: str, organism: str, taxon: int, *marks: str) -> str:
+    lines = [
+        f"     source          {location}",
+        f'                     /organism="{organism}"',
+        '                     /mol_type="genomic DNA"',
+        f'                     /db_xref="taxon:{taxon}"',
+        *(f"                     /{mark}" for mark in marks),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+HUMAN_SEGMENT = source("1..20", "Homo sapiens", 9606)
+
+
+@pytest.mark.parametrize(
+    ("given", "organism"),
+    [
+        # INSDC's /focus marks the main organism of a record with several, whatever the
+        # order: a human segment listed first doesn't make the mouse record human.
+        (
+            sources(HUMAN_SEGMENT, source("1..60", "Mus musculus", 10090, "focus")),
+            (10090, "Mus musculus"),
+        ),
+        # /transgenic marks the organism that took the DNA in: the main one.
+        (
+            sources(HUMAN_SEGMENT, source("1..60", "Mus musculus", 10090, "transgenic")),
+            (10090, "Mus musculus"),
+        ),
+        # With neither, the one source that spans the whole record: a vector with an E.
+        # coli segment, listed first.
+        (
+            sources(
+                source("21..40", "Escherichia coli", 562),
+                source("1..60", "synthetic construct", 32630),
+            ),
+            (32630, "synthetic construct"),
+        ),
+    ],
+)
+def test_a_records_organism_is_its_main_source_name_and_taxon_together(
+    tmp_path: Path, given: str, organism: tuple[int, str]
+) -> None:
+    result, output = imported(tmp_path, given)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (made_organism,) = [c for c in output["creates"] if c["type"] == "iki/core.Organism"]
+    taxon, name = organism
+    assert made_organism["values"] == {"taxon_id": taxon, "scientific_name": name}
+    (sequence,) = made(output)
+    assert sequence["values"]["organism"] == {"$create": f"taxon:{taxon}"}
+    # The other source stays, as a feature named by its organism, with its span and taxon.
+    (other,) = [f for f in sequence["values"]["features"] if f["type"] == "source"]
+    assert other["name"] in ("Homo sapiens", "Escherichia coli")
+    assert (other["start"], other["end"]) in ((1, 20), (21, 40))
+    assert other["qualifiers"]["db_xref"] in ("taxon:9606", "taxon:562")
+
+
+def test_a_record_with_no_main_source_leaves_its_organism_out_saying_why(
+    tmp_path: Path,
+) -> None:
+    """A human-mouse chimera with neither marked, nor one the whole of it: which organism
+    it's of isn't said, so none is taken, and both sources are kept as features."""
+    chimera = sources(
+        source("1..30", "Homo sapiens", 9606), source("31..60", "Mus musculus", 10090)
+    )
+    result, output = imported(tmp_path, chimera)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert [c["type"] for c in output["creates"]] == ["iki/dna.DNASequence"]
+    (sequence,) = made(output)
+    assert "organism" not in sequence["values"]
+    kept = [(f["name"], f["start"], f["end"]) for f in sequence["values"]["features"]]
+    assert kept[:2] == [("Homo sapiens", 1, 30), ("Mus musculus", 31, 60)]
+    assert output["messages"][0] == {
+        "level": "warning",
+        "text": "Record 1 (pDemo): its organism is left out: of its 2 source features, not "
+        "one alone is marked as its main organism (/focus or /transgenic) or spans the whole "
+        "record. Each is kept as a feature.",
+    }
 
 
 #: A RefSeq model's COMMENT, as NCBI writes it (XM_090324667.1, cut down).
@@ -499,6 +640,14 @@ def test_a_few_records_go_in_output_json(tmp_path: Path) -> None:
         (
             GENBANK.replace("//\n", ""),
             "seqs.txt: Record 1 doesn't end with '//': is the file cut short?",
+        ),
+        # GenBank's ms-: mixed strands, which neither single nor double would say. As
+        # either, it would be registered as another molecule.
+        (
+            GENBANK.replace("60 bp    DNA    ", "60 bp    ms-DNA "),
+            "seqs.txt: Record 1 (pDemo) is mixed-stranded (LOCUS says ms-), partly single "
+            "and partly double, which a DNA sequence's strandedness can't say yet: as either, "
+            "it would be registered as another molecule. Leave it out of what you import.",
         ),
     ],
 )

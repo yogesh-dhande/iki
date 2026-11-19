@@ -6,8 +6,9 @@ label: Import DNA sequences from a file
 description: >-
   Reads a FASTA or GenBank file and registers each record as a DNA sequence,
   with its name, description, accession, organism and features where the file
-  gives them. A sequence already in Iki (the same bases and topology) is reused.
-  Each records which file and record it came from.
+  gives them. A sequence already in Iki is found: the same bases, topology and
+  strandedness, a circular one from any origin and a double-stranded one from
+  either strand. Each records which file and record it came from.
 params:
   file:
     type: file

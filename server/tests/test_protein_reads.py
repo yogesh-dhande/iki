@@ -171,9 +171,18 @@ def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named
     (ref_header, ref_row), (read_header, read_row) = rows(tmp_path)
     assert (ref_header, ref_row) == ("PRT-000001 Kinase", PROTEIN)
     assert read_header == (
-        "clone_F1 forward frame 1, bases 121–720 of 720 (trimmed from 728), from clone.fastq"
+        "clone_F1 forward frame 1, bases 121–720 of 720 (trimmed from 728), from clone.fastq; "
+        "on PRT-000001 1–200"
     )
     assert read_row == "".join(changed) + "." * 50
+    # For other tools, `-` where the read has no observation, as aligned FASTA has it: a
+    # `.` they'd take for a residue.
+    standard = (tmp_path / "out" / "alignment-standard.fasta").read_text().splitlines()
+    assert standard[0] == ">PRT-000001 Kinase"
+    assert "." not in "".join(line for line in standard if not line.startswith(">"))
+    assert "".join(line for line in standard[standard.index(">" + read_header) + 1 :]) == (
+        "".join(changed) + "-" * 50
+    )
     assert texts(output)[:2] == [
         "The reads cover 1–200 of Kinase's 250 residues (80.0%). Not covered: 201–250.",
         f"Differences from PRT-000001: {PROTEIN[99]}100{changed[99]} (clone_F1 Q40).",

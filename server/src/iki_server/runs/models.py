@@ -1529,8 +1529,9 @@ class ExternalOrigin(models.Model):
             models.Index(fields=["entity", "id"], name="iki_external_origin_entity"),
             models.Index(fields=["source", "identifier"], name="iki_external_origin_record"),
         ]
+        # Several to an entity in one run: one molecule is in several databases' records,
+        # and a run that reads two of them keeps both (ADR 0154).
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(fields=["run", "entity"], name="iki_external_origin_once"),
             models.CheckConstraint(
                 condition=Q(url="") | Q(url__startswith="https://"),
                 name="iki_external_origin_https",

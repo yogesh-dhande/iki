@@ -8,6 +8,7 @@ import {
   featureLength,
   kindOf,
   lanesPerRow,
+  lengthText,
   locationText,
   piecesIn,
   readFeatures,
@@ -90,6 +91,57 @@ describe("features", () => {
     expect(featureLength(site, 20)).toBe(0);
     expect(locationText(site)).toBe("5^6");
     expect(piecesIn([site], 1, 20)).toMatchObject([{ column: 4, shape: "site", arrow: null }]);
+  });
+
+  it("say when their parts are an order, not a join, and when their ends are partial", () => {
+    // INSDC: order(2..4,10..12) says only that they're found in that order; <2..>9 goes
+    // on past both ends, so 8 bases is only what's annotated of it.
+    const number = new Intl.NumberFormat("en");
+    const [ordered, partial, reverse, single] = readFeatures(
+      [
+        {
+          type: "misc_feature",
+          start: 2,
+          end: 12,
+          strand: "forward",
+          operator: "order",
+          parts: [
+            { start: 2, end: 4, strand: "forward" },
+            { start: 10, end: 12, strand: "forward" },
+          ],
+        },
+        {
+          type: "CDS",
+          start: 2,
+          end: 9,
+          strand: "forward",
+          parts: [{ start: 2, end: 9, strand: "forward", partial_start: true, partial_end: true }],
+        },
+        // SV40's VP1 from its other strand: complement(2651..>3745).
+        {
+          type: "CDS",
+          start: 2651,
+          end: 3745,
+          strand: "reverse",
+          parts: [{ start: 2651, end: 3745, strand: "reverse", partial_end: true }],
+        },
+        {
+          type: "misc_feature",
+          start: 7,
+          end: 7,
+          strand: "forward",
+          parts: [{ start: 7, end: 7, strand: "forward", partial_start: true }],
+        },
+      ],
+      5243,
+    ) as [Feature, Feature, Feature, Feature];
+    expect(locationText(ordered)).toBe("order(2..4,10..12)");
+    expect(lengthText(ordered, 5243, number)).toBe("6");
+    expect(locationText(partial)).toBe("<2..>9");
+    expect(lengthText(partial, 5243, number)).toBe("at least 8");
+    expect(locationText(reverse)).toBe("complement(2651..>3745)");
+    expect(lengthText(reverse, 5243, number)).toBe("at least 1,095");
+    expect(locationText(single)).toBe("<7");
   });
 
   it("cross the origin only where their parts do, the arrow at the last one's end", () => {

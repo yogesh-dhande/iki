@@ -17,6 +17,10 @@ export interface Part {
   strand: Strand;
   /** A site between `start` and `end`, two neighbouring bases, covering neither. */
   between: boolean;
+  /** It goes on beyond `start`, or `end`, which is only as far as it's known: INSDC's `<`
+   * and `>`, a partial end. */
+  partialStart: boolean;
+  partialEnd: boolean;
 }
 
 /** A region along the sequence, as a type's features field lists it (GenBank's way). */
@@ -34,6 +38,9 @@ export interface Feature {
   /** Where it lies within that stretch, in the order its parts are read (a reverse-strand
    * join's last first): the whole stretch, unless the field lists parts. */
   parts: Part[];
+  /** Its parts are INSDC's `order()`: found in that order, with nothing said of joining
+   * them, rather than a `join()`, one molecule. */
+  ordered: boolean;
   lane: number;
 }
 
@@ -92,6 +99,8 @@ function readParts(value: unknown, length: number): Part[] | null {
       end: to,
       strand: strandOf(p["strand"]),
       between: p["between"] === true,
+      partialStart: p["partial_start"] === true,
+      partialEnd: p["partial_end"] === true,
     });
   }
   return out;
@@ -121,8 +130,16 @@ export function readFeatures(value: unknown, length: number): Feature[] {
       end: to,
       strand,
       parts: listed ?? [
-        { start: from, end: to, strand: strand === "mixed" ? "none" : strand, between: false },
+        {
+          start: from,
+          end: to,
+          strand: strand === "mixed" ? "none" : strand,
+          between: false,
+          partialStart: false,
+          partialEnd: false,
+        },
       ],
+      ordered: f["operator"] === "order",
       lane: 0,
     });
   });
@@ -274,12 +291,18 @@ export function lanesPerRow(features: Feature[], length: number): number[] {
   return rows;
 }
 
-/** "1..2686", "2601..120 (across the origin)", "join(2..4,10..12)", "5^6": a location as
- * GenBank would write it. */
+/** Whether a feature's ends go on beyond what's annotated (INSDC's `<` or `>`), so its
+ * length is only as much of it as is known. */
+export function isPartial(feature: Feature): boolean {
+  return feature.parts.some((p) => p.partialStart || p.partialEnd);
+}
+
+/** "1..2686", "2601..120 (across the origin)", "join(2..4,10..12)", "order(2..4,10..12)",
+ * "<2..>9", "5^6": a location as GenBank would write it. */
 export function locationText(feature: Feature): string {
   const across = feature.end < feature.start ? " (across the origin)" : "";
   const [only] = feature.parts;
-  if (feature.parts.length === 1 && only && !only.between) {
+  if (feature.parts.length === 1 && only && !only.between && !isPartial(feature)) {
     return `${String(feature.start)}..${String(feature.end)}${across}`;
   }
   const strands = new Set(feature.parts.map((p) => p.strand));
@@ -288,11 +311,23 @@ export function locationText(feature: Feature): string {
   // along the sequence, inside one complement().
   const listed = reverse ? [...feature.parts].reverse() : feature.parts;
   const text = listed.map((p) => {
-    const at = `${String(p.start)}${p.between ? "^" : ".."}${String(p.end)}`;
+    const at = p.between
+      ? `${String(p.start)}^${String(p.end)}`
+      : p.start === p.end && !(p.partialStart && p.partialEnd)
+        ? `${p.partialStart ? "<" : p.partialEnd ? ">" : ""}${String(p.start)}`
+        : `${p.partialStart ? "<" : ""}${String(p.start)}..${p.partialEnd ? ">" : ""}${String(p.end)}`;
     return p.strand === "reverse" && !reverse ? `complement(${at})` : at;
   });
-  const joined = text.length > 1 ? `join(${text.join(",")})` : (text[0] ?? "");
+  const operator = feature.ordered ? "order" : "join";
+  const joined = text.length > 1 ? `${operator}(${text.join(",")})` : (text[0] ?? "");
   return `${reverse ? `complement(${joined})` : joined}${across}`;
+}
+
+/** How many bases it covers, as the feature table says it: "at least" that many if an end
+ * goes on beyond what's annotated. */
+export function lengthText(feature: Feature, length: number, format: Intl.NumberFormat): string {
+  const counted = format.format(featureLength(feature, length));
+  return isPartial(feature) ? `at least ${counted}` : counted;
 }
 
 /** A track's values: one number per residue, or null where there's none. */

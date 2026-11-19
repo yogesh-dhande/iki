@@ -44,7 +44,7 @@ software:
 runs_on: { tier: backend, environment: protein-tools, resources: { memory: 1Gi } }
 command: [python, ./scripts/reads.py]
 deterministic: true
-artifacts: { keep: ["alignment.fasta"] }
+artifacts: { keep: ["alignment.fasta", "alignment-standard.fasta"] }
 metrics:
   reads: { label: Reads, description: The reads the files held. }
   aligned: { label: Aligned, description: The reads that code for some of the protein. }

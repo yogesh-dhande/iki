@@ -119,7 +119,8 @@ fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight:
     { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true, registry: derived }
-  uniprot_accession: { type: string, pattern: "^[A-Z0-9]{6,10}$", registry: fact }
+  ec_number: { type: string, pattern: "^[0-9]+(\\.[0-9n-]+){3}$", registry: fact }
+  uniprot_accession: { type: string, pattern: "^[A-Z0-9]{6,10}$" } # where it came from
   gene: { type: string, max_length: 100, indexed: true } # each project's own
   source: { type: ref, to: iki/core.Entity } # any entity
 display:
@@ -162,7 +163,7 @@ A field marked `registry` is the entry's, the same for every project:
   molecular weight from its structure, usually `computed`. It's set once, by
   whoever registers the entity or the action that computes it, and then never
   changes: registering the identity again with another value keeps the entry's.
-- `registry: fact` is curated, such as an INN or a UniProt accession: an enum,
+- `registry: fact` is curated, such as an INN or an enzyme's EC number: an enum,
   a number, a date, a reference to another entry, or a string or list of
   strings with a `pattern` (never free text). Whoever registers it may set it
   while it's empty; after that only the registry's registrars change it, with a
@@ -174,7 +175,10 @@ A field marked `registry` is the entry's, the same for every project:
 
 Only the type that declares the identity, or an extension of it, has registry
 fields, and they refer only to other entries. Everything else (a
-project's notes, a LIMS ID) is each project's own. An organism is an entry
+project's notes, a LIMS ID, the database accession it came from, as one
+molecule is several databases' records:
+[ADR 0154](../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md))
+is each project's own. An organism is an entry
 of its own, `iki/core.Organism`, by its NCBI Taxonomy ID
 ([ADR 0140](../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
 

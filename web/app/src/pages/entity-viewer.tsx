@@ -14,11 +14,11 @@ import { usePageTitle } from "../layout";
 import {
   columnOf,
   extremes,
-  featureLength,
   featureName,
   GROUP,
   kindOf,
   lanesPerRow,
+  lengthText,
   locationText,
   piecesIn,
   readFeatures,
@@ -532,7 +532,7 @@ function FeatureTable({
                   <td>{f.type}</td>
                   <td>{locationText(f)}</td>
                   <td>{f.strand === "none" ? "—" : f.strand}</td>
-                  <td>{number.format(featureLength(f, length))}</td>
+                  <td>{lengthText(f, length, number)}</td>
                   <td>
                     <button
                       type="button"

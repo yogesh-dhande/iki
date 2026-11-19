@@ -49,7 +49,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.entities import access, checking, constraints, holds, registry, unique
+from iki_server.entities import access, checking, constraints, holds, identity, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of, identity_of
@@ -1125,6 +1125,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         cursor.execute("ANALYZE iki_import_resolved")
+        _place_along_entries(cursor, imported, table, identified)
         registered = 0
         for type_name in identified:
             registered += _insert_entries(cursor, table, type_name, params)
@@ -1166,12 +1167,17 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
                 if not part.entry:
                     _insert_part(cursor, table, part, type_name)
             own = sorted(n for p in form.parts if not p.entry for n in p.fields)
+            # A record of an entry whose identity it spells otherwise keeps what it gave
+            # (ADR 0138), as a create's does.
             cursor.execute(
                 "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
-                " via, client, reason, created_at)"
+                " via, client, reason, submitted, created_at)"
                 " SELECT uuidv7(), s.entity_id, 1, 'created',"
                 "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(own)s) ORDER BY c),"
-                f"  %(user)s, 'run', '', '', now() {new} AND s.type = %(type)s ORDER BY s.line",
+                "  %(user)s, 'run', '', '', p.submitted, now()"
+                f" FROM {table} s JOIN iki_import_resolved r USING (line)"
+                " LEFT JOIN iki_import_spelled p USING (line)"
+                " WHERE r.new AND s.type = %(type)s ORDER BY s.line",
                 {**params, "own": own, "type": type_name},
             )
         cursor.execute(
@@ -1188,16 +1194,18 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         reused = cursor.rowcount - created
+        # Every line's origin, the first of a record and each that found it again: one
+        # molecule is in several databases' records (ADR 0154).
         cursor.execute(
             "INSERT INTO iki_external_origin (run_id, entity_id, revision, source, identifier,"  # noqa: S608 - ours; values are parameters
             " version, url, retrieved_at, sha256, file_id, made, created_at)"
-            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN NULL ELSE 1 END,"
+            " SELECT %(run)s, r.target, CASE WHEN r.first AND NOT r.reused THEN 1 END,"
             "  s.origin->>'source', s.origin->>'identifier', s.origin->>'version',"
             "  s.origin->>'url', (s.origin->>'retrieved_at')::timestamptz,"
             "  s.origin->>'sha256', (s.origin->>'file_id')::uuid,"
             "  NULLIF(s.origin->'made', 'null'::jsonb), now()"
             f" FROM {table} s JOIN iki_import_resolved r USING (line)"
-            " WHERE r.first AND s.origin IS NOT NULL ORDER BY s.line",
+            " WHERE s.origin IS NOT NULL ORDER BY s.line",
             params,
         )
         # How each was made (ADR 0106): Iki's record of the action's software, then what
@@ -1257,6 +1265,122 @@ def _refuse_unregistrable(cursor: Any) -> None:  # noqa: ANN401 - a cursor
         errors.append({"pointer": results.pointer("creates_file", line, "type"), "detail": detail})
     if errors:
         raise results.InvalidOutput(errors)
+
+
+#: How many lines that spell their entries' identities otherwise are placed at a time.
+PLACE_BATCH = 1000
+
+
+def _place_along_entries(
+    cursor: Any,  # noqa: ANN401 - a cursor
+    imported: RunImport,
+    table: str,
+    identified: list[str],
+) -> None:
+    """Each new record of an entry registered before the import, whose line spells the
+    entry's identity otherwise (a plasmid from another origin, or from its other strand),
+    made as :func:`entities.create` makes one (ADR 0138): what the line gives along its
+    sequence is placed along the entry's, and what it gave of the identity is kept, for
+    its first revision, in ``iki_import_spelled``.
+
+    Lines that spell their identities as their entries do are found in SQL and skipped;
+    the rest are placed a batch at a time."""
+    cursor.execute("DROP TABLE IF EXISTS iki_import_spelled")
+    cursor.execute(
+        "CREATE TEMP TABLE iki_import_spelled (line bigint PRIMARY KEY, entry_id uuid NOT NULL,"
+        " submitted jsonb) ON COMMIT DROP"
+    )
+    for type_name in identified:
+        _find_spelled(cursor, table, type_name)
+    after = 0
+    while True:
+        cursor.execute(
+            "SELECT p.line, s.type, s.parts, p.entry_id FROM iki_import_spelled p"  # noqa: S608 - ours; values are parameters
+            f" JOIN {table} s USING (line) WHERE p.line > %s ORDER BY p.line LIMIT %s",
+            [after, PLACE_BATCH],
+        )
+        batch = cursor.fetchall()
+        if not batch:
+            break
+        after = batch[-1][0]
+        found = Entity.objects.filter(pk__in={entry_id for *_, entry_id in batch})
+        stored = entities.current_values_of(list(found))
+        placed: dict[str, list[Any]] = {"lines": [], "parts": [], "submitted": []}
+        for line, type_name, parts_text, entry_id in batch:
+            # Django reads jsonb as text.
+            parts = json.loads(parts_text) if isinstance(parts_text, str) else parts_text
+            given = {n: v for values in parts.values() for n, v in values.items()}
+            entry = {n: _json(v) for n, v in stored[entry_id].items()}
+            entity_type = shape(type_name).entity_type
+            spelled = identity.spelled(entity_type, given, entry)
+            if not spelled:
+                continue
+            moved = identity.placed(entity_type, given, spelled, entry.get)
+            for values in parts.values():
+                for name in values:
+                    values[name] = moved.get(name)
+            placed["lines"].append(line)
+            placed["parts"].append(_ENCODE(parts))
+            placed["submitted"].append(_ENCODE(spelled))
+        if not placed["lines"]:
+            continue
+        cursor.execute(
+            "UPDATE iki_import_line l SET parts = m.parts::jsonb"
+            " FROM unnest(%(lines)s::bigint[], %(parts)s::text[]) AS m(line, parts)"
+            " WHERE l.bulk_import_id = %(import)s AND l.round = %(round)s AND l.line = m.line",
+            {**placed, "import": imported.pk, "round": imported.round},
+        )
+        cursor.execute(
+            "UPDATE iki_import_spelled p SET submitted = m.submitted::jsonb"
+            " FROM unnest(%(lines)s::bigint[], %(submitted)s::text[]) AS m(line, submitted)"
+            " WHERE p.line = m.line",
+            placed,
+        )
+    cursor.execute("ANALYZE iki_import_spelled")
+
+
+def _find_spelled(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN401 - a cursor
+    """The new records of one type, of entries registered before the import, whose lines
+    may spell their identities otherwise: each identity value compared with the entry's
+    tables, as Postgres stores both, and a list's always (in Python, item by item)."""
+    form = shape(type_name)
+    identity_fields = _identity(type_name)
+    joins: list[str] = []
+    differs: list[str] = []
+    for n, part in enumerate(p for p in form.parts if p.entry):
+        names = [name for name in part.fields if name in identity_fields]
+        if not names:
+            continue
+        meta = part.model._meta
+        key = meta.db_table
+        columns = {f.name: _column(f) for f in meta.local_concrete_fields if not f.primary_key}
+        renames = "".join(
+            f" || jsonb_build_object({_literal(column)}, s.parts->{_literal(key)}->"
+            f"{_literal(name)})"
+            for name, column in columns.items()
+            if column != name
+        )
+        joins.append(
+            f" LEFT JOIN {_q(key)} t{n} ON t{n}.{_q(_column(meta.pk))} = q.entry_id"
+            f" CROSS JOIN LATERAL (SELECT jsonb_populate_record(NULL::{_q(key)},"
+            f" COALESCE(s.parts->{_literal(key)}, '{{}}'::jsonb){renames}) AS p) g{n}"
+        )
+        for name in names:
+            column = columns.get(name)
+            if is_list_table(part.fields[name]) or column is None:
+                differs.append("true")
+            else:
+                differs.append(f"(g{n}.p).{_q(column)} IS DISTINCT FROM t{n}.{_q(column)}")
+    if not differs:
+        return
+    cursor.execute(
+        "INSERT INTO iki_import_spelled (line, entry_id)"  # noqa: S608 - ours; values are parameters
+        " SELECT q.line, q.entry_id FROM iki_import_resolved q"
+        f" JOIN {table} s USING (line){''.join(joins)}"
+        " WHERE q.type = %s AND q.new AND q.entry_type IS NOT NULL"
+        f" AND ({' OR '.join(differs)})",
+        [type_name],
+    )
 
 
 def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, Any]) -> int:  # noqa: ANN401 - a cursor

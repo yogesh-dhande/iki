@@ -16,6 +16,7 @@ effects:
   creates:
     - { type: Protein, cardinality: many, match_on: lims_id }
     - { type: iki/core.Organism, cardinality: many }
+    - { type: acme/dna.Plasmid, cardinality: many }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/imports.py]
 deterministic: true

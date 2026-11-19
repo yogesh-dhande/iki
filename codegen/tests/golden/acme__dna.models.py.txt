@@ -162,3 +162,92 @@ class DNASequence_Entry_History(models.Model):
 
     class Meta:
         db_table = 'acme__dna_dnasequence__entry__history'
+
+
+class Plasmid(Sequence):
+    """Plasmid (acme/dna.Plasmid), schema version 1. A circular sequence with features, as the fixtures have it: registered again from another origin, it's found, and its features are placed along its entry's."""
+
+    IKI_TYPE = 'acme/dna.Plasmid'
+
+    acme_dna_sequence_ptr = models.OneToOneField(
+        Sequence,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    features = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__dna_plasmid'
+
+
+class Plasmid_History(models.Model):
+    """The history of acme__dna_plasmid: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Plasmid'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    features = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__dna_plasmid__history'
+
+
+class Plasmid_Entry(Entity):
+    """Registry entries of Plasmid (acme/dna.Plasmid), ADR 0115."""
+
+    IKI_TYPE = 'acme/dna.Plasmid'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    bases = models.TextField()
+    topology = models.TextField(db_default='circular')
+
+    class Meta:
+        db_table = 'acme__dna_plasmid__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('bases'), 1),
+                name='acme__dna_plasmid__entry__bases__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(bases__regex='[\\r\\n]'),
+                name='acme__dna_plasmid__entry__bases__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(bases__regex='^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$'),
+                name='acme__dna_plasmid__entry__bases__format',
+            ),
+            models.CheckConstraint(
+                condition=Q(topology__in=['linear', 'circular']),
+                name='acme__dna_plasmid__entry__topology__values',
+            ),
+        ]
+
+
+class Plasmid_Entry_History(models.Model):
+    """The history of acme__dna_plasmid__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Plasmid_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    bases = models.TextField(null=True)
+    topology = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__dna_plasmid__entry__history'

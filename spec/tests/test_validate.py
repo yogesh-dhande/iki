@@ -84,7 +84,11 @@ def test_example_plugins_are_valid() -> None:
     assert dna.ok
     assert dna.problems == []
     assert dna.plugin is not None
-    assert set(dna.plugin.types) == {"acme/dna.Sequence", "acme/dna.DNASequence"}
+    assert set(dna.plugin.types) == {
+        "acme/dna.Sequence",
+        "acme/dna.DNASequence",
+        "acme/dna.Plasmid",
+    }
 
     protein = load_plugin(PROTEIN, dependencies=[DNA])
     assert protein.problems == []
@@ -112,7 +116,9 @@ def test_builds_the_model_codegen_reads() -> None:
     assert weight.unit == "u"
     assert weight.label == "Molecular weight"
     assert protein.fields["encoded_by"].to == ("acme/dna.DNASequence",)
-    assert result.plugin.dependencies == {"acme/dna": {"Sequence": ">=1", "DNASequence": ">=2,<4"}}
+    assert result.plugin.dependencies == {
+        "acme/dna": {"Sequence": ">=1", "DNASequence": ">=2,<4", "Plasmid": ">=1"}
+    }
     structure = result.plugin.types["acme/protein.ProteinStructure"]
     assert structure.fields["structure"].max_size == 2 * 1024**3
     chains = structure.fields["chains"]

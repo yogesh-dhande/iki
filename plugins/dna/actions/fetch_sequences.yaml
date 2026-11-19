@@ -6,9 +6,10 @@ label: Fetch DNA sequences from NCBI
 description: >-
   Fetches nucleotide records from NCBI by accession, in GenBank format, and
   registers each as a DNA sequence, with its name, description, accession,
-  organism, topology and features. A sequence already in Iki (the same bases
-  and topology) is reused. Each records which NCBI record and version it came
-  from, and when it was fetched.
+  organism, topology and features. A sequence already in Iki is found: the same
+  bases, topology and strandedness, a circular one from any origin and a
+  double-stranded one from either strand. Each records which NCBI record and
+  version it came from, and when it was fetched.
 params:
   accessions:
     type: text

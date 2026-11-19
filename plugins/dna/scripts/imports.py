@@ -6,11 +6,14 @@ can't be read fails the whole import with a `::error` line that says which and w
 so nothing is half imported.
 
 GenBank records give their name, definition, accession and version, organism (by the
-NCBI Taxonomy ID in its source feature: its entry is made the first time, ADR 0140), topology,
-strandedness (if LOCUS says ss-DNA or ds-DNA) and features. A feature's location is kept
-as its first and last base and its strand; locations with several parts (`join(...)`),
-fuzzy ends (`<1`, `>99`) or between two bases (`5^6`) keep GenBank's own text in the
-`location` qualifier too. Features on other records (`J00194.1:100..202`) are left out,
+NCBI Taxonomy ID in its main source feature: its entry is made the first time, ADR 0140),
+topology, strandedness (if LOCUS says ss-DNA or ds-DNA; ms-, mixed, fails the import) and
+features. A feature's location is kept as its first and last base and its strand, with its
+parts when it has several (`join(...)`, or `order(...)`, kept as its operator), lies between
+two bases (`5^6`), or has partial ends (`<1`, `>99`, kept on its parts); such locations
+keep GenBank's own text in the `location` qualifier too. A record of several source
+features is of the one marked /focus or /transgenic, or else the one spanning it all; the
+others are kept as features. Features on other records (`J00194.1:100..202`) are left out,
 with a warning. A RefSeq model's (XM_, XR_) COMMENT says NCBI's annotation pipeline
 predicted it, with which gene prediction method: its origin says so, as NCBI's word (ADR
 0106). Other records don't say how their sequence was made, so theirs don't.
@@ -236,12 +239,13 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
             origin.append(line)
         elif current:
             sections.setdefault(current, []).append(line.strip())
-    organism = _organism(sections.get("SOURCE", []))
-    taxon = _taxon(features)
     # VERSION names the accession with its version (L09137.2); old files may lack it.
     named = " ".join(sections.get("VERSION", []) or sections.get("ACCESSION", [])).split()
     accession = named[0] if named else ""
     bases = clean_bases(label, "".join(origin))
+    parsed = _parse_features(features)
+    organism_line = _organism(sections.get("SOURCE", []))
+    source = _primary_source(record, parsed, organism_line, len(bases))
     topology = "circular" if "circular" in (w.lower() for w in locus[2:]) else "linear"
     values = {
         "name": name,
@@ -249,20 +253,21 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
         "accession": accession if re.fullmatch(r"[A-Za-z0-9_.]+", accession) else "",
         "bases": bases,
         "topology": topology,
-        "features": _features(record, features, len(bases), topology),
+        "features": _features(record, parsed, source, len(bases), topology),
     }
     stranded = strandedness(locus[2:])
+    if stranded == "mixed":
+        raise UnreadableError(
+            f"{label} is mixed-stranded (LOCUS says ms-), partly single and partly double, "
+            "which a DNA sequence's strandedness can't say yet: as either, it would be "
+            "registered as another molecule. Leave it out of what you import."
+        )
     if stranded:
         values["strandedness"] = stranded
     record.values = fit(values, record)
     record.made = made(sections.get("COMMENT", []))
-    if taxon is not None:
-        record.organism = Organism(taxon, organism)
-    elif organism:
-        record.warnings.append(
-            f"{label}: its organism, {organism[:200]}, has no NCBI Taxonomy ID "
-            "(its source feature's /db_xref=\"taxon:…\"), so it's left out."
-        )
+    if source is not None:
+        record.organism = source.organism
     return record
 
 
@@ -273,14 +278,16 @@ MOLECULE = re.compile(r"^(ss-|ds-|ms-)?([a-z]*RNA|DNA)$", re.IGNORECASE)
 def strandedness(locus: list[str]) -> str | None:
     """What LOCUS says of the molecule's strands: `single` for ss-DNA and for RNA (an mRNA
     is kept as its cDNA's bases, GenBank's T alphabet, but the molecule is one strand),
-    `double` for ds-DNA and ds-RNA. Plain DNA doesn't say, so the field keeps its default."""
+    `double` for ds-DNA and ds-RNA, and `mixed` for ms- (partly single, partly double),
+    which a sequence's strandedness can't say. Plain DNA doesn't say, so the field keeps
+    its default."""
     for word in locus:
         found = MOLECULE.match(word)
         if not found:
             continue
         prefix, kind = (found[1] or "").lower(), found[2].upper()
         if prefix == "ms-":
-            return None  # mixed: neither
+            return "mixed"  # neither: the import refuses it
         if prefix == "ds-":
             return "double"
         if prefix == "ss-" or kind.endswith("RNA"):
@@ -343,24 +350,25 @@ def _organism(source: list[str]) -> str:
     return ""
 
 
-def _taxon(lines: list[str]) -> int | None:
-    """The NCBI Taxonomy ID in the source feature's ``/db_xref="taxon:9606"``."""
-    inside = False
-    for line in lines:
-        if len(line) > 5 and line[5] != " ":
-            if inside:
-                break
-            inside = line[5:].split(" ", 1)[0] == "source"
-        elif inside:
-            found = re.search(r'/db_xref="taxon:([0-9]{1,10})"', line)
-            if found and int(found[1]) > 0:
-                return int(found[1])
-    return None
+@dataclass
+class Source:
+    """A source feature: the organism a stretch of the record is from."""
+
+    location: str
+    qualifiers: list[str]
+    #: Its /organism, or the record's ORGANISM line if it's the record's only source.
+    name: str
+    #: The NCBI Taxonomy ID its /db_xref gives, if it gives one.
+    taxon: int | None
+
+    @property
+    def organism(self) -> Organism | None:
+        return Organism(self.taxon, self.name) if self.taxon is not None else None
 
 
-def _features(record: Record, lines: list[str], length: int, topology: str) -> list[dict[str, Any]]:
-    """GenBank's feature table: a key in columns 6 to 20, the location after it, then
-    /qualifiers, each line continuing the one before."""
+def _parse_features(lines: list[str]) -> list[tuple[str, str, list[str]]]:
+    """GenBank's feature table: each feature's key (columns 6 to 20), its location after
+    it, and its /qualifiers, each line continuing the one before."""
     parsed: list[tuple[str, str, list[str]]] = []
     for line in lines:
         if len(line) > 5 and line[5] != " ":
@@ -377,10 +385,101 @@ def _features(record: Record, lines: list[str], length: int, topology: str) -> l
                 qualifiers[-1] += joint + body.strip()
             else:
                 parsed[-1] = (key, location + body.strip(), qualifiers)
+    return parsed
+
+
+def _values(raw: list[str], name: str) -> list[str]:
+    """Each value of the qualifier ``name`` (``/name="value"``), its quotes taken off; one
+    with no value (``/focus``) gives an empty one."""
+    out = []
+    for item in raw:
+        key, equals, value = item[1:].partition("=")
+        if key.strip() != name:
+            continue
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"') and len(value) > 1:
+            value = value[1:-1].replace('""', '"')
+        out.append(value if equals else "")
+    return out
+
+
+def _primary_source(
+    record: Record, parsed: list[tuple[str, str, list[str]]], organism_line: str, length: int
+) -> Source | None:
+    """The source feature of the organism the record is of, as INSDC's feature table says
+    which: the one with /focus or /transgenic, which names the main organism of a record
+    with several; or the only one; or the only one that spans the whole record. Its name
+    and taxon are read together, from it. When none is, the record's organism is left out,
+    saying why: one source's name with another's taxon would be a third organism."""
+    sources = []
+    for key, location, raw in parsed:
+        if key != "source":
+            continue
+        names = _values(raw, "organism")
+        taxa = {
+            int(found[1])
+            for value in _values(raw, "db_xref")
+            if (found := re.fullmatch(r"taxon:([0-9]{1,10})", value)) and int(found[1]) > 0
+        }
+        taxon = taxa.pop() if len(taxa) == 1 else None
+        sources.append(Source(location, raw, names[0] if names else "", taxon))
+    if len(sources) == 1 and not sources[0].name:
+        sources[0].name = organism_line
+    marked = [s for s in sources if _values(s.qualifiers, "focus")] or [
+        s for s in sources if _values(s.qualifiers, "transgenic")
+    ]
+    whole = [s for s in sources if _whole(s.location, length)]
+    chosen: Source | None = None
+    if len(marked) == 1:
+        chosen = marked[0]
+    elif not marked and len(sources) == 1:
+        chosen = sources[0]
+    elif not marked and len(whole) == 1:
+        chosen = whole[0]
+    if chosen is None:
+        if sources:
+            record.warnings.append(
+                f"{record.label}: its organism is left out: of its {len(sources)} source "
+                "features, not one alone is marked as its main organism (/focus or "
+                "/transgenic) or spans the whole record. Each is kept as a feature."
+            )
+        elif organism_line:
+            record.warnings.append(
+                f"{record.label}: its organism, {organism_line[:200]}, has no NCBI Taxonomy "
+                "ID (it has no source feature), so it's left out."
+            )
+        return None
+    if chosen.taxon is None:
+        named = chosen.name or organism_line
+        record.warnings.append(
+            f"{record.label}: its organism"
+            + (f", {named[:200]}," if named else "")
+            + ' has no NCBI Taxonomy ID (its source feature\'s /db_xref="taxon:…"), so '
+            "it's left out."
+        )
+    return chosen
+
+
+def _whole(location: str, length: int) -> bool:
+    """Whether a source's location is the whole record, ``1..n``."""
+    found = re.fullmatch(r"<?1\.\.>?([0-9]+)", location.strip())
+    return found is not None and int(found[1]) == length
+
+
+def _features(
+    record: Record,
+    parsed: list[tuple[str, str, list[str]]],
+    primary: Source | None,
+    length: int,
+    topology: str,
+) -> list[dict[str, Any]]:
+    """The record's features but its main source, which is its organism. Other sources,
+    stretches of it from other organisms, are kept as features named by their organism, so
+    their spans and taxa stay with it."""
     out: list[dict[str, Any]] = []
     for key, location, raw in parsed:
-        if key == "source":
-            continue  # the whole record: its organism is kept on the sequence
+        if key == "source" and primary is not None and raw is primary.qualifiers:
+            continue
         if len(out) == MAX_FEATURES:
             record.warnings.append(f"{record.label}: only its first {MAX_FEATURES} features.")
             break
@@ -394,11 +493,11 @@ class LocationError(ValueError):
     """A location this reading of INSDC's grammar doesn't take."""
 
 
-#: A part's place: `a..b` (either end maybe fuzzy, `<a`, `>b`), `a^b` (between two bases),
-#: or a single base.
-RANGE = re.compile(r"<?([0-9]+)\.\.>?([0-9]+)")
+#: A part's place: `a..b` (either end maybe beyond the base it names: `<a`, `>b`), `a^b`
+#: (between two bases), or a single base (maybe `<a` or `>a`).
+RANGE = re.compile(r"(<)?([0-9]+)\.\.(>)?([0-9]+)")
 BETWEEN = re.compile(r"([0-9]+)\^([0-9]+)")
-BASE = re.compile(r"[<>]?([0-9]+)")
+BASE = re.compile(r"([<>])?([0-9]+)")
 
 
 def _top_level(text: str) -> list[str]:
@@ -417,7 +516,9 @@ def parts_of(location: str, strand: str = "forward") -> list[dict[str, Any]]:
     """A location's parts in the order they're read (5' to 3' of what the feature is: a
     complement's parts last first), each with its strand, as INSDC's feature table writes
     them: `complement(…)`, `join(…)` and `order(…)`, around ranges, single bases and sites
-    between two bases (`5^6`, flagged `between`)."""
+    between two bases (`5^6`, flagged `between`). An end beyond the base it names (`<2`,
+    `>9`: INSDC's partial ends) is flagged `partial_start` or `partial_end`, as the start
+    or end it's on."""
     location = location.strip()
     for wrapper in ("complement", "join", "order"):
         if location.startswith(f"{wrapper}(") and location.endswith(")"):
@@ -427,12 +528,32 @@ def parts_of(location: str, strand: str = "forward") -> list[dict[str, Any]]:
                 return list(reversed(parts_of(inner, flipped)))
             return [part for piece in _top_level(inner) for part in parts_of(piece, strand)]
     if found := RANGE.fullmatch(location):
-        return [{"start": int(found[1]), "end": int(found[2]), "strand": strand}]
+        part = {"start": int(found[2]), "end": int(found[4]), "strand": strand}
+        return [_partial(part, start=bool(found[1]), end=bool(found[3]))]
     if found := BETWEEN.fullmatch(location):
         return [{"start": int(found[1]), "end": int(found[2]), "strand": strand, "between": True}]
     if found := BASE.fullmatch(location):
-        return [{"start": int(found[1]), "end": int(found[1]), "strand": strand}]
+        part = {"start": int(found[2]), "end": int(found[2]), "strand": strand}
+        return [_partial(part, start=found[1] == "<", end=found[1] == ">")]
     raise LocationError(location)
+
+
+def _partial(part: dict[str, Any], *, start: bool, end: bool) -> dict[str, Any]:
+    if start:
+        part["partial_start"] = True
+    if end:
+        part["partial_end"] = True
+    return part
+
+
+def operator_of(location: str) -> str:
+    """How a location's parts go together: `order` (found in that order, nothing said of
+    joining them) or `join` (one molecule, them joined), INSDC's two operators, which one
+    location can't mix. A location of one part is `join`'s, as it's one stretch."""
+    ordered, joined = "order(" in location, "join(" in location
+    if ordered and joined:
+        raise LocationError(location)
+    return "order" if ordered else "join"
 
 
 def extent(parts: list[dict[str, Any]], length: int, topology: str) -> tuple[int, int]:
@@ -468,9 +589,10 @@ def _feature(
         )
         return None
     try:
+        operator = operator_of(location)
         parts = parts_of(location)
     except LocationError:
-        parts = []
+        operator, parts = "join", []
     circle = topology == "circular"
 
     def fits(part: dict[str, Any]) -> bool:
@@ -505,15 +627,18 @@ def _feature(
             qualifiers[name] = value[:MAX_QUALIFIER]
             record.warnings.append(f"{record.label}: a {key}'s /{name} was cut.")
     feature: dict[str, Any] = {"type": key[:64], "start": first, "end": last, "strand": strand}
-    if len(parts) > 1 or parts[0].get("between"):
-        # Where it lies, part by part: a join's exons, not its introns; a site, no base.
+    if operator == "order" and len(parts) > 1:
+        feature["operator"] = "order"
+    partial = any(p.get("partial_start") or p.get("partial_end") for p in parts)
+    if len(parts) > 1 or parts[0].get("between") or partial:
+        # Where it lies, part by part: a join's exons, not its introns; a site, no base;
+        # ends that go on beyond the bases they name.
         feature["parts"] = parts[:MAX_PARTS]
         if len(parts) > MAX_PARTS:
             record.warnings.append(f"{record.label}: a {key}'s first {MAX_PARTS} parts only.")
-    label = next(
-        (qualifiers[q] for q in ("label", "gene", "locus_tag", "product") if q in qualifiers),
-        "",
-    )
+    # Another organism's stretch of the record is named by it.
+    named = ("organism",) if key == "source" else ("label", "gene", "locus_tag", "product")
+    label = next((qualifiers[q] for q in named if q in qualifiers), "")
     if label:
         feature["name"] = label[:200]
     if qualifiers:

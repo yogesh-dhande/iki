@@ -5,7 +5,7 @@ name: Protein
 label: Protein
 label_plural: Proteins
 extends: iki/core.Sequence
-schema_version: 2
+schema_version: 3
 description: >-
   A protein, by its amino acid sequence. Two with the same sequence are the same
   protein, so registering one again finds its
@@ -88,12 +88,16 @@ fields:
       probably unstable.
   uniprot_accession:
     type: string
-    registry: fact
     label: UniProt accession
     max_length: 20
     indexed: true
     pattern: "^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-[0-9]+)?$"
-    description: Its UniProtKB accession, such as P69905, or P69905-2 for an isoform.
+    # The project's, not the entry's (ADR 0154): one sequence is several genes'
+    # and species' entries (calmodulin is CALM1's P0DP23 and CALM2's P0DP24).
+    description: >-
+      The UniProtKB entry it came from, such as P69905, or P69905-2 for an
+      isoform. The same sequence may be several entries': each import or
+      fetch keeps the one it read as its origin.
   gene:
     type: string
     max_length: 100
