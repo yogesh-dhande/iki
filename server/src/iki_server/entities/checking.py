@@ -56,9 +56,6 @@ __all__ = [
 
 log = structlog.get_logger(__name__)
 
-#: The most records a reference list loads for a check, besides its field's own limit.
-MAX_REFERENCED = 200
-
 
 @dataclass(frozen=True)
 class Broken:
@@ -174,23 +171,43 @@ def cel_value(f: Field, value: Any) -> Any:  # noqa: ANN401 - a database value i
     return out
 
 
+def _is_refs(f: Field) -> bool:
+    return f.type == "list" and f.items is not None and f.items.type == "ref"
+
+
 def referenced_by(
     fields: Mapping[str, Field], wanted: Iterable[str], getters: Sequence[Callable[[str], Any]]
 ) -> dict[Any, dict[str, Any]]:
-    """Each record a save's references read refers to, as an expression reads it."""
-    from iki_server.entities.services import current_values_of
+    """Each record a save's references read refers to, as an expression reads it: every
+    member of a list, however long, as its field's own limit allows it to be. A rule over
+    a list sees all of it, or (:func:`unread`) isn't worked out."""
+    ids: set[Any] = set()
+    for values in getters:
+        ids |= _referenced_ids(fields, wanted, values)
+    return _load(ids)
 
+
+def _referenced_ids(
+    fields: Mapping[str, Field], wanted: Iterable[str], values: Callable[[str], Any]
+) -> set[Any]:
+    """The records one record's references among ``wanted`` refer to."""
     ids: set[Any] = set()
     for name in wanted:
         f = fields.get(name)
         if f is None:
             continue
-        for values in getters:
-            value = values(name)
-            if f.type == "ref" and value is not None:
-                ids.add(value)
-            elif f.type == "list" and f.items is not None and f.items.type == "ref" and value:
-                ids.update(list(value)[:MAX_REFERENCED])
+        value = values(name)
+        if f.type == "ref" and value is not None:
+            ids.add(value)
+        elif _is_refs(f) and value:
+            ids.update(value)
+    return ids
+
+
+def _load(ids: set[Any]) -> dict[Any, dict[str, Any]]:
+    """Each of the records, as an expression reads it."""
+    from iki_server.entities.services import current_values_of
+
     if not ids:
         return {}
     found = list(Entity.objects.filter(pk__in=ids))
@@ -231,11 +248,46 @@ def record_json(
         value = values(name)
         if f.type == "ref":
             out[name] = referenced.get(value) if value is not None else None
-        elif f.type == "list" and f.items is not None and f.items.type == "ref":
+        elif _is_refs(f):
             out[name] = [referenced[v] for v in (value or ()) if v in referenced]
         else:
             out[name] = cel_value(f, value)
     return out
+
+
+def unread(
+    form: Shape,
+    values: Callable[[str], Any],
+    reads: Iterable[str],
+    referenced: Mapping[Any, dict[str, Any]],
+) -> dict[str, int]:
+    """The fields of ``reads`` that refer to records :func:`referenced_by` couldn't read,
+    with how many: one whose type is no longer installed. A rule reading one isn't worked
+    out on what's left, which could keep it or break it wrongly: it can't be checked."""
+    fields = form.fields()
+    out: dict[str, int] = {}
+    for name in reads:
+        f = fields.get(name)
+        if f is None:
+            continue
+        value = values(name)
+        if f.type == "ref":
+            missing = int(value is not None and value not in referenced)
+        elif _is_refs(f):
+            missing = sum(1 for v in value or () if v not in referenced)
+        else:
+            continue
+        if missing:
+            out[name] = missing
+    return out
+
+
+def unread_text(fields: Mapping[str, int]) -> str:
+    """Why a rule reading these :func:`unread` fields can't be checked."""
+    said = ", ".join(
+        f"{n} refers to {k} record{'s' * (k != 1)} it can’t read" for n, k in fields.items()
+    )
+    return f"{said}, so it isn’t worked out on the rest."
 
 
 def now_values(now: dt.datetime | None = None) -> dict[str, str]:
@@ -269,7 +321,6 @@ def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
         return [[] for _ in savings]
     rules = [r for r in checks if r.key in used]
     reads = sorted({name for r in rules for name in r.reads})
-    referenced = referenced_by(fields, reads, [s.values for s in savings])
     expressions: list[tuple[str, str]] = []
     at: dict[str, tuple[int, int | None, int]] = {}
     for rule in rules:
@@ -284,18 +335,24 @@ def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
         expressions.append((rule.message, spec_rules.MESSAGE))
         at[rule.key] = (check, when, message)
     times = now_values()
-    contexts = [
-        {
-            "record": record_json(form, s.values, reads, referenced, entity_id=s.id, hrid=s.hrid),
-            **times,
-        }
-        for s in savings
-    ]
+    contexts: list[dict[str, Any]] = []
+    missing: list[dict[str, int]] = []
+    for group in _groups(fields, reads, savings):
+        referenced = _load(set().union(*(ids for _, ids in group)))
+        for s, _ in group:
+            record = record_json(form, s.values, reads, referenced, entity_id=s.id, hrid=s.hrid)
+            contexts.append({"record": record, **times})
+            missing.append(unread(form, s.values, reads, referenced))
     results = spec_rules.evaluate(record_variables(type_name), expressions, contexts)
     out: list[list[Broken]] = []
-    for outcomes, rules_here in zip(results, applying, strict=True):
+    for outcomes, rules_here, gone in zip(results, applying, missing, strict=True):
         found = []
         for rule in rules_here:
+            if lost := {n: k for n, k in gone.items() if n in rule.reads}:
+                log.warning("entities.rule_unworkable", rule=rule.key, type=type_name, unread=lost)
+                text = f"“{rule.label}” couldn’t be checked: {unread_text(lost)}"
+                found.append(Broken(rule, text, rule.fields or rule.reads))
+                continue
             check, when, message = at[rule.key]
             why = _breaks(rule, outcomes[check], outcomes[when] if when is not None else None)
             if why is None:
@@ -307,6 +364,32 @@ def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
                 text = f"“{rule.label}” couldn’t be checked: {why}"
             found.append(Broken(rule, text, rule.fields or rule.reads))
         out.append(found)
+    return out
+
+
+#: The most records one lookup loads for many saves' rules, as a bulk import checks a
+#: chunk of them: past it, the next saves have a lookup of their own. Each save's own
+#: references are loaded whole, however many.
+MAX_LOOKUP = 20_000
+
+
+def _groups(
+    fields: Mapping[str, Field], reads: Sequence[str], savings: Sequence[Saving]
+) -> list[list[tuple[Saving, set[Any]]]]:
+    """``savings`` in order, in groups whose references come to at most MAX_LOOKUP records
+    together, or to a single save's."""
+    out: list[list[tuple[Saving, set[Any]]]] = []
+    group: list[tuple[Saving, set[Any]]] = []
+    count = 0
+    for saving in savings:
+        ids = _referenced_ids(fields, reads, saving.values)
+        if group and count + len(ids) > MAX_LOOKUP:
+            out.append(group)
+            group, count = [], 0
+        group.append((saving, ids))
+        count += len(ids)
+    if group:
+        out.append(group)
     return out
 
 

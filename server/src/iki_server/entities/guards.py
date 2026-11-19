@@ -145,6 +145,7 @@ def refusals(
     record = checking.record_json(
         form, values.get, reads, referenced, entity_id=entity.pk, hrid=entity.hrid
     )
+    missing = checking.unread(form, values.get, reads, referenced)
     history = _history(entity, state_fields)
     last = {
         name: {
@@ -192,6 +193,16 @@ def refusals(
         outcomes = results[index]
         for owner, guard, check, when, message in at:
             if owner is not state or state.name in out:
+                continue
+            if lost := {n: k for n, k in missing.items() if n in guard.reads}:
+                # Worked out on part of a list, it could let the change through wrongly.
+                log.warning(
+                    "entities.guard_unworkable", type=type_name, guard=guard.name, unread=lost
+                )
+                text = outcomes[message].text or guard.message
+                out[state.name] = Refusal(
+                    guard, f"{text} (It couldn’t be checked: {checking.unread_text(lost)})"
+                )
                 continue
             if when is not None:
                 w = outcomes[when]

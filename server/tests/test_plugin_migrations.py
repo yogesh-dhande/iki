@@ -245,6 +245,7 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_lot__history",
         "acme__protein_batch",
         "acme__protein_batch__history",
+        "acme__protein_batch__proteins",
         "acme__protein_assayrequest",
         "acme__protein_assayrequest__history",
         "acme__protein_assayrequest__samples",

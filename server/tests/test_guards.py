@@ -7,7 +7,7 @@ import pytest
 from api_client import problem
 from org_world import World
 from test_api_entities import api_as
-from test_rules import BATCH, change, made
+from test_rules import BATCH, _bsl3, _proteins, change, made
 from test_runs import world
 from test_signatures import begin, evidence, ready, signed
 from test_states import ANALYST, QA, REVIEWER, put, roles, set_
@@ -77,6 +77,22 @@ def test_a_guard_reads_another_state_field(world: World) -> None:
     )
     set_(world, "admin", batch["id"], "custody", "in_lab")
     assert set_(world, "admin", batch["id"], "status", "released")["values"]["status"] == "released"
+
+
+def test_a_guard_over_a_list_reads_every_member(world: World) -> None:
+    """A release is refused for its 201st protein as for its first."""
+    roles(world, editor=(ANALYST,), admin=(QA,))
+    listed = _proteins(world, 201)
+    batch = made(world, {"result": "pass", "purity": 95.0, "proteins": listed})
+    assert offered(world, "admin", batch["id"])["released"] == (None, None)
+    # Found BSL-3 since: rules aren't checked again, but releasing it is.
+    _bsl3(world, Entity.objects.get(pk=listed[200]))
+    assert offered(world, "admin", batch["id"])["released"] == (
+        "A batch of a BSL-3 protein isn't released.",
+        "proteins_not_bsl3",
+    )
+    body = problem(put(world, "admin", batch["id"], "status", "released"), 409, "guard_refused")
+    assert body["guard"] == "proteins_not_bsl3"
 
 
 def test_a_guard_that_cant_be_worked_out_refuses(world: World) -> None:
