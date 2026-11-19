@@ -929,6 +929,8 @@ class Live:
     cost_usd: float | None = None
     forwards: list[subprocess.Popen[bytes]] = field(default_factory=list)
     teardown_errors: list[str] = field(default_factory=list)
+    #: What tear_down found: its steps' errors, then what's left or gone.
+    teardown_problems: list[str] = field(default_factory=list)
     #: The most a run may take before tearing down starts, in seconds (None: no cap). At the
     #: cap, whatever runs is stopped (CapReachedError), the checks left fail, and the last, which
     #: tears down, runs.
@@ -963,9 +965,10 @@ class Live:
     # The same for every cloud.
 
     def tear_down(self) -> list[str]:
-        """Deletes everything, once, and lists what's left that shouldn't be."""
+        """Deletes everything, once, and lists what's left that shouldn't be, and what's
+        gone that should still be there: the same each time it's asked."""
         if self.torn_down:
-            return self.leftovers(self.before, self.after) if self.before and self.after else []
+            return list(self.teardown_problems)
         self.torn_down = True
         _stop_cap()  # tearing down is never cut short
         for forward in self.forwards:
@@ -975,10 +978,21 @@ class Live:
                 step()
             except Exception as error:
                 self.teardown_errors.append(f"{what}: {error}")
-        self.after = self.inventory()
+        try:
+            self.after = self.inventory()
+        except Exception as error:
+            # Never taken as nothing left: what's in the account is unknown.
+            self.teardown_problems = [
+                *self.teardown_errors,
+                f"listing the account after tearing down failed, so what's left or gone is "
+                f"unknown: look at it by hand ({self.cloud}-before.txt has what was there): "
+                f"{error}",
+            ]
+            return list(self.teardown_problems)
         self.after.write(self.workdir / f"{self.cloud}-after.txt")
         problems = self.leftovers(self.before, self.after) if self.before else []
-        return [*self.teardown_errors, *problems]
+        self.teardown_problems = [*self.teardown_errors, *problems]
+        return list(self.teardown_problems)
 
 
 class CapReachedError(Exception):

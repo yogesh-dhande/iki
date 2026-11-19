@@ -256,6 +256,31 @@ def test_a_teardown_step_that_fails_doesnt_stop_the_rest(tmp_path: Path) -> None
     assert d.done[-1] == "inventory"
 
 
+class Unlisted(Fake):
+    """The account can't be listed after tearing down."""
+
+    def inventory(self) -> Any:
+        if "teardown" in self.done:
+            self.done.append("inventory")
+            raise AssertionError("buckets: gcloud storage buckets list exited 1: denied")
+        return super().inventory()
+
+
+def test_an_account_that_cant_be_listed_after_tearing_down_is_never_taken_as_clean(
+    tmp_path: Path,
+) -> None:
+    d = Unlisted(tmp_path, fake_tools(tmp_path))
+    life = iki_live.lifecycle(d, Request)  # type: ignore[arg-type]
+    next(life)
+    problems = d.tear_down()
+    assert len(problems) == 1 and "unknown" in problems[0] and "denied" in problems[0]
+    # Asked again, as the run's end does: the same, not an empty list.
+    assert d.tear_down() == problems
+    with pytest.raises(pytest.fail.Exception, match="unknown"):
+        next(life, None)
+    assert not d.tools.token.dir.exists()
+
+
 def test_preconditions_that_fail_make_nothing(tmp_path: Path) -> None:
     d = Fake(tmp_path, fake_tools(tmp_path), fail="preconditions")
     with pytest.raises(RuntimeError):

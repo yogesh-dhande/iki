@@ -143,6 +143,7 @@ files = [
   "deploy/gcp/tests/gcp_cost.py",
   "deploy/gcp/tests/test_gcp_cost.py",
   "deploy/gcp/tests/test_gcp_live.py",
+  "deploy/gcp/tests/test_gcp_live_helpers.py",
   "deploy/aws/tests/aws_cost.py",
   "deploy/aws/tests/aws_inventory.py",
   "deploy/aws/tests/test_aws_cost.py",

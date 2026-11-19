@@ -11,7 +11,9 @@ Then it checks what a deployment must do, and always tears it down with
 deploy/gcp/scripts/teardown.sh, even when setting up or a check failed. Last, it lists
 the project again and fails if anything of the deployment's is left but what Google
 Cloud won't delete (key rings, keys with their versions scheduled for destruction, the
-log bucket and custom roles pending deletion) or an API it turned on. A run that passes
+log bucket and custom roles pending deletion) or an API it turned on, or if anything that
+was there before is gone: the project is shared. A listing that fails is never taken as
+empty: the run fails, since what's in the project is unknown. A run that passes
 whole, of a clean tree, is recorded in deploy/live-runs.json (deploy/live/live_runs.py):
 commit it.
 
@@ -259,21 +261,65 @@ class Inventory:
         iki_live.write_sections(path, sections, tail)
 
 
-def inventory(gcp: Gcp, rings: list[str]) -> Inventory:
-    """Everything in the project the test could leave behind. A listing whose API is off
-    is empty."""
-    listings = {}
-    for section, args in LISTINGS.items():
+#: The API each listing reads, by gcloud's command group. A listing of an API that's off
+#: lists nothing: what's there can't be listed, nor made or deleted, until it's on.
+SERVICES = {
+    "compute": "compute.googleapis.com",
+    "container": "container.googleapis.com",
+    "sql": "sqladmin.googleapis.com",
+    "storage": "storage.googleapis.com",
+    "secrets": "secretmanager.googleapis.com",
+    "iam": "iam.googleapis.com",
+    "artifacts": "artifactregistry.googleapis.com",
+    "logging": "logging.googleapis.com",
+    "dns": "dns.googleapis.com",
+    "kms": "cloudkms.googleapis.com",
+    "binauthz": "binaryauthorization.googleapis.com",
+}
+#: How many times a listing is tried, and how long apart, before the inventory gives up.
+LISTING_ATTEMPTS = 3
+LISTING_WAIT = 10.0
+
+
+class IncompleteInventoryError(AssertionError):
+    """A listing failed: what's in the project is unknown, so nothing is assumed of it."""
+
+
+def listed(gcp: Gcp, what: str, args: tuple[str, ...], enabled: set[str] | None) -> list[str]:
+    """A listing's lines. Empty if its API (SERVICES) isn't among enabled, the APIs that are
+    on, and it fails; enabled is None for the listing of those, which must work. Any other
+    failure is tried again, then raises: an empty listing is never assumed, since tearing
+    down would then pass while leaving, or removing, what it couldn't see."""
+    group = args[1] if args[0] == "container" and args[1] == "binauthz" else args[0]
+    for attempt in range(1, LISTING_ATTEMPTS + 1):
         result = gcp.run("gcloud", *args, "--project", gcp.settings.project, check=False)
-        listings[section] = {line for line in result.stdout.splitlines() if line.strip()}
+        if result.returncode == 0:
+            return [line for line in result.stdout.splitlines() if line.strip()]
+        if enabled is not None and SERVICES[group] not in enabled:
+            return []
+        if attempt < LISTING_ATTEMPTS:
+            time.sleep(LISTING_WAIT)
+    raise IncompleteInventoryError(
+        f"{what}: gcloud {' '.join(args[:3])} exited {result.returncode}: "
+        f"{result.stderr.strip()[-2000:]}\nWithout it, what's in the project is unknown."
+    )
+
+
+def inventory(gcp: Gcp, s: Settings) -> Inventory:
+    """Everything in the project the test could leave behind, or take away. It raises
+    (IncompleteInventoryError) if any of it can't be listed, but an API that's off."""
+    apis = set(listed(gcp, "apis", LISTINGS["apis"], None))
+    listings = {
+        section: apis if section == "apis" else set(listed(gcp, section, args, apis))
+        for section, args in LISTINGS.items()
+    }
     key_versions = {}
-    for ring in rings:
-        keys = gcp.run(
-            "gcloud", "kms", "keys", "list", "--keyring", ring, "--format=value(name)", check=False
+    for ring in key_rings(gcp, s, apis):
+        keys = listed(
+            gcp, ring, ("kms", "keys", "list", "--keyring", ring, "--format=value(name)"), apis
         )
-        for key in keys.stdout.split():
-            versions = gcp.run(
-                "gcloud",
+        for key in keys:
+            versions = (
                 "kms",
                 "keys",
                 "versions",
@@ -281,28 +327,22 @@ def inventory(gcp: Gcp, rings: list[str]) -> Inventory:
                 "--key",
                 key,
                 "--format=value(name.basename(),state)",
-                check=False,
             )
-            key_versions[key] = set(versions.stdout.splitlines())
+            key_versions[key] = set(listed(gcp, key, versions, apis))
     policy = gcp.gcloud_json("projects", "get-iam-policy", gcp.settings.project)
     bindings = {(b["role"], m) for b in policy.get("bindings", []) for m in b["members"]}
-    binauthz = gcp.run(
-        "gcloud",
-        "container",
-        "binauthz",
-        "policy",
-        "export",
-        "--project",
-        gcp.settings.project,
-        "--format=json",
-        check=False,
+    binauthz = listed(
+        gcp,
+        "binary authorization policy",
+        ("container", "binauthz", "policy", "export", "--format=json"),
+        apis,
     )
     return Inventory(
         listings=listings,
         key_versions=key_versions,
         bindings=bindings,
         audit_configs=policy.get("auditConfigs", []),
-        binauthz=json.loads(binauthz.stdout) if binauthz.returncode == 0 else None,
+        binauthz=json.loads("\n".join(binauthz)) if binauthz else None,
     )
 
 
@@ -310,24 +350,14 @@ def inventory(gcp: Gcp, rings: list[str]) -> Inventory:
 PREDEFINED_DUAL_REGIONS = ("asia1", "eur4", "eur5", "eur7", "eur8", "nam4")
 
 
-def key_rings(gcp: Gcp, s: Settings) -> list[str]:
+def key_rings(gcp: Gcp, s: Settings, apis: set[str]) -> list[str]:
     """The deployment's key rings, where it makes them: the files key is in a predefined
     dual-region (nam4) when its two regions make one."""
     found = []
     for location in sorted({s.region, s.dr_region, s.multi_region, *PREDEFINED_DUAL_REGIONS}):
-        listed = gcp.run(
-            "gcloud",
-            "kms",
-            "keyrings",
-            "list",
-            "--location",
-            location,
-            "--project",
-            s.project,
-            "--format=value(name)",
-            check=False,
-        )
-        found += [r for r in listed.stdout.split() if r.split("/")[-1].startswith(s.name)]
+        args = ("kms", "keyrings", "list", "--location", location, "--format=value(name)")
+        rings = listed(gcp, f"key rings in {location}", args, apis)
+        found += [r for r in rings if r.split("/")[-1].startswith(s.name)]
     return found
 
 
@@ -336,8 +366,58 @@ def key_rings(gcp: Gcp, s: Settings) -> list[str]:
 GKE_MADE = re.compile(r"^(gke-|k8s1-|k8s2-|gkegw1-|gkemcg1-)")
 
 
+#: Sections whose resources come and go with any workload in a shared project: another
+#: team's autoscaled VMs and their disks, scheduled snapshots, a database's automatic
+#: backups, the endpoint groups GKE makes for Services. Only what's the deployment's is
+#: checked there.
+VOLATILE = {"instances", "disks", "snapshots", "sql backups", "network endpoint groups"}
+#: Sections whose lines end in the resource's state, and the states that mean it's being
+#: deleted: a resource there before must still be there after, and not being deleted.
+DELETING = {
+    "sql instances": {"PENDING_DELETE"},
+    "custom roles": {"True"},
+    "log buckets": {"DELETE_REQUESTED"},
+}
+
+
+def _name_and_state(line: str) -> tuple[str, str]:
+    """A line of a section in DELETING: gcloud's values, its state last."""
+    name, _, state = line.rpartition("\t") if "\t" in line else line.rpartition(" ")
+    return (name, state) if name else (line, "")
+
+
+def taken_away(before: Inventory, after: Inventory) -> list[str]:
+    """What was in the project before the run and isn't now, or is being deleted: a shared
+    project's, and never the deployment's to remove. What GKE makes for any cluster's
+    Services and Gateways comes and goes with them, so isn't counted."""
+    problems = []
+    for section, found in before.listings.items():
+        if section == "apis" or section in VOLATILE:
+            continue
+        now = after.listings.get(section, set())
+        deleting = DELETING.get(section)
+        if deleting is None:
+            problems += [
+                f"{section}: {line} is gone, which was there before"
+                for line in sorted(found - now)
+                if not GKE_MADE.match(line)
+            ]
+            continue
+        states = dict(map(_name_and_state, now))
+        for line in sorted(found):
+            name, state = _name_and_state(line)
+            if state in deleting:
+                continue
+            if name not in states:
+                problems.append(f"{section}: {line} is gone, which was there before")
+            elif states[name] in deleting:
+                problems.append(f"{section}: {name} is being deleted, which was there before")
+    return problems
+
+
 def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
-    """What the deployment left that it may not: empty if only what Google Cloud keeps."""
+    """What the deployment left that it may not, and what was there before that it took
+    away: empty if only what Google Cloud keeps is left, and nothing else is gone."""
     ours = (s.name, s.name.replace("-", "_"))
     problems = []
     for section, found in after.listings.items():
@@ -359,6 +439,7 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             if section == "log buckets" and "DELETE_REQUESTED" in line:
                 continue
             problems.append(f"{section}: {line}")
+    problems += taken_away(before, after)
     if f"{s.project}_cloudbuild" in after.listings["buckets"] - before.listings["buckets"]:
         problems.append(f"buckets: {s.project}_cloudbuild, which Cloud Build made for this test")
     for key, versions in after.key_versions.items():
@@ -396,7 +477,7 @@ class Deployment(iki_live.Live):
         return self.tools
 
     def inventory(self) -> Inventory:
-        return inventory(self.gcp, key_rings(self.gcp, self.settings))
+        return inventory(self.gcp, self.settings)
 
     def preconditions(self) -> None:
         check_preconditions(self.gcp, self.settings, self.before)
