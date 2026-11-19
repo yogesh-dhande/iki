@@ -456,12 +456,8 @@ describe("a project's entities", () => {
     // What it keeps is what the grid ran, which the API runs the same.
     const kept = nth(calls("POST", "/api/v1/saved-searches"), 0).body as { query: unknown };
     expect(kept.query).toEqual(lineage);
-    const {
-      limit: _,
-      project: __,
-      ...ran
-    } = calls("POST", "/api/v1/entities/search").at(-1)?.body as Record<string, unknown>;
-    expect(ran).toEqual(lineage);
+    const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
+    expect(ran).toEqual({ ...lineage, limit: 100, project: KINASE.id });
 
     await user.click(screen.getByRole("link", { name: "From the donor" }));
     await waitFor(() => {

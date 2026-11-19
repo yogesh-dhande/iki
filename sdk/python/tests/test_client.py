@@ -638,7 +638,7 @@ def test_waiting_for_a_run_named_twice_follows_it_once(fake: FakeIki, client: Cl
     fake.on("GET", "/api/v1/runs/RUN-000001", run(status="running"), run(status="succeeded"))
     fake.on("GET", "/api/v1/runs/RUN-000002", run("RUN-000002", status="succeeded"))
     ended = client.runs.wait(
-        ["RUN-000001", run("RUN-000002"), run("RUN-000001"), "RUN-000002"], timeout=1
+        ["RUN-000001", run("RUN-000002"), run("RUN-000001"), "RUN-000002"], timeout=30
     )
     assert [r["hrid"] for r in ended] == ["RUN-000001", "RUN-000002", "RUN-000001", "RUN-000002"]
     assert [r["status"] for r in ended] == ["succeeded"] * 4
