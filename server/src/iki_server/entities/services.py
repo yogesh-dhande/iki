@@ -1284,9 +1284,12 @@ def entry_revision(entity: Entity) -> int | None:
     return found
 
 
-def values_at(entity: Entity, number: int, entry_revision: int | None = None) -> dict[str, Any]:
+def values_at(
+    entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
+) -> dict[str, Any]:
     """Every field's value as it was at revision ``number``, from the history tables: a
-    record's own as of its revision, and its entry's as :func:`entry_at` says."""
+    record's own as of its revision, and its entry's as :func:`entry_at` says. With
+    ``removed``, fields since removed too, as history kept them: null in revisions after."""
     form = shape(entity.type)
     is_entry = entity.registry_id is not None
     entry = entry_at(entity, number, entry_revision) if form.has_entries else None
@@ -1306,17 +1309,27 @@ def values_at(entity: Entity, number: int, entry_revision: int | None = None) ->
             .first()
         )
         for name, f in part.fields.items():
-            if not f.removed:
+            if removed or not f.removed:
                 out[name] = history_value(row, f) if row is not None else None
     return out
 
 
+def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:
+    """Revision ``number``'s values of ``fields``, as reading it back gives them: every field
+    the type has now, and each field since removed that held a value then (ADR 0035)."""
+    return {
+        n: v
+        for n, v in values_at(entity, number, removed=True).items()
+        if n in fields and (v is not None or not fields[n].removed)
+    }
+
+
 def changes(entity: Entity, revision: Revision) -> dict[str, tuple[Any, Any]]:
-    """What a revision changed: field → (before, after)."""
+    """What a revision changed: field → (before, after), fields since removed included."""
     if not revision.changed_fields:
         return {}
-    after = values_at(entity, revision.number)
-    before = values_at(entity, revision.number - 1) if revision.number > 1 else {}
+    after = values_at(entity, revision.number, removed=True)
+    before = values_at(entity, revision.number - 1, removed=True) if revision.number > 1 else {}
     return {
         name: (before.get(name), after.get(name))
         for name in revision.changed_fields
