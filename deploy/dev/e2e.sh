@@ -57,6 +57,14 @@ ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
   || fail "readiness: $ready"
 pass "web is ready: Postgres reachable over verified TLS, migrations applied, least-privileged role"
 
+# The migrate Job ran the plugins' migrations, their guards' sync and the app role's grants
+# as one transaction (ADR 0134), so old pods never saw a table without its guards.
+migrated=$(kc logs job/iki-migrate -c migrate 2>&1) || fail "no log from the migrate Job: $migrated"
+grep -q "committed in one transaction" <<<"$migrated" \
+  || fail "the migrate Job didn't commit in one transaction: $(tail -5 <<<"$migrated")"
+grep -q "^Granted app privileges to " <<<"$migrated" || fail "the migrate Job granted nothing"
+pass "the migrate Job migrated, synced the plugins' guards and granted the app role in one transaction"
+
 # The app's role may write rows, but not change the schema or the audit log.
 denied=$(kc exec "pod/$web_pod" -c web -- iki-server shell -c '
 from django.db import connection

@@ -1221,7 +1221,8 @@ def build_to(plugins: Path, name: str, *plugin_names: str) -> Path:
 
 
 def deploy(build: Path, database: str) -> subprocess.CompletedProcess[str]:
-    return django(build, database, "-m", "django", "migrate_deployment")
+    """Deploys as the migrate Job does, with the database's one role (no grants)."""
+    return django(build, database, "-m", "django", "migrate_deployment", "--no-grant")
 
 
 def deployed(build: Path, database: str) -> str:
@@ -1385,6 +1386,222 @@ def test_the_app_can_only_read_the_kept_copies() -> None:
     from iki_server.core import db_roles
 
     assert "iki_plugin_migration" in db_roles.READ_ONLY_TABLES
+
+
+# --- Guards while a deploy migrates (ADR 0134) ---------------------------------------------------
+
+#: A sample with a unique field (ADR 0082), a state that locks (ADR 0125) and a unique rule
+#: (ADR 0127): each guarded by triggers that `sync_plugins` makes.
+GUARDED = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+schema_version: 1
+hrid: { prefix: SMP }
+fields:
+  name: { type: string, max_length: 100 }
+  lims_id: { type: string, max_length: 40, indexed: true, unique: true }
+  lot: { type: string, max_length: 40 }
+  product: { type: string, max_length: 40 }
+  status:
+    type: state
+    initial: received
+    states:
+      received: { set_by: [analyst] }
+      released: { set_by: [qa], locks: true }
+rules:
+  one_lot_per_product:
+    label: One lot number per product
+    unique: [lot, product]
+    message: Product {{ record.product }} has a lot {{ record.lot }} already.
+"""
+RENAMED = (
+    GUARDED.replace("  lot: {", "  lot_number: {")
+    .replace("[lot, product]", "[lot_number, product]")
+    .replace("record.lot ", "record.lot_number ")
+)
+
+GUARDED_ROWS = """
+from iki_plugin_acme__lab.models import Sample
+from iki_server.entities.models import Entity
+released = Sample.objects.create(
+    type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1",
+    lims_id="LIMS-1", lot="L1", product="P", status="released",
+)
+Entity.objects.filter(pk=released.pk).update(locked_by=["status"])
+other = Sample.objects.create(
+    type="acme/lab.Sample", hrid="SMP-000002", owner_project=project, name="S2",
+    lims_id="LIMS-2", lot="L1", product="Q",
+)
+result = [str(released.pk), str(other.pk)]
+"""
+
+#: A migration a plugin's author wrote by hand, rebuilding the table under its guards.
+REBUILD = """\
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+    dependencies = [("acme__lab", "0001_initial")]
+    operations = [
+        migrations.RunSQL(
+            "CREATE TABLE acme__lab_sample_new (LIKE acme__lab_sample INCLUDING ALL); "
+            "INSERT INTO acme__lab_sample_new SELECT * FROM acme__lab_sample; "
+            "DROP TABLE acme__lab_sample; "
+            "ALTER TABLE acme__lab_sample_new RENAME TO acme__lab_sample",
+            migrations.RunSQL.noop,
+        )
+    ]
+"""
+
+FAILS = """\
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+    dependencies = [("acme__lab", "0002_rename")]
+    operations = [migrations.RunSQL("SELECT 1 / 0", migrations.RunSQL.noop)]
+"""
+
+
+def guard_probes(released: str, other: str) -> dict[str, tuple[str, list[str]]]:
+    """What each guard refuses, written as an old pod or any other client would."""
+    table = "UPDATE acme__lab_sample SET {} WHERE entity_id = %s"
+    return {
+        # S2 becomes a second lot L1 of product P.
+        "rule": (table.format("product = 'P'"), [other]),
+        # S2 takes S1's LIMS ID.
+        "unique": (table.format("lims_id = 'LIMS-1'"), [other]),
+        # S1 is released, which locks it.
+        "lock": (table.format("name = 'changed'"), [released]),
+    }
+
+
+def write_through(database: str, probes: dict[str, tuple[str, list[str]]]) -> dict[str, str]:
+    """Tries each write on a connection of its own, as an old pod serving through a deploy
+    does: ``written``, ``refused`` by a guard, or ``blocked`` by the deploy's locks. Each is
+    rolled back, so the next sees the same rows."""
+    out = {}
+    for name, (statement, params) in probes.items():
+        with psycopg.connect(database) as connection:
+            connection.execute("SET lock_timeout = '1s'")
+            try:
+                connection.execute(statement, params)
+                out[name] = "written"
+            except psycopg.errors.LockNotAvailable:
+                out[name] = "blocked"
+            except (psycopg.errors.IntegrityError, psycopg.errors.CheckViolation):
+                out[name] = "refused"
+            connection.rollback()
+    return out
+
+
+#: Deploys the build, writing through it from other connections once its migrations have
+#: run and before its sync does: the moment old pods kept serving through, before.
+DEPLOY_WRITING = """
+import json, os
+import django
+django.setup()
+from django.core.management import call_command
+from iki_server.plugins import sync
+from test_plugin_migrations import write_through
+
+probes = json.loads(os.environ["PROBES"])
+seen = {}
+synced = sync.sync
+
+def writing(*args, **kwargs):
+    seen.update(write_through(os.environ["IKI_DATABASE_URL"], probes))
+    return synced(*args, **kwargs)
+
+sync.sync = writing
+call_command("migrate_deployment", "--no-grant")
+print(json.dumps(seen))
+"""
+
+
+def deploy_writing(
+    build: Path, database: str, probes: dict[str, tuple[str, list[str]]]
+) -> dict[str, str]:
+    result = subprocess.run(  # noqa: S603 - this interpreter, Django
+        [sys.executable, "-c", DEPLOY_WRITING],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "DJANGO_SETTINGS_MODULE": "iki_test_settings",
+            "PYTHONPATH": os.pathsep.join([str(build), str(TESTS)]),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "IKI_DATABASE_URL": database,
+            "OTEL_SDK_DISABLED": "true",
+            "IKI_ALLOW_LOCAL_PLUGINS": "true",
+            "IKI_TEST_PLUGINS": "0",
+            "PROBES": json.dumps(probes),
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    seen: dict[str, str] = json.loads(result.stdout.strip().splitlines()[-1])
+    return seen
+
+
+def guarded(lab: Path, database: str) -> tuple[Path, dict[str, tuple[str, list[str]]]]:
+    """The lab plugin with its guards, deployed, with two samples; and the writes its guards
+    refuse."""
+    (lab / "plugin.yaml").write_text(LAB + LAB_ROLES)
+    (lab / "types" / "sample.yaml").write_text(GUARDED)
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    deployed(v1, database)
+    probes = guard_probes(*orm(v1, database, GUARDED_ROWS))
+    assert write_through(database, probes) == dict.fromkeys(probes, "refused")
+    return v1, probes
+
+
+@pytest.mark.parametrize("change", ["rename", "rebuild"])
+def test_no_write_skips_a_guard_while_a_deploy_migrates(
+    lab: Path, database: str, change: str
+) -> None:
+    """ADR 0134. Migrations used to commit before `sync_plugins` put the guards back on what
+    they changed: a rule's trigger reading a renamed column saw no value, and a rebuilt
+    table had no triggers at all, so writes in between skipped them. Now the guards are put
+    back in the migrations' own transaction, and a write can't land between the two."""
+    _, probes = guarded(lab, database)
+    if change == "rename":
+        (lab / "types" / "sample.yaml").write_text(RENAMED)
+        made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    else:
+        (lab / "migrations" / "0002_rebuild.py").write_text(REBUILD)
+    v2 = build_to(lab.parent, "v2", "lab")
+
+    during = deploy_writing(v2, database, probes)
+    assert during == dict.fromkeys(probes, "blocked")
+    assert write_through(database, probes) == dict.fromkeys(probes, "refused")
+    assert applied(database, "acme__lab")[-1] == f"0002_{change}"
+
+
+def test_a_deploy_that_fails_halfway_leaves_the_guards_as_they_were(
+    lab: Path, database: str
+) -> None:
+    """ADR 0134. A failed migration used to leave those before it committed and the sync
+    not run, so the guards stayed out of step until a deploy succeeded. Now nothing of the
+    deploy's is kept: the old schema, its guards and its views."""
+    _, probes = guarded(lab, database)
+    views = "SELECT viewname FROM pg_views WHERE schemaname = 'iki_views' AND viewname = %s"
+    assert query(database, views, "acme__lab_sample") == [("acme__lab_sample",)]
+    (lab / "types" / "sample.yaml").write_text(RENAMED)
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    (lab / "migrations" / "0003_fails.py").write_text(FAILS)
+    v2 = build_to(lab.parent, "v2", "lab")
+
+    failed = deploy(v2, database)
+    assert failed.returncode != 0, failed.stdout
+    assert "division by zero" in failed.stderr, failed.stderr
+    assert "Nothing of the plugins' changes was kept" in failed.stderr, failed.stderr
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    assert "lot" in columns(database, "acme__lab_sample")
+    assert write_through(database, probes) == dict.fromkeys(probes, "refused")
+    assert query(database, views, "acme__lab_sample") == [("acme__lab_sample",)]
 
 
 # --- Purging a plugin at deploy (ADR 0092) ----------------------------------------------------

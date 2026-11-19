@@ -10,8 +10,9 @@ The `iki-server` command wraps Django's management commands:
 
 ```console
 iki-server wait_for_database  # block until Postgres accepts connections
-iki-server migrate        # apply database migrations (as the migrator role)
-iki-server grant_app_privileges  # give the app role exactly the rights it needs
+iki-server migrate_deployment  # migrate to this build, with its guards and grants, in one transaction (as the migrator role)
+iki-server sync_plugins   # remake plugins' triggers, HRID sequences, comments and views alone
+iki-server grant_app_privileges  # give the app role exactly the rights it needs, alone
 iki-server serve          # run the ASGI server (uvicorn) on :8000
 iki-server check --deploy # Django's production readiness checks
 iki-server setup_link     # print a one-time link to the first-run wizard
@@ -139,10 +140,12 @@ expire after 7 days, when `maintain` runs.
 
 Iki connects to Postgres as two roles (ADR 0025):
 
-- The **migrator** owns the schema. Run `migrate` and then
-  `grant_app_privileges` as it, with `IKI_DATABASE_URL` set to the
-  migrator's URL and `IKI_APP_DATABASE_URL` (or `IKI_DB_APP_ROLE`) naming the
-  app role. The Helm migrate Job does this on every deploy.
+- The **migrator** owns the schema. Run `migrate_deployment` as it, with
+  `IKI_DATABASE_URL` set to the migrator's URL and `IKI_APP_DATABASE_URL`
+  (or `IKI_DB_APP_ROLE`) naming the app role. After Iki's own migrations, it
+  runs the plugins' migrations, `sync_plugins` and `grant_app_privileges` in
+  one transaction, so nothing writes to a table whose guards haven't caught
+  up with it (ADR 0134). The Helm migrate Job does this on every deploy.
 - The **app role** is what web pods and maintenance jobs use. It reads and
   writes rows, but can't change the schema, truncate tables, write the
   migration history, or change or delete audit events. A web pod connected

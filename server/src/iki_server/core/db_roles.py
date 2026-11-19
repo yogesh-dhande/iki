@@ -3,7 +3,8 @@
 Two roles (ADR 0025):
 
 - The **migrator** owns every table. Only the Helm migrate Job connects as
-  it, to run ``migrate`` and then ``grant_app_privileges``.
+  it, to run ``migrate_deployment``, which grants the app role its privileges
+  in the transaction that migrates the plugins (ADR 0134).
 - The **app** role (web pods, maintenance jobs) can read and write rows, but
   can't create, alter or drop anything. On append-only tables (the audit log)
   it can only INSERT and SELECT. It can only read Django's migration history,

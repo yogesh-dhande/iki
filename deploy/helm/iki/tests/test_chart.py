@@ -165,15 +165,15 @@ def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     assert hooks == ["pre-install", "pre-upgrade", "pre-rollback"]
     assert job["spec"]["backoffLimit"] == 0
     pod = job["spec"]["template"]["spec"]
-    # In order: wait for Postgres, migrate, sync plugins, then grant the app's role its
-    # privileges.
-    wait, migrate, sync = pod["initContainers"]
+    # Wait for Postgres, then one transaction: the plugins' migrations, their guards and
+    # views, and the app role's grants (ADR 0134).
+    (wait,) = pod["initContainers"]
     assert wait["args"] == ["wait_for_database", "--timeout", "300"]
+    (migrate,) = pod["containers"]
     assert migrate["args"] == ["migrate_deployment"]
-    assert sync["args"] == ["sync_plugins"]
-    assert "IKI_DB_ANALYST_ROLE" not in {e["name"] for e in sync["env"]}
-    (grant,) = pod["containers"]
-    assert grant["args"] == ["grant_app_privileges"]
+    env = {e["name"] for e in migrate["env"]}
+    assert {"IKI_DATABASE_URL", "IKI_APP_DATABASE_URL"} <= env
+    assert "IKI_DB_ANALYST_ROLE" not in env
 
 
 def test_local_plugins_are_refused_unless_allowed() -> None:
@@ -235,8 +235,8 @@ def test_the_config_templates_values_render(deployment: str, workers: bool) -> N
 def test_an_analyst_role_reads_the_views() -> None:
     database = {**REQUIRED["database"], "analystRole": "bi_reader"}
     (job,) = by_kind(manifests({"database": database}), "Job")
-    sync = job["spec"]["template"]["spec"]["initContainers"][2]
-    assert {"name": "IKI_DB_ANALYST_ROLE", "value": "bi_reader"} in sync["env"]
+    (migrate,) = job["spec"]["template"]["spec"]["containers"]
+    assert {"name": "IKI_DB_ANALYST_ROLE", "value": "bi_reader"} in migrate["env"]
     assert "/database/analystRole" in str(
         render({"database": {**database, "analystRole": "x; DROP"}}, ok=False)
     )

@@ -46,17 +46,18 @@ class _StepError(Exception):
 
 
 def _deploy(log: io.StringIO) -> None:
-    from django.core.management import call_command
-
+    """Migrates and syncs, as a deploy does: one database role, so no grants."""
+    from iki_server.entities import constraints, unique
+    from iki_server.plugins import sync
     from iki_server.plugins.deploy import DeployError, migrate_deployment
 
     try:
-        migrate_deployment(log)
-    except DeployError as error:
+        report = migrate_deployment(log)
+    except (DeployError, unique.Clash, constraints.Clash) as error:
         raise _StepError(f"The deploy refused it: {error}") from None
     except Exception as error:
         raise _StepError(f"A migration failed: {type(error).__name__}: {error}") from None
-    call_command("sync_plugins", stdout=log)
+    log.write("".join(f"{line}\n" for line in sync.describe(report.synced)))
 
 
 def _before(state: dict[str, Any]) -> None:

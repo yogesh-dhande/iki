@@ -17,7 +17,8 @@ class PluginsConfig(AppConfig):
 
 def _drop_views(using: str = "default", **kwargs: Any) -> None:  # noqa: ANN401 - Django's signal
     """Analysts' views go before migrations change the tables under them, and come back with
-    ``sync_plugins``, which the migrate Job runs next (ADR 0033)."""
+    ``sync_plugins``, which ``migrate_deployment`` runs in the same transaction (ADRs 0033
+    and 0134)."""
     from iki_server.plugins import sync
 
     with connections[using].cursor() as cursor:

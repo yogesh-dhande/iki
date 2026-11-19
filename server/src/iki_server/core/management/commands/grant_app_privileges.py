@@ -1,7 +1,8 @@
 """``iki-server grant_app_privileges``: gives the app's database role what it needs, no more.
 
-The Helm migrate Job runs it as the migrator, right after ``migrate``, so new
-tables are usable by the app before new web pods start (ADR 0025). The app
+``migrate_deployment`` does this as the migrator on every deploy, in the transaction
+that runs the plugins' migrations, so new tables are usable by the app before new web
+pods start (ADRs 0025 and 0134). Run it alone to grant again outside a deploy. The app
 role's name comes from ``--role``, ``IKI_DB_APP_ROLE``, or the user name in
 ``IKI_APP_DATABASE_URL``.
 """
@@ -29,6 +30,30 @@ def app_role(explicit: str | None) -> str:
     raise CommandError("Name the app's role with --role, IKI_DB_APP_ROLE or IKI_APP_DATABASE_URL.")
 
 
+def wait_for(role: str, timeout: float, stderr: Any) -> None:  # noqa: ANN401 - an OutputWrapper
+    """Waits up to ``timeout`` seconds for ``role`` to exist (an operator may still be
+    creating it), and refuses it if it's the migrator's own."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT current_user, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = %s)",
+                [role],
+            )
+            current, exists = cursor.fetchone()
+        if exists or role == current or time.monotonic() >= deadline:
+            break
+        stderr.write(f"Waiting for Postgres role {role!r}…")
+        time.sleep(2)
+    if role == current:
+        raise CommandError(
+            f"The app and the migrator are both {role!r}. Give the app its own role, so it "
+            "can't change the schema or the audit log."
+        )
+    if not exists:
+        raise CommandError(f"Postgres has no role {role!r}. Create it first.")
+
+
 class Command(BaseCommand):
     help = "Grant the app's database role exactly the privileges it needs."
 
@@ -43,25 +68,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401 - Django's signature
         role = app_role(options.get("role"))
-        deadline = time.monotonic() + options["timeout"]
-        while True:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT current_user, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = %s)",
-                    [role],
-                )
-                current, exists = cursor.fetchone()
-            if exists or role == current or time.monotonic() >= deadline:
-                break
-            self.stderr.write(f"Waiting for Postgres role {role!r}…")
-            time.sleep(2)
-        if role == current:
-            raise CommandError(
-                f"The app and the migrator are both {role!r}. Give the app its own role, so it "
-                "can't change the schema or the audit log."
-            )
-        if not exists:
-            raise CommandError(f"Postgres has no role {role!r}. Create it first.")
+        wait_for(role, options["timeout"], self.stderr)
         with transaction.atomic():
             statements = db_roles.grant(role)
         for statement in statements:

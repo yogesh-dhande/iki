@@ -1,8 +1,10 @@
 """What installed plugins need besides their migrations: ``iki-server sync_plugins``.
 
-The Helm migrate Job runs it as the migrator, after ``migrate`` and before
-``grant_app_privileges``. It is idempotent, and works from the manifests the
-build installed (:mod:`iki_server.entities.registry`):
+``migrate_deployment`` runs it as the migrator, in the transaction that runs the
+plugins' migrations and before it grants the app role its privileges, so nothing
+writes to a table whose triggers haven't caught up with it (ADR 0134). It is
+idempotent, and works from the manifests the build installed
+(:mod:`iki_server.entities.registry`):
 
 - **HRID sequences**, one per prefix (``iki_hrid_prt``). They are created if
   missing and never dropped, so a number is never handed out twice.
@@ -131,6 +133,39 @@ def sync(analyst_role: str | None = None) -> Report:
                 cursor.execute(statement)
             report.analyst = analyst_role
     return report
+
+
+def describe(report: Report) -> list[str]:
+    """What a sync made, a line each, as the commands print it."""
+    lines = [f"  HRID sequence {name}" for name in report.sequences]
+    lines += [f"  unique {key}" for key in report.unique]
+    lines += [f"  references of {table}" for table in report.graph]
+    lines += [f"  rule {key}" for key in report.rules]
+    for checked in report.checked:
+        found = [f"{n} break {rule}" for rule, n in sorted(checked.broken.items())]
+        found += [f"{n} held by {rule}" for rule, n in sorted(checked.held.items())]
+        lines.append(
+            f"  checked {checked.records} {checked.type}"
+            + (": " + ", ".join(found) if found else "")
+        )
+    lines += [f"  plugin {change}" for change in report.plugins]
+    lines += [f"  view {name}" for name in report.views]
+    if report.analyst:
+        lines.append(f"  {report.analyst} can read the views")
+    lines.append(
+        f"Synced {len(report.views)} entity type(s): {len(report.sequences)} HRID "
+        f"sequence(s), {report.comments} comment(s)."
+    )
+    return lines
+
+
+def check_analyst(role: str) -> str | None:
+    """Why ``role`` can't be the analyst role, or None."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role])
+        if cursor.fetchone() is None:
+            return f"Postgres has no role {role!r}. Create it first."
+    return None
 
 
 def _states() -> list[str]:
@@ -328,7 +363,8 @@ def _comments() -> list[sql.Composable]:
 
 def drop_views(cursor: Any) -> None:  # noqa: ANN401 - Django's cursor
     """Drops Iki's views. Migrations run without them, since a view stops its columns from
-    being dropped or changed; ``sync_plugins`` makes them again. A view someone else built
+    being dropped or changed; ``sync_plugins`` makes them again, in the plugins' migrations'
+    transaction, so analysts never see them gone (ADR 0134). A view someone else built
     on one of these makes the drop fail, and the deploy with it, rather than being dropped
     silently."""
     cursor.execute(

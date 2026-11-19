@@ -10,16 +10,30 @@ code doesn't know. So before migrating, this:
    - a database that a newer Iki migrated (restore a backup instead)
    - a plugin missing from the build, unless the lockfile purges it
    - a migration that changed after it was applied
-2. Drops the tables of each plugin the lockfile purges (ADR 0092), once its
-   purge has waited and left a tombstone for every entity. See :func:`_purge`.
-3. Reverses the plugin migrations the build doesn't have, from the copies
-   it kept of them (:class:`~iki_server.plugins.models.PluginMigration`).
-   It does so only if no reversal can lose data. Every operation must be
-   reversible. No table it would drop may hold rows, no column it would drop
-   may hold anything but its default, and no column whose type it would
-   change may hold values. Otherwise it changes nothing and says why.
-4. Runs ``migrate``.
-5. Keeps a copy of every plugin migration now applied.
+   - a plugin migration that isn't atomic
+2. Runs Iki's own migrations, and Django's, each in a transaction of its own as
+   ``migrate`` does: some build indexes ``CONCURRENTLY``, which no transaction can
+   hold. None of them touches a plugin's table.
+3. Then, in one transaction (ADR 0134):
+
+   1. Drops the tables of each plugin the lockfile purges (ADR 0092), once its
+      purge has waited and left a tombstone for every entity. See :func:`_purge`.
+   2. Reverses the plugin migrations the build doesn't have, from the copies
+      it kept of them (:class:`~iki_server.plugins.models.PluginMigration`).
+      It does so only if no reversal can lose data. Every operation must be
+      reversible. No table it would drop may hold rows, no column it would drop
+      may hold anything but its default, and no column whose type it would
+      change may hold values. Otherwise it changes nothing and says why.
+   3. Runs ``migrate`` for the plugins.
+   4. Keeps a copy of every plugin migration now applied.
+   5. Runs ``sync_plugins`` (:mod:`iki_server.plugins.sync`): the triggers that
+      hold unique fields, rules and locks, the views and the rest.
+   6. Grants the app role what it needs (``grant_app_privileges``), if named.
+
+   Other connections, such as the old pods serving through a deploy, see the old
+   schema with its guards until the commit, then the new one with its guards, so
+   no write lands on a table whose guards haven't caught up with it. If any step
+   fails, nothing of them is kept.
 """
 
 from __future__ import annotations
@@ -34,6 +48,9 @@ from typing import Any
 
 from django.apps import apps
 from django.core.management import call_command
+from django.core.management.base import OutputWrapper
+from django.core.management.commands import migrate as django_migrate
+from django.core.management.sql import emit_pre_migrate_signal
 from django.db import DatabaseError, connection, migrations, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
@@ -45,6 +62,7 @@ from django.utils import timezone
 from psycopg import sql
 
 from iki_server.audit import log as audit
+from iki_server.core import db_roles
 from iki_server.entities import registry
 from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
 from iki_server.org import holds
@@ -74,6 +92,14 @@ LOSSLESS = (
 )
 
 
+#: Added to an error from the deploy's transaction, which keeps nothing of it.
+KEPT_NOTHING = (
+    "Nothing of the plugins' changes was kept: their migrations, the triggers guarding "
+    "their tables, the views and the app role's grants are as they were before this deploy "
+    "(ADR 0134)."
+)
+
+
 class DeployError(Exception):
     """The database can't be migrated to this build; the message says why and what to do."""
 
@@ -84,6 +110,10 @@ class Report:
     archived: list[Key] = field(default_factory=list)
     #: What each purge did, a line per plugin.
     purged: list[str] = field(default_factory=list)
+    #: What ``sync_plugins`` made, in the same transaction.
+    synced: sync.Report = field(default_factory=sync.Report)
+    #: The statements granting the app role its privileges, if one was named.
+    granted: list[str] = field(default_factory=list)
 
 
 def plugin_apps() -> list[str]:
@@ -100,7 +130,14 @@ def _plugins(labels: Iterable[str]) -> str:
     return ", ".join(_plugin(label) for label in labels)
 
 
-def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django OutputWrapper
+def migrate_deployment(
+    stdout: Any = None,  # noqa: ANN401 - a stream, or Django's OutputWrapper
+    *,
+    app_role: str | None = None,
+    analyst_role: str | None = None,
+) -> Report:
+    """Migrates the database to this build, syncs the plugins and grants ``app_role`` its
+    privileges (none if it's None). ``analyst_role`` is ``sync_plugins``'s."""
     report = Report()
     _check_iki()
     executor = MigrationExecutor(connection)
@@ -142,19 +179,99 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
             "can't change once a database has applied it: put the change in a new migration."
         )
 
-    if purging:
-        report.purged = _purge(purging, archive, applied)
-    to_reverse = [k for k in unknown if k[0] in installed]
-    if to_reverse:
-        # A view stops a column it reads from being dropped. migrate drops them before it
-        # runs (its pre_migrate signal), but a rollback runs first; sync_plugins makes them
-        # again after.
-        with connection.cursor() as cursor:
-            sync.drop_views(cursor)
-        report.reversed = _roll_back(to_reverse, archive, applied)
-    call_command("migrate", interactive=False, verbosity=1, stdout=stdout)
-    report.archived = _keep_copies(installed)
+    not_atomic = [
+        (m.app_label, m.name)
+        for m, _ in executor.migration_plan(executor.loader.graph.leaf_nodes())
+        if m.app_label in installed and not m.atomic
+    ]
+    if not_atomic:
+        raise DeployError(
+            f"{_names(not_atomic)} {'is' if len(not_atomic) == 1 else 'are'}n't atomic. A "
+            "deploy runs the plugins' migrations in one transaction with the triggers guarding "
+            "their tables (ADR 0134), so each must be: take out `atomic = False`."
+        )
+
+    _migrate_iki(stdout, installed)
+    try:
+        with audit.cli(), transaction.atomic():
+            if purging:
+                report.purged = _purge(purging, archive, applied)
+            to_reverse = [k for k in unknown if k[0] in installed]
+            if to_reverse:
+                # A view stops a column it reads from being dropped. migrate drops them
+                # before it runs (its pre_migrate signal), but a rollback runs first; the
+                # sync makes them again, in this transaction.
+                with connection.cursor() as cursor:
+                    sync.drop_views(cursor)
+                report.reversed = _roll_back(to_reverse, archive, applied)
+            call_command(_Migrate(), interactive=False, verbosity=1, stdout=stdout)
+            report.archived = _keep_copies(installed)
+            report.synced = sync.sync(analyst_role)
+            if app_role:
+                report.granted = db_roles.grant(app_role)
+    except Exception as error:
+        error.add_note(KEPT_NOTHING)
+        raise
     return report
+
+
+def _migrate_iki(stdout: Any, installed: Iterable[str]) -> None:  # noqa: ANN401 - a stream
+    """Iki's and Django's own migrations, before the plugins', each in a transaction of its
+    own. A plugin's may depend on them, never the other way round."""
+    plugins = set(installed)
+    out = OutputWrapper(stdout or sys.stdout)
+
+    def progress(
+        action: str, migration: Migration | None = None, fake: bool | None = False, /
+    ) -> None:
+        if action == "apply_success" and migration is not None:
+            out.write(f"  Applying {migration.app_label}.{migration.name}... OK")
+
+    executor = MigrationExecutor(connection, progress)
+    executor.loader.check_consistent_history(connection)
+    conflicts = {
+        app: names
+        for app, names in executor.loader.detect_conflicts().items()
+        if app not in plugins
+    }
+    if conflicts:
+        raise DeployError(
+            f"Conflicting migrations: {conflicts}. This build of Iki is broken: deploy another."
+        )
+    targets = [key for key in executor.loader.graph.leaf_nodes() if key[0] not in plugins]
+    plan = executor.migration_plan(targets)
+    if not plan:
+        return
+    out.write("Running Iki's own migrations:")
+    # The schema the applied migrations made, as migrate gives its receivers.
+    graph = executor.loader.graph
+    state = executor.loader.project_state(
+        [key for key in executor.loader.applied_migrations or () if key in graph.nodes]
+    )
+    # Its receivers drop the analysts' views, which sync_plugins makes again.
+    emit_pre_migrate_signal(1, False, connection.alias, stdout=out, apps=state.apps, plan=plan)
+    executor.migrate(targets, plan=plan, state=state)
+
+
+def _settle(action: str, migration: Migration | None = None, fake: bool | None = False, /) -> None:
+    """After each migration in the deploy's transaction, checks the deferred constraints its
+    writes queued, as its own commit did: Postgres won't alter a table with checks pending,
+    and a later migration may alter one an earlier one wrote to."""
+    if action in ("apply_success", "unapply_success"):
+        connection.check_constraints()
+
+
+class _Migrate(django_migrate.Command):
+    """Django's ``migrate``, inside the deploy's transaction."""
+
+    def migration_progress_callback(
+        self,
+        action: str,
+        migration: Migration | None = None,
+        fake: bool = False,
+    ) -> None:
+        super().migration_progress_callback(action, migration, fake)
+        _settle(action, migration, fake)
 
 
 def _could_be_plugin(label: str) -> bool:
@@ -239,7 +356,7 @@ def _roll_back(
             "before they ran, or deploy a lockfile with those plugins at that version or later."
         )
     copies = {k: archive[k[0]][k] for k in to_reverse}
-    executor = MigrationExecutor(connection)
+    executor = MigrationExecutor(connection, _settle)
     executor.loader = _WithCopies(copies, connection)
     code = MigrationLoader(connection)
     targets = []
@@ -252,6 +369,13 @@ def _roll_back(
             )
         targets.append(target)
     plan = executor.migration_plan(targets)
+    not_atomic = [(m.app_label, m.name) for m, _ in plan if not m.atomic]
+    if not_atomic:
+        raise DeployError(
+            f"Can't roll back {_names(not_atomic)}: a deploy reverses the plugins' migrations "
+            "in one transaction (ADR 0134), and this isn't atomic. Restore the database from "
+            "the backup taken before it ran."
+        )
     unexpected = [(m.app_label, m.name) for m, backwards in plan if not backwards]
     reversing = [(m.app_label, m.name) for m, backwards in plan if backwards]
     if unexpected or set(reversing) - set(to_reverse):

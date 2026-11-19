@@ -2,11 +2,13 @@
 # Migrates the database to this release's build before any new web pod
 # starts, as the migrator (the schema's owner). Rolling back to an older build
 # reverses the plugin migrations it lacks, unless that could lose data (ADR
-# 0034). Then it syncs what plugins need beyond migrations (HRID sequences,
-# comments, analyst views), and grants the app's role exactly what it needs.
-# As a Helm hook it runs before the release's other resources exist, so it
-# references only Secrets that the operator created beforehand. A failed step
-# fails the install, upgrade or rollback, and the old pods keep serving.
+# 0034). The plugins' migrations, what they need beyond migrations (unique,
+# lock and rule triggers, HRID sequences, comments, analyst views) and the
+# app role's grants are one transaction, so the old pods serving meanwhile
+# never write to a table without its guards (ADR 0134). As a Helm hook it runs
+# before the release's other resources exist, so it references only Secrets
+# that the operator created beforehand. A failed step fails the install,
+# upgrade or rollback, and the old pods keep serving.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -55,7 +57,8 @@ spec:
             {{- include "iki.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
-        # Init containers run in order: wait, migrate, sync, then grant (below).
+      containers:
+        # One transaction: plugins' migrations, sync_plugins, then grant_app_privileges.
         - name: migrate
           image: {{ include "iki.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -65,39 +68,10 @@ spec:
             # One short-lived connection is enough for migrations.
             - name: IKI_DB_POOL
               value: "false"
-          resources:
-            {{- toYaml .Values.migrate.resources | nindent 12 }}
-          securityContext:
-            {{- include "iki.containerSecurityContext" . | nindent 12 }}
-          volumeMounts:
-            {{- include "iki.volumeMounts" . | nindent 12 }}
-        - name: sync-plugins
-          image: {{ include "iki.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["sync_plugins"]
-          env:
-            {{- include "iki.migratorEnv" . | nindent 12 }}
-            - name: IKI_DB_POOL
-              value: "false"
             {{- with .Values.database.analystRole }}
             - name: IKI_DB_ANALYST_ROLE
               value: {{ . | quote }}
             {{- end }}
-          resources:
-            {{- toYaml .Values.migrate.resources | nindent 12 }}
-          securityContext:
-            {{- include "iki.containerSecurityContext" . | nindent 12 }}
-          volumeMounts:
-            {{- include "iki.volumeMounts" . | nindent 12 }}
-      containers:
-        - name: grant-app-privileges
-          image: {{ include "iki.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["grant_app_privileges"]
-          env:
-            {{- include "iki.migratorEnv" . | nindent 12 }}
-            - name: IKI_DB_POOL
-              value: "false"
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           securityContext:
