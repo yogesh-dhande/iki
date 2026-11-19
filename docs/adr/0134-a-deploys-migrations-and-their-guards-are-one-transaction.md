@@ -60,7 +60,13 @@ the change took.
    plugins' migrations, the copies kept of them, `sync_plugins`, then
    `grant_app_privileges`. Deferred constraints are checked after each
    migration, as each one's own commit checked them before, so a later
-   migration can alter a table an earlier one wrote to.
+   migration can alter a table an earlier one wrote to. Before the
+   rollbacks and before the migrations, the triggers naming the columns of
+   the tables they change are dropped: unique fields' and rules' name them
+   in `UPDATE OF`, so Postgres won't change such a column's type or drop
+   it, and after a rename a trigger would read the column by its old name.
+   The sync makes them again, and dropping one locks its table against
+   writes until the commit.
 4. A plugin's migration must be atomic. Iki's `makemigrations` writes none
    that aren't, and the deploy refuses a hand-written one with
    `atomic = False`, saying why, before anything changes.

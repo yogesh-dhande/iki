@@ -1587,6 +1587,202 @@ def test_no_write_skips_a_guard_while_a_deploy_migrates(
     assert applied(database, "acme__lab")[-1] == f"0002_{change}"
 
 
+#: A migration a plugin's author wrote by hand, after the one changing the column: it
+#: writes the rows no state locks, through whatever guards the table has at that point.
+TOUCH = """\
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+    dependencies = [("acme__lab", "0002_change")]
+    operations = [
+        migrations.RunSQL(
+            "UPDATE acme__lab_sample SET {column} = lower({column}), lot = lot "
+            "WHERE status <> 'released'",
+            migrations.RunSQL.noop,
+        )
+    ]
+"""
+
+#: Each change to the unique field `lims_id`, and to `lot`, which a rule compares: what the
+#: type becomes, and the column the unique field is in afterwards (None once it's gone).
+COLUMN_CHANGES = {
+    # Postgres won't change the type of a column a trigger names in `UPDATE OF`.
+    "type": (
+        GUARDED.replace("max_length: 40, indexed", "max_length: 64, indexed").replace(
+            "lot: { type: string, max_length: 40 }", "lot: { type: string, max_length: 64 }"
+        ),
+        "lims_id",
+    ),
+    # Its column is dropped from the table, its trigger with it.
+    "drop": (GUARDED.replace("unique: true }", "unique: true, removed: true }"), None),
+    # The trigger still names the old column, so it can't keep the renamed one's values.
+    "rename": (GUARDED.replace("  lims_id: {", "  lims_code: {"), "lims_code"),
+}
+
+
+@pytest.mark.parametrize("change", sorted(COLUMN_CHANGES))
+def test_a_migration_can_change_a_guarded_column(lab: Path, database: str, change: str) -> None:
+    """A unique field's trigger, and a rule's, name the columns they guard (`UPDATE OF`), so
+    Postgres refused to change their type, and a trigger kept reading a renamed column by
+    its old name. The deploy now takes them off what its migrations change and puts them
+    back, in its one transaction, before anything else can write (ADR 0134)."""
+    _, probes = guarded(lab, database)
+    text, column = COLUMN_CHANGES[change]
+    (lab / "types" / "sample.yaml").write_text(text)
+    made("lab", "--name", "change", cwd=lab.parent, answers="y\n")
+    (lab / "migrations" / "0003_touch.py").write_text(TOUCH.format(column=column or "name"))
+    v2 = build_to(lab.parent, "v2", "lab")
+
+    deployed(v2, database)
+    assert applied(database, "acme__lab")[-2:] == ["0002_change", "0003_touch"]
+    if column is None:
+        del probes["unique"]
+        assert "lims_id" not in columns(database, "acme__lab_sample")
+        assert query(database, "SELECT key FROM iki_unique_value WHERE key LIKE %s", "%lims%") == []
+    else:
+        statement, params = probes["unique"]
+        probes["unique"] = (statement.replace("lims_id", column), params)
+        values = query(
+            database,
+            "SELECT key, value FROM iki_unique_value WHERE key NOT LIKE %s ORDER BY 2",
+            "%:%",
+        )
+        assert values == [
+            (f"acme__lab_sample.{column}", "LIMS-1"),
+            (f"acme__lab_sample.{column}", "lims-2"),
+        ]
+    assert write_through(database, probes) == dict.fromkeys(probes, "refused")
+    triggers = query(
+        database,
+        "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
+        "AND NOT tgisinternal AND starts_with(tgname, %s) ORDER BY 1",
+        "iki_unique__",
+    )
+    assert triggers == ([] if column is None else [(f"iki_unique__{column}",)])
+
+
+def test_a_rollback_can_change_a_guarded_column_back(lab: Path, database: str) -> None:
+    """Reversing a migration changes columns too: deploying the older build changes the
+    unique field's type back, under the trigger the newer build's sync made on it."""
+    (lab / "plugin.yaml").write_text(LAB + LAB_ROLES)
+    (lab / "types" / "sample.yaml").write_text(GUARDED)
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    deployed(v1, database)
+    (lab / "types" / "sample.yaml").write_text(
+        GUARDED.replace("max_length: 40, indexed", "max_length: 64, indexed")
+    )
+    made("lab", "--name", "longer", cwd=lab.parent, answers="y\n")
+    deployed(build_to(lab.parent, "v2", "lab"), database)
+
+    out = deployed(v1, database)
+    assert "Reversed acme/lab 0002_longer" in out, out
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    width = (
+        "SELECT character_maximum_length FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = 'acme__lab_sample' "
+        "AND column_name = 'lims_id'"
+    )
+    assert query(database, width) == [(40,)]
+    triggers = query(
+        database,
+        "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
+        "AND NOT tgisinternal AND starts_with(tgname, %s)",
+        "iki_unique__",
+    )
+    assert triggers == [("iki_unique__lims_id",)]
+
+
+#: A box holds a sample or another box, and keeps one spare: references to two types, which
+#: the database holds to them by a trigger naming their columns (ADR 0136). A shelf is
+#: neither.
+SHELF = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Shelf
+schema_version: 1
+hrid: { prefix: SHF }
+"""
+BOX = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Box
+schema_version: 1
+hrid: { prefix: BOX }
+fields:
+  stored: { type: ref, to: [Sample, Box] }
+  spare: { type: ref, to: [Sample, Box] }
+"""
+
+BOX_TOUCH = """\
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+    dependencies = [("acme__lab", "0002_change")]
+    operations = [
+        migrations.RunSQL("UPDATE acme__lab_box SET spare_id = spare_id", migrations.RunSQL.noop)
+    ]
+"""
+
+
+def test_a_migration_can_drop_a_reference_to_several_types(lab: Path, database: str) -> None:
+    """A reference's types' trigger reads its columns by name, as a unique field's does: a
+    migration dropping one, then writing the table, failed under the trigger still naming
+    it. The deploy takes it off and puts it back for the columns left."""
+    (lab / "types" / "box.yaml").write_text(BOX)
+    (lab / "types" / "shelf.yaml").write_text(SHELF)
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    deployed(v1, database)
+    box, sample, shelf = orm(
+        v1,
+        database,
+        """
+        from iki_plugin_acme__lab.models import Box, Sample, Shelf
+        sample = Sample.objects.create(
+            type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1"
+        )
+        box = Box.objects.create(
+            type="acme/lab.Box", hrid="BOX-000001", owner_project=project,
+            stored_id=sample.pk, spare_id=sample.pk,
+        )
+        shelf = Shelf.objects.create(
+            type="acme/lab.Shelf", hrid="SHF-000001", owner_project=project
+        )
+        result = [str(box.pk), str(sample.pk), str(shelf.pk)]
+        """,
+    )
+    (lab / "types" / "box.yaml").write_text(
+        BOX.replace(
+            "  stored: { type: ref, to: [Sample, Box] }",
+            "  stored: { type: ref, to: [Sample, Box], removed: true }",
+        )
+    )
+    made("lab", "--name", "change", cwd=lab.parent)
+    (lab / "migrations" / "0003_touch.py").write_text(BOX_TOUCH)
+
+    deployed(build_to(lab.parent, "v2", "lab"), database)
+    assert applied(database, "acme__lab")[-2:] == ["0002_change", "0003_touch"]
+    assert "stored_id" not in columns(database, "acme__lab_box")
+    assert query(database, "SELECT spare_id::text FROM acme__lab_box") == [(sample,)]
+    triggers = query(
+        database,
+        "SELECT tgname, encode(tgargs, 'escape') FROM pg_trigger "
+        "WHERE tgrelid = 'acme__lab_box'::regclass AND starts_with(tgname, %s) ORDER BY 1",
+        "iki_reference_types__",
+    )
+    assert [name for name, _ in triggers] == [
+        "iki_reference_types__ins",
+        "iki_reference_types__upd",
+    ]
+    assert all(args.startswith("spare_id\\000") for _, args in triggers), triggers
+    # And it holds the reference left to its types.
+    with pytest.raises(psycopg.errors.CheckViolation, match="spare_id can't refer to"):
+        query(database, "UPDATE acme__lab_box SET spare_id = %s WHERE entity_id = %s", shelf, box)
+
+
 def test_a_deploy_that_fails_halfway_leaves_the_guards_as_they_were(
     lab: Path, database: str
 ) -> None:

@@ -18,17 +18,21 @@ code doesn't know. So before migrating, this:
 
    1. Drops the tables of each plugin the lockfile purges (ADR 0092), once its
       purge has waited and left a tombstone for every entity. See :func:`_purge`.
-   2. Reverses the plugin migrations the build doesn't have, from the copies
+   2. Takes off the triggers that name the columns of the tables the plugins'
+      migrations change, so Postgres lets them change those columns' types and drop
+      them, and no write meanwhile goes through a trigger reading a column by a name it
+      no longer has. See :func:`_unguard`. The sync puts them back.
+   3. Reverses the plugin migrations the build doesn't have, from the copies
       it kept of them (:class:`~iki_server.plugins.models.PluginMigration`).
       It does so only if no reversal can lose data. Every operation must be
       reversible. No table it would drop may hold rows, no column it would drop
       may hold anything but its default, and no column whose type it would
       change may hold values. Otherwise it changes nothing and says why.
-   3. Runs ``migrate`` for the plugins.
-   4. Keeps a copy of every plugin migration now applied.
-   5. Runs ``sync_plugins`` (:mod:`iki_server.plugins.sync`): the triggers that
+   4. Runs ``migrate`` for the plugins.
+   5. Keeps a copy of every plugin migration now applied.
+   6. Runs ``sync_plugins`` (:mod:`iki_server.plugins.sync`): the triggers that
       hold unique fields, rules and locks, the views and the rest.
-   6. Grants the app role what it needs (``grant_app_privileges``), if named.
+   7. Grants the app role what it needs (``grant_app_privileges``), if named.
 
    Other connections, such as the old pods serving through a deploy, see the old
    schema with its guards until the commit, then the new one with its guards, so
@@ -63,8 +67,9 @@ from psycopg import sql
 
 from iki_server.audit import log as audit
 from iki_server.core import db_roles
-from iki_server.entities import registry
+from iki_server.entities import constraints, registry, targets, unique
 from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
+from iki_server.graph import edges
 from iki_server.org import holds
 from iki_server.plugins import sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
@@ -204,6 +209,8 @@ def migrate_deployment(
                 with connection.cursor() as cursor:
                     sync.drop_views(cursor)
                 report.reversed = _roll_back(to_reverse, archive, applied)
+            forwards = MigrationExecutor(connection)
+            _unguard(forwards, forwards.migration_plan(forwards.loader.graph.leaf_nodes()))
             call_command(_Migrate(), interactive=False, verbosity=1, stdout=stdout)
             report.archived = _keep_copies(installed)
             report.synced = sync.sync(analyst_role)
@@ -278,6 +285,61 @@ def _could_be_plugin(label: str) -> bool:
     """Whether an app the build doesn't have was a plugin rather than part of Iki or Django:
     a plugin's label is ``namespace__name``, which no app of Iki's or Django's is."""
     return naming.plugin_of_label(label) is not None
+
+
+# --- The guards on what migrations change -------------------------------------------------------
+
+#: The triggers ``sync_plugins`` makes that name their table's columns: unique fields' and
+#: rules' in ``UPDATE OF`` and their arguments, references' edges' and references' types'
+#: (ADR 0136) in their arguments. The other guards name none: a locked record's and a
+#: request's read only ``entity_id``, and history's refuses any change to a row
+#: (:class:`~iki_server.plugins.operations.AppendOnly`).
+COLUMN_TRIGGERS = (
+    unique.TRIGGER_PREFIX,
+    constraints.TRIGGER_PREFIX,
+    edges.TRIGGER_PREFIX,
+    targets.TRIGGER_PREFIX,
+)
+
+
+def _unguard(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) -> list[str]:
+    """Drops the triggers naming columns of the tables ``plan`` changes, in the deploy's
+    transaction, and returns those tables. Postgres refuses to change the type of a column a
+    trigger names in ``UPDATE OF``, or to drop it; and after a rename, a trigger would read
+    the column by its old name, failing or skipping every write the migrations make to it.
+
+    ``sync_plugins`` makes them again from the build's manifests, filling in what was written
+    meanwhile, before the transaction commits. Dropping a trigger locks its table against
+    writes until then, so no other connection writes to it unguarded. An operation that
+    might change a table counts: Django's own name the models they change, and raw SQL or
+    Python might change any."""
+    if not plan:
+        return []
+    graph = executor.loader.graph
+    state = executor.loader.project_state(
+        [key for key in executor.loader.applied_migrations or () if key in graph.nodes]
+    )
+    operations = [op for migration, _ in plan for op in migration.operations]
+    tables = sorted(
+        {
+            state.apps.get_model(app, name)._meta.db_table
+            for app, name in state.models
+            if any(op.references_model(name, app) for op in operations)
+        }
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+            "WHERE NOT t.tgisinternal AND c.relname = ANY(%s) AND t.tgname LIKE ANY(%s) "
+            "ORDER BY 1, 2",
+            [tables, [prefix.replace("_", r"\_") + "%" for prefix in COLUMN_TRIGGERS]],
+        )
+        found = cursor.fetchall()
+        for table, name in found:
+            cursor.execute(
+                sql.SQL("DROP TRIGGER {} ON {}").format(sql.Identifier(name), sql.Identifier(table))
+            )
+    return sorted({table for table, _ in found})
 
 
 # --- The archive ---------------------------------------------------------------------------------
@@ -388,6 +450,7 @@ def _roll_back(
             + "Deploy a lockfile with these plugins at their newer versions, or restore the "
             "database from the backup taken before they were upgraded."
         )
+    _unguard(executor, plan)
     executor.migrate(targets, plan=plan)
     return reversing
 
