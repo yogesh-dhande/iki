@@ -539,6 +539,34 @@ export function searchWords(q: string): { text: string; conditions: Filter[] } {
   return { text: rest.join(" "), conditions };
 }
 
+/** The words `searchWords` reads as these conditions, or null if some have none: each word
+ * read again gives the same condition, so the words say just what the conditions do. */
+export function wordsOf(conditions: unknown[]): string[] | null {
+  const words: string[] = [];
+  for (const c of conditions) {
+    if (typeof c !== "object" || c === null || !("field" in c) || !("op" in c)) return null;
+    const { field, op, value } = c as Filter;
+    if (op === "of") words.push(`${field}:${String(value)}`);
+    else if (op === "is_set" && value === true && field === HELD.name) words.push("is:held");
+    else if (op === "is_set" && value === true && field === BREAKS.name) words.push("is:breaking");
+    else if (op === "is_set" && value === false && field === "assigned")
+      words.push("assigned:none");
+    else if (op === "eq" && value === true && field === "needs_reassigning")
+      words.push("needs:reassigning");
+    else if (op === "eq" && value === ME) words.push(`${field}:me`);
+    else if (op === "eq" && (field === HELD.name || field === BREAKS.name))
+      words.push(`${field}:${String(value)}`);
+    else if (op === "eq") words.push(`${field}:@${String(value)}`);
+    else if (op === "has" && typeof value === "object" && value !== null && !Array.isArray(value))
+      words.push(...Object.entries(value).map(([k, v]) => `${field}.${k}:${String(v)}`));
+    else return null;
+  }
+  const again = searchWords(words.join(" "));
+  return !again.text && JSON.stringify(again.conditions) === JSON.stringify(conditions)
+    ? words
+    : null;
+}
+
 /** The address's `filters`, if it holds them. */
 export function validateFilters(value: unknown): Filter[] | undefined {
   if (!Array.isArray(value)) return undefined;

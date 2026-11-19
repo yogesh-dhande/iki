@@ -64,11 +64,17 @@ export interface EntityFilter {
 }
 
 /** The search the grid runs, without its paging: a component that shows the grid's
- * results is given the same (ADR 0117). */
+ * results is given the same (ADR 0117), and a saved search keeps it (ADR 0037).
+ *
+ * Words such as `assigned:me` are conditions (ADR 0122); the rest is text. They're a group
+ * of their own (`all`) after the filters', so the search reads back as the same filters
+ * and words: that's how a saved search opens in the grid as it was saved. */
 export function gridSearch(filter: EntityFilter) {
-  // Words such as `assigned:me` are conditions (ADR 0122); the rest is text.
   const words = searchWords(filter.q ?? "");
-  const conditions = [...(filter.filters ?? []), ...words.conditions];
+  const conditions = [
+    ...(filter.filters ?? []),
+    ...(words.conditions.length ? [{ all: words.conditions }] : []),
+  ];
   return {
     exact_type: false,
     ...(filter.collection

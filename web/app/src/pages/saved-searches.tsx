@@ -6,43 +6,68 @@
  * filters and sort), so opening one is following a link to that address.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import {
+  gridSearch,
   SAVED_SEARCHES,
   savedSearchesQuery,
   type EntitySearch,
   type SavedSearch,
 } from "../entities";
-import type { Filter } from "../filters";
+import { searchWords, wordsOf, type Filter } from "../filters";
 import { Button, ConfirmDialog, TextField, useMessages } from "../ui";
 
 interface Query {
   type?: string | null;
   archived?: boolean | null;
+  exact_type?: boolean | null;
   q?: string | null;
-  where?: { all?: Filter[] } | Filter | null;
+  where?: { all?: unknown[] } | Filter | null;
   sort?: { field: string; descending?: boolean } | null;
 }
 
-/** The grid's address for a saved search, or null if it holds what the grid can't show. */
+/**
+ * The grid's address for a saved search, or null if it holds what the grid can't show:
+ * opening it would run another search. The grid's own searches come back as they were
+ * made (see `gridSearch`): the filters', and a group of conditions the search box's words
+ * make, as those words again.
+ */
 export function toAddress(query: Query): EntitySearch | null {
   const out: EntitySearch = {};
+  // The grid finds a type's subtypes too.
+  if (query.exact_type) return null;
   if (query.type) out.type = query.type;
   if (query.archived === true) out.show = "archived";
   else if (query.archived !== false) out.show = "all";
-  if (query.q) out.q = query.q;
+  // Text the search box would read as conditions isn't text to it.
+  if (query.q && searchWords(query.q).conditions.length) return null;
+  const words: string[] = [];
   if (query.where) {
     const where = query.where as Record<string, unknown>;
     const all = "all" in where ? (where["all"] as unknown[]) : "field" in where ? [where] : null;
-    // Conditions the grid can show: every one of some fields' conditions.
-    if (!all?.every((c) => typeof c === "object" && c !== null && "field" in c)) return null;
-    out.filters = all as Filter[];
+    if (!all) return null;
+    const filters: Filter[] = [];
+    for (const c of all) {
+      if (typeof c !== "object" || c === null) return null;
+      if ("field" in c) {
+        filters.push(c as Filter);
+      } else if ("all" in c && Array.isArray(c.all) && !words.length) {
+        const said = wordsOf(c.all);
+        if (!said?.length) return null;
+        words.push(...said);
+      } else {
+        return null;
+      }
+    }
+    if (filters.length) out.filters = filters;
   }
+  const q = [query.q ?? "", ...words].filter(Boolean).join(" ");
+  if (q) out.q = q;
   if (query.sort) {
     out.sort = query.sort.field;
     if (query.sort.descending) out.desc = true;
@@ -50,17 +75,17 @@ export function toAddress(query: Query): EntitySearch | null {
   return out;
 }
 
-/** The grid's search, as a saved search keeps it. */
+/** The grid's search, as a saved search keeps it: what the grid runs, without its project. */
 export function fromAddress(search: EntitySearch) {
   const show = search.show ?? "current";
-  return {
-    exact_type: false,
-    ...(search.type ? { type: search.type } : {}),
-    ...(show === "all" ? {} : { archived: show === "archived" }),
-    ...(search.q ? { q: search.q } : {}),
-    ...(search.filters?.length ? { where: { all: search.filters as Schemas["Condition"][] } } : {}),
-    ...(search.sort ? { sort: { field: search.sort, descending: search.desc ?? false } } : {}),
-  };
+  return gridSearch({
+    type: search.type,
+    archived: show === "all" ? undefined : show === "archived",
+    q: search.q,
+    filters: search.filters,
+    sort: search.sort,
+    descending: search.desc,
+  });
 }
 
 export function SavedSearches({ project, search }: { project: Project; search: EntitySearch }) {
