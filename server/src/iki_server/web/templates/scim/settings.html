@@ -25,6 +25,7 @@
 <section class="card">
   <h2 class="section-title">SCIM provisioning</h2>
   <p>With SCIM, your identity provider (such as Microsoft Entra ID or Okta) creates people in Iki, keeps their names and emails current, deactivates them when they leave, and pushes groups you can link to teams.</p>
+  <p class="muted">A person’s first sign-in finds the account provisioned for them by their user ID at the provider (sent as <code>externalId</code>), their SAML NameID (sent as <code>userName</code>), or an email address the provider says it verified. Okta’s defaults work. For Microsoft Entra ID over OpenID Connect, map <code>objectId</code> to <code>externalId</code>, or add the <code>xms_edov</code> optional claim.</p>
   {% if new_token %}
   <div class="alert alert-success" role="status">
     <p><strong>Copy this token now.</strong> It won’t be shown again. Paste it into your identity provider as the secret token (bearer token).</p>

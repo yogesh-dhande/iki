@@ -3,15 +3,18 @@
 import json
 import re
 from typing import Any
+from uuid import UUID
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from browser import Browser, complete_saml_setup, complete_setup, path_of, saml_sign_in, sign_in
 from django.test import Client
 from fake_idp import FakeIdP
 from fake_saml_idp import FakeSamlIdP
 from org_world import post
 
-from iki_server.accounts.models import User, UserSession
+from iki_server.accounts import linking
+from iki_server.accounts.models import IdentityProvider, Protocol, User, UserSession
 from iki_server.audit.models import AuditEvent
 from iki_server.org import services as org_services
 from iki_server.org.models import Team, TeamMembership
@@ -21,6 +24,8 @@ from iki_server.scim.models import ScimGroup
 pytestmark = pytest.mark.django_db
 
 ADMIN = {"sub": "admin-1", "email": "ada@example.com", "name": "Ada Lovelace"}
+#: A sign-in whose address the provider verified, as Okta and Keycloak say of one.
+ROSALIND = {"sub": "r-1", "email": "rosalind@example.com", "email_verified": True}
 
 
 def scim(token: str, method: str, path: str, body: Any = None) -> Any:
@@ -97,9 +102,7 @@ def placeholder(email: str) -> User:
 def test_signing_in_takes_over_ones_placeholder(admin_browser: Browser, fake_idp: FakeIdP) -> None:
     stood_in = placeholder("rosalind@example.com")
     browser = Browser()
-    assert (
-        path_of(sign_in(browser, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})) == "/"
-    )
+    assert path_of(sign_in(browser, fake_idp, ROSALIND)) == "/"
     assert str(browser.session["_auth_user_id"]) == str(stood_in.pk)
     stood_in.refresh_from_db()
     assert stood_in.is_active and not stood_in.is_placeholder
@@ -114,9 +117,7 @@ def test_provisioning_takes_over_a_placeholder(token: str, fake_idp: FakeIdP) ->
     stood_in.refresh_from_db()
     assert stood_in.is_active and stood_in.is_provisioned and not stood_in.is_placeholder
     browser = Browser()
-    assert (
-        path_of(sign_in(browser, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})) == "/"
-    )
+    assert path_of(sign_in(browser, fake_idp, ROSALIND)) == "/"
     assert str(browser.session["_auth_user_id"]) == str(stood_in.pk)
 
 
@@ -132,7 +133,7 @@ def test_while_scim_is_on_a_placeholder_isnt_taken_over_by_signing_in(
     token: str, fake_idp: FakeIdP
 ) -> None:
     stood_in = placeholder("rosalind@example.com")
-    response = sign_in(Browser(), fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})
+    response = sign_in(Browser(), fake_idp, ROSALIND)
     refused(response, "haven’t been given access yet")
     stood_in.refresh_from_db()
     assert stood_in.is_placeholder and not stood_in.is_active
@@ -143,14 +144,13 @@ def test_a_provisioned_persons_first_sign_in_links_to_their_account(
 ) -> None:
     user_id = provision(token, "rosalind@example.com", "Rosalind Franklin")
     browser = Browser()
-    assert (
-        path_of(sign_in(browser, fake_idp, {"sub": "r-1", "email": "Rosalind@example.com"})) == "/"
-    )
+    assert path_of(sign_in(browser, fake_idp, {**ROSALIND, "email": "Rosalind@example.com"})) == "/"
     assert User.objects.filter(email__iexact="rosalind@example.com").count() == 1
     assert str(browser.session["_auth_user_id"]) == user_id
     linked = AuditEvent.objects.get(action="user.identity_linked")
     assert linked.target_id == user_id
-    # From then on the subject identifier decides, as for anyone else.
+    assert linked.data["matched_by"] == "email"
+    # From then on the subject identifier decides, as for anyone else, verified or not.
     again = Browser()
     assert path_of(sign_in(again, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})) == "/"
     assert str(again.session["_auth_user_id"]) == user_id
@@ -162,38 +162,192 @@ def test_linking_also_matches_the_scim_user_name(token: str, fake_idp: FakeIdP) 
     )
     assert User.objects.get(pk=user_id).email == "rosalind@example.com"
     browser = Browser()
-    sign_in(browser, fake_idp, {"sub": "r-1", "email": "rfranklin@corp.example.com"})
+    sign_in(browser, fake_idp, {**ROSALIND, "email": "rfranklin@corp.example.com"})
     assert str(browser.session["_auth_user_id"]) == user_id
 
 
 def test_a_provisioned_account_links_to_only_one_identity(token: str, fake_idp: FakeIdP) -> None:
     provision(token, "rosalind@example.com")
-    sign_in(Browser(), fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})
-    response = sign_in(Browser(), fake_idp, {"sub": "impostor", "email": "rosalind@example.com"})
+    sign_in(Browser(), fake_idp, ROSALIND)
+    response = sign_in(Browser(), fake_idp, {**ROSALIND, "sub": "impostor"})
     refused(response, "linked to a different identity")
 
 
 def test_deactivated_provisioned_people_cant_sign_in(token: str, fake_idp: FakeIdP) -> None:
     user_id = provision(token, "rosalind@example.com", active=False)
     browser = Browser()
-    sign_in(browser, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})
+    sign_in(browser, fake_idp, ROSALIND)
     assert "_auth_user_id" not in browser.session
     assert not User.objects.get(pk=user_id).is_active
 
 
-def test_provisioned_people_link_through_saml_too(client: Browser, saml_idp: FakeSamlIdP) -> None:
+def test_provisioned_people_link_through_saml_by_its_subject(
+    client: Browser, saml_idp: FakeSamlIdP
+) -> None:
     complete_saml_setup(client, saml_idp, "ada-1", {"email": "ada@example.com"})
     token = tokens.create(by=User.objects.get())
-    user_id = provision(token, "grace@example.com", "Grace Hopper")
-    browser = Browser()
-    assert (
-        path_of(saml_sign_in(browser, saml_idp, "grace-1", {"email": "grace@example.com"})) == "/"
+    grace = provision(token, "grace@example.com", "Grace Hopper")
+    alan = provision(token, "alan@example.com", "Alan Turing", externalId="alan-1")
+    # A SAML assertion says nothing of whether its email attribute was verified.
+    refused(
+        saml_sign_in(Browser(), saml_idp, "grace-1", {"email": "grace@example.com"}),
+        "didn’t confirm that your email address is yours",
     )
-    assert str(browser.session["_auth_user_id"]) == user_id
+    # Its subject is what the provider vouches for: Entra and Okta send it as userName too,
+    browser = Browser()
+    response = saml_sign_in(browser, saml_idp, "grace@example.com", {"email": "grace@example.com"})
+    assert path_of(response) == "/"
+    assert str(browser.session["_auth_user_id"]) == grace
+    # or as externalId, when it's the person's ID at the provider.
+    browser = Browser()
+    assert path_of(saml_sign_in(browser, saml_idp, "alan-1", {"email": "alan@example.com"})) == "/"
+    assert str(browser.session["_auth_user_id"]) == alan
+    matched = AuditEvent.objects.filter(action="user.identity_linked").order_by("occurred_at")
+    assert [e.data["matched_by"] for e in matched] == ["user_name", "external_id"]
     refused(
         saml_sign_in(Browser(), saml_idp, "eve-1", {"email": "eve@example.com"}),
         "haven’t been given access yet",
     )
+
+
+def test_saml_links_by_an_address_it_says_it_verified(
+    client: Browser, saml_idp: FakeSamlIdP
+) -> None:
+    complete_saml_setup(client, saml_idp, "ada-1", {"email": "ada@example.com"})
+    token = tokens.create(by=User.objects.get())
+    grace = provision(token, "grace@example.com", "Grace Hopper")
+    browser = Browser()
+    attributes = {"email": "grace@example.com", "http://schemas.auth0.com/email_verified": "true"}
+    assert path_of(saml_sign_in(browser, saml_idp, "auth0|grace", attributes)) == "/"
+    assert str(browser.session["_auth_user_id"]) == grace
+
+
+# --- Which account a first sign-in is ----------------------------------------------------
+
+
+@pytest.mark.parametrize("verified", [False, "false", None], ids=["false", "string", "absent"])
+def test_an_address_the_provider_didnt_verify_links_no_provisioned_account(
+    token: str, fake_idp: FakeIdP, verified: object
+) -> None:
+    user_id = provision(token, "rosalind@example.com", "Rosalind Franklin")
+    claims = {**ROSALIND, "sub": "someone-else", "email_verified": verified}
+    response = sign_in(Browser(), fake_idp, claims)
+    refused(response, "didn’t confirm that your email address is yours")
+    assert not SocialAccount.objects.filter(user_id=user_id).exists()
+    event = AuditEvent.objects.get(action="user.sign_in_refused")
+    assert event.data == {"reason": "email_unverified", "email": "rosalind@example.com"}
+    # Once the provider vouches for the address, the account links.
+    browser = Browser()
+    assert path_of(sign_in(browser, fake_idp, ROSALIND)) == "/"
+    assert str(browser.session["_auth_user_id"]) == user_id
+
+
+@pytest.mark.parametrize("verified", [False, None], ids=["false", "absent"])
+def test_an_address_the_provider_didnt_verify_claims_no_placeholder(
+    admin_browser: Browser, fake_idp: FakeIdP, verified: object
+) -> None:
+    stood_in = placeholder("rosalind@example.com")
+    response = sign_in(Browser(), fake_idp, {**ROSALIND, "email_verified": verified})
+    refused(response, "didn’t confirm that your email address is yours")
+    stood_in.refresh_from_db()
+    assert stood_in.is_placeholder and not stood_in.is_active
+    assert not SocialAccount.objects.filter(user=stood_in).exists()
+
+
+def test_the_providers_user_id_links_whatever_the_address(token: str, fake_idp: FakeIdP) -> None:
+    # Okta sends its user ID as SCIM's externalId and as the sign-in's subject.
+    user_id = provision(token, "rosalind@example.com", externalId="00u1rosalind")
+    browser = Browser()
+    claims = {"sub": "00u1rosalind", "email": "rosalind@example.com"}
+    assert path_of(sign_in(browser, fake_idp, claims)) == "/"
+    assert str(browser.session["_auth_user_id"]) == user_id
+    linked = AuditEvent.objects.get(action="user.identity_linked")
+    assert linked.data["matched_by"] == "external_id"
+
+
+def test_an_id_two_accounts_share_links_nobody(token: str, fake_idp: FakeIdP) -> None:
+    provision(token, "rosalind@example.com", externalId="shared")
+    provision(token, "grace@example.com", externalId="shared")
+    response = sign_in(Browser(), fake_idp, {**ROSALIND, "sub": "shared"})
+    assert response.status_code == 403
+    assert not SocialAccount.objects.filter(uid="shared").exists()
+
+
+def test_recovery_links_the_operator_by_their_address(token: str, fake_idp: FakeIdP) -> None:
+    # Whoever completes break-glass recovery proved cluster access, so their address links
+    # them to the account the identity provider provisioned, verified or not.
+    user_id = provision(token, "ops@example.com")
+    browser = Browser()
+    response = complete_setup(
+        browser, fake_idp, {"sub": "ops-1", "email": "ops@example.com"}, recover=True
+    )
+    assert path_of(response) == "/setup/done/"
+    assert User.objects.filter(email="ops@example.com").count() == 1
+    assert SocialAccount.objects.get(uid="ops-1").user_id == UUID(user_id)
+
+
+ENTRA_TENANT = "6f1c2b9e-0d6a-4c3b-8e5f-1a2d9c0b7e6f"
+
+
+def entra(protocol: str = Protocol.OIDC) -> IdentityProvider:
+    issuer = (
+        f"https://login.microsoftonline.com/{ENTRA_TENANT}/v2.0"
+        if protocol == Protocol.OIDC
+        else f"https://sts.windows.net/{ENTRA_TENANT}/"
+    )
+    return IdentityProvider(issuer=issuer, protocol=protocol)
+
+
+def test_entra_ids_tenant_comes_from_its_issuer() -> None:
+    assert linking.entra_tenant(f"https://login.microsoftonline.com/{ENTRA_TENANT}/v2.0") == (
+        ENTRA_TENANT
+    )
+    assert linking.entra_tenant(f"https://sts.windows.net/{ENTRA_TENANT}/") == ENTRA_TENANT
+    assert linking.entra_tenant("https://login.microsoftonline.com/common/v2.0") is None
+    assert linking.entra_tenant(f"https://evil.example/{ENTRA_TENANT}/v2.0") is None
+    assert linking.entra_tenant("https://acme.okta.com") is None
+
+
+def test_entra_id_links_by_its_object_id_in_the_issuers_tenant() -> None:
+    oid = "1c0a4d3e-5b6f-4a7b-8c9d-0e1f2a3b4c5d"
+    # Entra's sub is different for each app; its object ID is the person's, as SCIM sends it.
+    claims = {"sub": "pairwise-sub", "oid": oid, "tid": ENTRA_TENANT, "email": "r@example.com"}
+    vouched = linking.from_oidc(claims, entra())
+    assert vouched.ids == {"pairwise-sub", oid}
+    assert not vouched.email_verified
+    other_tenant = linking.from_oidc({**claims, "tid": "0" * 8 + ENTRA_TENANT[8:]}, entra())
+    assert oid not in other_tenant.ids
+    okta = IdentityProvider(issuer="https://acme.okta.com", protocol=Protocol.OIDC)
+    assert oid not in linking.from_oidc(claims, okta).ids
+
+
+def test_entra_ids_xms_edov_vouches_for_its_address_only_from_entra() -> None:
+    claims = {"sub": "s", "oid": "o", "tid": ENTRA_TENANT, "xms_edov": True}
+    assert linking.from_oidc(claims, entra()).email_verified
+    okta = IdentityProvider(issuer="https://acme.okta.com", protocol=Protocol.OIDC)
+    assert not linking.from_oidc(claims, okta).email_verified
+    assert linking.from_oidc({"sub": "s", "email_verified": "true"}, okta).email_verified
+
+
+def test_entra_id_links_by_its_object_id_over_saml() -> None:
+    oid = "1c0a4d3e-5b6f-4a7b-8c9d-0e1f2a3b4c5d"
+    data = {"object_id": oid, "tenant_id": ENTRA_TENANT}
+    vouched = linking.from_saml(
+        "rosalind@corp.example", data, "rosalind@example.com", entra("saml")
+    )
+    assert vouched.ids == {"rosalind@corp.example", oid}
+    assert vouched.user_name == "rosalind@corp.example"
+    assert not vouched.email_verified  # the subject isn't the address
+    assert linking.from_saml("r@example.com", {}, "R@example.com", entra("saml")).email_verified
+
+
+def test_an_entra_object_id_finds_the_account_scim_made(token: str) -> None:
+    oid = "1c0a4d3e-5b6f-4a7b-8c9d-0e1f2a3b4c5d"
+    user_id = provision(token, "rosalind@example.com", externalId=oid)
+    claims = {"sub": "pairwise-sub", "oid": oid.upper(), "tid": ENTRA_TENANT}
+    link = linking.provisioned_account(linking.from_oidc(claims, entra()), "")
+    assert link is not None
+    assert (str(link.account.pk), link.matched_by) == (user_id, "external_id")
 
 
 def test_recovery_isnt_blocked_by_provisioning(token: str, fake_idp: FakeIdP) -> None:

@@ -3,17 +3,19 @@
 - Identity providers come from :class:`IdentityProvider` (secrets encrypted
   at rest), not from allauth's own table or from settings.
 - An account is matched by the provider's subject identifier. Iki never
-  links a sign-in to an existing account by email address, which would let
-  anyone who controls a matching address take the account over. The one
-  exception is someone the identity provider itself provisioned over SCIM:
-  their first sign-in through the enabled provider links to the account SCIM
-  created for them, matched by email or SCIM ``userName`` (ADR 0026).
+  links a sign-in to an existing account by an email address alone, which
+  would let anyone who controls a matching address take the account over.
+  The exceptions are someone the identity provider itself provisioned over
+  SCIM (ADR 0026), and someone a bundle's records named (ADR 0096): their
+  first sign-in links by what the provider vouches for, their immutable ID
+  first, and an email address only if the provider verified it
+  (:mod:`iki_server.accounts.linking`, ADR 0151).
 - While SCIM provisioning is on, only provisioned people have accounts. A
   sign-in from anyone else is refused and recorded.
 - The user's name and email follow the identity provider on every sign-in.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import structlog
@@ -21,14 +23,13 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialAccount, SocialLogin
-from django.db.models import Q
 from django.http import HttpRequest
 from django.shortcuts import render
 
+from iki_server.accounts import linking
 from iki_server.accounts.models import (
     IdentityProvider,
     Kind,
-    Protocol,
     User,
     claim_placeholder,
 )
@@ -68,6 +69,8 @@ class Identity:
 
     email: str
     name: str
+    #: What the provider vouches for, to link a first sign-in to an account.
+    vouched: linking.Vouched
 
 
 def _claims(sociallogin: SocialLogin) -> dict[str, Any]:
@@ -84,7 +87,8 @@ def display_name(claims: dict[str, Any]) -> str:
 
 
 def _identity(sociallogin: SocialLogin, data: dict[str, Any] | None = None) -> Identity:
-    """The email and name from this sign-in, for either protocol.
+    """The email and name from this sign-in, for either protocol, and what the provider
+    vouches for.
 
     ``data`` is allauth's extraction of the response (for SAML, mapped from
     attributes or the NameID). It is only available while the response is
@@ -94,28 +98,23 @@ def _identity(sociallogin: SocialLogin, data: dict[str, Any] | None = None) -> I
     kept: Identity | None = getattr(sociallogin, "_iki_identity", None)
     if kept is not None and data is None:
         return kept
-    if _is_saml(sociallogin):
+    provider = IdentityProvider.objects.filter(provider_id=sociallogin.account.provider).first()
+    if provider is not None and provider.is_saml:
         data = data or {}
         claims = {
             "name": data.get("name"),
             "given_name": data.get("first_name"),
             "family_name": data.get("last_name"),
         }
-        email = str(data.get("email") or "")
+        email = User.objects.normalize_email(str(data.get("email") or "")).strip()
+        vouched = linking.from_saml(str(sociallogin.account.uid or ""), data, email, provider)
     else:
         claims = _claims(sociallogin)
-        email = str(claims.get("email") or "")
-    identity = Identity(
-        email=User.objects.normalize_email(email).strip(), name=display_name(claims)
-    )
+        email = User.objects.normalize_email(str(claims.get("email") or "")).strip()
+        vouched = linking.from_oidc(claims, provider) if provider is not None else linking.Vouched()
+    identity = Identity(email=email, name=display_name(claims), vouched=vouched)
     sociallogin._iki_identity = identity
     return identity
-
-
-def _is_saml(sociallogin: SocialLogin) -> bool:
-    return IdentityProvider.objects.filter(
-        provider_id=sociallogin.account.provider, protocol=Protocol.SAML
-    ).exists()
 
 
 def sign_in_error(
@@ -187,38 +186,50 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             if email_owners.exclude(pk=user.pk).exists():
                 raise sign_in_error(request, "email_in_use", email=email)
         else:
-            provisioned = (
-                User.objects.filter(provisioned_at__isnull=False)
-                .filter(Q(email=email) | Q(scim_user_name=email))
-                .first()
-            )
-            if provisioned is not None:
-                if (
-                    email_owners.exclude(pk=provisioned.pk).exists()
-                    or SocialAccount.objects.filter(
-                        user=provisioned, provider=provider.provider_id
-                    ).exists()
-                ):
+            grant = grants.current(request)
+            setting_up = grant is not None and grant.identity_provider() == provider
+            vouched = identity.vouched
+            if setting_up and not vouched.email_verified:
+                # Whoever holds the setup link proved cluster access (ADR 0023), so they
+                # vouch for the address themselves: recovery after a change of identity
+                # provider must reach the accounts the old one provisioned.
+                vouched = replace(vouched, email_verified=True)
+            link = linking.provisioned_account(vouched, email)
+            if link is not None:
+                provisioned = link.account
+                if email_owners.exclude(pk=provisioned.pk).exists():
                     raise sign_in_error(request, "email_in_use", email=email)
+                if SocialAccount.objects.filter(
+                    user=provisioned, provider=provider.provider_id
+                ).exists():
+                    raise sign_in_error(request, "already_linked", email=email)
                 sociallogin.connect(request, provisioned)
                 audit.record(
                     "user.identity_linked",
                     actor=provisioned,
                     target=provisioned,
-                    data={"provider_id": provider.provider_id, "protocol": provider.protocol},
+                    data={
+                        "provider_id": provider.provider_id,
+                        "protocol": provider.protocol,
+                        "matched_by": link.matched_by,
+                    },
                 )
                 user = provisioned
             else:
+                verified = vouched.email_verified
+                if not verified and linking.provisioned_by_address(email):
+                    # Only the address could link them, and the provider doesn't vouch for it.
+                    raise sign_in_error(request, "email_unverified", email=email)
                 placeholder = (
                     email_owners.filter(kind=Kind.PERSON).exclude(imported_from="").first()
                 )
                 if placeholder is None and email_owners.exists():
                     raise sign_in_error(request, "email_in_use", email=email)
-                grant = grants.current(request)
-                setting_up = grant is not None and grant.identity_provider() == provider
                 if scim_enabled() and not setting_up:
                     raise sign_in_error(request, "not_provisioned", email=email)
                 if placeholder is not None:
+                    if not verified:
+                        raise sign_in_error(request, "email_unverified", email=email)
                     # Someone a bundle's records named (ADR 0096): they're this person.
                     claim_placeholder(placeholder)
                     sociallogin.connect(request, placeholder)

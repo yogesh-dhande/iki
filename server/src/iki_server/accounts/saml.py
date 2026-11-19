@@ -66,6 +66,10 @@ ATTRIBUTE_MAPPING: dict[str, list[str]] = {
         "displayName",
         "name",
     ],
+    # What links a first sign-in to a provisioned account (accounts.linking).
+    "email_verified": ["http://schemas.auth0.com/email_verified", "email_verified"],
+    "object_id": ["http://schemas.microsoft.com/identity/claims/objectidentifier"],
+    "tenant_id": ["http://schemas.microsoft.com/identity/claims/tenantid"],
 }
 
 MIN_RSA_BITS = 2048

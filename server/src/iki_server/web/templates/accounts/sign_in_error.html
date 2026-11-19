@@ -8,6 +8,10 @@
       <p>Your identity provider didn’t share your email address with Iki. Ask your administrator to release your email address to Iki (the <code>email</code> claim, or an email attribute or NameID for SAML).</p>
     {% elif reason == "email_in_use" %}
       <p>Another Iki account already uses your email address, linked to a different identity. Ask an Iki administrator for help.</p>
+    {% elif reason == "already_linked" %}
+      <p>The Iki account your organization set up for you is already linked to a different identity at your identity provider. Ask an Iki administrator for help.</p>
+    {% elif reason == "email_unverified" %}
+      <p>Your identity provider didn’t confirm that your email address is yours, so Iki can’t connect you to the account waiting for you. Ask your IT team to verify your address at the identity provider, or to send Iki your user ID there as SCIM’s <code>externalId</code>. (Iki reads OpenID Connect’s <code>email_verified</code> claim, or Microsoft Entra ID’s <code>xms_edov</code>.)</p>
     {% elif reason == "not_provisioned" %}
       <p>Your organization gives people access to Iki through its identity provider, and you haven’t been given access yet. Ask your IT team to assign Iki to you.</p>
     {% elif reason == "rate_limited" %}
