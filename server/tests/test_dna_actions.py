@@ -383,6 +383,48 @@ def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
     )
 
 
+def test_an_organism_keeps_ncbis_brackets(tmp_path: Path) -> None:
+    """GenBank AB020730.1 (NCBI nuccore, fetched 2026-11-19): a 16S rRNA gene of
+    [Clostridium] scindens (NCBI Taxonomy 29347), bracketed as NCBI writes a genus it hasn't
+    placed."""
+    text = (Path(__file__).parent / "data" / "AB020730.gb").read_text(encoding="utf-8")
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    organism, record = output["creates"]
+    assert organism["values"] == {"taxon_id": 29347, "scientific_name": "[Clostridium] scindens"}
+    assert record["values"]["organism"] == {"$create": "taxon:29347"}
+    assert output["messages"] == []
+
+
+@pytest.mark.parametrize(
+    ("taxon", "name"),
+    [
+        (1263066, "[Clostridium] clostridioforme CAG:511"),
+        (5478, "[Candida] glabrata"),
+        (551115, "'Nostoc azollae' 0708"),
+        (10090, "Mus musculus"),
+    ],
+)
+def test_an_organisms_name_is_kept_as_ncbi_writes_it(tmp_path: Path, taxon: int, name: str) -> None:
+    text = GENBANK.replace("synthetic construct", name).replace("taxon:32630", f"taxon:{taxon}")
+    organism = imported(tmp_path, text)[1]["creates"][0]  # type: ignore[index]
+    assert organism["values"] == {"taxon_id": taxon, "scientific_name": name}
+
+
+def test_an_organism_whose_name_cant_be_kept_is_its_taxon_saying_so(tmp_path: Path) -> None:
+    # GenBank writes "." for a field it has nothing for.
+    text = GENBANK.replace("synthetic construct", ".")
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["creates"][0]["values"] == {"taxon_id": 32630}
+    assert (
+        "Record 1 (pDemo): its organism's name, ., isn't one an organism's scientific name "
+        "can be, so its organism has only its NCBI Taxonomy ID, 32630."
+    ) in [m["text"] for m in output["messages"]]
+
+
 @pytest.mark.parametrize(
     ("molecule", "strandedness"),
     [

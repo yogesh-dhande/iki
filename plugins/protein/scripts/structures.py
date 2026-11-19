@@ -16,9 +16,18 @@ run: all or nothing. A structure file is read with gemmi, as mmCIF (it starts wi
   β2-adrenergic receptor with T4 lysozyme in its third loop), is none of them: it gets
   no accession, organism or gene, and its description says which residues are which.
 
-A PDB ID is its four characters (1CRN) or wwPDB's extended form (pdb_00001crn, as
-`_database_2` gives it). An extended ID of an entry that has a four-character one is the
-same entry, so it's kept as that (1CRN), whichever was given.
+Each protein's organism is by its NCBI Taxonomy ID, with the name the file gives, if any
+(ADR 0140). A ModelCIF file's target takes its UniProt entry, gene and organism each from
+one of its references, never mixed: the primary one, or else the UniProt one's entry and
+the organism they all agree on (see `targets`).
+
+A structure determined by several methods (a joint X-ray and neutron structure) keeps each
+method's resolution, from its own refinement; its method and resolution are the first's.
+
+A PDB ID is its four characters (1CRN) or wwPDB's extended form, pdb_ and eight letters or
+digits (pdb_00001crn, as `_database_2` gives it, or pdb_1001ba3c). An extended ID of an
+entry that has a four-character one is the same entry, so it's kept as that (1CRN),
+whichever was given.
 
 Other polymers (DNA, RNA, D-peptides) and ligands are left out, and the run says so.
 
@@ -68,14 +77,19 @@ MODEL_ID = re.compile(r"^AF-[A-Z0-9]{1,40}(-F[0-9]{1,4})?$")
 #: Naming the plugin, as AlphaFold DB's file server refuses some clients' own (curl's).
 USER_AGENT = "iki-protein"
 PDB_ID = re.compile(r"^[0-9][A-Z0-9]{3}$")
-#: wwPDB's extended PDB ID, upper-cased, as the structure's `pdb_id` field stores it: pdb_,
-#: five digits and three letters or digits, as wwPDB's FAQ gives it (pdb_00001abc). An entry
-#: with a four-character ID has pdb_0000 before it.
-EXTENDED_PDB_ID = re.compile(r"^PDB_[0-9]{4}[0-9][A-Z0-9]{3}$")
+#: wwPDB's extended PDB ID, upper-cased, as the structure's `pdb_id` field stores it: pdb_
+#: and eight letters or digits, as the PDBx/mmCIF dictionary gives it (pdb_[a-z0-9]{8}):
+#: pdb_1001ba3c, as OneDep issues them once the four-character IDs run out. An entry with
+#: a four-character ID has pdb_0000 before it (pdb_00001abc is 1ABC).
+EXTENDED_PDB_ID = re.compile(r"^PDB_[0-9A-Z]{8}$")
 UNIPROT = re.compile(
     r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-[0-9]+)?$"
 )
 RESIDUES = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUOBZJX]+$")
+#: A name an organism's scientific_name takes (iki/core.Organism): one line, from a letter or
+#: a digit, or NCBI's [ for a genus it hasn't placed ([Clostridium] scindens) or ' for an
+#: informal name ('Nostoc azollae' 0708).
+SCIENTIFIC_NAME = re.compile(r"[A-Za-z0-9\['][^\t\r\n]{0,254}")
 MAX_ENTRIES = 100
 #: The largest structure file it reads, unpacked.
 MAX_BYTES = 1024**3
@@ -408,39 +422,151 @@ def _sourced(sources: dict[str, list[Span]], what: str) -> str:
     return f"{what} {listed}"
 
 
-def _organisms(
-    block: gemmi.cif.Block, targets: list[dict[str, str]]
-) -> dict[str, dict[str, list[Span]]]:
-    """Each entity's source organisms, with the residues each is for: from where the gene
-    was cloned (`_entity_src_gen`), or else the natural source, the synthetic one, or a
-    ModelCIF file's target. A chimera has a row for each of its segments."""
-    out: dict[str, dict[str, list[Span]]] = {}
-    for category, tag in (
-        ("_entity_src_gen.", "pdbx_gene_src_scientific_name"),
-        ("_entity_src_nat.", "pdbx_organism_scientific_name"),
-        ("_pdbx_entity_src_syn.", "organism_scientific"),
-    ):
-        found: dict[str, dict[str, list[Span]]] = {}
-        for row in rows(
-            block, category, ["entity_id", f"?{tag}", "?pdbx_beg_seq_num", "?pdbx_end_seq_num"]
-        ):
-            if row[tag]:
-                spans = found.setdefault(row["entity_id"], {}).setdefault(row[tag], [])
-                spans.append(_span(row["pdbx_beg_seq_num"], row["pdbx_end_seq_num"]))
-        for entity, named in found.items():
-            out.setdefault(entity, named)
-    for target in targets:
-        if target["organism_scientific"]:
-            out.setdefault(target["target_entity_id"], {target["organism_scientific"]: [None]})
+@dataclass
+class Source:
+    """An organism a file says an entity's residues are from: its NCBI Taxonomy ID and
+    name, as the file gives them (either may be missing), and the residues it's for."""
+
+    taxon: str
+    name: str
+    spans: list[Span] = field(default_factory=list)
+
+    @property
+    def shown(self) -> str:
+        return self.name or f"NCBI taxon {self.taxon}"
+
+    def same(self, taxon: str, name: str) -> bool:
+        """Whether a row naming `taxon` and `name` is this organism: the same ID, or, where
+        either has none, the same name."""
+        if taxon and self.taxon:
+            return taxon == self.taxon
+        return bool(name) and name == self.name
+
+
+def _grouped(found: list[tuple[str, str, Span]]) -> list[Source]:
+    """Rows of (taxon, name, span) as the organisms they name, each once."""
+    out: list[Source] = []
+    for taxon, name, span in found:
+        if not taxon and not name:
+            continue
+        source = next((s for s in out if s.same(taxon, name)), None)
+        if source is None:
+            source = Source(taxon, name)
+            out.append(source)
+        source.taxon, source.name = source.taxon or taxon, source.name or name
+        source.spans.append(span)
     return out
 
 
-def _accessions(
-    block: gemmi.cif.Block, targets: list[dict[str, str]]
-) -> dict[str, dict[str, list[Span]]]:
+@dataclass
+class Target:
+    """What a ModelCIF file's references (`_ma_target_ref_db_details`) say of one target:
+    each of its parts from one reference, never mixed from several."""
+
+    accession: str = ""
+    gene: str = ""
+    source: Source | None = None
+
+
+def _reference(row: dict[str, str]) -> str:
+    named = {"UNP": "UniProt"}.get(row["db_name"], row["db_name"] or "a database")
+    taxon = f", taxon {row['ncbi_taxonomy_id']}" if row["ncbi_taxonomy_id"] else ""
+    return f"{named} {row['db_accession'] or '?'}{taxon}"
+
+
+def targets(block: gemmi.cif.Block, label: str) -> tuple[dict[str, Target], list[str]]:
+    """Each ModelCIF target's UniProt entry, gene and organism, and notes. A reference
+    marked primary (`is_primary` yes, ModelCIF's main input) gives all of them. Without
+    one, the UniProt entry and its gene are the UniProt reference's, if there's one, and
+    the organism is the one every reference that names one agrees on: references that
+    disagree, such as a UniProt and an OrthoDB entry of different strains, leave it out,
+    saying so."""
+    found: dict[str, list[dict[str, str]]] = {}
+    for row in rows(
+        block,
+        "_ma_target_ref_db_details.",
+        [
+            "target_entity_id",
+            "?db_name",
+            "?db_accession",
+            "?ncbi_taxonomy_id",
+            "?organism_scientific",
+            "?gene_name",
+            "?is_primary",
+        ],
+    ):
+        found.setdefault(row["target_entity_id"], []).append(row)
+    out: dict[str, Target] = {}
+    notes: list[str] = []
+    for entity, given in found.items():
+        primary = [r for r in given if r["is_primary"].lower() == "yes"]
+        if len(primary) == 1 or len(given) == 1:
+            (row,) = primary or given
+            accession = row["db_accession"] if row["db_name"] == "UNP" else ""
+            source = None
+            if row["ncbi_taxonomy_id"] or row["organism_scientific"]:
+                source = Source(row["ncbi_taxonomy_id"], row["organism_scientific"], [None])
+            out[entity] = Target(accession, row["gene_name"], source)
+            continue
+        target = Target()
+        uniprot = [r for r in given if r["db_name"] == "UNP" and UNIPROT.match(r["db_accession"])]
+        entries = list(dict.fromkeys(r["db_accession"] for r in uniprot))
+        disagree: list[str] = []
+        if len(entries) == 1:
+            target.accession, target.gene = entries[0], uniprot[0]["gene_name"]
+        elif entries:
+            disagree.append("UniProt entry")
+        named = [r for r in given if r["ncbi_taxonomy_id"]]
+        if len({r["ncbi_taxonomy_id"] for r in named}) == 1:
+            row = named[0]
+            target.source = Source(row["ncbi_taxonomy_id"], row["organism_scientific"], [None])
+        elif named:
+            disagree.append("organism")
+        out[entity] = target
+        if disagree:
+            notes.append(
+                f"{label}: entity {entity}'s references disagree "
+                f"({'; '.join(_reference(r) for r in given)}) and none is marked primary, so "
+                f"its protein has no {' or '.join(disagree)} from them."
+            )
+    return out, notes
+
+
+def _organisms(block: gemmi.cif.Block) -> dict[str, list[Source]]:
+    """Each entity's source organisms, with the residues each is for: from where the gene
+    was cloned (`_entity_src_gen`), or else the natural source or the synthetic one. A
+    chimera has a row for each of its segments."""
+    out: dict[str, list[Source]] = {}
+    for category, name_tag, taxon_tag in (
+        ("_entity_src_gen.", "pdbx_gene_src_scientific_name", "pdbx_gene_src_ncbi_taxonomy_id"),
+        ("_entity_src_nat.", "pdbx_organism_scientific", "pdbx_ncbi_taxonomy_id"),
+        ("_pdbx_entity_src_syn.", "organism_scientific", "ncbi_taxonomy_id"),
+    ):
+        found: dict[str, list[tuple[str, str, Span]]] = {}
+        for row in rows(
+            block,
+            category,
+            [
+                "entity_id",
+                f"?{name_tag}",
+                f"?{taxon_tag}",
+                "?pdbx_beg_seq_num",
+                "?pdbx_end_seq_num",
+            ],
+        ):
+            span = _span(row["pdbx_beg_seq_num"], row["pdbx_end_seq_num"])
+            found.setdefault(row["entity_id"], []).append((row[taxon_tag], row[name_tag], span))
+        for entity, given in found.items():
+            grouped = _grouped(given)
+            if grouped:
+                out.setdefault(entity, grouped)
+    return out
+
+
+def _accessions(block: gemmi.cif.Block) -> dict[str, dict[str, list[Span]]]:
     """Each entity's UniProt entries, with the residues each is aligned to: the PDB's
-    references (`_struct_ref`, aligned by `_struct_ref_seq`), or a ModelCIF file's target.
-    wwPDB gives a chimera a reference for each segment (2RH1: P07550, P00720, P07550)."""
+    references (`_struct_ref`, aligned by `_struct_ref_seq`). wwPDB gives a chimera a
+    reference for each segment (2RH1: P07550, P00720, P07550)."""
     aligned: dict[str, list[Span]] = {}
     for row in rows(block, "_struct_ref_seq.", ["ref_id", "?seq_align_beg", "?seq_align_end"]):
         span = _span(row["seq_align_beg"], row["seq_align_end"])
@@ -452,11 +578,78 @@ def _accessions(
         if row["db_name"] == "UNP" and UNIPROT.match(accession):
             spans = out.setdefault(row["entity_id"], {}).setdefault(accession, [])
             spans.extend(s for s in aligned.get(row["id"], [None]) if s not in spans)
-    for target in targets:
-        accession = target["db_accession"]
-        if target["db_name"] == "UNP" and UNIPROT.match(accession):
-            out.setdefault(target["target_entity_id"], {accession: [None]})
     return out
+
+
+#: Where an experiment's resolution is: its refinement's, or its reconstruction's (cryo-EM),
+#: or else its data's.
+RESOLUTION_TAGS = (
+    "_refine.ls_d_res_high",
+    "_em_3d_reconstruction.resolution",
+    "_reflns.d_resolution_high",
+)
+
+
+def _first_value(block: gemmi.cif.Block, tag: str) -> str:
+    """A tag's value, its first row's in a loop; empty for CIF's unknown (?) and . ."""
+    category, _, item = tag.rpartition(".")
+    found = rows(block, f"{category}.", [item])
+    return next((r[item] for r in found if r[item]), "")
+
+
+def _described_method(method: str) -> str:
+    """NEUTRON DIFFRACTION as neutron diffraction, X-RAY DIFFRACTION as X-ray diffraction."""
+    return method.lower().replace("x-ray", "X-ray")
+
+
+def resolutions(
+    block: gemmi.cif.Block, methods: list[str], shown: str, notes: list[str]
+) -> tuple[float | None, list[dict[str, Any]]]:
+    """The structure's resolution, and, if it was determined by several methods (a joint
+    X-ray and neutron structure, say), each one's, from its own refinement
+    (`_refine.pdbx_refine_id`): its resolution is then its first method's, as the file lists
+    them. A value that isn't a number, or that no method can be told to be from, is left
+    out, saying so."""
+    if len(methods) <= 1:
+        given = next((v for v in (_first_value(block, t) for t in RESOLUTION_TAGS) if v), "")
+        resolution = _number(given)
+        if given and resolution is None:
+            notes.append(f"{shown}: its resolution, {given}, isn't a number, so it was left out.")
+        return resolution, []
+    refined: dict[str, str] = {}
+    for row in rows(block, "_refine.", ["ls_d_res_high", "?pdbx_refine_id"]):
+        if row["ls_d_res_high"]:
+            refined.setdefault(row["pdbx_refine_id"].upper(), row["ls_d_res_high"])
+    reconstructed = _first_value(block, "_em_3d_reconstruction.resolution")
+    each: list[dict[str, Any]] = []
+    said: list[str] = []
+    for method in methods:
+        given = refined.get(method, "")
+        if not given and method == "ELECTRON MICROSCOPY":
+            given = reconstructed
+        value = _number(given)
+        if given and value is None:
+            notes.append(
+                f"{shown}: its {_described_method(method)} resolution, {given}, isn't a "
+                "number, so it was left out."
+            )
+        each.append({"method": METHODS.get(method, "other"), "resolution": value})
+        said.append(
+            f"{_described_method(method)}"
+            + (f" ({value:g} Å)" if value is not None else " (no resolution given)")
+        )
+    unplaced = sorted(set(refined) - set(methods))
+    if unplaced:
+        listed = ", ".join(refined[m] for m in unplaced)
+        notes.append(
+            f"{shown}: its refinement at {listed} Å doesn't say which of its methods it's "
+            "for, so it was left out."
+        )
+    notes.append(
+        f"{shown} was determined by {' and '.join(said)}: its method and resolution are the "
+        "first's, as the file lists them, and its resolutions give each."
+    )
+    return each[0]["resolution"], each
 
 
 def read(path: Path, label: str, prefix: str) -> Read:
@@ -465,23 +658,16 @@ def read(path: Path, label: str, prefix: str) -> Read:
     block = block_of(path)
     notes: list[str] = []
     entry = pdb_id(_text(block, "_entry.id"))
-    method_names = [r["method"].upper() for r in rows(block, "_exptl.", ["method"])]
+    method_names = list(
+        dict.fromkeys(
+            r["method"].upper() for r in rows(block, "_exptl.", ["method"]) if r["method"]
+        )
+    )
     method = next((METHODS.get(m, "other") for m in method_names), "")
     if not method and rows(block, "_ma_model_list.", ["model_id"]):
         method = "predicted"  # a ModelCIF file's model, without _exptl
-    given = next(
-        (
-            _text(block, tag)
-            for tag in (
-                "_refine.ls_d_res_high",
-                "_em_3d_reconstruction.resolution",
-                "_reflns.d_resolution_high",
-            )
-            if _text(block, tag)
-        ),
-        "",
-    )
-    resolution = _number(given)
+    shown = entry or label
+    resolution, by_method = resolutions(block, method_names, shown, notes)
     revisions = rows(
         block,
         "_pdbx_audit_revision_history.",
@@ -493,34 +679,21 @@ def read(path: Path, label: str, prefix: str) -> Read:
         for r in rows(block, "_entity.", ["id", "?pdbx_description"])
         if r["pdbx_description"]
     }
-    # A ModelCIF file's targets: the sequence database records it modelled.
-    targets = rows(
-        block,
-        "_ma_target_ref_db_details.",
-        ["target_entity_id", "?db_name", "?db_accession", "?organism_scientific", "?gene_name"],
-    )
-    organisms = _organisms(block, targets)
-    # Each entity's NCBI Taxonomy ID, which names its organism (ADR 0140).
-    taxa = {
-        **{
-            r["target_entity_id"]: r["ncbi_taxonomy_id"]
-            for r in rows(
-                block, "_ma_target_ref_db_details.", ["target_entity_id", "?ncbi_taxonomy_id"]
-            )
-            if r["ncbi_taxonomy_id"]
-        },
-        **_by_entity(block, "_pdbx_entity_src_syn.", "?ncbi_taxonomy_id"),
-        **_by_entity(block, "_entity_src_nat.", "?pdbx_ncbi_taxonomy_id"),
-        **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_ncbi_taxonomy_id"),
-    }
+    # A ModelCIF file's targets: the sequence database records it modelled. The PDB's own
+    # categories, where a file has them, come first.
+    modelled, said = targets(block, shown)
+    notes.extend(said)
+    organisms = _organisms(block)
+    accessions = _accessions(block)
+    for entity, target in modelled.items():
+        if target.source is not None:
+            organisms.setdefault(entity, [target.source])
+        if target.accession and UNIPROT.match(target.accession):
+            accessions.setdefault(entity, {target.accession: [None]})
     genes = {
-        **{t["target_entity_id"]: t["gene_name"] for t in targets},
+        **{entity: target.gene for entity, target in modelled.items()},
         **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene"),
     }
-    accessions = _accessions(block, targets)
-    shown = entry or label
-    if given and resolution is None:
-        notes.append(f"{shown}: its resolution, {given}, isn't a number, so it was left out.")
     proteins: list[Chains] = []
     listed_elsewhere = strands(block)
     for row in rows(block, "_entity_poly.", ["entity_id", "type", "?pdbx_strand_id"]):
@@ -547,21 +720,22 @@ def read(path: Path, label: str, prefix: str) -> Read:
         description = f"{many} {listed} of {shown}."
         gene = genes.get(entity, "").split(",")[0].strip()
         accession = accessions.get(entity, {})
-        organism = organisms.get(entity, {})
-        if len(accession) > 1 or len(organism) > 1:
+        sources = organisms.get(entity, [])
+        organism = {s.shown: s.spans for s in sources}
+        if len(accession) > 1 or len(sources) > 1:
             # A chimera: no one entry, organism or gene is the whole of it.
-            said = [
+            parts = [
                 _sourced(found, what)
                 for found, what in ((accession, "UniProt"), (organism, "from"))
                 if found
             ]
-            description = f"{many} {listed} of {shown}, a chimera of {'; '.join(said)}."
+            description = f"{many} {listed} of {shown}, a chimera of {'; '.join(parts)}."
             notes.append(
                 f"{shown}: chain {listed} is a chimera of "
                 f"{' and '.join(accession or organism)}, so its protein has no one UniProt "
                 "accession, organism or gene: its description says which residues are which."
             )
-            accession, organism, gene = {}, {}, ""
+            accession, sources, gene = {}, [], ""
         values = {
             "name": names.get(entity, "") or f"{shown} chain {chains[0] if chains else entity}",
             "description": description,
@@ -569,14 +743,23 @@ def read(path: Path, label: str, prefix: str) -> Read:
             "gene": gene,
             "uniprot_accession": next(iter(accession), ""),
         }
-        # Its organism is a record, by its NCBI Taxonomy ID (ADR 0140); a chimera's has none.
-        named = next(iter(organism), "")
-        source = _organism(taxa.get(entity, ""), named) if named else None
-        if named and source is None:
-            notes.append(
-                f"{shown} chain {listed}: its organism, {named[:200]}, has no NCBI "
-                "Taxonomy ID, so it's left out."
-            )
+        # Its organism is a record, by its NCBI Taxonomy ID (ADR 0140), with the name the
+        # file gives it, if any; a chimera's has none.
+        source = None
+        if sources:
+            (only,) = sources
+            source = _organism(only.taxon, only.name)
+            if source is None:
+                notes.append(
+                    f"{shown} chain {listed}: its organism, {only.shown[:200]}, has no NCBI "
+                    "Taxonomy ID, so it's left out."
+                )
+            elif source[1] and not SCIENTIFIC_NAME.fullmatch(source[1]):
+                notes.append(
+                    f"{shown} chain {listed}: its organism's name, {source[1][:200]}, isn't "
+                    "one an organism's scientific name can be, so its organism has only its "
+                    f"NCBI Taxonomy ID, {source[0]}."
+                )
         proteins.append(
             Chains(
                 f"{prefix}{entity}",
@@ -599,6 +782,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
         "pdb_id": entry,
         "method": method,
         "resolution": resolution,
+        "resolutions": by_method,
         "chains": [{"$create": p.key} for _, p in pairs],
         "chain_ids": [chain for chain, _ in pairs],
         "released": released if entry else "",
@@ -650,7 +834,7 @@ def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str
 def organism_create(taxon: int, name: str) -> dict[str, Any]:
     """The organism's create (ADR 0140): its entry is found by its ID, or made with it."""
     values: dict[str, Any] = {"taxon_id": taxon}
-    if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", name):
+    if SCIENTIFIC_NAME.fullmatch(name):
         values["scientific_name"] = name
     # A name only fills an entry that has none: an old file may give a taxon's old name.
     fills = ["scientific_name"] if "scientific_name" in values else []

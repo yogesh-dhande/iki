@@ -98,6 +98,11 @@ def summarize(annotated: Path, chain_ids: list[str]) -> tuple[dict[str, Any], li
         key = (row["label_asym_id"], row["label_seq_id"])
         assigned.setdefault(key, (code if code in CODES else "-", row["accessibility"]))
     notes: list[str] = []
+    if not chain_ids:
+        notes.append(
+            "It has no chain IDs, so no chain's secondary structure can be kept: its "
+            "secondary structure is by chain, in their order. Give its chains their IDs."
+        )
     strings: list[str] = []
     counted = helix = strand = unmeasured = 0
     area = 0.0

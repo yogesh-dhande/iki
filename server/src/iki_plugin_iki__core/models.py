@@ -282,7 +282,7 @@ class Collection_members(models.Model):
 
 
 class Organism(Entity):
-    """Organism (iki/core.Organism), schema version 1. A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a sequence, a strain or a sample is from."""
+    """Organism (iki/core.Organism), schema version 2. A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a sequence, a strain or a sample is from."""
 
     IKI_TYPE = 'iki/core.Organism'
 
@@ -348,7 +348,7 @@ class Organism_Entry(Entity):
                 name='iki__core_organism__entry__scientific_name__one_line',
             ),
             models.CheckConstraint(
-                condition=Q(scientific_name__regex='^(?:^[A-Za-z0-9][^\\t\\r\\n]*$)$'),
+                condition=Q(scientific_name__regex="^(?:^[A-Za-z0-9\\['][^\\t\\r\\n]*$)$"),
                 name='iki__core_organism__entry__scientific_name__pattern',
             ),
             models.CheckConstraint(

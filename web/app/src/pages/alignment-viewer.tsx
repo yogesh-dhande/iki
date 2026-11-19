@@ -34,7 +34,7 @@ import {
   type Shown,
 } from "../alignment";
 import { formatSize, type EntityType } from "../entities";
-import { compared } from "../alignment-compare";
+import { compared, possibleOf } from "../alignment-compare";
 import { declaredAlphabet, MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
 import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
@@ -472,9 +472,17 @@ function AlignmentGrid({
   const atRow = rows[cursor.row];
   const residue = atRow?.row.aligned.charAt(cursor.column) ?? "";
   const residueAt = atRow ? residueNumber(atRow.row.aligned, cursor.column, atRow.row.start) : null;
+  /** What the residue at the cursor could be, where its row's header says (`possible=`). */
+  const could = atRow ? possibleOf(atRow.row.description).get(cursor.column) : undefined;
+  const couldBe = could
+    ? ` (${could
+        .split("")
+        .map((r) => (r === "*" ? "a stop" : r))
+        .join(" or ")})`
+    : "";
   /** A row's residues: their count, or which part of its sequence they are. */
   const extent = (r: Shown) =>
-    r.row.start === 1
+    !r.row.spanned
       ? `of ${number.format(r.row.residues)}`
       : `of ${number.format(r.row.start)}–${number.format(r.row.start + r.row.residues - 1)}`;
   const labelOf = (r: Shown) => r.entity?.hrid ?? r.row.id;
@@ -485,7 +493,7 @@ function AlignmentGrid({
         <p className="muted">
           {number.format(alignment.rows.length)} rows, {number.format(length)} columns · the others
           cover {number.format(comparison.covered)} of {labelOf(reference)}’s{" "}
-          {reference.row.start === 1
+          {!reference.row.spanned
             ? `${number.format(comparison.residues)} residues`
             : `residues ${number.format(reference.row.start)}–${number.format(reference.row.start + reference.row.residues - 1)}`}{" "}
           ({percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
@@ -633,7 +641,7 @@ function AlignmentGrid({
             <strong>{labelOf(atRow)}</strong>, column {number.format(cursor.column + 1)}:{" "}
             {residueAt === null
               ? "a gap"
-              : `${residue}, residue ${number.format(residueAt)} ${extent(atRow)}`}
+              : `${residue}${couldBe}, residue ${number.format(residueAt)} ${extent(atRow)}`}
             . Consensus {alignment.consensus.charAt(cursor.column)}, where{" "}
             {String(alignment.agreement[cursor.column] ?? 0)}% of rows agree.
           </>

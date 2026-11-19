@@ -17,7 +17,11 @@ frame shifted, and the run names where.
 
 The alignment's first row is the protein, headed by its HRID; each read's row follows,
 headed by its name, its strand and frame, as its translation lies on the protein.
-Residues a read codes for that the protein doesn't have get columns of their own.
+Residues a read codes for that the protein doesn't have get columns of their own. A codon
+that could be some residues but not others, such as AAN (K or N), is X in its row, and its
+header ends `possible=21:KN`: at each such column (from 1), what it could be, so the
+viewer, as the run does, tells a K or N where the protein has A from an N that says
+nothing.
 
 The run reports where the reads cover the protein, and each difference from it in the
 protein's numbering, as HGVS names them in one-letter codes: substitutions (T315I),
@@ -82,6 +86,8 @@ IUPAC = {
 RECODED = {"U": "TGA", "O": "TAG"}
 #: The letter for a set of residues a codon could be.
 LETTER = {frozenset("DN"): "B", frozenset("EQ"): "Z", frozenset("IL"): "J"}
+#: The 20 standard amino acids: a codon that could be any of them says nothing (NNN).
+TWENTY = frozenset("ACDEFGHIKLMNPQRSTVWY")
 STANDARD = CodonTable.standard_dna_table
 
 
@@ -596,6 +602,14 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             + each.at.get(k, ".")
             for k in range(size)
         )
+        # Where the row's X stands for fewer residues than any: AAN is K or N, which differs
+        # from an A, as the viewer should see, where NNN says nothing.
+        column, possible = 0, []
+        for k in range(size):
+            column += most[k] + 1
+            residues = each.could_be.get(k)
+            if each.at.get(k) == "X" and residues is not None and not residues >= TWENTY:
+                possible.append(f"{column}:{''.join(sorted(residues))}")
         read = each.read
         frames = ", ".join(
             f"frame {part.frame + 1}, bases {part.start + 1}–{part.end}" for part in each.parts
@@ -604,7 +618,9 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         strand = "reverse complement" if each.reverse else "forward"
         on = f"on {hrid} {spans(ranges(list(each.at)))}"
         header = f"{read.name} {strand} {frames} of {len(read.bases)}{trimmed}"
-        rows.append((f"{header}, from {read.source}; {on}", row))
+        # Last, so a reader finds it at the header's end.
+        said = f" possible={','.join(possible)}" if possible else ""
+        rows.append((f"{header}, from {read.source}; {on}{said}", row))
     write_alignments(out_dir, rows)
 
     covered = sorted({spot for each in placed for spot in covered_by(each, protein)})

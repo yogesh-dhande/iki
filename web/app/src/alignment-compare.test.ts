@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { call, compared, MAX_COMPARED } from "./alignment-compare";
+import { call, compared, MAX_COMPARED, possibleOf } from "./alignment-compare";
 
 const row = (aligned: string) => ({ aligned });
 
@@ -61,6 +61,36 @@ describe("compared", () => {
     const b = compared([row("AAA"), row("ANA")], row("AAA"), "nucleotide");
     expect([a?.differing, b?.differing]).toEqual([0, 0]);
     expect(compared([row("B"), row("D")], row("B"), "protein")?.differing).toBe(0);
+  });
+
+  it("compares an X as what its header says it could be", () => {
+    // Haemoglobin alpha's first 41 residues (UniProt P69905), and a read whose codon at Ala20
+    // is AAN: AAA, AAC, AAG or AAT, Lys or Asn by NCBI's standard code, neither of them Ala,
+    // so it differs there, as align_reads reports (A20X). Its NNN at Lys17 could be anything,
+    // so it says nothing there. A row without the header's list keeps X as anything.
+    const hba = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTK";
+    const reference = row(hba);
+    const read = `${hba.slice(0, 16)}X${hba.slice(17, 19)}X${hba.slice(20)}`;
+    const header = "read_1 forward frame 1, bases 1–123 of 123, from read_1.ab1 possible=20:KN";
+    expect(possibleOf(header)).toEqual(new Map([[19, "KN"]]));
+    expect(
+      compared([reference, { aligned: read, description: header }], reference, "protein"),
+    ).toEqual({ residues: 41, covered: 40, differing: 1 });
+    expect(compared([reference, row(read)], reference, "protein")).toEqual({
+      residues: 41,
+      covered: 39,
+      differing: 0,
+    });
+    // A stop is one of what a codon can be: TGN is Cys, Trp or a stop.
+    expect(possibleOf("r possible=3:*CW,12:FL")).toEqual(
+      new Map([
+        [2, "*CW"],
+        [11, "FL"],
+      ]),
+    );
+    // Only a list that ends the header is one.
+    expect(possibleOf("r possible=3:KN from x.ab1").size).toBe(0);
+    expect(possibleOf("r from impossible=3:KN").size).toBe(0);
   });
 
   it("says nothing of an alignment too large to compare on the page", () => {

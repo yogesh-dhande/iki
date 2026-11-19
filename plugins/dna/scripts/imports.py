@@ -66,6 +66,12 @@ LIMITS = {"name": 255, "description": 10_000, "accession": 64}
 MODEL = "MODEL REFSEQ: This record is predicted by automated computational analysis"
 
 
+#: A name an organism's scientific_name takes (iki/core.Organism): one line, from a letter or
+#: a digit, or NCBI's [ for a genus it hasn't placed ([Clostridium] scindens) or ' for an
+#: informal name ('Nostoc azollae' 0708).
+SCIENTIFIC_NAME = re.compile(r"[A-Za-z0-9\['][^\t\r\n]{0,254}")
+
+
 class UnreadableError(Exception):
     """A record that can't be imported, and why."""
 
@@ -96,7 +102,7 @@ class Organism:
 
     def create(self) -> dict[str, Any]:
         values: dict[str, Any] = {"taxon_id": self.taxon_id}
-        if re.fullmatch(r"[A-Za-z0-9][^\t\r\n]{0,254}", self.name):
+        if SCIENTIFIC_NAME.fullmatch(self.name):
             values["scientific_name"] = self.name
         # A name only fills an entry that has none: an old file may give a taxon's old name.
         fills = ["scientific_name"] if "scientific_name" in values else []
@@ -268,6 +274,12 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
     record.made = made(sections.get("COMMENT", []))
     if source is not None:
         record.organism = source.organism
+        if record.organism and source.name and not SCIENTIFIC_NAME.fullmatch(source.name):
+            record.warnings.append(
+                f"{label}: its organism's name, {source.name[:200]}, isn't one an organism's "
+                f"scientific name can be, so its organism has only its NCBI Taxonomy ID, "
+                f"{source.taxon}."
+            )
     return record
 
 

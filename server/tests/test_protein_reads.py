@@ -324,6 +324,30 @@ def test_an_ambiguous_codon_that_cant_be_the_residue_is_a_difference(
     assert texts(output)[1] == f"Differences from PRT-000001: A42{named} (r)."
 
 
+def test_a_reads_row_says_what_its_x_could_be(tmp_path: Path) -> None:
+    """IUBMB and NCBI's standard code: AAN is AAA, AAC, AAG or AAT, so Lys or Asn, which
+    no one letter names; TGN is Cys, Trp or a stop. The read's row keeps each as X, and its
+    header lists what each could be, by column, so the row says what the read found."""
+    # An Ala at 42, which AAN can't be, and a Cys at 60, which TGN can.
+    protein = PROTEIN[:41] + "A" + PROTEIN[42:59] + "C" + PROTEIN[60:]
+    code = coding(PROTEIN[:41]) + "AAN" + coding(PROTEIN[42:59]) + "TGN" + coding(PROTEIN[60:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
+
+    assert output is not None
+    header, row = rows(tmp_path)[1]
+    assert (row[41], row[59]) == ("X", "X")
+    assert header.endswith(" possible=42:KN,60:*CW")
+    assert texts(output)[1] == "Differences from PRT-000001: A42X (r)."
+    # B, Z and J name theirs, and NNN could be anything: none needs listing.
+    _, output = run(
+        tmp_path,
+        {"r.fasta": f">r\n{coding(PROTEIN[:41])}RAYNNN{coding(PROTEIN[43:200])}\n".encode()},
+        sequence=protein,
+    )
+    assert "possible=" not in rows(tmp_path)[1][0]
+
+
 def test_codons_too_ambiguous_to_tell_cover_nothing(tmp_path: Path) -> None:
     # Residues 1-100, with residues 41-50 read as NNN: they say nothing of 41-50.
     code = coding(PROTEIN[:40]) + "NNN" * 10 + coding(PROTEIN[50:100])

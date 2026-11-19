@@ -10,7 +10,10 @@
  * outside its span, or an ambiguous residue that could be the reference's (an N, say):
  * none of those covers the reference or differs from it. Residues compare as the sets
  * their IUPAC codes stand for, the same either way round: a row differs only where none of
- * what it could be is anything the reference could be.
+ * what it could be is anything the reference could be. Where a row's header says what an
+ * X of it could be (`possible=21:KN`, as the protein plugin's `align_reads` writes for a
+ * codon such as AAN, which is K or N), that set is what it's compared as, so a K-or-N where
+ * the reference has A differs, as the run said, where an X alone would say nothing.
  */
 
 import type { Alphabet } from "./reading";
@@ -62,15 +65,30 @@ export function standsFor(residue: string, alphabet: Alphabet): string {
   return (alphabet === "nucleotide" ? BASES[upper] : RESIDUES[upper]) ?? upper;
 }
 
+/** A header's `possible=` list: each column (from 0) where it says what the row's residue
+ * could be, and those residues. Anything else in the header is no such list. */
+export function possibleOf(description: string): Map<number, string> {
+  const found = new Map<number, string>();
+  const said = /(?:^|\s)possible=(\d+:[A-Z*]+(?:,\d+:[A-Z*]+)*)\s*$/.exec(description);
+  for (const each of said?.[1]?.split(",") ?? []) {
+    const [column, residues] = each.split(":");
+    const at = Number(column) - 1;
+    if (Number.isSafeInteger(at) && at >= 0 && residues) found.set(at, residues);
+  }
+  return found;
+}
+
 /** How a row's residue compares with the reference's: `same` if it's one residue the
  * reference could be, `differs` if it can be none of what the reference could be, and
- * `unresolved` if it's ambiguous and could be the reference's, which says nothing. */
+ * `unresolved` if it's ambiguous and could be the reference's, which says nothing. `could`
+ * is what the row's residue could be, where its header says. */
 export function call(
   mine: string,
   theirs: string,
   alphabet: Alphabet,
+  could?: string,
 ): "same" | "differs" | "unresolved" {
-  const a = standsFor(mine, alphabet);
+  const a = could ?? standsFor(mine, alphabet);
   const b = standsFor(theirs, alphabet);
   let shared = false;
   for (let i = 0; i < a.length && !shared; i++) shared = b.includes(a.charAt(i));
@@ -84,7 +102,7 @@ const NOTHING = ".";
 /** How the other rows compare with `reference`, or null when that's more than
  * `MAX_COMPARED` residues' work. */
 export function compared(
-  rows: readonly { aligned: string }[],
+  rows: readonly { aligned: string; description?: string }[],
   reference: { aligned: string },
   alphabet: Alphabet,
 ): Compared | null {
@@ -100,6 +118,7 @@ export function compared(
   for (const row of rows) {
     if (row === reference) continue;
     const aligned = row.aligned;
+    const possible = row.description ? possibleOf(row.description) : null;
     let first = 0;
     while (first < length && !residueAt(aligned, first)) first++;
     let last = length - 1;
@@ -121,7 +140,7 @@ export function compared(
         differs[at] = 1; // a residue the reference doesn't have
         continue;
       }
-      const found = call(mine, theirs, alphabet);
+      const found = call(mine, theirs, alphabet, possible?.get(at));
       if (found === "unresolved") continue;
       covered[at] = 1;
       if (found === "differs") differs[at] = 1;

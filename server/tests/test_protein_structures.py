@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -15,10 +16,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from iki_spec import schemas
 
-SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "protein" / "scripts" / "structures.py"
+PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "protein"
+SCRIPT = PLUGIN / "scripts" / "structures.py"
+STRUCTURE_TYPE = yaml.safe_load((PLUGIN / "types" / "protein_structure.yaml").read_text())
+ORGANISM_TYPE = yaml.safe_load(
+    (Path(__file__).resolve().parents[2] / "spec/src/iki_spec/core/types/organism.yaml").read_text()
+)
+DATA = Path(__file__).parent / "data"
 FILE_ID = "0190e9a4-0000-7000-8000-000000000002"
 
 #: A made-up entry: two chains of one protein, a DNA strand and a zinc ion.
@@ -404,17 +412,220 @@ def test_a_resolution_with_its_uncertainty_is_read_as_cif_writes_it(tmp_path: Pa
 
 @pytest.mark.parametrize(
     ("entry", "kept"),
-    [("pdb_00001abc", "1ABC"), ("PDB_10021ABC", "PDB_10021ABC"), ("not-an-id", None)],
+    [
+        ("pdb_00001abc", "1ABC"),
+        ("pdb_00001crn", "1CRN"),
+        ("PDB_10021ABC", "PDB_10021ABC"),
+        # wwPDB's own examples of IDs OneDep will issue: pdb_ and any eight letters or digits.
+        ("pdb_1001ba3c", "PDB_1001BA3C"),
+        ("pdb_1000axyz", "PDB_1000AXYZ"),
+        ("pdb_1abc5678", "PDB_1ABC5678"),
+        ("pdb_1001ba3", None),
+        ("pdb_1001ba3cd", None),
+        ("not-an-id", None),
+    ],
 )
 def test_a_file_with_an_extended_pdb_id_keeps_it(
     tmp_path: Path, entry: str, kept: str | None
 ) -> None:
-    """wwPDB's extended IDs: an entry's pdb_0000 form is its four-character ID."""
+    """wwPDB's extended IDs, pdb_[a-z0-9]{8} as the PDBx/mmCIF dictionary has it
+    (wwpdb.org/documentation/pdb-id-extension-faq): an entry's pdb_0000 form is its
+    four-character ID, and the structure type's pattern takes the rest."""
     _, output = run(tmp_path, MMCIF.replace("_entry.id 1ABC", f"_entry.id {entry}"), "x.cif")
     values = output["creates"][-1]["values"]
     assert values.get("pdb_id") == kept
     # Only a PDB entry has a release.
     assert values.get("released") == ("2020-01-15" if kept else None)
+    if kept:
+        assert re.fullmatch(STRUCTURE_TYPE["fields"]["pdb_id"]["pattern"], kept)
+
+
+# --- Where a structure's organisms and resolutions come from -------------------------------------
+
+#: Calmodulin-1, the same 149 residues in human and mouse (UniProt P0DP23 and P0DP26).
+CALMODULIN = (
+    "MADQLTEEQIAEFKEAFSLFDKDGDGTITTKELGTVMRSLGQNPTEAELQDMINEVDADGNGTIDFPEFLTMMARKMKDTDSEEEIR"
+    "EAFRVFDKDGNGYISAAELRHVMTNLGEKLTDEEVDEMIREADIDGDGQVNYEEFVQMMTAK"
+)
+
+
+def modelcif(references: list[str], sequence: str = CALMODULIN) -> str:
+    """A ModelCIF model of one target, with these rows of `_ma_target_ref_db_details`:
+    db_name, db_accession, ncbi_taxonomy_id, organism_scientific, gene_name, is_primary."""
+    return "\n".join(
+        [
+            "data_model",
+            "_entry.id model",
+            "loop_",
+            "_entity.id",
+            "_entity.type",
+            "_entity.pdbx_description",
+            "1 polymer Calmodulin-1",
+            "loop_",
+            "_entity_poly.entity_id",
+            "_entity_poly.type",
+            "_entity_poly.pdbx_strand_id",
+            "_entity_poly.pdbx_seq_one_letter_code_can",
+            f"1 'polypeptide(L)' A {sequence}",
+            "loop_",
+            "_ma_model_list.model_id",
+            "_ma_model_list.model_type",
+            "1 'Ab initio model'",
+            "loop_",
+            "_ma_target_ref_db_details.target_entity_id",
+            "_ma_target_ref_db_details.db_name",
+            "_ma_target_ref_db_details.db_accession",
+            "_ma_target_ref_db_details.ncbi_taxonomy_id",
+            "_ma_target_ref_db_details.organism_scientific",
+            "_ma_target_ref_db_details.gene_name",
+            "_ma_target_ref_db_details.is_primary",
+            *(f"1 {row}" for row in references),
+            "",
+        ]
+    )
+
+
+HUMAN = "UNP P0DP23 9606 'Homo sapiens' CALM1"
+MOUSE = "UNP P0DP26 10090 'Mus musculus' Calm1"
+
+
+@pytest.mark.parametrize(
+    "references", [[f"{HUMAN} no", f"{MOUSE} yes"], [f"{MOUSE} yes", f"{HUMAN} no"]]
+)
+def test_a_modelcif_target_takes_everything_from_its_primary_reference(
+    tmp_path: Path, references: list[str]
+) -> None:
+    """ModelCIF's is_primary marks the main input the model was made from
+    (mmcif.wwpdb.org, _ma_target_ref_db_details.is_primary): its accession, gene, NCBI
+    Taxonomy ID and name are the protein's, together, in either order."""
+    result, output = run(tmp_path, modelcif(references), "calm1.cif")
+    assert result.returncode == 0, result.stderr
+    organism, protein, _ = output["creates"]
+    assert organism["values"] == {"taxon_id": 10090, "scientific_name": "Mus musculus"}
+    assert {k: protein["values"][k] for k in ("uniprot_accession", "gene", "organism")} == {
+        "uniprot_accession": "P0DP26",
+        "gene": "Calm1",
+        "organism": {"$create": "taxon:10090"},
+    }
+
+
+def test_modelcif_references_that_disagree_give_no_organism_saying_so(tmp_path: Path) -> None:
+    """ModelArchive's ma-bak-cepc-0001 (Saccharomyces cerevisiae TAF4) names its target by
+    an OrthoDB entry of strain YJM1573 (NCBI 1294385) and by UniProt A6ZM67, of strain YJM789
+    (NCBI 307796), neither primary: its UniProt entry is A6ZM67, and its organism neither."""
+    yeast = [
+        "OrthoDB 1294385_1:000f0d 1294385 'Saccharomyces cerevisiae YJM1573' ? ?",
+        'UNP A6ZM67 307796 "Saccharomyces cerevisiae (strain YJM789) (Baker\'s yeast)" ? ?',
+    ]
+    result, output = run(tmp_path, modelcif(yeast, "MSSSQ"), "ma-bak-cepc-0001.cif")
+    assert result.returncode == 0, result.stderr
+    protein, _ = output["creates"]
+    assert protein["values"]["uniprot_accession"] == "A6ZM67"
+    assert "organism" not in protein["values"]
+    assert {
+        "level": "info",
+        "text": "ma-bak-cepc-0001: entity 1's references disagree (OrthoDB 1294385_1:000f0d, taxon "
+        "1294385; UniProt A6ZM67, taxon 307796) and none is marked primary, so its protein "
+        "has no organism from them.",
+    } in output["messages"]
+    # Human and mouse calmodulin, neither primary: no one entry, nor organism.
+    _, output = run(tmp_path, modelcif([f"{HUMAN} ?", f"{MOUSE} ?"]), "calm1.cif")
+    protein, _ = output["creates"]
+    assert not {"uniprot_accession", "organism", "gene"} & set(protein["values"])
+    assert any("has no UniProt entry or organism" in m["text"] for m in output["messages"])
+    # References that agree are that organism, whichever names it.
+    agreeing = [f"{MOUSE} ?", "OrthoDB 10090_0:001f3a 10090 'Mus musculus' ? ?"]
+    _, output = run(tmp_path, modelcif(agreeing), "calm1.cif")
+    organism, protein, _ = output["creates"]
+    assert organism["values"]["taxon_id"] == 10090
+    assert protein["values"]["uniprot_accession"] == "P0DP26"
+
+
+def test_an_organism_given_by_its_id_alone_is_that_organism(tmp_path: Path) -> None:
+    """Organism's identity is its NCBI Taxonomy ID (ADR 0140): a file that gives the ID and
+    not the name (CIF's ?) still names it, the name left for its entry to have."""
+    result, output = run(tmp_path, modelcif(["UNP P0DP26 10090 ? Calm1 ?"]), "calm1.cif")
+    assert result.returncode == 0, result.stderr
+    organism, protein, _ = output["creates"]
+    assert organism == {
+        "type": "iki/core.Organism",
+        "key": "taxon:10090",
+        "values": {"taxon_id": 10090},
+    }
+    assert protein["values"]["organism"] == {"$create": "taxon:10090"}
+    # As in a PDB entry's cloned source, with its gene.
+    text = MMCIF.replace("1 'Homo sapiens' 9606 'ABL1, ABL'", "1 ? 9606 'ABL1, ABL'")
+    organism, protein, _ = run(tmp_path, text, "kinase.cif")[1]["creates"]
+    assert organism["values"] == {"taxon_id": 9606}
+    assert protein["values"]["gene"] == "ABL1"
+
+
+def test_a_natural_source_names_its_organism(tmp_path: Path) -> None:
+    """2GVE's xylose isomerase is from its natural source, Streptomyces rubiginosus (NCBI
+    1929), as `_entity_src_nat.pdbx_organism_scientific` names it (PDBx/mmCIF)."""
+    text = (DATA / "2GVE-categories.cif").read_text(encoding="utf-8")
+    result, output = run(tmp_path, text, "2GVE.cif")
+    assert result.returncode == 0, result.stderr
+    organism, protein, structure = output["creates"]
+    assert organism["values"] == {"taxon_id": 1929, "scientific_name": "Streptomyces rubiginosus"}
+    assert protein["values"]["uniprot_accession"] == "P24300"
+    values = structure["values"]
+    assert (values["method"], values["resolution"]) == ("neutron", 2.2)
+    assert "resolutions" not in values
+
+
+@pytest.mark.parametrize(
+    ("taxon", "name"),
+    [
+        # NCBI brackets a genus it hasn't placed (NLM KA-03379): its names now.
+        (29347, "[Clostridium] scindens"),
+        (1263066, "[Clostridium] clostridioforme CAG:511"),
+        # A name as files gave it, bracketed, before NCBI moved it to Nakaseomyces glabratus.
+        (5478, "[Candida] glabrata"),
+        # And quotes an informal one.
+        (551115, "'Nostoc azollae' 0708"),
+    ],
+)
+def test_an_organism_keeps_ncbis_brackets_and_quotes(tmp_path: Path, taxon: int, name: str) -> None:
+    # CIF quotes a value with a ' in it in double quotes.
+    quoted = f'"{name}"' if "'" in name else f"'{name}'"
+    text = MMCIF.replace("1 'Homo sapiens' 9606", f"1 {quoted} {taxon}")
+    result, output = run(tmp_path, text, "kinase.cif")
+    assert result.returncode == 0, result.stderr
+    organism = output["creates"][0]
+    assert organism["values"] == {"taxon_id": taxon, "scientific_name": name}
+    assert organism["fills"] == ["scientific_name"]
+    # As the Organism type takes it.
+    assert re.fullmatch(ORGANISM_TYPE["fields"]["scientific_name"]["pattern"], name)
+
+
+def test_a_structure_by_several_methods_keeps_each_ones_resolution(tmp_path: Path) -> None:
+    """3KCO, D-xylose isomerase refined jointly against neutron data (1.8 Å) and X-ray data
+    (1.53 Å), each with its own `_refine` row by `pdbx_refine_id` (RCSB PDB 3KCO)."""
+    text = (DATA / "3KCO-categories.cif").read_text(encoding="utf-8")
+    result, output = run(tmp_path, text, "3KCO.cif")
+    assert result.returncode == 0, result.stderr
+    values = output["creates"][-1]["values"]
+    assert (values["method"], values["resolution"]) == ("neutron", 1.8)
+    assert values["resolutions"] == [
+        {"method": "neutron", "resolution": 1.8},
+        {"method": "xray", "resolution": 1.53},
+    ]
+    assert {
+        "level": "info",
+        "text": "3KCO was determined by neutron diffraction (1.8 Å) and X-ray diffraction "
+        "(1.53 Å): its method and resolution are the first's, as the file lists them, and its "
+        "resolutions give each.",
+    } in output["messages"]
+    # Listed the other way round, X-ray's are its own.
+    swapped = text.replace(
+        "3KCO 'NEUTRON DIFFRACTION' 1\n3KCO 'X-RAY DIFFRACTION' ?",
+        "3KCO 'X-RAY DIFFRACTION' ?\n3KCO 'NEUTRON DIFFRACTION' 1",
+    )
+    assert swapped != text
+    values = run(tmp_path, swapped, "3KCO.cif")[1]["creates"][-1]["values"]
+    assert (values["method"], values["resolution"]) == ("xray", 1.53)
+    assert [r["method"] for r in values["resolutions"]] == ["xray", "neutron"]
 
 
 def test_a_modelcif_file_without_chain_ids_takes_its_residues(tmp_path: Path) -> None:
@@ -542,15 +753,18 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
 def test_fetches_an_entry_by_its_extended_pdb_id(tmp_path: Path, rcsb: Any) -> None:
     """pdb_00001abc is 1ABC (wwPDB's extended IDs), so it's fetched, and kept, once."""
     rcsb.fake.entries["PDB_10021ABC"] = MMCIF.replace("_entry.id 1ABC", "_entry.id pdb_10021abc")
-    output = fetched(tmp_path, rcsb, "pdb_00001abc 1ABC pdb_10021abc")
+    rcsb.fake.entries["PDB_1001BA3C"] = MMCIF.replace("_entry.id 1ABC", "_entry.id pdb_1001ba3c")
+    output = fetched(tmp_path, rcsb, "pdb_00001abc 1ABC pdb_10021abc pdb_1001ba3c")
     assert rcsb.fake.asked == [
         "https://files.rcsb.org/download/1ABC.cif.gz",
         "https://files.rcsb.org/download/PDB_10021ABC.cif.gz",
+        "https://files.rcsb.org/download/PDB_1001BA3C.cif.gz",
     ]
     structures = [c for c in output["creates"] if c["type"].endswith("Structure")]
     assert [(s["values"]["pdb_id"], s["origin"]["id"]) for s in structures] == [
         ("1ABC", "1ABC"),
         ("PDB_10021ABC", "PDB_10021ABC"),
+        ("PDB_1001BA3C", "PDB_1001BA3C"),
     ]
 
 

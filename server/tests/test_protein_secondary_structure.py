@@ -184,6 +184,21 @@ def test_chains_come_in_the_order_of_chain_ids_and_a_missing_one_is_said(
     assert "Chain Z isn't in DSSP's output: it has no secondary structure." in texts
 
 
+def test_a_structure_without_chain_ids_says_why_it_has_no_secondary_structure(
+    tmp_path: Path,
+) -> None:
+    _, output = run(tmp_path, {"1xyz.cif": STRUCTURE}, {"1xyz.cif": []})
+
+    (update,) = output["updates"]["structure"]
+    assert update["values"]["secondary_structure"] == []
+    assert {
+        "level": "info",
+        "text": "It has no chain IDs, so no chain's secondary structure can be kept: its "
+        "secondary structure is by chain, in their order. Give its chains their IDs.",
+        "entity": "e1",
+    } in output["messages"]
+
+
 def test_a_residue_without_accessibility_leaves_the_surface_unsummed(tmp_path: Path) -> None:
     """A residue mkdssp gives no accessibility (?) has no measured area: summing the others
     would report too small a surface as the structure's. The shares don't need it."""

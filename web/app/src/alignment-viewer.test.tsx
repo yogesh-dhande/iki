@@ -65,9 +65,16 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
 const ALIGNED: Extract<Reading, { kind: "alignment" }> = {
   kind: "alignment",
   rows: [
-    { id: "PRT-000001", description: "", aligned: "MK-LV", residues: 4, start: 1 },
-    { id: "PRT-000002", description: "", aligned: "MKALV", residues: 5, start: 1 },
-    { id: "read_7", description: "a read", aligned: "MR-LV", residues: 4, start: 1 },
+    { id: "PRT-000001", description: "", aligned: "MK-LV", residues: 4, start: 1, spanned: false },
+    { id: "PRT-000002", description: "", aligned: "MKALV", residues: 5, start: 1, spanned: false },
+    {
+      id: "read_7",
+      description: "a read",
+      aligned: "MR-LV",
+      residues: 4,
+      start: 1,
+      spanned: false,
+    },
   ],
   length: 5,
   alphabet: "protein",
@@ -202,7 +209,9 @@ describe("the alignment viewer", () => {
     await onAlignment();
     read.mockResolvedValue({
       ...ALIGNED,
-      rows: ALIGNED.rows.map((r) => (r.id === "PRT-000002" ? { ...r, start: 31 } : r)),
+      rows: ALIGNED.rows.map((r) =>
+        r.id === "PRT-000002" ? { ...r, start: 31, spanned: true } : r,
+      ),
     });
     await renderApp("/entities/ALN-000001/viewers/alignment/");
     await screen.findByRole("application");
@@ -210,6 +219,40 @@ describe("the alignment viewer", () => {
       "PRT-000002, column 1: M, residue 31 of 31–35.",
     );
     expect(screen.getByText(/cover 5 of PRT-000002’s residues 31–35 \(100%\)/)).toBeVisible();
+  });
+
+  it("calls a row headed name/1-4 part of its sequence, though it starts at its first", async () => {
+    // A local alignment of WQWY with the ten-residue WQWYAAAAAA writes its row T/1-4: four
+    // of its ten residues, not all of it.
+    await onAlignment();
+    read.mockResolvedValue({
+      ...ALIGNED,
+      rows: ALIGNED.rows.map((r) => (r.id === "PRT-000002" ? { ...r, spanned: true } : r)),
+    });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    await screen.findByRole("application");
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000002, column 1: M, residue 1 of 1–5.",
+    );
+    expect(screen.getByText(/cover 5 of PRT-000002’s residues 1–5 \(100%\)/)).toBeVisible();
+  });
+
+  it("says what a read's X could be, where its header says", async () => {
+    await onAlignment();
+    read.mockResolvedValue({
+      ...ALIGNED,
+      rows: ALIGNED.rows.map((r) =>
+        r.id === "read_7" ? { ...r, aligned: "MX-LV", description: "a read possible=2:KN" } : r,
+      ),
+    });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    const grid = await screen.findByRole("application");
+    fireEvent.keyDown(grid, { key: "ArrowDown" });
+    fireEvent.keyDown(grid, { key: "ArrowDown" });
+    fireEvent.keyDown(grid, { key: "ArrowRight" });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "read_7, column 2: X (K or N), residue 2 of 4.",
+    );
   });
 
   it("goes to a column", async () => {
@@ -305,8 +348,8 @@ describe("the alignment viewer's parts", () => {
   it("links only the rows the alignment lists", () => {
     const rows = shownRows(
       [
-        { id: "PRT-000001", description: "", aligned: "MK", residues: 2, start: 1 },
-        { id: "PRT-000009", description: "", aligned: "MK", residues: 2, start: 1 },
+        { id: "PRT-000001", description: "", aligned: "MK", residues: 2, start: 1, spanned: false },
+        { id: "PRT-000009", description: "", aligned: "MK", residues: 2, start: 1, spanned: false },
       ],
       [ABL1],
       {
@@ -331,7 +374,7 @@ describe("the alignment viewer's parts", () => {
 
   it("links a row named by the HRID an imported entity had where it was made", () => {
     const rows = shownRows(
-      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2, start: 1 }],
+      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2, start: 1, spanned: false }],
       [ABL1],
       {
         [ABL1]: {

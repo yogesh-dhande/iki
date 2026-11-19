@@ -6,8 +6,9 @@ label: Predict a structure with FoldCloud
 description: >-
   Sends the protein's sequence to FoldCloud and imports the structure it
   predicts. While FoldCloud works, the run waits without holding a worker;
-  FoldCloud calls back when it's done. The structure keeps the model and
-  version FoldCloud says predicted it, and the run keeps each call.
+  FoldCloud calls back when it's done. The structure says which of
+  FoldCloud's models predicted it, with a chain for each the file has; the
+  run keeps each call, with the model version FoldCloud reported.
 inputs:
   protein: { type: iki/protein.Protein }
 params:

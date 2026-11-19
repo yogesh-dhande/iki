@@ -167,6 +167,58 @@ describe("the sequence viewer", () => {
     expect(legend).toHaveTextContent("highest 0.6 at 5");
   });
 
+  /** A protein type whose sequence viewer draws its hydropathy as a track. */
+  function withHydropathy() {
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        fields: [
+          ...PROTEIN.fields,
+          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+        ],
+        viewers: [
+          {
+            viewer: "sequence" as const,
+            label: "Sequence",
+            sequence: "sequence",
+            alphabet: "protein" as const,
+            features: null,
+            tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
+          },
+        ],
+      },
+    ]);
+  }
+
+  it("counts no stop inside a protein as a residue", async () => {
+    // NCBI's standard code, keeping each stop as *, reads ATGAAATAAGTT as MK*V: 3 residues.
+    withHydropathy();
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({ hrid: "PRT-000001", values: { name: "Inner", sequence: "MK*V" } }),
+    );
+    await renderApp("/entities/PRT-000001/viewers/sequence/");
+    expect(await screen.findByText("3 residues")).toBeInTheDocument();
+  });
+
+  it("counts none of the stops ending a protein, and draws its track along the rest", async () => {
+    // AAAAAGGGG then TAATAA, each stop kept: AAAAAGGGG**, nine residues, so ProtScale's
+    // window of nine gives one value, the fifth's.
+    withHydropathy();
+    const profile = [null, null, null, null, 0.6, null, null, null, null];
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({
+        hrid: "PRT-000001",
+        values: { name: "Two stops", sequence: "AAAAAGGGG**", hydropathy: profile },
+      }),
+    );
+    await renderApp("/entities/PRT-000001/viewers/sequence/");
+    expect(await screen.findByText("9 residues")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Tracks" })).toHaveTextContent("highest 0.6 at 5");
+  });
+
   it("shows an RNA as it's stored, U and all, its length in nucleotides", async () => {
     // A plugin's type: Iki's own have no RNA yet.
     const TRANSCRIPT = {
