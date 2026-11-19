@@ -201,10 +201,25 @@ def test_its_worker_leases_the_build_once_its_disks_are_known(world: World) -> N
 def test_its_disk_is_made_into_an_image_once_detached(world: World) -> None:
     build = ask(world)
     gce = FakeGce()
+    gce.properties["labels"] = {
+        "iki-test": "true",
+        "cost-center": "source-default",
+        "lab": "engineering",
+        OWNER_LABEL: "old-owner",
+        LAUNCH_LABEL: "old-launch",
+        "goog-reserved": "set-by-google",
+    }
     machines = fleet(gce)
     provisioner.tick(machines)
-    run_script(gce, machines)
     launch = setup_launch()
+    instance = live(gce, launch)
+    assert instance["labels"]["iki-test"] == "true"
+    assert instance["labels"][LAUNCH_LABEL] == str(launch.pk)
+    assert instance["labels"][OWNER_LABEL] == "iki-test"
+    assert "goog-reserved" not in instance["labels"]
+    assert all(d["initializeParams"]["labels"]["iki-test"] == "true" for d in instance["disks"])
+    run_script(gce, machines)
+    launch.refresh_from_db()
     disk = launch.volumes["af-db"]
     provisioner.tick(machines)
     assert gce.made[launch.machine]["status"] == "DELETED"
@@ -216,6 +231,9 @@ def test_its_disk_is_made_into_an_image_once_detached(world: World) -> None:
     assert image["storageLocations"] == ["us-central1"]
     assert image["imageEncryptionKey"] == {"kmsKeyName": KEY}
     assert image["labels"] == {
+        "iki-test": "true",
+        "lab": "engineering",
+        "cost-center": "rd-42",
         OWNER_LABEL: "iki-test",
         SETUP_LABEL: build["id"],
         VOLUME_LABEL: "af-db",

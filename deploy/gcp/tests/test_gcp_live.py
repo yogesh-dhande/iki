@@ -83,7 +83,7 @@ pytestmark = pytest.mark.gcp_live
 
 #: Bumped when what the suite checks changes: recorded with each passing run. 2: heavy
 #: runs and volumes on Compute Engine, with light stand-ins (48h).
-SUITE_VERSION = "2"
+SUITE_VERSION = "3"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -140,6 +140,10 @@ class Settings:
             workdir=Path(env.get("IKI_GCP_WORKDIR", REPO / "build" / "gcp-live" / name)).resolve(),
             cap_hours=float(env.get("IKI_GCP_CAP_HOURS", "3")),
         )
+
+    @property
+    def labels(self) -> dict[str, str]:
+        return {"iki-test": "true", "iki-deployment": self.name}
 
     @property
     def host(self) -> str:
@@ -803,8 +807,7 @@ def variables(s: Settings, gcp: Gcp, state_key: str, writers: list[str]) -> dict
         "image_writers": writers,
         # The VM tier, its machines reaching Iki at publicUrl: the internal load balancer.
         "vm_tier": {},
-        # Every run's, besides the modules' iki-deployment=<name>.
-        "labels": {"iki-test": "true"},
+        "labels": s.labels,
     }
 
 
@@ -913,7 +916,7 @@ def stand_up(d: Deployment) -> None:
         "-var",
         f"location={s.multi_region}",
         "-var",
-        f'labels={{"{s.name}" = "true"}}',
+        f"labels={json.dumps(s.labels)}",
     )
     gcp.tofu("bootstrap", "init", "-input=false", "-lockfile=readonly", log="bootstrap.log")
     gcp.tofu("bootstrap", "apply", "-input=false", "-auto-approve", *boot, log="bootstrap.log")
@@ -1388,7 +1391,8 @@ def test_the_setup_build_fills_its_volume_on_a_compute_engine_machine(
     assert image.startswith(f"{s.name}-"), image
     described = gcp.gcloud_json("compute", "images", "describe", image)
     assert described["status"] == "READY", described
-    assert described["labels"]["iki-setup"] == build["id"], described["labels"]
+    for k, v in {**s.labels, "iki-setup": build["id"]}.items():
+        assert described["labels"].get(k) == v, described["labels"]
     key = gcp.run("tofu", "-chdir=deploy/gcp/production", "output", "-json", "vm_tier").stdout
     assert described["imageEncryptionKey"]["kmsKeyName"].startswith(
         json.loads(key)["disk_kms_key"]

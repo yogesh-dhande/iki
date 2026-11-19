@@ -197,6 +197,7 @@ class GceFleet(Fleet):
         boot_image: str,
         data: list[Disk | Shared],
         setup: str | None = None,
+        source_labels: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         return instance_request(
             launch_id=launch_id,
@@ -216,6 +217,7 @@ class GceFleet(Fleet):
             kms_key=self.kms_key(template),
             data=data,
             setup=setup,
+            source_labels=source_labels,
         )
 
     def launch(self, group: Group, place: str) -> bool:
@@ -296,6 +298,7 @@ class GceFleet(Fleet):
                     boot_image=boot_image,
                     data=data,
                     setup=setup,
+                    source_labels=properties.get("labels"),
                 )
                 attempt += 1
                 try:

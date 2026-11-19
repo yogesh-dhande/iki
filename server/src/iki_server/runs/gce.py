@@ -303,6 +303,16 @@ def region_of(zone: str) -> str:
     return zone.rsplit("-", 1)[0]
 
 
+def _inherited_labels(labels: dict[str, str] | None) -> dict[str, str]:
+    """Carry site labels and the deployment's test marker from the source resource.
+    Iki assigns ownership and launch IDs to each new resource. Google sets its own labels."""
+    return {
+        k: v
+        for k, v in (labels or {}).items()
+        if k == "iki-test" or not k.startswith(("iki-", "goog"))
+    }
+
+
 def _labels(
     machines: VmMachines, template: Template, environment: str, **ours: str
 ) -> dict[str, str]:
@@ -342,6 +352,7 @@ def instance_request(
     kms_key: str,
     data: list[Disk | Shared] | None = None,
     setup: str | None = None,
+    source_labels: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """An ``instances.insert`` for one of the launch's tries: a provisioning model (Spot or
     standard) in a zone. Each try has a request ID of its own, so Compute Engine starts at
@@ -355,7 +366,10 @@ def instance_request(
     if len(attached) != len(data or []):
         raise ValueError("Compute Engine machines get volumes on disks only.")
     ours = {LAUNCH_LABEL: launch_id, **({SETUP_LABEL: setup} if setup else {})}
-    labels = _labels(machines, template, environment, **ours)
+    labels = {
+        **_inherited_labels(source_labels),
+        **_labels(machines, template, environment, **ours),
+    }
     startup = script(
         name,
         template,
@@ -495,6 +509,7 @@ def image_request(
     machines: VmMachines,
     environment: str,
     volume: str,
+    labels: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """An ``images.insert`` for a setup build's filled disk (ADR 0076): kept in the
     template's region, encrypted with the deployment's key, and labelled with its build and
@@ -508,6 +523,7 @@ def image_request(
             "sourceDisk": disk,
             "storageLocations": [region],
             "labels": {
+                **_inherited_labels(labels),
                 OWNER_LABEL: label(machines.owner),
                 SETUP_LABEL: build_id,
                 VOLUME_LABEL: label(volume),

@@ -346,6 +346,7 @@ def _take(
         machines=fleet.machines,
         environment=build.environment,
         volume=volume,
+        labels=found.get("labels"),
     )
     listing.gce.create_image(listing.project, request)
     ManagedVolume.objects.get_or_create(

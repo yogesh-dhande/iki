@@ -4,6 +4,8 @@ while test_gcp_live.py's checks don't. The project is shared with other teams, s
 inventory never takes a listing it couldn't make as empty, and tearing down may remove
 nothing that was there before."""
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -198,6 +200,22 @@ def test_the_live_check_runs_its_image_from_the_deployments_registry(tmp_path: P
         in (live.LIVE_CHECK_DIR / "environments" / "machine.yaml").read_text()
     )
     assert copy.pinned == f"{REPOSITORY}/python@{DIGEST}"
+
+
+def test_bootstrap_applies_both_live_run_labels(tmp_path: Path) -> None:
+    class Bootstrap:
+        def tofu(self, root: str, command: str, *args: str, log: str) -> None:
+            assert root == "bootstrap"
+            if command == "apply":
+                (labels,) = [
+                    arg.removeprefix("labels=") for arg in args if arg.startswith("labels=")
+                ]
+                assert json.loads(labels) == {"iki-test": "true", "iki-deployment": SETTINGS.name}
+                raise RuntimeError("end of offline bootstrap")
+
+    deployment = SimpleNamespace(settings=replace(SETTINGS, workdir=tmp_path), gcp=Bootstrap())
+    with pytest.raises(RuntimeError, match="end of offline bootstrap"):
+        live.stand_up(deployment)  # type: ignore[arg-type]
 
 
 def test_the_vm_tiers_template_is_a_small_machine_bound_to_the_live_check() -> None:
