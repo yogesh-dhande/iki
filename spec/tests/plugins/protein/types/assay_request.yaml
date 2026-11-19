@@ -16,6 +16,8 @@ fields:
   protein: { type: ref, to: Protein }
   needed_by: { type: date }
   instructions: { type: text }
+  # The asking project's form, as it filled it in.
+  form: { type: file }
   priority: { type: enum, values: [routine, urgent], default: routine }
   scheduled_on: { type: date }
   technician: { type: person, role: analyst, assignment: { field: status, states: [accepted] } }

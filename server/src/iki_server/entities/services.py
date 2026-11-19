@@ -1049,7 +1049,9 @@ def link(user: User, entity: Entity, project: Project) -> bool:
 
     It changes who can read the entity, so it's audited. Raises :class:`Refused` if the
     entity's own project doesn't allow sharing it (ADR 0067), or is in another registry
-    (ADR 0115)."""
+    (ADR 0115); if the user reads it only through a request, or it's a request's result
+    its service hasn't released (ADR 0132). Released, a result reaches the project that
+    asked by its release alone."""
     if entity.purged_at is not None:
         raise Refused(purged(entity))
     if entity.registry_id is not None:
@@ -1062,12 +1064,7 @@ def link(user: User, entity: Entity, project: Project) -> bool:
         raise Refused(why)
     with transaction.atomic():
         if not access.shareable_into(user, project).filter(pk=entity.pk).exists():
-            owner = owner_of(entity)
-            if owner.registry_id != registry_of(project):
-                raise Refused(other_registry(entity, owner, project))
-            if owner.allow_sharing:
-                raise Refused(came_with_a_request(entity, project))
-            raise Refused(not_shared(entity, owner))
+            raise Refused(unshareable(user, entity, project))
         _, created = ProjectLink.objects.get_or_create(
             entity=entity, project=project, defaults={"linked_by": user}
         )
@@ -1108,6 +1105,28 @@ def not_shared(entity: Entity, owner: Project) -> str:
     return (
         f"{entity.hrid} can't be shared outside {owner.name}: its project doesn't allow "
         "sharing its entities with other projects."
+    )
+
+
+def unshareable(user: User, entity: Entity, project: Project) -> str:
+    """Why ``project`` may not use an entity the user reads (:func:`access.why_held`)."""
+    owner = owner_of(entity)
+    match access.why_held(user, entity, project):
+        case "unreleased":
+            return not_released(entity, project)
+        case "registry":
+            return other_registry(entity, owner, project)
+        case "request":
+            return came_with_a_request(entity, project)
+        case _:
+            return not_shared(entity, owner)
+
+
+def not_released(entity: Entity, project: Project) -> str:
+    return (
+        f"{entity.hrid} can't be shared with {project.name}: it's a request's result its "
+        "service hasn't released, and it's the service's alone until then. Releasing it "
+        "shares it with the project that asked (ADR 0132)."
     )
 
 

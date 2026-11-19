@@ -2,6 +2,8 @@
 the records it's about; the service works it in its own fields and states, and releases its
 results back. Each side reads only what the request gives it, and writes only its own."""
 
+import hashlib
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +17,7 @@ from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, requests
 from iki_server.entities.models import Entity, ProjectLink, Request
+from iki_server.files.models import Blob, File
 from iki_server.org import permissions
 from iki_server.org.models import (
     LabRoleGrant,
@@ -29,6 +32,7 @@ pytestmark = pytest.mark.django_db
 ASK = "acme/protein.AssayRequest"
 RESULT = "acme/protein.AssayResult"
 SAMPLE = "acme/protein.Sample"
+LOT = "acme/protein.Lot"
 ANALYST, REVIEWER, QA = "acme/protein.analyst", "acme/protein.reviewer", "acme/protein.qa"
 
 
@@ -197,6 +201,60 @@ def test_a_services_admins_choose_what_it_takes_and_from_whom(lab: Lab) -> None:
     changed = AuditEvent.objects.get(action="project.intake_changed")
     assert changed.project == lab.core
     assert changed.data["types"] == [[], [ASK]]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_admins_changing_what_it_takes_are_each_audited(lab: Lab) -> None:
+    """One Admin opens it to every project in the registry; another, at the same moment,
+    keeps it closed. The second waits for the first, and its change is audited against
+    the first's: the log ends where the setting does."""
+    core = Project.objects.get(pk=lab.core.pk)
+    first_set, first_may_commit = threading.Event(), threading.Event()
+    other = User.objects.create_user("core_admin2@example.com", "Core Admin Two")
+    _member(core, other, ProjectRole.ADMIN)
+    admins = [lab.users["core_admin"], other]
+    errors: list[BaseException] = []
+
+    def first() -> None:
+        try:
+            with transaction.atomic():
+                requests.set_intake(core, types=[ASK], from_registry=True, sources=[], by=admins[0])
+                first_set.set()
+                first_may_commit.wait(10)
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            connection.close()
+
+    def second() -> None:
+        try:
+            first_set.wait(10)
+            requests.set_intake(core, types=[ASK], from_registry=False, sources=[], by=admins[1])
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    for t in threads:
+        t.start()
+    first_set.wait(10)
+    # The second waits for the first's lock, rather than reading what was there before it.
+    threads[1].join(0.5)
+    assert threads[1].is_alive()
+    first_may_commit.set()
+    for t in threads:
+        t.join(20)
+    assert errors == []
+    assert requests.intake_of(core).from_registry is False
+    changes = [
+        (e.actor_id, e.data)
+        for e in AuditEvent.objects.filter(action="project.intake_changed").order_by("occurred_at")
+    ]
+    assert changes == [
+        (admins[0].pk, {"types": [[], [ASK]], "from_registry": [False, True]}),
+        (admins[1].pk, {"from_registry": [True, False]}),
+    ]
 
 
 def test_a_project_lists_the_services_it_may_send_to(lab: Lab) -> None:
@@ -608,6 +666,88 @@ def told(kind: str) -> list[tuple[str, str, str]]:
     ]
 
 
+def test_a_result_is_shared_only_by_its_release(lab: Lab) -> None:
+    """Someone in both projects, an Analyst in the core and an Editor of the project that
+    asked, can't share a result before QA releases it: not with the project that asked,
+    nor anywhere else. Released, it's audited, told and kept, and the core shares it on
+    as any record of its own."""
+    _member(lab.world.project, lab.users["tech"], ProjectRole.EDITOR)
+    archive = Project.objects.create(team=lab.world.team, name="Core Archive")
+    _member(archive, lab.users["tech"], ProjectRole.EDITOR)
+    first = sample(lab, "S-1")
+    made = sent(lab, first)
+    found = result(lab, made["id"], sample=first["id"], purity=12.0)
+    tech = lab.api("tech")
+
+    for project in (lab.world.project, archive):
+        refused = problem(
+            tech.put(f"/entities/{found['id']}/projects/{project.pk}"), 409, "refused"
+        )
+        assert refused["detail"] == (
+            f"{found['hrid']} can't be shared with {project.name}: it's a request's result its "
+            "service hasn't released, and it's the service's alone until then. Releasing it "
+            "shares it with the project that asked (ADR 0132)."
+        )
+        assert not access.shareable_into(lab.users["tech"], project).filter(pk=found["id"]).exists()
+    problem(lab.api("viewer").get(f"/entities/{found['id']}"), 404, "not_found")
+    # Nor can it go out as what another request sends.
+    assert (
+        not access.shareable_into(lab.users["tech"], lab.core)
+        .exclude(owner_project=lab.core)
+        .filter(pk=found["id"])
+        .exists()
+    )
+
+    state(lab, "core_qa", found["id"], "review", "reviewed")
+    assert state(lab, "core_qa", found["id"], "review", "released").status_code == 200
+    assert lab.api("viewer").get(f"/entities/{found['id']}").json()["values"]["purity"] == 12.0
+    assert AuditEvent.objects.filter(action="request.result_released").count() == 1
+    assert [t[0] for t in told("results_released")] == ["editor@example.com"]
+    refused = problem(
+        lab.api("admin").delete(f"/entities/{found['id']}/projects/{lab.world.project.pk}"),
+        409,
+        "refused",
+    )
+    assert "released" in refused["detail"]
+    # The project that asked reads it, and passes it on no further.
+    elsewhere = Project.objects.create(team=lab.world.team, name="Kinase Follow-up")
+    _member(elsewhere, lab.users["editor"], ProjectRole.EDITOR)
+    refused = problem(
+        lab.api("editor").put(f"/entities/{found['id']}/projects/{elsewhere.pk}"), 409, "refused"
+    )
+    assert "through a request between projects" in refused["detail"]
+    # The core, whose record it is, shares it on now.
+    linked = tech.put(f"/entities/{found['id']}/projects/{archive.pk}")
+    assert linked.status_code == 201, linked.content
+
+
+def test_a_result_already_in_the_project_that_asked_is_still_released(lab: Lab) -> None:
+    """However it got there, its release is audited and told, once, and it stays."""
+    first = sample(lab, "S-1")
+    made = sent(lab, first)
+    found = result(lab, made["id"], sample=first["id"], purity=97.5)
+    ProjectLink.objects.create(
+        entity_id=found["id"], project=lab.world.project, linked_by=lab.users["tech"]
+    )
+    state(lab, "core_qa", found["id"], "review", "reviewed")
+    assert state(lab, "core_qa", found["id"], "review", "released").status_code == 200
+
+    link = ProjectLink.objects.get(entity_id=found["id"], project=lab.world.project)
+    assert str(link.via_request_id) == made["id"]
+    event = AuditEvent.objects.get(action="request.result_released")
+    assert (event.project, event.data["request_hrid"]) == (lab.world.project, made["hrid"])
+    assert [t[0] for t in told("results_released")] == ["editor@example.com"]
+    problem(
+        lab.api("admin").delete(f"/entities/{found['id']}/projects/{lab.world.project.pk}"),
+        409,
+        "refused",
+    )
+    # Back to reviewed and released again, it was released already: told once.
+    state(lab, "core_qa", found["id"], "review", "reviewed")
+    state(lab, "core_qa", found["id"], "review", "released")
+    assert AuditEvent.objects.filter(action="request.result_released").count() == 1
+
+
 def test_a_request_tells_its_service_as_it_arrives(lab: Lab) -> None:
     """Declared by its type (ADR 0142), as GitHub tells a repository's watchers of a new
     issue: the core's QA, in the core's project, and nobody of the project asking."""
@@ -655,6 +795,92 @@ def test_a_service_that_doesnt_share_cant_release(lab: Lab) -> None:
     refused = problem(state(lab, "core_qa", found["id"], "review", "released"), 409, "refused")
     assert "doesn’t allow sharing" in refused["detail"]
     assert Entity.objects.get(pk=found["id"]).locked_by == []
+
+
+# --- Files --------------------------------------------------------------------------------------
+
+
+def a_file(project: Project, name: str) -> File:
+    digest = hashlib.sha256(name.encode()).hexdigest()
+    blob = Blob.objects.create(sha256=digest, size=10, storage_uri=f"s3://iki/{name}")
+    return File.objects.create(blob=blob, name=name, media_type="application/pdf", project=project)
+
+
+CAME_WITH_A_REQUEST = (
+    "refers to a file you read through a request between projects: it's read with the "
+    "records it came on, and nothing else refers to it."
+)
+
+
+def test_a_file_that_came_with_a_request_is_read_with_it_alone(lab: Lab) -> None:
+    """The asking project's form goes with its request: the core reads it there, and refers
+    to it from nothing else, in its own project or another. The project whose file it is
+    still does, as before."""
+    form = a_file(lab.world.project, "form.pdf")
+    takes(lab)
+    made = ask(lab, form=str(form.pk))
+    assert submit(lab, made["id"]).status_code == 200
+    tech = lab.api("tech")
+    assert tech.get(f"/files/{form.pk}").status_code == 200
+
+    archive = Project.objects.create(team=lab.world.team, name="Core Archive")
+    _member(archive, lab.users["tech"], ProjectRole.EDITOR)
+    archivist = User.objects.create_user("archivist@example.com", "Archivist")
+    lab.users["archivist"] = archivist
+    _member(archive, archivist, ProjectRole.VIEWER)
+    refused = problem(
+        create(tech, lab.core, {"request": made["id"], "report": str(form.pk)}, RESULT),
+        422,
+        "validation_failed",
+    )
+    assert refused["errors"] == [{"pointer": "#/values/report", "detail": CAME_WITH_A_REQUEST}]
+    refused = problem(
+        create(tech, archive, {"label": "L-1", "report": str(form.pk)}, LOT),
+        422,
+        "validation_failed",
+    )
+    assert refused["errors"] == [{"pointer": "#/values/report", "detail": CAME_WITH_A_REQUEST}]
+    problem(lab.api("archivist").get(f"/files/{form.pk}"), 404, "not_found")
+    assert not access.shareable_files(lab.users["tech"], archive).filter(pk=form.pk).exists()
+
+    # The project it's from refers to it again, here or in another project of its own.
+    again = create(
+        lab.api("editor"), lab.world.project, {"label": "L-1", "report": str(form.pk)}, LOT
+    )
+    assert again.status_code == 201, again.content
+    elsewhere = Project.objects.create(team=lab.world.team, name="Kinase Follow-up")
+    _member(elsewhere, lab.users["editor"], ProjectRole.EDITOR)
+    there = create(lab.api("editor"), elsewhere, {"label": "L-2", "report": str(form.pk)}, LOT)
+    assert there.status_code == 201, there.content
+    # Someone in both projects refers to it as its own project's member.
+    _member(lab.world.project, lab.users["tech"], ProjectRole.VIEWER)
+    mine = create(tech, archive, {"label": "L-3", "report": str(form.pk)}, LOT)
+    assert mine.status_code == 201, mine.content
+
+
+def test_a_released_results_file_is_read_with_it_alone(lab: Lab) -> None:
+    """The core's report comes back with its result: the project that asked reads it there,
+    and refers to it from nothing else. The core, whose file it is, still does."""
+    first = sample(lab, "S-1")
+    made = sent(lab, first)
+    report = a_file(lab.core, "report.pdf")
+    found = result(lab, made["id"], sample=first["id"], purity=97.5, report=str(report.pk))
+    editor = lab.api("editor")
+    problem(editor.get(f"/files/{report.pk}"), 404, "not_found")
+    state(lab, "core_qa", found["id"], "review", "reviewed")
+    state(lab, "core_qa", found["id"], "review", "released")
+    assert editor.get(f"/files/{report.pk}").status_code == 200
+
+    refused = problem(
+        create(editor, lab.world.project, {"label": "L-1", "report": str(report.pk)}, LOT),
+        422,
+        "validation_failed",
+    )
+    assert refused["errors"] == [{"pointer": "#/values/report", "detail": CAME_WITH_A_REQUEST}]
+    archive = Project.objects.create(team=lab.world.team, name="Core Archive")
+    _member(archive, lab.users["tech"], ProjectRole.EDITOR)
+    own = create(lab.api("tech"), archive, {"label": "L-2", "report": str(report.pk)}, LOT)
+    assert own.status_code == 201, own.content
 
 
 # --- The queue ----------------------------------------------------------------------------------

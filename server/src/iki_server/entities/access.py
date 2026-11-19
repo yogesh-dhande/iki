@@ -22,7 +22,8 @@ its files (ADR 0066).
 from that project's entities) takes its own project's leave:
 :func:`shareable_into` (ADR 0067). Projects in different registries share
 nothing (ADR 0115). What a request linked into a project (ADR 0132) is read
-there, and never passed on from there.
+there, and never passed on from there, nor its files referred to anew; and a
+request's result awaiting release is its service's alone.
 
 A **registry entry** (ADR 0115) belongs to no project: it's readable by whoever
 can read a record of it, and nobody else, so its ID alone grants nothing. The
@@ -30,10 +31,10 @@ entities above (``visible`` and the rest) are records; :func:`visible_entries`
 are entries.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 
 from iki_server.entities import registry
 from iki_server.entities.models import Entity, ProjectLink
@@ -173,50 +174,178 @@ def project_files(project: Project) -> QuerySet[File]:
     return File.objects.filter(Q(project=project) | Exists(uses))
 
 
-def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: ANN401
-    """The entities the user can read that `project` may use (ADR 0067): its own, those
-    already in it, and those whose project allows sharing and is in its registry (ADR
-    0115). Others behave, for it, as if the user couldn't read them."""
-    here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
-    # Read only through what a request linked (ADR 0132): readable, but not passed on.
-    own_way = ProjectLink.objects.filter(
+def _their_own_way(user: Any) -> QuerySet[ProjectLink]:  # noqa: ANN401
+    """Of an entity's links, those the user reads it through that no request made: what
+    a request linked into a project is read there, and not passed on (ADR 0132)."""
+    return ProjectLink.objects.filter(
         entity=OuterRef("pk"),
         project__in=readable_projects(user).values("pk"),
         via_request__isnull=True,
     )
-    return visible(user).filter(
-        Q(
-            Exists(own_way),
-            owner_project__allow_sharing=True,
-            owner_project__registry_id=project.registry_id,
-        )
-        | Q(owner_project=project)
-        | Exists(here)
+
+
+def unreleased() -> Q | None:
+    """Of entities, a request's results its service hasn't released (ADR 0132): until it
+    does, they're its alone. None if no type is a request's results."""
+    from iki_server.entities import requests
+
+    types = requests.result_types()
+    if not types:
+        return None
+    # Released, it's in the request's own project, for the request.
+    released = ProjectLink.objects.filter(
+        entity=OuterRef("pk"),
+        via_request__isnull=False,
+        project=F("via_request__owner_project"),
     )
+    return Q(Q(type__in=types), ~Exists(released))
+
+
+def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: ANN401
+    """The entities the user can read that `project` may use (ADR 0067): its own, those
+    already in it, and those whose project allows sharing and is in its registry (ADR
+    0115), which the user reads other than through a request, and which aren't results
+    awaiting release (ADR 0132). Others behave, for it, as if the user couldn't read them."""
+    here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
+    leaving = Q(
+        Exists(_their_own_way(user)),
+        owner_project__allow_sharing=True,
+        owner_project__registry_id=project.registry_id,
+    )
+    held_back = unreleased()
+    if held_back is not None:
+        leaving &= ~held_back
+    return visible(user).filter(leaving | Q(owner_project=project) | Exists(here))
+
+
+def why_held(user: Any, entity: Entity, project: Project) -> str:  # noqa: ANN401
+    """Why ``project`` may not use an entity the user reads, though they read it: one of
+    ``unreleased``, ``registry``, ``request`` or ``unshared``."""
+    held_back = unreleased()
+    if held_back is not None and Entity.objects.filter(held_back, pk=entity.pk).exists():
+        return "unreleased"
+    owner = entity.owner_project
+    if owner is not None and owner.registry_id != project.registry_id:
+        return "registry"
+    if not visible(user).filter(Exists(_their_own_way(user)), pk=entity.pk).exists():
+        return "request"
+    return "unshared"
 
 
 def shareable_files(user: Any, project: Project) -> QuerySet[File]:  # noqa: ANN401
     """The files the user can read that `project`'s entities may refer to: its own, those
-    its entities use, and those from projects that allow sharing."""
-    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=in_project(project).values("pk"))
-    return readable_files(user).filter(
-        Q(project__allow_sharing=True) | Q(project=project) | Exists(uses)
+    its entities use, and those from projects that allow sharing, in its registry, which
+    the user reads other than through a request. A file that came with a request (ADR
+    0132) is read with the records it came on, and nothing else refers to it anew."""
+    kept_here = ProjectLink.objects.filter(
+        entity=OuterRef("entity_id"), project=project, via_request__isnull=True
     )
+    used_here = FileUse.objects.filter(file=OuterRef("pk"), entity__purged_at__isnull=True).filter(
+        Exists(kept_here)
+    )
+    return readable_files(user).filter(
+        Q(project=project)
+        | Exists(used_here)
+        | Q(
+            _files_their_own_way(user),
+            project__allow_sharing=True,
+            project__registry_id=project.registry_id,
+        )
+    )
+
+
+def _files_their_own_way(user: Any) -> Q:  # noqa: ANN401
+    """Of files, those the user reads through their project, or an entity they read other
+    than through a request."""
+    theirs = visible(user).filter(Exists(_their_own_way(user)))
+    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=theirs.values("pk"))
+    return Q(project__in=readable_projects(user).values("pk")) | Q(Exists(uses))
+
+
+def why_held_file(user: Any, file: File, project: Project) -> str:  # noqa: ANN401
+    """Why ``project``'s entities may not refer to a file the user reads: ``registry``,
+    ``request`` or ``unshared``."""
+    if file.project.registry_id != project.registry_id:
+        return "registry"
+    if not File.objects.filter(_files_their_own_way(user), pk=file.pk).exists():
+        return "request"
+    return "unshared"
 
 
 def refs_for(user: Any, project: Project) -> Refs:  # noqa: ANN401
     """What values of `project`'s entities may refer to: what the user can read, and the
-    project may use. A reference to something another project keeps to itself says so."""
+    project may use. A reference to something the user reads but the project may not use
+    says why."""
     return Refs(
         shareable_into(user, project),
         shareable_files(user, project),
-        held=visible(user),
-        held_files=readable_files(user),
+        held=held_entity(user, project),
+        held_file=held_file(user, project),
         entries=held_entries(project),
         readable_entries=visible_entries(user),
         project=project.name,
         namer=Namer(project),
     )
+
+
+def held_entity(user: Any, project: Project) -> Callable[[Any], str | None]:  # noqa: ANN401
+    """For :class:`Refs`: why a reference from ``project`` can't name an entity the user
+    reads, or None if they don't read it."""
+    return lambda pk: _held_entity(user, pk, project)
+
+
+def _held_entity(user: Any, pk: Any, project: Project) -> str | None:  # noqa: ANN401
+    entity = visible(user).select_related("owner_project").filter(pk=pk).first()
+    if entity is None:
+        return None
+    owner = entity.owner_project
+    name = owner.name if owner is not None else "another project"
+    match why_held(user, entity, project):
+        case "unreleased":
+            return (
+                f"refers to {entity.hrid}, a request's result its service hasn't released: "
+                "until it does, it's the service's alone."
+            )
+        case "registry":
+            return f"refers to an entity in {name}, in another registry: registries share nothing."
+        case "request":
+            return (
+                f"refers to {entity.hrid}, which you read through a request between projects: "
+                "it's read there, and not referred to from another."
+            )
+        case _:
+            return (
+                f"refers to an entity in {name}, which doesn't allow sharing its entities "
+                "with other projects."
+            )
+
+
+def held_file(user: Any, project: Project) -> Callable[[Any], str | None]:  # noqa: ANN401
+    """For :class:`Refs`: why a reference from ``project`` can't name a file the user
+    reads, or None if they don't read it."""
+    return lambda pk: _held_file(user, pk, project)
+
+
+def _held_file(user: Any, pk: Any, project: Project) -> str | None:  # noqa: ANN401
+    file = readable_files(user).select_related("project").filter(pk=pk).first()
+    if file is None:
+        return None
+    match why_held_file(user, file, project):
+        case "registry":
+            return (
+                f"refers to a file in {file.project.name}, in another registry: registries "
+                "share nothing."
+            )
+        case "request":
+            return (
+                "refers to a file you read through a request between projects: it's read "
+                "with the records it came on, and nothing else refers to it."
+            )
+        case _:
+            return (
+                f"refers to a file in {file.project.name}, which doesn't allow sharing with "
+                "other projects."
+            )
 
 
 def readers(entity: Entity, users: Iterable[Any]) -> set[Any]:

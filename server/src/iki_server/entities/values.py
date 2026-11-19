@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
@@ -254,8 +254,8 @@ class Refs:
         readable: Any,  # noqa: ANN401 - QuerySets
         files: Any = None,  # noqa: ANN401
         *,
-        held: Any = None,  # noqa: ANN401
-        held_files: Any = None,  # noqa: ANN401
+        held: Callable[[uuid.UUID], str | None] | None = None,
+        held_file: Callable[[uuid.UUID], str | None] | None = None,
         entries: Any = None,  # noqa: ANN401
         readable_entries: Any = None,  # noqa: ANN401
         project: str = "the project",
@@ -263,10 +263,10 @@ class Refs:
     ) -> None:
         self.readable = readable
         self.files = files
-        #: What the caller can read but these values may not refer to, because its project
-        #: doesn't allow sharing (ADR 0067): a reference to one says so.
+        #: Why these values may not refer to an entity, or a file, the caller can read
+        #: (ADR 0067, 0132), or None for one they can't: a reference to one says so.
         self.held = held
-        self.held_files = held_files
+        self.held_file = held_file
         #: The registry entries the project holds, and those the caller can read.
         self.entries = entries
         self.readable_entries = readable_entries
@@ -342,22 +342,12 @@ class Refs:
         found = self.files.filter(pk=file_id).values_list("media_type", "blob__size").first()
         return None if found is None else (found[0], found[1])
 
-    def holder(self, entity_id: uuid.UUID) -> str | None:
-        """The project keeping a readable entity to itself, if it's why it can't be used."""
-        if self.held is None:
-            return None
-        name: str | None = (
-            self.held.filter(pk=entity_id).values_list("owner_project__name", flat=True).first()
-        )
-        return name
+    def why_held(self, entity_id: uuid.UUID) -> str | None:
+        """Why a readable entity can't be referred to, if it's why it can't be."""
+        return None if self.held is None else self.held(entity_id)
 
-    def file_holder(self, file_id: uuid.UUID) -> str | None:
-        if self.held_files is None:
-            return None
-        name: str | None = (
-            self.held_files.filter(pk=file_id).values_list("project__name", flat=True).first()
-        )
-        return name
+    def why_held_file(self, file_id: uuid.UUID) -> str | None:
+        return None if self.held_file is None else self.held_file(file_id)
 
 
 def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a model value out
@@ -584,13 +574,7 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
     if isinstance(found, str):
         raise ValueError(found)
     if found is None:
-        holder = refs.holder(target)
-        if holder is not None:
-            raise ValueError(
-                f"refers to an entity in {holder}, which doesn't allow sharing its entities "
-                "with other projects."
-            )
-        raise ValueError("refers to no entity you can read.")
+        raise ValueError(refs.why_held(target) or "refers to no entity you can read.")
     if found.type not in referable(f):
         raise ValueError(f"must refer to {_one_of(f.to)}, not a {found.type}.")
     return found.id
@@ -617,12 +601,7 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError("must be a file's ID: upload the file first.") from None
     found = refs.file(target)
     if found is None:
-        holder = refs.file_holder(target)
-        if holder is not None:
-            raise ValueError(
-                f"refers to a file in {holder}, which doesn't allow sharing with other projects."
-            )
-        raise ValueError("refers to no file you can read.")
+        raise ValueError(refs.why_held_file(target) or "refers to no file you can read.")
     media_type, size = found
     if f.media_types and not media_type_allowed(media_type, f.media_types):
         raise ValueError(f"must be {_either(f.media_types)}, and this file is {media_type}.")

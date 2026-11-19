@@ -491,7 +491,7 @@ def _stage_rows(
     refs = Refs(
         access.shareable_into(user, run.project),
         None,
-        held=access.visible(user),
+        held=access.held_entity(user, run.project),
         entries=access.held_entries(run.project),
         readable_entries=access.visible_entries(user),
         project=run.project.name,

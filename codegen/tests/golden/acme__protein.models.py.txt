@@ -41,6 +41,7 @@ class AssayRequest(Entity):
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
+    form = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
     priority = models.TextField(null=True, db_default='routine')
     scheduled_on = models.DateField(null=True)
     technician = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
@@ -115,6 +116,7 @@ class AssayRequest_History(models.Model):
     protein = models.UUIDField(db_column='protein_id', null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
+    form = models.UUIDField(db_column='form_id', null=True)
     priority = models.TextField(null=True)
     scheduled_on = models.DateField(null=True)
     technician = models.UUIDField(db_column='technician_id', null=True)
@@ -167,6 +169,7 @@ class AssayResult(Entity):
     request = models.ForeignKey('AssayRequest', models.PROTECT, related_name='+')
     sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
     purity = models.FloatField(null=True)
+    report = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
     review = StateField(
         states=['draft', 'reviewed', 'released'],
         locking=['released'],
@@ -208,6 +211,7 @@ class AssayResult_History(models.Model):
     request = models.UUIDField(db_column='request_id', null=True)
     sample = models.UUIDField(db_column='sample_id', null=True)
     purity = models.FloatField(null=True)
+    report = models.UUIDField(db_column='report_id', null=True)
     review = models.TextField(null=True)
 
     class Meta:

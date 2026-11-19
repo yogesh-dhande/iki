@@ -19,9 +19,11 @@ guards (step 58).
   a change to the other side's columns, whatever wrote it.
 - **Results** are records of a result type (``result:``), made in the service's project,
   which owns them. When the service sets one's state to a released state, it's linked
-  back into the asking project (:func:`released`), and stays there.
+  back into the asking project (:func:`released`), and stays there. Until then it's the
+  service's alone: no other project may use it, by a link, a reference or a run.
 - **Nothing else crosses.** What a request linked into a project is readable there, and
-  can't be passed on to a third project (:func:`iki_server.entities.access.shareable_into`).
+  can't be passed on to a third project, nor its files referred to anew
+  (:func:`iki_server.entities.access.shareable_into`, ``shareable_files``).
   Requests stay within a registry, and a project that doesn't share its entities (ADR
   0067) can't send them out, nor release results back.
 """
@@ -119,6 +121,11 @@ def result_spec(type_name: str) -> ResultSpec | None:
 def request_types() -> list[str]:
     """Every installed type whose records are requests, its subtypes included."""
     return sorted(n for n in registry.types() if spec_of(n) is not None)
+
+
+def result_types() -> list[str]:
+    """Every installed type whose records are a request's results, its subtypes included."""
+    return sorted(n for n in registry.types() if result_spec(n) is not None)
 
 
 def service_fields(type_name: str) -> frozenset[str]:
@@ -333,8 +340,11 @@ def set_intake(
     if errors:
         raise Invalid(errors)
     with transaction.atomic():
+        # Locked before it's read, its first time too: what changed is read under the lock,
+        # so two Admins' changes are each audited against the one before it.
+        Project.objects.select_for_update().filter(pk=project.pk).first()
         before = intake_of(project)
-        intake, _ = Intake.objects.select_for_update().get_or_create(project=project)
+        intake, _ = Intake.objects.get_or_create(project=project)
         intake.types = sorted(set(types))
         intake.from_registry = from_registry
         intake.updated_by = by
@@ -492,17 +502,15 @@ def submit(
 
 
 def _unsendable(user: User, refused: list[uuid.UUID], service: Project) -> str:
-    from iki_server.entities import access
+    from iki_server.entities import access, services
 
-    readable = {e.pk: e for e in access.visible(user).filter(pk__in=refused)}
+    readable = {
+        e.pk: e for e in access.visible(user).select_related("owner_project").filter(pk__in=refused)
+    }
     first = readable.get(refused[0])
     if first is None:
         return "It names a record you can’t read any more: take it out of the request first."
-    return (
-        f"{first.hrid} can’t go to {service.name}: its project doesn’t allow sharing its "
-        "entities with other projects, or it came to this one from a request. Take it out "
-        "of the request first."
-    )
+    return f"{services.unshareable(user, first, service)} Take it out of the request first."
 
 
 def _link(user: User, entity: Entity, project: Project, request: Entity) -> None:
@@ -593,18 +601,24 @@ def released(user: User | None, locked: Entity, field: str, state: str, revision
         return
     asking = request.entity.owner_project
     assert asking is not None  # noqa: S101 - a request is a record
-    if ProjectLink.objects.filter(entity=locked, project=asking).exists():
-        return
+    there = ProjectLink.objects.select_for_update().filter(entity=locked, project=asking).first()
+    if there is not None and there.via_request_id == request.entity_id:
+        return  # Released already: a release is told once.
     if not request.service.allow_sharing:
         raise Refused(
             f"{request.service.name} doesn’t allow sharing its entities with other projects, "
             f"so {locked.hrid} can’t go back to {asking.name} (ADR 0067)."
         )
-    ProjectLink.objects.create(
-        entity=locked, project=asking, linked_by=user, via_request=request.entity
-    )
     data = {"request": str(request.entity_id), "request_hrid": request.entity.hrid}
-    log.record("entity.linked", actor=user, target=locked, project=asking, data=data)
+    if there is None:
+        ProjectLink.objects.create(
+            entity=locked, project=asking, linked_by=user, via_request=request.entity
+        )
+        log.record("entity.linked", actor=user, target=locked, project=asking, data=data)
+    else:
+        # Already there some other way: released now, it stays as released results must.
+        there.via_request = request.entity
+        there.save(update_fields=["via_request"])
     log.record(
         "request.result_released",
         actor=user,

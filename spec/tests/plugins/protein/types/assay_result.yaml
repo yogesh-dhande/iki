@@ -12,6 +12,8 @@ fields:
   request: { type: ref, to: AssayRequest, required: true, immutable: true }
   sample: { type: ref, to: Sample }
   purity: { type: float, min: 0, max: 100 }
+  # The instrument's own report, such as a chromatogram.
+  report: { type: file }
   review:
     type: state
     initial: draft
