@@ -1139,13 +1139,25 @@ esac
 "#,
             dir = dir.display()
         );
-        std::fs::write(&script, text).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        fake(&script, &text);
         script
+    }
+
+    /// Writes a script standing in for a tool. A child process writes it, so no thread
+    /// here holds it open for writing when another test's thread forks: running it then
+    /// would fail with "text file busy", and the fake would never run.
+    fn fake(path: &Path, script: &str) {
+        use std::io::Write;
+        let mut writer = Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = writer.stdin.take().unwrap();
+        stdin.write_all(script.as_bytes()).unwrap();
+        drop(stdin);
+        assert!(writer.wait().unwrap().success());
     }
 
     fn setup(dir: &Path, spot: bool) -> (Config, PathBuf, Machine) {
@@ -1201,20 +1213,13 @@ esac
                 "[ -e \"$d/fail_setpriv\" ] && { echo 'Permission denied' >&2; exit 1; }; exit 0",
             ),
         ] {
-            let script = tools.join(name);
-            std::fs::write(
-                &script,
-                format!(
+            fake(
+                &tools.join(name),
+                &format!(
                     "#!/bin/sh\nd='{}'\necho \"{name} $*\" >> \"$d/tools\"\n{body}\n",
                     dir.display()
                 ),
-            )
-            .unwrap();
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-            }
+            );
         }
         tools
     }
