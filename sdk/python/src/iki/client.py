@@ -1499,18 +1499,20 @@ class Runs(_Part):
         single = isinstance(runs, str | Mapping)
         refs = [_ref(runs)] if isinstance(runs, str | Mapping) else [_ref(r) for r in runs]
         deadline = None if timeout is None else time.monotonic() + timeout
+        # A run named twice is followed once, and given back wherever it was named.
+        unique = list(dict.fromkeys(refs))
         done: dict[str, RunOut] = {}
         delay = min(poll, 1.0)
         while True:
-            for ref in refs:
+            for ref in unique:
                 if ref not in done:
                     run = self.get(ref)
                     if run["status"] in FINISHED:
                         done[ref] = run
-            if len(done) == len(refs):
+            if len(done) == len(unique):
                 break
             if deadline is not None and time.monotonic() + delay > deadline:
-                waiting = [r for r in refs if r not in done]
+                waiting = [r for r in unique if r not in done]
                 raise TimedOut(f"Still going after {timeout} s: {', '.join(waiting)}.")
             self._client._sleep(delay)
             delay = min(delay * 1.5, poll)
