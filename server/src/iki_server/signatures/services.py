@@ -28,12 +28,13 @@ from typing import Any
 from allauth.socialaccount.models import SocialAccount
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from iki_server.accounts.models import IdentityProvider, User
 from iki_server.audit import log
 from iki_server.audit.models import AuditEvent
+from iki_server.bundles import keys
 from iki_server.core.ids import uuid7
 from iki_server.entities import requests, states
 from iki_server.entities.models import Entity, Revision, RevisionKind
@@ -42,6 +43,7 @@ from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_server.plugins.models import HistoryChange
 from iki_server.signatures import changes, proof, signing_keys
 from iki_server.signatures.changes import Change, roles_for
 from iki_server.signatures.models import (
@@ -542,6 +544,7 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
     """Checks it all again and signs, under the record's lock; the last of the signatures
     a change needs makes it."""
     user = s.user
+    seen = history_seen()
     locked = (
         Entity.objects.select_for_update(of=("self",))
         .select_related("owner_project")
@@ -567,6 +570,13 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
             "signature.acknowledged", actor=user, target=user, data={"statement": s.acknowledged}
         )
     content_text = canonical_content(locked, s.revision, s.entry_revision)
+    if history_seen() != seen:
+        # A deploy's migration renamed or converted what history holds while this read it:
+        # what was read can't be said to be before it, or after (ADR 0148).
+        raise Failure(
+            "changed",
+            "Iki was updated while you were signing in, so it didn’t sign. Sign again.",
+        )
     key, private = signing_keys.current()
     signed_at = timezone.now()
     signature_id = uuid7()
@@ -635,6 +645,7 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
         key=key.public,
         content=content_text,
         deployment=deployment(),
+        history_seen=seen,
     )
     s.status = Status.SIGNED
     s.signature = signature
@@ -696,19 +707,24 @@ def content_of(
     entity: Entity, revision: int, entry_revision: int | None, *, own: bool = False
 ) -> dict[str, Any]:
     """The record's content at a revision (``proof.content``), from its history tables:
-    every field it has had, as history keeps it, and for a record of a registry entry, the
-    entry's at ``entry_revision``, unless ``own``: the record's own fields only."""
+    every field it has had, as history keeps it, with each quantity's unit, and for a record
+    of a registry entry, the entry's at ``entry_revision``, unless ``own``: the record's own
+    fields only. The entry is the one the record named at that revision: it may have moved
+    to another since, when its entry was superseded (ADR 0115)."""
     from iki_server.bundles.export import _json
+    from iki_server.entities.services import entry_at
     from iki_server.files.models import File
 
     form = shape(entity.type)
+    entry = entry_at(entity, revision, entry_revision) if entity.entry_id is not None else None
     values: dict[str, Any] = {}
+    units: dict[str, str] = {}
     file_ids: set[str] = set()
     for part in form.parts:
         if part.entry:
-            if own or entity.entry_id is None or entry_revision is None:
+            if own or entry is None or entry_revision is None:
                 continue
-            key, at = entity.entry_id, entry_revision
+            key, at = entry
         else:
             key, at = entity.pk, revision
         row = (
@@ -722,6 +738,9 @@ def content_of(
         for name, f in part.fields.items():
             value = _json(row.get(name))
             values[name] = value
+            measured = f.items if f.type == "list" and f.items is not None else f
+            if measured.type == "quantity" and measured.unit:
+                units[name] = measured.unit
             is_file = f.type == "file" or (f.items is not None and f.items.type == "file")
             if is_file and value:
                 file_ids.update(value if isinstance(value, list) else [value])
@@ -737,17 +756,60 @@ def content_of(
         type_name=entity.type,
         revision=revision,
         entry=(
-            {"id": str(entity.entry_id), "revision": entry_revision}
-            if entity.entry_id is not None
+            {"id": str(entry[0]), "revision": entry_revision}
+            if entry is not None and entity.entry_id is not None
             else None
         ),
         values=values,
+        units=units,
         files={str(k): v for k, v in files.items()},
     )
 
 
 def canonical_content(entity: Entity, revision: int, entry_revision: int | None) -> str:
     return proof.canonical(content_of(entity, revision, entry_revision))
+
+
+def history_seen() -> int:
+    """How far plugins' migrations' changes to kept history have got (ADR 0148)."""
+    return int(HistoryChange.objects.aggregate(last=Max("pk"))["last"] or 0)
+
+
+def since(signature: Signature, entity: Entity) -> list[dict[str, Any]]:
+    """What plugins' migrations have done to the record's kept history since ``signature``
+    was signed (ADR 0148), in order: renamed its fields, converted its quantities to other
+    units, renamed its type. For an imported one, what was done where it came from first,
+    as its bundle said. Only changes to the tables the record's fields are in count, as
+    those tables were named then. Raises :class:`proof.Unexplained` for one that this
+    deployment's signing key didn't sign: not a migration's."""
+    rows = list(HistoryChange.objects.filter(pk__gt=signature.history_seen).order_by("-pk"))
+    parts = {p.name for p in shape(entity.type).parts}
+    kept: list[HistoryChange] = []
+    for row in rows:  # newest first, so each is matched to the tables as named then
+        if row.kind == HistoryChange.Kind.RETYPE:
+            named = {_retyped(p, row.to, row.name) for p in parts}
+            if named != parts:
+                kept.append(row)
+                parts = named
+        elif row.part in parts:
+            kept.append(row)
+    if kept:
+        own = signing_keys.mine()
+        for row in kept:
+            if row.key not in own or not keys.verify(row.key, bytes(row.signature), row.signed()):
+                raise proof.Unexplained(
+                    f"a change to its history recorded since ({row.kind} of `{row.name}`) "
+                    "isn’t signed by this deployment’s key, as a migration’s is."
+                )
+    return [*(signature.migrated or []), *(r.change() for r in reversed(kept))]
+
+
+def _retyped(part: str, new: str, old: str) -> str:
+    """A part's name (``acme/lab.Sample``, ``acme/lims:acme/lab.Sample#entry``) before its
+    type ``old`` was renamed ``new``."""
+    named, hash_, entry = part.partition("#")
+    plugin, colon, of = named.rpartition(":")
+    return f"{plugin}{colon}{old if of == new else of}{hash_}{entry}"
 
 
 # --- Withdrawing --------------------------------------------------------------------------------
@@ -951,20 +1013,28 @@ def _record_check(signature: Signature, entity: Entity) -> proof.Check:
     if signature.bundle_import_id is not None:
         return _imported_check(signature, entity)
     try:
-        now = canonical_content(entity, signature.revision, signature.entry_revision)
-    except LookupError:
-        now = ""
-    if now == signature.content:
-        return proof.Check(
-            "record",
-            True,
-            f"{entity.hrid}’s revision {signature.revision} still holds what was signed.",
+        now: dict[str, Any] | None = content_of(
+            entity, signature.revision, signature.entry_revision
         )
+    except LookupError:
+        now = None
     try:
-        changed = proof.differences(json.loads(signature.content), json.loads(now) if now else {})
-    except ValueError:
-        changed = []
-    return _changed(signature, entity, changed)
+        changes = since(signature, entity)
+        then = proof.migrated(json.loads(signature.content), changes)
+    except proof.Unexplained as unexplained:
+        return _changed(signature, entity, [], str(unexplained))
+    except (ValueError, TypeError, KeyError):
+        return _changed(signature, entity, [])
+    if now is not None and proof.canonical(then) == proof.canonical(now):
+        return proof.Check("record", True, _holds(signature, entity, changes))
+    return _changed(signature, entity, proof.differences(then, now or {}))
+
+
+def _holds(signature: Signature, entity: Entity, changes: list[dict[str, Any]]) -> str:
+    said = f"{entity.hrid}’s revision {signature.revision} still holds what was signed"
+    if not changes:
+        return said + "."
+    return f"{said}, as plugins’ migrations have kept it since: {proof.described(changes)}."
 
 
 def _imported_check(signature: Signature, entity: Entity) -> proof.Check:
@@ -973,10 +1043,13 @@ def _imported_check(signature: Signature, entity: Entity) -> proof.Check:
     signature and its content's SHA-256 alone: this registry keeps its own history of the
     entry, with its own revisions."""
     try:
-        signed = json.loads(signature.content)
+        changes = since(signature, entity)
+        signed = proof.migrated(json.loads(signature.content), changes)
         now = content_of(entity, signature.revision, signature.entry_revision, own=True)
         entry_fields = {n for p in shape(entity.type).parts if p.entry for n in p.fields}
-    except (ValueError, LookupError):
+    except proof.Unexplained as unexplained:
+        return _changed(signature, entity, [], str(unexplained))
+    except (ValueError, TypeError, KeyError, LookupError):
         return _changed(signature, entity, [])
     renamed: dict[str, str] = signature.renamed or {}
 
@@ -986,21 +1059,18 @@ def _imported_check(signature: Signature, entity: Entity) -> proof.Check:
         return renamed.get(value, value) if isinstance(value, str) else value
 
     values = {k: here(v) for k, v in signed.get("values", {}).items() if k not in entry_fields}
+    units = {k: u for k, u in signed.get("units", {}).items() if k in values}
     named = _strings(values)
     files = {k: v for k, v in signed.get("files", {}).items() if k in named}
-    if values == now["values"] and files == now["files"]:
-        return proof.Check(
-            "record",
-            True,
-            f"{entity.hrid}’s revision {signature.revision} still holds what was signed"
-            + (
-                "; its entry’s values signed are bound by the signature alone, since this registry "
-                "keeps its own history of the entry."
-                if entry_fields and entity.entry_id
-                else "."
-            ),
-        )
-    return _changed(signature, entity, proof.differences({"values": values}, now))
+    if values == now["values"] and units == now["units"] and files == now["files"]:
+        said = _holds(signature, entity, changes)
+        if entry_fields and entity.entry_id:
+            said = (
+                said[:-1] + "; its entry’s values signed are bound by the signature alone, "
+                "since this registry keeps its own history of the entry."
+            )
+        return proof.Check("record", True, said)
+    return _changed(signature, entity, proof.differences({"values": values, "units": units}, now))
 
 
 def _strings(value: Any) -> set[str]:  # noqa: ANN401 - JSON
@@ -1013,12 +1083,16 @@ def _strings(value: Any) -> set[str]:  # noqa: ANN401 - JSON
     return set()
 
 
-def _changed(signature: Signature, entity: Entity, changed: list[str]) -> proof.Check:
+def _changed(
+    signature: Signature, entity: Entity, changed: list[str], why: str = ""
+) -> proof.Check:
     return proof.Check(
         "record",
         False,
         f"{entity.hrid}’s revision {signature.revision} no longer holds what was signed"
-        + (f": {_and([f'`{c}`' for c in changed])} changed." if changed else ".")
+        + (f": {why}" if why else "")
+        + (f": {_and([f'`{c}`' for c in changed])} changed." if changed and not why else "")
+        + ("" if why or changed else ".")
         + " Its history was changed outside Iki.",
     )
 

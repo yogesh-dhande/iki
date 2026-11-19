@@ -18,6 +18,9 @@ type's history:
 - When a quantity's unit changes, the migration converts the stored values,
   current and historical (``ConvertUnit``).
 - When a type is renamed, the migration renames it in ``iki_entity.type``.
+- What a migration does to kept history (a field renamed, a quantity converted, a type
+  renamed) it records, so signatures made before still read what they signed
+  (``RecordRename``, and ``ConvertUnit`` and ``RenameEntityType`` themselves, ADR 0148).
 - A new history table is made append-only for every role (``AppendOnly``).
 - A state field's states (ADR 0125) are kept: a state that disappears is
   refused unless the manifest marks it removed and says where its records
@@ -118,6 +121,7 @@ def _autodetector() -> type:
     from iki_server.plugins.operations import (
         AppendOnly,
         ConvertUnit,
+        RecordRename,
         RenameEntityType,
         RenameStateField,
         RetireStateField,
@@ -125,6 +129,8 @@ def _autodetector() -> type:
     )
 
     state_ops = (SyncStates, RetireStateField, RenameStateField)
+    #: Operations that record what they do to kept history (ADR 0148).
+    recording = (ConvertUnit, RecordRename, RenameEntityType)
 
     class PluginAutodetector(MigrationAutodetector):
         def __init__(
@@ -152,6 +158,9 @@ def _autodetector() -> type:
                     if any(isinstance(op, state_ops) for op in operations):
                         # State changes' revision columns, and iki_entity.locked_by.
                         needs.append(("iki_entities", "0012_states"))
+                    if any(isinstance(op, recording) for op in operations):
+                        # Where they record it.
+                        needs.append(("iki_plugins", "0006_history_changes"))
                     if any(_uses_trigrams(op) for op in operations):
                         # Trigram indexes need pg_trgm.
                         needs.append(("iki_entities", "0004_search"))
@@ -199,6 +208,15 @@ def _autodetector() -> type:
                     self.to_state, app_label, op.model_name, op.new_name
                 ):
                     out.append(RenameStateField(op.model_name, op.old_name, op.new_name))
+                if isinstance(op, migrations.RenameField) and _is_history(op.model_name):
+                    out.append(
+                        RecordRename(
+                            op.model_name,
+                            op.old_name,
+                            op.new_name,
+                            part=_part(app_label, op.model_name),
+                        )
+                    )
                 if isinstance(op, migrations.AlterField):
                     old = self.from_state.models[app_label, op.model_name.lower()].fields[op.name]
                     if isinstance(old, StateField) or isinstance(op.field, StateField):
@@ -302,6 +320,10 @@ def _autodetector() -> type:
                 return None
             owner = self._describe(app_label, op.model_name, self.from_state)
             scale, offset = _linear_conversion(before, after, f"`{op.name}` of {owner}")
+            if _is_history(op.model_name):
+                # Recorded, for signatures of what history held before (ADR 0148).
+                part = _part(app_label, op.model_name)
+                return ConvertUnit(op.model_name, op.name, before, after, scale, offset, part=part)
             return ConvertUnit(op.model_name, op.name, before, after, scale, offset)
 
     return PluginAutodetector
@@ -381,6 +403,20 @@ def _is_plugin(app_label: str) -> bool:
 
 def _is_history(model_name: str) -> bool:
     return model_name.lower().endswith(HISTORY)
+
+
+def _part(app_label: str, history_model: str) -> str:
+    """The part of a type a history table holds, as the type's shape names it
+    (``entities.values.Part.name``): ``acme/lab.Sample``, its registry entries'
+    ``acme/lab.Sample#entry``, or the fields a plugin adds, ``acme/lims:acme/lab.Sample``.
+    From the generated models being migrated to."""
+    from django.apps import apps
+
+    model = apps.get_model(app_label, history_model)
+    model = apps.get_model(app_label, model.IKI_HISTORY_OF)
+    extends = getattr(model, "IKI_EXTENDS", None)
+    name = f"{_plugin(app_label)}:{extends}" if extends else str(model.IKI_TYPE)
+    return name + ("#entry" if getattr(model, "IKI_ENTRY", False) else "")
 
 
 def _is_derived(model_name: str) -> bool:

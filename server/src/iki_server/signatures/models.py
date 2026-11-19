@@ -129,6 +129,13 @@ class Signature(models.Model):
     #: For an imported one: the registry entries its content names by their IDs where it
     #: was signed, by their IDs here, where those differ.
     renamed = models.JSONField(default=dict, blank=True)
+    #: How far migrations' changes to kept history (``iki_history_change``) had got here
+    #: when it was signed, or imported: those after it are what its record's history is read
+    #: through (ADR 0148).
+    history_seen = models.PositiveBigIntegerField(default=0)
+    #: For an imported one: what migrations where it came from had done to its record's
+    #: history since it was signed, as its bundle said (ADR 0148).
+    migrated = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "iki_signature"

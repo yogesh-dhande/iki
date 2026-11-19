@@ -22,10 +22,12 @@ from django.db.backends.utils import CursorWrapper
 from psycopg import sql
 
 #: Tables the app may only read, whatever is installed. The graph's edges are written only
-#: by their triggers, which are the migrator's (ADR 0123).
+#: by their triggers, which are the migrator's (ADR 0123); what migrations did to kept
+#: history, only by migrations (ADR 0148).
 READ_ONLY_TABLES = (
     "django_migrations",
     "iki_graph_edge",
+    "iki_history_change",
     "iki_plugin_migration",
     "iki_plugin_state",
 )

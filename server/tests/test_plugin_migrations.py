@@ -1393,6 +1393,8 @@ def test_the_app_can_only_read_the_kept_copies() -> None:
     from iki_server.core import db_roles
 
     assert "iki_plugin_migration" in db_roles.READ_ONLY_TABLES
+    # Nor what migrations did to kept history (ADR 0148).
+    assert "iki_history_change" in db_roles.READ_ONLY_TABLES
 
 
 # --- Guards while a deploy migrates (ADR 0134) ---------------------------------------------------

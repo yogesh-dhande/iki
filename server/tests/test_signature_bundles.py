@@ -91,6 +91,42 @@ def test_offline_verification_finds_changed_history(world: World, tmp_path: Path
     assert "content" in [c.name for c in offline._one(swapped, keys, None, {}).checks if not c.ok]
 
 
+def test_offline_verification_reads_history_through_the_migrations_since(
+    world: World, tmp_path: Path
+) -> None:
+    """ADR 0148: a bundle's history is its records' as kept when it was exported, and each
+    signature says what plugins' migrations did to it since it was signed."""
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    bundle = reading.read(path, TRUSTED, limit=1024**3)
+    [record] = bundle.lines("entities.ndjson")
+    line = next(bundle.lines("signatures.ndjson"))
+    assert line["since"] == []
+    keys = {k["key"]: k["deployment"] for k in bundle.manifest["signing_keys"]}
+    # As a migration renaming `label` to `title` leaves it.
+    for h in record["history"]:
+        h["values"]["title"] = h["values"].pop("label")
+    renamed = {"kind": "rename", "plugin": "acme/protein", "at": "2026-11-18"}
+    renamed |= {"from": "label", "to": "title"}
+    assert [c.name for c in offline._one(line, keys, record, {}).checks if not c.ok] == ["record"]
+    found = offline._one({**line, "since": [renamed]}, keys, record, {})
+    assert found.valid, found.checks
+    [check] = [c for c in found.checks if c.name == "record"]
+    assert check.detail.endswith(
+        "as plugins' migrations have kept it since: `label` renamed `title`."
+    )
+    # Changed after it: caught.
+    for h in record["history"]:
+        h["values"]["title"] = "LOT Z"
+    found = offline._one({**line, "since": [renamed]}, keys, record, {})
+    assert [c.name for c in found.checks if not c.ok] == ["record"]
+    # A conversion of what was signed with no unit doesn't follow from it.
+    converted: dict[str, Any] = {"kind": "convert", "plugin": "acme/protein", "at": "2026-11-18"}
+    converted |= {"field": "label", "from_unit": "g", "to_unit": "mg", "scale": 1e3, "offset": 0.0}
+    found = offline._one({**line, "since": [converted]}, keys, record, {})
+    [check] = [c for c in found.checks if not c.ok]
+    assert "`label` was signed in no unit, but a migration converted it from g" in check.detail
+
+
 def test_the_bundle_command_reports_json(world: World, tmp_path: Path) -> None:
     path = bundle_of(world, tmp_path, lambda: signed_lot(world))
     out = io.StringIO()

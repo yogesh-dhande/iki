@@ -1507,6 +1507,67 @@
           "type": "string",
           "maxLength": 67108864
         },
+        "since": {
+          "description": "What plugins' migrations did to its record's history after it was signed, in order (ADR 0148): a field renamed, a quantity converted to another unit (`new = old * scale + offset`), the type renamed. `iki bundle verify` does each to `content` before checking it against the bundle's history. Nothing, if absent.",
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["kind", "plugin", "at", "from", "to"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "enum": ["rename", "retype"] },
+                  "plugin": {
+                    "description": "The plugin whose migration did it.",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "at": {
+                    "description": "The day it did, UTC.",
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "from": { "type": "string", "minLength": 1, "maxLength": 255 },
+                  "to": { "type": "string", "minLength": 1, "maxLength": 255 }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "plugin",
+                  "at",
+                  "field",
+                  "from_unit",
+                  "to_unit",
+                  "scale",
+                  "offset"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "const": "convert" },
+                  "plugin": {
+                    "description": "The plugin whose migration did it.",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "at": {
+                    "description": "The day it did, UTC.",
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "field": { "type": "string", "minLength": 1, "maxLength": 255 },
+                  "from_unit": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "to_unit": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "scale": { "type": "number" },
+                  "offset": { "type": "number" }
+                }
+              }
+            ]
+          }
+        },
         "withdrawn": {
           "description": "Its signer took it back before the state it signed for was set.",
           "anyOf": [
