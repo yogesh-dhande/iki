@@ -241,6 +241,45 @@ def test_projects_show_your_role_and_filter(world: World) -> None:
     assert admin.get("/projects", member=True).json()["items"] == []
 
 
+def _projects_with(world: World, count: int) -> None:
+    """``count`` more projects, which "mixed" is in by their own grant and by their team's,
+    with a lab role from one."""
+    from iki_server.org.models import LabRoleGrant, ProjectMembership
+
+    start = Project.objects.count()
+    for n in range(start, start + count):
+        p = Project.objects.create(team=world.other_team, name=f"Screen {n:03}")
+        mine = ProjectMembership.objects.create(
+            project=p, user=world.users["mixed"], role=ProjectRole.VIEWER
+        )
+        ProjectMembership.objects.create(project=p, team=world.other_team, role=ProjectRole.EDITOR)
+        LabRoleGrant.objects.create(membership=mine, role="iki/example.qa")
+
+
+def _queries_listing(world: World, principal: str) -> int:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    api = api_as(world, principal)
+    api.get("/me")  # signs the session in before counting
+    with CaptureQueriesContext(connection) as queries:
+        answer = api.get("/projects", limit=100)
+    assert answer.status_code == 200, answer.content
+    return len(queries)
+
+
+@pytest.mark.parametrize("principal", ["mixed", "org_admin"])
+def test_a_page_of_projects_takes_as_many_queries_however_many_it_holds(
+    world: World, principal: str
+) -> None:
+    """What the caller may do in each project, their role and their lab roles there, are
+    decided for the whole page at once."""
+    _projects_with(world, 2)
+    few = _queries_listing(world, principal)
+    _projects_with(world, 40)
+    assert _queries_listing(world, principal) == few
+
+
 def test_archived_projects_are_restored_before_changes(world: World) -> None:
     api = api_as(world, "admin")
     path = f"/projects/{world.archived.pk}"

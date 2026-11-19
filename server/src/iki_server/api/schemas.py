@@ -290,6 +290,9 @@ class ProjectOut(Schema):
 def _has_entities(project: Project) -> bool:
     from iki_server.entities.models import Entity
 
+    known: bool | None = getattr(project, "has_entities", None)  # a list's annotation
+    if known is not None:
+        return known
     return Entity.objects.filter(owner_project=project).exists()
 
 

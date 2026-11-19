@@ -552,6 +552,7 @@ def open_work(
     """A page of records open to ``user``'s lab roles: an assignment field limited to a role
     they hold in its project counts in its states, and names nobody who could be named."""
     readable = list(access.readable_projects(user))
+    permissions.remember_roles(user, readable)
     held = {p.pk: permissions.lab_roles(user, p) for p in readable}
 
     def open_to_me(type_name: str, form: Shape) -> tuple[Q, list[Assignment]]:

@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Exists, OuterRef, QuerySet
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Status
 
@@ -24,6 +24,7 @@ from iki_server.api.schemas import (
     TeamRef,
     parse_role,
 )
+from iki_server.entities.models import Entity
 from iki_server.org import lab_roles, permissions, registries, services
 from iki_server.org.models import (
     PROJECT_ROLE_DESCRIPTIONS,
@@ -88,7 +89,8 @@ def list_lab_roles(request: HttpRequest) -> list[dict[str, Any]]:
 
 @router.get("/projects", response=Page[ProjectOut], summary="Projects you can see")
 def list_projects(request: HttpRequest, filters: Query[ProjectFilters]) -> dict[str, Any]:
-    projects: QuerySet[Project] = permissions.visible_projects(caller(request))
+    me = caller(request)
+    projects: QuerySet[Project] = permissions.visible_projects(me)
     if filters.team:
         projects = projects.filter(team_id=filters.team)
     if filters.slug:
@@ -97,7 +99,15 @@ def list_projects(request: HttpRequest, filters: Query[ProjectFilters]) -> dict[
         projects = projects.filter(archived_at__isnull=not filters.archived)
     if filters.member is not None:
         projects = projects.filter(my_role__isnull=not filters.member)  # type: ignore[misc]
-    return page(projects, filters)
+    if permissions.can(me, Action.REGISTRIES_MANAGE):
+        # Whether each may still move to another registry.
+        projects = projects.annotate(
+            has_entities=Exists(Entity.objects.filter(owner_project=OuterRef("pk")))
+        )
+    found = page(projects, filters)
+    # What the caller may do in each, decided for the whole page at once.
+    permissions.remember_roles(me, found["items"])
+    return found
 
 
 @router.post("/projects", response={201: ProjectOut}, summary="Create a project")

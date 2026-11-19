@@ -421,6 +421,41 @@ def test_only_a_role_holder_takes_open_work(world: World) -> None:
     assert problem(again, 409, "refused")["detail"].endswith("someone has it.")
 
 
+def _open_work_queries(world: World, projects: int) -> int:
+    """How many queries the viewer's open work takes, once they're in ``projects`` more
+    projects, holding the analyst's lab role in each by their own grant and their team's."""
+    from django.test.utils import CaptureQueriesContext
+
+    from iki_server.org.models import LabRoleGrant
+
+    team = world.users["viewer"].team_memberships.first()
+    for n in range(projects):
+        p = Project.objects.create(team=world.team, name=f"Lab {Project.objects.count()}-{n}")
+        mine = ProjectMembership.objects.create(
+            project=p, user=world.users["viewer"], role=ProjectRole.VIEWER
+        )
+        LabRoleGrant.objects.create(membership=mine, role=ANALYST)
+        if team is not None:
+            theirs = ProjectMembership.objects.create(
+                project=p, team=team.team, role=ProjectRole.VIEWER
+            )
+            LabRoleGrant.objects.create(membership=theirs, role=ANALYST)
+    with CaptureQueriesContext(connection) as queries:
+        found = work(world, "viewer", open_=True)
+    assert len(found) == 1
+    return len(queries)
+
+
+def test_open_work_takes_as_many_queries_however_many_projects_its_reader_is_in(
+    world: World,
+) -> None:
+    """Their lab roles in every project they read are looked up at once."""
+    roles(world, viewer=(ANALYST,))
+    made(world)
+    few = _open_work_queries(world, 1)
+    assert _open_work_queries(world, 40) == few
+
+
 # --- Reassigning many ---------------------------------------------------------------------------
 
 

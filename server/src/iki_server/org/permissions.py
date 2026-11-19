@@ -38,6 +38,7 @@ others. A token the person gave only some projects takes no action beyond
 them: none on the organization, its teams or its registries (ADR 0152).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -352,6 +353,47 @@ def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
         )
         cache[project.pk] = frozenset(held) & catalog.declared().keys()
     return cache[project.pk]
+
+
+def remember_roles(user: Any, projects: Iterable[Project]) -> None:  # noqa: ANN401
+    """Looks up the user's project roles and lab roles in all these projects at once, so
+    deciding what they may do in each makes no more queries: two queries however many
+    projects there are, where asking project by project makes two for each. A token's agent
+    (ADR 0073), whose roles every decision also asks, is looked up the same way."""
+    ids = {p.pk for p in projects}
+    limits = token_limits(user)
+    people = [user] if limits is None or limits.alongside is None else [user, limits.alongside]
+    for person in people:
+        if not _active(person) or not ids:
+            continue
+        roles = person.__dict__.setdefault("_iki_project_roles", {})
+        unknown = ids - roles.keys()
+        if unknown:
+            best = dict(
+                ProjectMembership.objects.filter(project_id__in=unknown)
+                .filter(_grants_for(person))
+                .order_by()
+                .values("project_id")
+                .annotate(best=Max("role"))
+                .values_list("project_id", "best")
+            )
+            for pk in unknown:
+                roles[pk] = ProjectRole(best[pk]) if pk in best else None
+        held = person.__dict__.setdefault("_iki_lab_roles", {})
+        unknown = {pk for pk in ids if roles[pk] is not None} - held.keys()
+        if unknown:
+            from iki_server.org import lab_roles as catalog
+
+            found: dict[Any, set[str]] = {pk: set() for pk in unknown}
+            for pk, role in (
+                LabRoleGrant.objects.filter(membership__project_id__in=unknown)
+                .filter(Q(membership__user=person) | Q(membership__team__memberships__user=person))
+                .values_list("membership__project_id", "role")
+            ):
+                found[pk].add(role)
+            declared = catalog.declared().keys()
+            for pk, names in found.items():
+                held[pk] = frozenset(names) & declared
 
 
 def holders_of(project: Project, role: str) -> QuerySet[Any]:
