@@ -9,10 +9,17 @@ operators can point Iki at any OTLP collector without Iki-specific settings:
 - ``OTEL_SERVICE_NAME`` defaults to ``iki-server``.
 - ``OTEL_RESOURCE_ATTRIBUTES`` adds resource attributes.
 - ``OTEL_SDK_DISABLED=true`` turns telemetry off entirely.
+
+A request's span keeps its query string's parameter names, never their
+values: those can be sign-in codes and state, email addresses in SCIM
+filters, or what someone searched for. The access log leaves query strings
+out altogether.
 """
 
 import os
 from dataclasses import dataclass
+from typing import Any
+from urllib.parse import parse_qsl, quote
 
 from opentelemetry import metrics, trace
 from opentelemetry.instrumentation.django import DjangoInstrumentor
@@ -22,6 +29,7 @@ from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetr
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Span
 
 DEFAULT_SERVICE_NAME = "iki-server"
 
@@ -31,6 +39,34 @@ EXCLUDED_URLS = "healthz/"
 
 
 HEALTH_MIDDLEWARE = "iki_server.health.HealthCheckMiddleware"
+
+#: Span attributes that can hold a request's query string, in the stable HTTP conventions
+#: and the older ones (``OTEL_SEMCONV_STABILITY_OPT_IN=http/dup``).
+QUERY_ATTRIBUTES = ("url.query", "url.full", "http.url", "http.target")
+REDACTED = "REDACTED"
+
+
+def redacted_query(query: str) -> str:
+    """``query`` with every value replaced, and its parameter names kept."""
+    pairs = parse_qsl(query, keep_blank_values=True)
+    return "&".join(f"{quote(name, safe='')}={REDACTED}" for name, _ in pairs)
+
+
+def redact_query(span: Span, request: Any) -> None:  # noqa: ANN401 - Django's request
+    """The Django instrumentation's request hook: it runs after the request's attributes are
+    set, so no query value reaches an exporter."""
+    if not span.is_recording():
+        return
+    attributes = getattr(span, "attributes", None) or {}
+    for key in QUERY_ATTRIBUTES:
+        value = attributes.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        if key == "url.query":
+            span.set_attribute(key, redacted_query(value))
+        elif "?" in value:
+            before, _, query = value.partition("?")
+            span.set_attribute(key, f"{before}?{redacted_query(query.partition('#')[0])}")
 
 
 def _keep_health_checks_first() -> None:
@@ -120,6 +156,7 @@ def configure_telemetry(
         tracer_provider=tracer_provider,
         meter_provider=meter_provider,
         excluded_urls=EXCLUDED_URLS,
+        request_hook=redact_query,
     )
     _keep_health_checks_first()
     PsycopgInstrumentor().instrument(
