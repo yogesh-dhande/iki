@@ -86,6 +86,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "acme/protein.measure_purity",
         "acme/protein.predict_hosted",
         RELAX,
+        "acme/protein.schedule_request",
     ]
     predict, _, _, _, compute, *_ = actions
     assert compute["tier"] == "backend"

@@ -398,6 +398,61 @@ def test_each_side_changes_only_its_own_fields(lab: Lab) -> None:
     )
 
 
+SCHEDULE = "acme/protein.schedule_request"
+
+
+def schedule(lab: Lab, who: str, project: Project, ref: str) -> Any:
+    """Launches the service's planning action, which writes the request's service fields."""
+    from iki_server.runs import catalog
+
+    catalog.compute.cache_clear()
+    return lab.api(who).post(
+        f"/actions/{SCHEDULE}/runs",
+        {"project": str(project.pk), "inputs": {"request": [ref]}},
+    )
+
+
+def test_a_run_changes_a_request_only_as_its_own_projects_side(lab: Lab) -> None:
+    """A run writes as the project it runs in, alone (ADR 0132): it's launched only if the
+    fields it changes are that side's, whoever launches it and whichever sides they're on,
+    not refused once it has run."""
+    from iki_server.runs.models import ActionRun
+
+    unsent = ask(lab)
+    refused = problem(
+        schedule(lab, "editor", lab.world.project, unsent["id"]), 422, "validation_failed"
+    )
+    assert refused["errors"] == [
+        {
+            "pointer": "#/inputs/request",
+            "detail": f"This action changes `core_notes` and `scheduled_on` of "
+            f"{unsent['hrid']}, the service's once it's sent: a run in the project it's sent "
+            "to changes them, not one in Kinase Atlas.",
+        }
+    ]
+    takes(lab)
+    ref = unsent["id"]
+    assert submit(lab, ref).status_code == 200
+    side = (
+        f"This action changes `core_notes` and `scheduled_on` of {unsent['hrid']}, Protein "
+        "Core's side of the request: a run in Protein Core changes them, not one in Kinase Atlas."
+    )
+    refused = problem(schedule(lab, "editor", lab.world.project, ref), 422, "validation_failed")
+    assert refused["errors"] == [{"pointer": "#/inputs/request", "detail": side}]
+    # On both sides, an Editor of each: still the side of the project the run is in.
+    _member(lab.core, lab.users["editor"], ProjectRole.EDITOR)
+    refused = problem(schedule(lab, "editor", lab.world.project, ref), 422, "validation_failed")
+    assert refused["errors"] == [{"pointer": "#/inputs/request", "detail": side}]
+    # Someone of the service alone can't launch in the asking project, nor see it.
+    problem(schedule(lab, "tech", lab.world.project, ref), 404, "not_found")
+    assert not ActionRun.objects.exists()
+
+    for who in ("tech", "editor"):
+        launched = schedule(lab, who, lab.core, ref)
+        assert launched.status_code == 201, launched.content
+    assert ActionRun.objects.filter(project=lab.core).count() == 2
+
+
 def test_each_side_sets_its_own_states_with_its_own_lab_roles(lab: Lab) -> None:
     made = sent(lab)
     ref = made["id"]

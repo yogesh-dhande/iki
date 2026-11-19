@@ -132,9 +132,10 @@ def may_cancel(user: User, run: WorkflowRun) -> bool:
     ) and permissions.can(user, permissions.Action.PROJECT_READ, run.project)
 
 
-def _updated_inputs(of: Workflow, steps: Mapping[str, Action | None]) -> set[str]:
-    """The workflow's inputs some step changes: they must be ones the starter can edit."""
-    out: set[str] = set()
+def _updated_inputs(of: Workflow, steps: Mapping[str, Action | None]) -> dict[str, set[str]]:
+    """The workflow's inputs some step changes, each with the fields its steps change: they
+    must be ones the starter can edit, in those fields."""
+    out: dict[str, set[str]] = {}
     for step_id, step in of.steps.items():
         action = steps.get(step_id)
         if action is None:
@@ -142,7 +143,7 @@ def _updated_inputs(of: Workflow, steps: Mapping[str, Action | None]) -> set[str
         for update in action.updates:
             root = _root(of, step.inputs.get(update.input, ""))
             if root is not None:
-                out.add(root)
+                out.setdefault(root, set()).update(update.fields)
     return out
 
 
@@ -177,7 +178,9 @@ def start(
     may_start(user, of, project)
     steps = actions(of)
     errors: dict[str, list[str]] = {}
-    entities = services.check_inputs(user, of, inputs, errors, updated=_updated_inputs(of, steps))
+    entities = services.check_inputs(
+        user, of, project, inputs, errors, updated=_updated_inputs(of, steps)
+    )
     values = services.check_params(user, of, project, params, errors)
     if errors:
         raise Invalid(errors)
@@ -289,7 +292,9 @@ def rerun(
     for each in WorkflowInput.objects.filter(workflow=original).order_by("name", "position"):
         given.setdefault(each.name, []).append(each.entity_id)
     errors: dict[str, list[str]] = {}
-    entities = services.check_inputs(user, of, given, errors, updated=_updated_inputs(of, steps))
+    entities = services.check_inputs(
+        user, of, project, given, errors, updated=_updated_inputs(of, steps)
+    )
     values = services.check_params(user, of, project, original.params, errors)
     if errors:
         raise Invalid(errors)

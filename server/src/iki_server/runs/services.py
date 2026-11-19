@@ -19,7 +19,7 @@ the person it acts for to approve it (:mod:`iki_server.runs.approvals`).
 from __future__ import annotations
 
 import secrets
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 from uuid import UUID
@@ -31,7 +31,7 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import access, hrids, registry, states
+from iki_server.entities import access, hrids, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Refs, to_db
@@ -69,7 +69,7 @@ from iki_server.runs.models import (
     RunStatus,
     WorkflowRun,
 )
-from iki_spec.model import Action, Workflow, action_from_dict
+from iki_spec.model import Action, Updates, Workflow, action_from_dict
 from iki_spec.validate import value_problems
 
 __all__ = [
@@ -196,7 +196,7 @@ def launch(
     may_launch(user, action, project)
     wanted = launch_labels(action, labels)
     errors: dict[str, list[str]] = {}
-    entities = check_inputs(user, action, inputs, errors)
+    entities = check_inputs(user, action, project, inputs, errors)
     values = check_params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
@@ -273,7 +273,7 @@ def launch_each(
         errors["entities"] = ["Each entity can be given once."]
     if errors:
         raise Invalid(errors)
-    entities = check_inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
+    entities = check_inputs(user, action, project, {**inputs, each: entity_ids}, errors, each=each)
     values = check_params(user, action, project, params, errors)
     if f"inputs/{each}" in errors:
         errors["entities"] = errors.pop(f"inputs/{each}")
@@ -709,21 +709,24 @@ def reproduce(
 def check_inputs(
     user: User,
     action: Action | Workflow,
+    project: Project,
     given: Mapping[str, Sequence[UUID]],
     errors: dict[str, list[str]],
     *,
     each: str | None = None,
-    updated: set[str] | None = None,
+    updated: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, list[Entity]]:
-    """The entities for each input, checked; problems go in `errors`. The `each` input is
-    one entity per run: it may be given several. Those of `updated` inputs (by default, the
-    action's) must be ones the user can edit."""
+    """The entities for each input of a run in `project`, checked; problems go in `errors`.
+    The `each` input is one entity per run: it may be given several. Those of `updated`
+    inputs (by default, the action's), each with the fields it changes, must be ones the
+    user can edit as `project`: a run writes as its own project alone, so a request sent
+    between projects (ADR 0132) only in the fields of the side that project is."""
     for name in sorted(given.keys() - action.inputs.keys()):
         errors[f"inputs/{name}"] = [f"`{action.qualified_name}` has no input `{name}`."]
     wanted = {i for name in action.inputs for i in given.get(name, ())}
     found = {e.pk: e for e in access.visible(user).filter(pk__in=wanted)}
     if updated is None:
-        updated = {u.input for u in action.updates} if isinstance(action, Action) else set()
+        updated = updated_fields(action.updates) if isinstance(action, Action) else {}
     out: dict[str, list[Entity]] = {}
     for name, put in action.inputs.items():
         key = f"inputs/{name}"
@@ -752,10 +755,15 @@ def check_inputs(
                 problems.append(f"{entity.hrid} is archived.")
             elif not is_a(entity.type, put.type):
                 problems.append(f"{entity.hrid} is a {entity.type}, not a {put.type}.")
-            elif name in updated and not access.can_edit(user, entity):
+            elif name in updated and not access.can_edit(user, entity, acting_in=project):
                 problems.append(
                     f"This action changes {entity.hrid}, and you can't edit it in its project."
+                    if requests.spec_of(entity.type) is None
+                    else f"This action changes {entity.hrid}, and you can't edit it as "
+                    f"{project.name}."
                 )
+            elif name in updated and (side := _other_side(user, entity, project, updated[name])):
+                problems.append(side)
             elif name in updated and (why := states.locked_why(entity)):
                 problems.append(f"This action changes it, but {why}")
             chosen.append(entity)
@@ -764,6 +772,42 @@ def check_inputs(
         else:
             out[name] = chosen
     return out
+
+
+def updated_fields(updates: Iterable[Updates]) -> dict[str, set[str]]:
+    """The fields each input's entities have changed by `updates`, by input."""
+    out: dict[str, set[str]] = {}
+    for update in updates:
+        out.setdefault(update.input, set()).update(update.fields)
+    return out
+
+
+def _other_side(user: User, entity: Entity, project: Project, fields: Iterable[str]) -> str:
+    """Why a run in `project` can't change these fields of a request (ADR 0132): they're
+    the other side's, which only a run in that side's project writes. Empty for another
+    record, or when it can."""
+    if requests.spec_of(entity.type) is None:
+        return ""
+    request = requests.of(entity)
+    allowed = requests.sides(user, entity, request, acting_in=project)
+    refused = requests.refused_fields(entity, sorted(fields), allowed, request)
+    if not refused:
+        return ""
+    theirs = [n for n in refused if requests.is_service_field(entity.type, n)]
+    quoted = [f"`{n}`" for n in sorted(refused)]
+    listed = quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " and " + quoted[-1]
+    them = "it" if len(quoted) == 1 else "them"
+    if theirs and request is None:
+        return (
+            f"This action changes {listed} of {entity.hrid}, the service's once it's sent: "
+            f"a run in the project it's sent to changes {them}, not one in {project.name}."
+        )
+    owner = request.service if theirs and request is not None else entity.owner_project
+    assert owner is not None  # noqa: S101 - a request has a project
+    return (
+        f"This action changes {listed} of {entity.hrid}, {owner.name}'s side of the "
+        f"request: a run in {owner.name} changes {them}, not one in {project.name}."
+    )
 
 
 def is_a(entity_type: str, wanted: str) -> bool:
