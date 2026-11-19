@@ -6,7 +6,9 @@
                                               # notification and its email, SCIM
                                               # provisioning, the API, webhooks,
                                               # the DNA plugin's actions on the
-                                              # cluster's worker, OAuth, and SAML
+                                              # cluster's worker, a model behind
+                                              # an outside API (the fake
+                                              # FoldCloud), OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -1568,6 +1570,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
         f"iki/protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
     )
+    foldcloud(alice, project, protein)
     chains = aligned(alice, project)
     reads_on_protein(alice, project, chains[1])
     aligned_many(alice, project, chains)
@@ -1577,6 +1580,101 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     structures(alice, project)
     alphafold(alice, project)
     antibodies(alice, project)
+
+
+#: The example models plugin's outside API (plugins/example_models), and where the dev
+#: cluster's settings point it: the fake FoldCloud (manifests/fake-foldcloud.yaml).
+FOLDCLOUD = "iki/example_models.foldcloud"
+FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
+#: What deploy/dev/compute.yaml charges for its calls, in USD: per call, and per GPU second
+#: the finished job reports. The fake reports half a GPU second per residue.
+FOLDCLOUD_PER_CALL = 0.01
+FOLDCLOUD_PER_GPU_SECOND = 0.0011
+
+
+def foldcloud(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+    """A model behind an outside API (ADR 0130): refused until an Org Admin approves
+    FoldCloud for Atlas, then a prediction that calls it through the egress proxy, which
+    adds the organization's key, parks on its job without a worker, wakes on its signed
+    webhook and resumes to import the structure. The proxy's record of each call says what
+    answered, and their prices are the run's cost. The approval is revoked afterwards."""
+    bob = sign_in_as("bob")
+    approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
+    # One left by an earlier check that stopped part way.
+    api_call(bob, "DELETE", f"{approvals}/{project['id']}")
+    action = "iki/example_models.predict_structure"
+    body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
+    refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
+    if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":
+        fail(f"launching {action} unapproved answered {refused.status_code}: {refused.text[:300]}")
+    approved = api_call(bob, "POST", approvals, {"project": project["id"], "note": "e2e"})
+    if approved.status_code != 201 or approved.json()["host"] != FOLDCLOUD_HOST:
+        fail(f"bob approving FoldCloud answered {approved.status_code}: {approved.text[:300]}")
+    try:
+        unconsented = api_call(alice, "POST", f"/actions/{action}/runs", body)
+        if unconsented.status_code != 409 or unconsented.json().get("code") != "consent_required":
+            fail(f"launching {action} without consent answered {unconsented.status_code}")
+        launched = api_call(
+            alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]}
+        )
+        if launched.status_code != 201:
+            fail(f"launching {action} answered {launched.status_code}: {launched.text[:300]}")
+        run = followed(alice, launched.json(), within=180)
+        if run["status"] != "succeeded":
+            fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
+        park = run["park"] or {}
+        if park.get("api") != "foldcloud" or park.get("outcome") != "done":
+            fail(f"{run['hrid']} didn't park on FoldCloud's job and resume: {park}")
+        me = api_call(alice, "GET", "/me").json()
+        consent = run["consent"] or {}
+        if (
+            (consent.get("given_by") or {}).get("id") != me["id"]
+            or [s["api"] for s in consent.get("statements", [])] != [FOLDCLOUD]
+            or [a["host"] for a in run["apis"]] != [FOLDCLOUD_HOST]
+        ):
+            fail(f"{run['hrid']} doesn't say alice agreed to what it sent where: {consent}")
+        made = [e for e in run["effects"] if e["type"] == "iki/protein.ProteinStructure"]
+        if len(made) != 1:
+            fail(f"{run['hrid']} made {run['effects']}, not one structure")
+        values = api_call(alice, "GET", f"/entities/{made[0]['entity']}").json()["values"]
+        if (
+            values.get("method") != "predicted"
+            or values.get("chains") != [entry_of(protein)]
+            or values.get("name") != f"{protein['hrid']}, predicted by fold-2"
+            or not values.get("structure")
+        ):
+            fail(f"{run['hrid']} made a structure with {values}")
+        calls = api_call(alice, "GET", f"/runs/{run['id']}/api-calls?limit=100").json()["items"]
+        submitted = [c for c in calls if c["kind"] == "call"]
+        finished = [c for c in calls if c["kind"] == "poll" and c["usage"]]
+        gpu_seconds = len(protein["values"]["sequence"]) * 0.5
+        if (
+            [(c["method"], c["path"], c["status"]) for c in submitted]
+            != [("POST", "/v1/predictions", 201)]
+            or {c["host"] for c in calls} != {FOLDCLOUD_HOST}
+            or (submitted[0]["model"], submitted[0]["version"]) != ("fold-2", "2.1.0")
+            or submitted[0]["parameters"] != {"/model": "fold-2", "/num_recycles": 3}
+            or not all(len(c["request_sha256"]) == 64 for c in calls)
+            or [c["usage"] for c in finished] != [{"gpu_seconds": gpu_seconds}]
+        ):
+            fail(f"{run['hrid']}'s calls to FoldCloud were recorded as {calls}")
+        if not math.isclose(submitted[0]["cost"], FOLDCLOUD_PER_CALL) or not math.isclose(
+            finished[0]["cost"], gpu_seconds * FOLDCLOUD_PER_GPU_SECOND
+        ):
+            fail(f"{run['hrid']}'s calls cost {[(c['kind'], c['cost']) for c in calls]}")
+        spent = sum(c["cost"] or 0 for c in calls)
+        cost = run["cost"] or {}
+        if cost.get("currency") != "USD" or not math.isclose(
+            cost.get("apis") or 0, spent, abs_tol=1e-4
+        ):
+            fail(f"{run['hrid']} cost {cost}, not its calls' {spent} USD")
+        ok(
+            f"{action} called FoldCloud through the egress proxy with the organization's key "
+            f"({run['hrid']}): parked on {park['job']}, woke on its webhook after "
+            f"{park['polls']} poll(s), made by fold-2 2.1.0, costing {cost['apis']} USD"
+        )
+    finally:
+        api_call(bob, "DELETE", f"{approvals}/{project['id']}")
 
 
 #: Aspirin, its standard InChIKey, and its sodium salt.
