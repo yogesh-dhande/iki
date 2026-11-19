@@ -524,7 +524,7 @@ def test_a_long_list_of_differences_fits_in_its_message(tmp_path: Path) -> None:
     assert count > 100
     listed = next(t for t in texts(output) if t.startswith("Differences from DNA-000001: "))
     assert len(listed) <= 2000
-    first = f"{PLASMID[2]}3{changed[2]} ({name} Q40)"
+    first = f"g.3{PLASMID[2]}>{changed[2]} ({name} Q40)"
     assert listed.startswith(f"Differences from DNA-000001: {first}; ")
     shown = re.fullmatch(r"Differences from DNA-000001: (.*); and (\d+) more\.", listed)
     assert shown is not None
