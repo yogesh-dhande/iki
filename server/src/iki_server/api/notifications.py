@@ -71,7 +71,8 @@ class NotificationOut(Schema):
         description="How many records it's about, once several are told of together."
     )
     records: list[NotificationRecordOut] = Field(
-        description="The records it's about that you can read now, the first 20."
+        description="The records it's about that you can read now, the first 20, with those "
+        "whose change it tells of, such as each released result of a request."
     )
     created_at: datetime
     read_at: datetime | None

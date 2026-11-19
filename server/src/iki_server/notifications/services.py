@@ -116,6 +116,18 @@ def notify(
     ]
 
 
+#: How :func:`told` left a person's notifications: a new one, their open one now about
+#: more, or their open one as it was, which told them of it all already.
+NEW, UPDATED, UNCHANGED = "new", "updated", "unchanged"
+
+
+@dataclass(frozen=True)
+class Told:
+    notification: Notification
+    #: NEW, UPDATED or UNCHANGED.
+    how: str
+
+
 def deliver(
     user: User,
     kind: Kind,
@@ -132,13 +144,47 @@ def deliver(
 ) -> Notification:
     """Tells one person, who's to be told (``delivery`` isn't off): a new notification, or,
     with ``fold``, the one they have open of its kind in the project, about more records."""
+    return told(
+        user,
+        kind,
+        delivery,
+        title=title,
+        body=body,
+        path=path,
+        project=project,
+        actor=actor,
+        agent=agent,
+        about=about,
+        fold=fold,
+    ).notification
+
+
+def told(
+    user: User,
+    kind: Kind,
+    delivery: Delivery,
+    *,
+    title: str,
+    body: str = "",
+    path: str = "",
+    project: Project | None = None,
+    actor: User | None = None,
+    agent: Agent | None = None,
+    about: Sequence[Entity] = (),
+    naming: Sequence[Entity] = (),
+    fold: Fold | None = None,
+) -> Told:
+    """:func:`deliver`, saying how. ``naming``: records it names beside those it's about,
+    such as the result whose release it tells of: listed with it, and not counted. One
+    their open notification doesn't name yet is news, so it updates that one, as a new
+    comment updates a thread on GitHub, rather than being lost in it."""
     if path and (not path.startswith("/") or path.startswith("//")):
         raise ValueError("Notification paths are paths on this site, such as /projects/x/.")
     from iki_server.notifications.tasks import send_email
 
     with transaction.atomic():
         if fold is not None and about:
-            joined = _join(user, kind, project, about, fold, actor, agent)
+            joined = _join(user, kind, project, about, naming, fold, actor, agent)
             if joined is not None:
                 return joined
         notification = Notification.objects.create(
@@ -153,10 +199,10 @@ def deliver(
             actor=actor,
             agent=agent,
         )
-        if about:
+        if about or naming:
             NotificationRecord.objects.bulk_create(
                 NotificationRecord(notification=notification, entity=e)
-                for e in {e.pk: e for e in about}.values()
+                for e in {e.pk: e for e in [*about, *naming]}.values()
             )
         if delivery == Delivery.EMAIL and email_enabled():
             if fold is not None and batch_delay():
@@ -166,7 +212,7 @@ def deliver(
             else:
                 send_email.enqueue(str(notification.pk))
         events.publish(user.pk, "notification", {"id": str(notification.pk)})
-    return notification
+    return Told(notification, NEW)
 
 
 def _join(
@@ -174,12 +220,13 @@ def _join(
     kind: Kind,
     project: Project | None,
     about: Sequence[Entity],
+    naming: Sequence[Entity],
     fold: Fold,
     actor: User | None,
     agent: Agent | None,
-) -> Notification | None:
-    """The person's open notification of the kind in the project, now about ``about`` too:
-    unread, not emailed, and recent. None if they have none."""
+) -> Told | None:
+    """The person's open notification of the kind in the project, now about ``about`` too,
+    and naming ``naming``: unread, not emailed, and recent. None if they have none."""
     open_one = (
         Notification.objects.select_for_update(of=("self",))
         .filter(
@@ -199,22 +246,28 @@ def _join(
         NotificationRecord.objects.filter(notification=open_one).values_list("entity", flat=True)
     )
     new = [e for e in {e.pk: e for e in about}.values() if e.pk not in have]
-    if not new:
-        return open_one  # told of these already
+    named = [
+        e
+        for e in {e.pk: e for e in naming}.values()
+        if e.pk not in have and e.pk not in {n.pk for n in new}
+    ]
+    if not new and not named:
+        return Told(open_one, UNCHANGED)  # told of these already
     NotificationRecord.objects.bulk_create(
-        NotificationRecord(notification=open_one, entity=e) for e in new
+        NotificationRecord(notification=open_one, entity=e) for e in [*new, *named]
     )
-    open_one.count = len(have) + len(new)
-    title, body, path = fold.many(open_one.count)
-    open_one.title, open_one.body, open_one.path = title[:TITLE_LIMIT], body[:BODY_LIMIT], path
-    open_one.entity = None
+    if new:
+        open_one.count = (open_one.count if have else 0) + len(new)
+        title, body, path = fold.many(open_one.count)
+        open_one.title, open_one.body, open_one.path = title[:TITLE_LIMIT], body[:BODY_LIMIT], path
+        open_one.entity = None
     if open_one.actor_id != (actor.pk if actor else None) or open_one.agent_id != (
         agent.pk if agent else None
     ):
         open_one.actor, open_one.agent = None, None
     open_one.save(update_fields=["count", "title", "body", "path", "entity", "actor", "agent"])
     events.publish(user.pk, "notification", {"id": str(open_one.pk)})
-    return open_one
+    return Told(open_one, UPDATED)
 
 
 # --- Reading ------------------------------------------------------------------

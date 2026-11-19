@@ -787,6 +787,45 @@ def test_the_project_asking_is_told_as_its_results_are_released(lab: Lab) -> Non
     assert event.data["about"] == {"id": found["id"], "hrid": found["hrid"]}
 
 
+def test_each_result_released_is_told_though_the_first_notice_is_unread(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second result released while the first's notice is still open, unread and not
+    emailed updates that notice, as a new comment updates a GitHub thread: it names both
+    results, and the person hears of it live. Its audit says the notice was updated."""
+    from iki_server.realtime import events
+
+    first = sample(lab, "S-1")
+    made = sent(lab, first)
+    one = result(lab, made["id"], sample=first["id"], purity=97.5)
+    two = result(lab, made["id"], sample=first["id"], purity=96.0)
+    for found in (one, two):
+        assert state(lab, "core_qa", found["id"], "review", "reviewed").status_code == 200
+    assert state(lab, "core_qa", one["id"], "review", "released").status_code == 200
+    published: list[tuple[str, str]] = []
+    real = events.publish
+
+    def publish(user: Any, kind: str, data: Any) -> None:
+        published.append((str(user), kind))
+        real(user, kind, data)
+
+    monkeypatch.setattr(events, "publish", publish)
+    assert state(lab, "core_qa", two["id"], "review", "released").status_code == 200
+
+    editor = lab.users["editor"]
+    assert [t[0] for t in told("results_released")] == ["editor@example.com"]  # one notice
+    inbox = lab.api("editor").get("/notifications").json()["items"]
+    [note] = [n for n in inbox if n["kind"] == f"{ASK}.results_released"]
+    assert note["count"] == 1  # about one request
+    assert [r["hrid"] for r in note["records"]] == [made["hrid"], one["hrid"], two["hrid"]]
+    assert (str(editor.pk), "notification") in published
+    sent_events = AuditEvent.objects.filter(
+        action="notification.sent", data__kind=f"{ASK}.results_released"
+    ).order_by("id")
+    assert [e.data["about"]["hrid"] for e in sent_events] == [one["hrid"], two["hrid"]]
+    assert [[p["notice"] for p in e.data["told"]] for e in sent_events] == [["new"], ["updated"]]
+
+
 def test_a_service_that_doesnt_share_cant_release(lab: Lab) -> None:
     made = sent(lab)
     found = result(lab, made["id"])
