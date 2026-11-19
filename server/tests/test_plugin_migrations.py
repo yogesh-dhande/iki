@@ -746,6 +746,43 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     ]
 
 
+def test_a_type_whose_only_people_are_in_rows_loads(lab: Path, database: str) -> None:
+    """A person in a row (ADR 0137) is a column naming a user, as a type's own field is."""
+    write_sample(
+        lab,
+        (
+            "  temperature: { type: quantity, unit: Cel }\n",
+            "  temperature: { type: quantity, unit: Cel }\n"
+            "  weighings:\n"
+            "    type: list\n"
+            "    items:\n"
+            "      type: row\n"
+            "      fields:\n"
+            "        mass: { type: quantity, unit: mg, min: 0, required: true }\n"
+            "        weighed_by: { type: person, required: true }\n",
+        ),
+    )
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_plugin_acme__lab.models import Sample, Sample_weighings
+        analyst = User.objects.create_user("analyst@example.com", "Bench Analyst")
+        sample = Sample.objects.create(
+            type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1",
+            mass=1.5, count=3, old="x", temperature=20.0,
+        )
+        Sample_weighings.objects.create(entity=sample, position=0, mass=12.5, weighed_by=analyst)
+        result = Sample_weighings.objects.get().weighed_by.email
+        """,
+    )
+    assert result == "analyst@example.com"
+
+
 def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
     lab: Path, database: str
 ) -> None:
