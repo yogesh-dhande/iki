@@ -456,6 +456,29 @@ def test_quantities_say_how_to_show_them_in_their_display_unit(world: World) -> 
     assert fields["sequence"]["display_scale"] is None
 
 
+def test_a_display_unit_thats_no_scale_is_shown_in_the_fields_own(world: World) -> None:
+    from iki_server.api.entities import field_out
+    from iki_spec.model import Field as SpecField
+
+    # A hydrogen-ion concentration kept in mol/L and read as pH is a valid pair (UCUM
+    # converts them), but no scale and offset take one to the other: 0 mol/L has no pH.
+    acidity = field_out(
+        "acidity",
+        SpecField(name="acidity", type="quantity", unit="mol/L", display_unit="[pH]"),
+        "acme/protein",
+    )
+    assert (acidity["display_scale"], acidity["display_offset"]) == (None, None)
+    assert acidity["display_unit_symbol"] == "pH"
+    # A temperature kept in kelvin and read in Celsius is one: an offset.
+    temperature = field_out(
+        "temperature",
+        SpecField(name="temperature", type="quantity", unit="K", display_unit="Cel"),
+        "acme/protein",
+    )
+    assert temperature["display_scale"] == pytest.approx(1)
+    assert temperature["display_offset"] == pytest.approx(-273.15)
+
+
 def test_entities_name_what_their_values_refer_to(world: World, other: Project) -> None:
     from iki_server.files.models import Blob, File
 

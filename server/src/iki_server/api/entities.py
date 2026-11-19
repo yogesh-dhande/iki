@@ -1264,7 +1264,8 @@ def _display(unit: str | None, display_unit: str | None) -> dict[str, float | No
     """How to show a quantity in its display unit, when that's a scale and an offset.
 
     Pages convert without a units table of their own. Units that don't convert
-    linearly (degrees of slope, say) are shown in the field's own unit.
+    linearly (degrees of slope, or a concentration as pH) are shown in the field's own
+    unit.
     """
     none: dict[str, float | None] = {"display_scale": None, "display_offset": None}
     if unit is None or display_unit is None or display_unit == unit:
@@ -1272,6 +1273,8 @@ def _display(unit: str | None, display_unit: str | None) -> dict[str, float | No
     try:
         at = [units.convert(x, unit, display_unit) for x in (0.0, 1.0, 2.0)]
     except units.UnitError:
+        # A scale and an offset convert every value, so one that doesn't convert (0 mol/L
+        # has no pH) says there's none.
         return none
     scale, offset = at[1] - at[0], at[0]
     if not math.isclose(at[2], 2 * scale + offset, rel_tol=1e-9, abs_tol=1e-12):

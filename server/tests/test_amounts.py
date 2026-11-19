@@ -96,6 +96,58 @@ def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
         cursor.execute("UPDATE iki_amount_movement SET change = 0")
 
 
+def test_a_mass_given_when_its_made_is_its_volume_at_its_concentration(world: World) -> None:
+    api = api_as(world)
+    # 50 ug of a 2 mg/mL sample is 25 uL (ADR 0139), when it's made as when it's drawn.
+    made = sample(
+        world, "S-1", {"value": 50, "unit": "ug"}, concentration={"value": 2, "unit": "mg/mL"}
+    )
+    assert made["amount"]["value"] == "25"
+    (recorded,) = api.get(f"/entities/{made['hrid']}/amount/movements").json()["items"]
+    assert (recorded["kind"], recorded["change"], recorded["balance"]) == ("recorded", "25", "25")
+    assert recorded["given"] == {"value": "50", "unit": "ug"}
+    # Without a concentration, a mass isn't a volume.
+    unmade = create(
+        api, world.project, {"label": "S-2"}, SAMPLE, amount={"value": 50, "unit": "ug"}
+    )
+    assert errors(unmade)["#/amount"].endswith("its concentration, which it hasn't got.")
+    assert Entity.objects.filter(type=SAMPLE).count() == 1
+
+
+def test_its_ledger_is_exact_to_the_last_of_its_forty_digits(world: World) -> None:
+    api = api_as(world)
+    # 28 digits before the point and 12 after: past what Python's default context keeps.
+    made = sample(
+        world, "S-1", {"value": "1000000000000000000000000000.000000000002", "unit": "uL"}
+    )
+    assert made["amount"]["value"] == "1000000000000000000000000000.000000000002"
+    drawn = api.post(
+        f"/entities/{made['hrid']}/amount/draw",
+        {"amount": {"value": "0.000000000001", "unit": "uL"}},
+    )
+    assert drawn.status_code == 200, drawn.content
+    movement = drawn.json()["movement"]
+    assert (movement["change"], movement["balance"]) == (
+        "-0.000000000001",
+        "1000000000000000000000000000.000000000001",
+    )
+    stored = Amount.objects.get(entity_id=made["id"]).value
+    assert stored == Decimal("1000000000000000000000000000.000000000001")
+    adjusted = api.post(
+        f"/entities/{made['hrid']}/amount/adjust",
+        {
+            "amount": {"value": "999999999999999999999999999.999999999999", "unit": "uL"},
+            "reason": "recount",
+        },
+    )
+    assert adjusted.status_code == 200, adjusted.content
+    # A recount 2e-12 uL below it, by 2e-12 uL.
+    assert (adjusted.json()["movement"]["change"], adjusted.json()["amount"]["value"]) == (
+        "-0.000000000002",
+        "999999999999999999999999999.999999999999",
+    )
+
+
 def test_its_amount_changes_only_through_its_operations(world: World) -> None:
     api = api_as(world)
     made = sample(world, "S-1", {"value": 10, "unit": "uL"})

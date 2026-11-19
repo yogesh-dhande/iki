@@ -1,5 +1,6 @@
 import hashlib
 import math
+import re
 from fractions import Fraction
 from importlib.resources import files
 
@@ -110,6 +111,26 @@ def test_commensurability() -> None:
 def test_units_that_measure_different_things_dont_convert() -> None:
     with pytest.raises(UnitError, match="measure different things"):
         convert(1, "mg", "mL")
+
+
+@pytest.mark.parametrize(
+    ("value", "source", "target", "beyond"),
+    [
+        # Past what a float holds: 10⁴⁰⁰ g, or a gram in units of 10⁻⁴⁰⁰ g.
+        (1, "10*400.g", "g", "a number"),
+        (1, "g", "10*-400.g", "a number"),
+        (1, "10*400.g", "10*-400.g", "a number"),
+        # Outside a special unit's function: no concentration has a pH of 0 mol/L, or below.
+        (0, "mol/L", "[pH]", "that unit"),
+        (-1e-7, "mol/L", "[pH]", "that unit"),
+        (-400, "[pH]", "mol/L", "a number"),
+    ],
+)
+def test_a_value_with_none_in_the_target_unit_doesnt_convert(
+    value: float, source: str, target: str, beyond: str
+) -> None:
+    with pytest.raises(UnitError, match=f"has no value in `{re.escape(target)}`: .* {beyond}"):
+        convert(value, source, target)
 
 
 def test_division_and_multiplication_read_left_to_right() -> None:

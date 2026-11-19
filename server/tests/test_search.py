@@ -278,6 +278,24 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
         ),
         (
             {
+                "type": "acme/protein.Protein",
+                # 10⁴⁰⁰ K is past what a float holds.
+                "where": {
+                    "field": "temperature_optimum",
+                    "op": "lt",
+                    "value": {"value": 1, "unit": "10*400.K"},
+                },
+            },
+            [
+                {
+                    "pointer": "#/where/value",
+                    "detail": "has a unit Iki can't use here: 1 `10*400.K` has no value in "
+                    "`Cel`: it's beyond what a number can hold.",
+                },
+            ],
+        ),
+        (
+            {
                 "type": "acme/dna.DNASequence",
                 "where": {"field": "topology", "op": "in", "value": ["round"]},
             },
