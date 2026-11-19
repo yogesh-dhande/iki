@@ -615,6 +615,73 @@ def test_applying_needs_a_reason_and_a_plan_that_can_be(world: World, tmp_path: 
     )
 
 
+# --- Requests (ADR 0132) ---------------------------------------------------------------------
+
+ASK = "acme/protein.AssayRequest"
+
+
+def sent_request(world: World, tmp_path: Path) -> tuple[Path, Any, Project]:
+    """A request here, sent to a core here, and a bundle with a later revision of it: from
+    where it was sent too, and the service there wrote its notes."""
+    from iki_server.entities import requests
+
+    admin = world.users["admin"]
+    core = Project.objects.create(team=world.team, name="Protein Core")
+    tech = User.objects.create_user("tech@example.com", "Tech")
+    ProjectMembership.objects.create(project=core, user=tech, role=ProjectRole.EDITOR)
+    requests.set_intake(core, types=[ASK], from_registry=True, sources=[], by=admin)
+    made = services.create(admin, ASK, world.project, {"title": "Purity"})
+    asked = Entity.objects.get(pk=made.entity.pk)
+
+    def worked_there() -> list[Any]:
+        requests.submit(admin, asked, core, expected_revision=1)
+        services.update(tech, asked, {"core_notes": "Bench 2"}, expected_revision=1)
+        return [Entity.objects.get(pk=asked.pk)]
+
+    path = bundle_of(world, tmp_path, worked_there)
+    requests.submit(admin, Entity.objects.get(pk=asked.pk), core, expected_revision=1)
+    return path, asked, core
+
+
+def test_an_import_doesnt_change_a_sent_request(world: World, tmp_path: Path) -> None:
+    """It would write the service's fields as the asking project, and what the request
+    sends without sending it: the plan says why, before anything's applied."""
+    path, asked, _ = sent_request(world, tmp_path)
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    (row,) = entities_of(api, made)
+    assert (row["action"], row["why"]) == (
+        "conflict",
+        f"{asked.hrid} is a request sent to Protein Core, which works it here: an import "
+        "doesn't change a request once it's sent, as each side changes only its own fields. "
+        "Change it here instead.",
+    )
+    assert made["plan"]["applicable"] is False
+    problem(api.post(f"/imports/{made['id']}/apply", {"reason": "go"}), 409, "refused")
+    assert api.get(f"/entities/{asked.hrid}").json()["values"]["core_notes"] is None
+    assert Entity.objects.get(pk=asked.pk).revision == 1
+
+
+def test_the_database_refuses_an_import_writing_a_requests_service_fields(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defence in depth: were the plan not to see it, the request's guard (ADR 0132) refuses
+    the service's columns written as the asking project, and nothing is imported."""
+    from iki_server.bundles import imports
+
+    path, asked, _ = sent_request(world, tmp_path)
+    monkeypatch.setattr(imports, "sent_request", lambda here: "")
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    (row,) = entities_of(api, made)
+    assert row["action"] == "update"
+    done = applied(api, made)
+    assert done["state"] == "failed", done
+    assert done["error"].startswith("The database refused it, so nothing was imported: "), done
+    assert f"{asked.hrid} is a request, and the service writes its fields" in done["error"]
+    assert Entity.objects.get(pk=asked.pk).revision == 1
+
+
 # --- Runs --------------------------------------------------------------------------------
 
 

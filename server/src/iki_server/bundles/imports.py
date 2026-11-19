@@ -43,7 +43,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import access, identity, registry, unique
+from iki_server.entities import access, identity, registry, requests, unique
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision, UniqueValue
 from iki_server.entities.services import frozen
@@ -691,6 +691,9 @@ class _Planner:
         if mine == theirs:
             return EntityPlan.SKIP, 0, "Here already, as it is."
         if theirs[: len(mine)] == mine:
+            sent = sent_request(here)
+            if sent:
+                return EntityPlan.CONFLICT, 0, sent
             added = len(theirs) - len(mine)
             return EntityPlan.UPDATE, added, ""
         if mine[: len(theirs)] == theirs:
@@ -742,6 +745,24 @@ class _Planner:
             "here": sum(1 for i in items if i["here"]),
             "items": items[:OUTSIDE_SHOWN],
         }
+
+
+def sent_request(here: Entity) -> str:
+    """Why an import can't add revisions to a record that's a request sent from here to a
+    service (ADR 0132), or "" if it isn't one. A bundle's revisions are the whole record's,
+    the service's fields and what it sends among them, and the service works it here: each
+    side changes only its own fields, as itself. The database's guard refuses the service's
+    columns too, but this says why before anything's applied."""
+    if requests.spec_of(here.type) is None:
+        return ""
+    request = requests.of(here)
+    if request is None:
+        return ""
+    return (
+        f"{here.hrid} is a request sent to {request.service.name}, which works it here: an "
+        "import doesn't change a request once it's sent, as each side changes only its own "
+        "fields. Change it here instead."
+    )
 
 
 def _number(revision: dict[str, Any]) -> int:
