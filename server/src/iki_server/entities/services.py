@@ -571,9 +571,9 @@ def fill_entry(
             new[name] = value
         elif value is None or value == []:
             if explicit:
-                errors[name] = [settled(locked)]
+                errors[name] = [settled(locked, f)]
         elif f.registry == "fact":
-            errors[name] = [settled(locked)]
+            errors[name] = [settled(locked, f)]
         elif explicit or f.registry is None:
             errors[name] = [
                 f"is {locked.hrid}'s registry entry's, as its identity gives it: it can't change."
@@ -599,11 +599,22 @@ def fill_entry(
     return revision
 
 
-def settled(entry: Entity) -> str:
+def settled(entry: Entity, f: Field | None = None) -> str:
     """Why a holder can't change a fact the entry has."""
+    if f is not None and f.immutable:
+        return fixed(entry)
     return (
         f"is a registry fact {entry.hrid} has already: only its registry's registrars change "
         "it once it's set."
+    )
+
+
+def fixed(entry: Entity) -> str:
+    """Why no one changes a fixed fact (ADR 0143): what's registered against it means it."""
+    return (
+        f"is fixed in {entry.hrid}'s registry entry, as what's registered against it reads "
+        "it: no one changes it. If it's wrong, a registrar supersedes the entry with the "
+        "right one."
     )
 
 

@@ -166,7 +166,11 @@ A field marked `registry` is the entry's, the same for every project:
   a number, a date, a reference to another entry, or a string or list of
   strings with a `pattern` (never free text). Whoever registers it may set it
   while it's empty; after that only the registry's registrars change it, with a
-  reason, audited and told to every project with a record of it.
+  reason, audited and told to every project with a record of it. A fact with
+  `immutable: true` is fixed: given once, then changed by no one, not even a
+  registrar, and it may be `required`. It's for what other entries are
+  registered against, such as a HELM monomer's structure: a wrong one is
+  superseded ([ADR 0143](../docs/adr/0143-a-registry-fact-can-be-fixed.md)).
 
 Only the type that declares the identity, or an extension of it, has registry
 fields, and they refer only to other entries. Everything else (a

@@ -392,9 +392,10 @@ function AddToProject({ entry }: { entry: Entry }) {
   );
 }
 
-/** A registrar changes its facts, with a reason, from the revision they read (If-Match). */
+/** A registrar changes its facts, with a reason, from the revision they read (If-Match).
+ * Fixed facts (ADR 0143) aren't offered: no one changes them, and a wrong one is superseded. */
 function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types: EntityType[] }) {
-  const facts = type.fields.filter((f) => f.registry === "fact" && !f.detached);
+  const facts = type.fields.filter((f) => f.registry === "fact" && !f.detached && !f.immutable);
   const client = useQueryClient();
   const { say } = useMessages();
   const [open, setOpen] = useState(false);

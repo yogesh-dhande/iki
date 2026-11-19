@@ -46,7 +46,7 @@ import {
   type RevisionDetail,
 } from "../entities";
 
-import { entryRevisionQuery, entryRevisionsQuery, REGISTRY_MARK } from "../registries";
+import { entryRevisionQuery, entryRevisionsQuery, FIXED_FACT, REGISTRY_MARK } from "../registries";
 import { usePageTitle } from "../layout";
 import { isServiceField } from "../requests";
 import { APP_TYPE, entityAppsQuery } from "../apps";
@@ -154,6 +154,7 @@ export function useEntity(): { entity: Entity; type: EntityType | undefined; typ
 
 /** Whose a field's value is, for a record of a registry entry (ADR 0115). */
 export function registryNote(field: FieldDef): string | null {
+  if (field.registry === "fact" && field.immutable) return FIXED_FACT;
   return field.registry ? REGISTRY_MARK[field.registry] : null;
 }
 

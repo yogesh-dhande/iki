@@ -37,6 +37,13 @@ fields:
     indexed: true
     unique: true
   hazard: { type: enum, registry: fact, values: [none, bsl1, bsl2, bsl3] }
+  # A fixed fact (ADR 0142): given when the entry is registered, never changed.
+  standard:
+    type: string
+    registry: fact
+    immutable: true
+    max_length: 20
+    pattern: "^[A-Z0-9-]+$"
   synonyms:
     type: list
     registry: fact

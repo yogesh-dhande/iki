@@ -147,6 +147,9 @@ def curate(
                     "with the right one instead."
                 ]
                 continue
+            if f.immutable:
+                errors[name] = [services.fixed(locked)]
+                continue
             try:
                 converted = to_db(f, value, refs)
             except ValueError as error:

@@ -146,3 +146,6 @@ export const REGISTRY_MARK: Record<"identity" | "derived" | "fact", string> = {
   derived: "Derived from its identity",
   fact: "Registry fact",
 };
+
+/** A fact that's fixed (ADR 0143): given when its entry was registered, never changed. */
+export const FIXED_FACT = "Fixed registry fact";
