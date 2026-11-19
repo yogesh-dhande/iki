@@ -8,9 +8,10 @@ import type { Schemas } from "@ikisci/sdk";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ALICE, entity, field, KINASE, PROTEIN, renderApp } from "./entity-fixtures";
+import { ALICE, entity, field, KINASE, nth, PROTEIN, renderApp } from "./entity-fixtures";
+import { filterable, searchWords } from "./filters";
 import { answer, calls, page, problem, respond, signedIn } from "./test-server";
 
 vi.mock("./apps", async (original) => {
@@ -258,6 +259,7 @@ describe("holds and breaches", () => {
     const dialog = await screen.findByRole("alertdialog", {
       name: "Review the hold on LOT-000001",
     });
+    expect(dialog).toHaveTextContent("As one of its qa reviewers");
     await user.click(within(dialog).getByRole("button", { name: "Clear the hold" }));
     expect(await within(dialog).findByText("Say why it may stand as it is.")).toBeInTheDocument();
     await user.type(
@@ -390,5 +392,134 @@ describe("guards", () => {
     ).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
     expect(await within(dialog).findByText(FOUR_EYES)).toBeInTheDocument();
+  });
+});
+
+describe("finding what rules caught", () => {
+  // The grid draws only the rows in view: give it a view.
+  const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
+  const saved: Record<string, PropertyDescriptor | undefined> = {};
+  beforeAll(() => {
+    for (const [name, value] of Object.entries(sizes)) {
+      saved[name] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+    }
+  });
+  afterAll(() => {
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+    }
+  });
+
+  const HELD: Schemas["HoldOut"] = {
+    id: HOLD_ID,
+    rule: "purity_in_specification",
+    label: "Purity in specification",
+    message: "Its purity, 88.5%, is under 90%.",
+    reviewed_by: ["acme/lab:qa"],
+    held_by: ALICE,
+    agent: null,
+    held_at: "2026-11-18T09:00:00Z",
+    reason: "Retested.",
+    revision: 2,
+    last_revision: 2,
+    can_review: true,
+    why_not: null,
+  };
+  const BROKEN = {
+    rule: "expires_after_made",
+    label: "Expires after it's made",
+    message: "It expires on 2026-10-01, before it's made.",
+    found_at: "2026-11-18T09:00:00Z",
+  };
+
+  it("reads is:held, is:breaking and a rule's name in the search box", () => {
+    expect(searchWords("is:held lot 7")).toEqual({
+      text: "lot 7",
+      conditions: [{ field: "held", op: "is_set", value: true }],
+    });
+    expect(
+      searchWords("is:breaking held:purity_in_specification breaks:acme/x:named").conditions,
+    ).toEqual([
+      { field: "breaks", op: "is_set", value: true },
+      { field: "held", op: "eq", value: "purity_in_specification" },
+      { field: "breaks", op: "eq", value: "acme/x:named" },
+    ]);
+    // Anything else after is: is text.
+    expect(searchWords("is:open").text).toBe("is:open");
+  });
+
+  it("offers the rules that can catch a type's records, each way", () => {
+    const fields = filterable(LOT);
+    const held = fields.find((f) => f.name === "held");
+    const breaks = fields.find((f) => f.name === "breaks");
+    expect(held?.values).toEqual(["purity_in_specification"]);
+    // The database's own rules can't be broken by what's saved.
+    expect(breaks?.values).toEqual(["expires_after_made"]);
+    // Without a type, by any rule.
+    expect(
+      filterable(undefined)
+        .filter((f) => f.type === "rule")
+        .map((f) => f.values),
+    ).toEqual([[], []]);
+    // A type without rules has nothing to find.
+    expect(filterable({ ...LOT, rules: [] }).some((f) => f.type === "rule")).toBe(false);
+  });
+
+  it("says by each record which rule caught it, and why", async () => {
+    onLab();
+    answer(
+      "POST /api/v1/entities/search",
+      page([
+        lot({ holds: [HELD] }),
+        lot({ id: `${LOT_ID.slice(0, -1)}2`, hrid: "LOT-000002", breaches: [BROKEN] }),
+      ]),
+    );
+    await renderApp("/projects/kinase-atlas/entities/?type=acme/lab.Lot&q=is%3Aheld");
+    const grid = await screen.findByRole("table", { name: "2 lots match" });
+    expect(within(grid).getByRole("columnheader", { name: "Rules" })).toBeInTheDocument();
+    const rows = within(grid).getAllByRole("row");
+    expect(nth(rows, 1)).toHaveTextContent(
+      "Held for review: Purity in specificationIts purity, 88.5%, is under 90%.",
+    );
+    expect(nth(rows, 2)).toHaveTextContent("Breaks: Expires after it's made");
+    expect(calls("POST", "/api/v1/entities/search").at(-1)?.body).toMatchObject({
+      type: "acme/lab.Lot",
+      where: { all: [{ field: "held", op: "is_set", value: true }] },
+    });
+  });
+
+  it("filters by a rule, by its label, and shows no Rules column otherwise", async () => {
+    onLab();
+    answer("POST /api/v1/entities/search", page([lot({ holds: [HELD] })]));
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=acme/lab.Lot");
+    const grid = await screen.findByRole("table", { name: "1 lot" });
+    expect(within(grid).queryByRole("columnheader", { name: "Rules" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const panel = screen.getByRole("region", { name: "Filters" });
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(
+      within(panel).getByRole("combobox", { name: "Filter 1: field" }),
+      "Held for review",
+    );
+    const condition = within(panel).getByRole("combobox", { name: "Filter 1: condition" });
+    expect(
+      within(condition)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["by any rule", "by the rule", "by no rule"]);
+    await user.selectOptions(condition, "by the rule");
+    await user.selectOptions(
+      within(panel).getByRole("combobox", { name: "Filter 1: value" }),
+      "Purity in specification",
+    );
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/entities/search").at(-1)?.body).toMatchObject({
+        where: { all: [{ field: "held", op: "eq", value: "purity_in_specification" }] },
+      });
+    });
+    expect(
+      await screen.findByRole("columnheader", { name: "Rules" }, { timeout: 3000 }),
+    ).toBeInTheDocument();
   });
 });

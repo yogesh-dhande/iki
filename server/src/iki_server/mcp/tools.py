@@ -356,7 +356,10 @@ def build() -> MCPServer:
                 "or {not: ...}. Fields and their operators are in describe_entity_type; a "
                 "state field takes its states' names. Fields naming people take an ID, an "
                 "email address or {{ me }}; assigned finds what someone is assigned, and "
-                "needs_reassigning work whose assignee can't be any more."
+                "needs_reassigning work whose assignee can't be any more. held finds what "
+                "a plugin's rule holds for review, and breaks what breaks a rule it was "
+                "saved before: by the rule's name (eq, ne, in), or by any (is_set true); "
+                "each record's holds and breaches say which, and why."
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,

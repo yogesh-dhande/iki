@@ -13,6 +13,9 @@ A state field (ADR 0125) is searched as an enum of its states, by name.
 was derived from it, through references and runs: ``{"field": "downstream", "op": "of",
 "value": "DNR-000001"}``, or with ``{"entity": …, "depth": …, "edges": […]}``; ``is_set``
 finds entities with anything that way, or nothing.
+``held`` and ``breaks`` (ADR 0127, ADR 0135) find what plugins' rules caught: records held
+for review by a rule, and records that break a rule they were saved before, by the rule's
+name (``eq``, ``ne``, ``in``), or by any rule (``is_set``).
 
 A date or a time can be compared with ``{{ now }}``: when the search runs (a date with
 today's, in UTC). Fields naming people (ADR 0122) take a person's ID, their email address, or
@@ -139,6 +142,9 @@ _BUILT_IN = {
     # Across the graph (ADR 0123), worked out by :mod:`iki_server.graph.queries`.
     "upstream": Column("upstream", "graph", "pk"),
     "downstream": Column("downstream", "graph", "pk"),
+    # What plugins' rules caught (ADR 0127): open holds, and breaches found after a save.
+    "held": Column("held", "rule", "pk"),
+    "breaks": Column("breaks", "rule", "pk"),
 }
 
 #: The most conditions across the graph one search may have: each is a walk of its own.
@@ -146,6 +152,12 @@ MAX_GRAPH_CONDITIONS = 3
 
 #: Columns whose conditions :mod:`iki_server.entities.assignments` compiles.
 _ASSIGNMENT_COLUMNS = frozenset({"assigned", "needs_reassigning"})
+
+#: Columns whose conditions name plugins' rules (ADR 0127).
+_RULE_COLUMNS = frozenset({"held", "breaks"})
+
+#: The longest name a rule has (``RuleHold.rule``).
+MAX_RULE_NAME = 160
 
 #: What a condition's value can say for the person searching (ADR 0117, ADR 0122).
 ME = "{{ me }}"
@@ -316,6 +328,8 @@ class _Compiler:
             return self.graph(col, op, value, at)
         if col.name in _ASSIGNMENT_COLUMNS and col.field is None:
             return self.assignment(col, op, value, at)
+        if col.name in _RULE_COLUMNS and col.field is None:
+            return self.caught(col, op, value, at)
         if op == "is_set":
             if not isinstance(value, bool):
                 return self.fail(at, "must be true or false.")
@@ -448,6 +462,71 @@ class _Compiler:
         if any(p is _BAD for p in persons):
             return Q()
         return assignments.condition(self.within, col.name, op, persons)
+
+    def caught(self, col: Column, op: str, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """``held`` and ``breaks`` (ADR 0127): records a rule holds for review now, and
+        records that break a rule they were saved before, by the rule, or by any."""
+        from iki_server.entities.models import RuleBreach, RuleHold
+
+        rows: QuerySet[Any] = (
+            RuleHold.objects.filter(reviewed_at__isnull=True)
+            if col.name == "held"
+            else RuleBreach.objects.all()
+        )
+        if op == "is_set":
+            if not isinstance(value, bool):
+                return self.fail(at, "must be true or false.")
+            caught = Q(pk__in=rows.values("entity_id"))
+            return caught if value else ~caught
+        if op == "in" and (not isinstance(value, list) or not 1 <= len(value) <= MAX_VALUES):
+            return self.fail(at, f"must be a list of 1 to {MAX_VALUES} rules.")
+        given = value if op == "in" else [value]
+        names = [self.rule(col, v, f"{at}/{i}" if op == "in" else at) for i, v in enumerate(given)]
+        if any(n is None for n in names):
+            return Q()
+        caught = Q(pk__in=rows.filter(rule__in=names).values("entity_id"))
+        return ~caught if op == "ne" else caught
+
+    def rule(self, col: Column, value: Any, at: str) -> str | None:  # noqa: ANN401 - JSON
+        """A rule's name, as ``held`` or ``breaks`` takes it: with a type, one of its rules
+        that could catch a record that way, or one that has (a rule its plugin dropped
+        or changed since still holds what it held)."""
+        from iki_server.entities import checking
+        from iki_server.entities.models import RuleBreach, RuleHold
+
+        if not isinstance(value, str) or not value.strip() or len(value) > MAX_RULE_NAME:
+            self.fail(at, "must name a rule, such as `purity_in_specification`.")
+            return None
+        if self.within is None or self.form is None:
+            return value
+        searched = self.form.entity_type.qualified_name
+        holding = col.name == "held"
+        # In the order the type declares them, its subtypes' after.
+        known = list(
+            dict.fromkeys(
+                r.key
+                for name in sorted(self.within, key=lambda n: (n != searched, n))
+                if name in registry.types()
+                for r in checking.checks_of(name)
+                if bool(r.hold) == holding
+            )
+        )
+        if value in known:
+            return value
+        rows = RuleHold.objects if holding else RuleBreach.objects
+        if rows.filter(entity__type__in=self.within, rule=value).exists():
+            return value
+        what = self.form.entity_type.label_plural or self.form.entity_type.label
+        if not known:
+            self.fail(
+                at,
+                f"{what} have no rules that "
+                + ("hold them for review." if holding else "they can break once saved."),
+            )
+        else:
+            kind = "that holds them for review" if holding else "they can break once saved"
+            self.fail(at, f"isn't a rule {kind}: {what} have {_either(tuple(known))}.")
+        return None
 
     def making(self, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
         """Entities one of whose makings (ADR 0106) has every key ``value`` gives: one row,

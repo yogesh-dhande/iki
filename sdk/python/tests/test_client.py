@@ -492,11 +492,25 @@ def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> 
     assert client.entities.search("iki/protein.Protein").to_pandas(limit=1).shape[0] == 1
 
 
+def test_a_dataframe_names_the_rules_that_caught_each_record(fake: FakeIki, client: Client) -> None:
+    held = entity("SAM-000001", purity=82.5)
+    held["holds"] = [{"rule": "purity_in_specification", "label": "Purity in specification"}]
+    broken = entity("SAM-000002", purity=97.0)
+    broken["breaches"] = [{"rule": "expires_after_made", "label": "Expires after it's made"}]
+    fake.on("POST", "/api/v1/entities/search", page([held, broken, entity("SAM-000003")]))
+    where = {"any": [{"field": "held", "op": "is_set", "value": True}]}
+    frame = client.entities.search("acme/lims.Sample", where=where).to_pandas()
+    assert json.loads(fake.sent("POST", "/api/v1/entities/search")[0].content)["where"] == where
+    assert frame.loc["SAM-000001", "held"] == ["purity_in_specification"]
+    assert frame.loc["SAM-000002", "breaks"] == ["expires_after_made"]
+    assert frame.loc["SAM-000003", "held"] == [] and frame.loc["SAM-000003", "breaks"] == []
+
+
 def test_an_empty_search_is_an_empty_dataframe(fake: FakeIki, client: Client) -> None:
     fake.on("POST", "/api/v1/entities/search", page([]))
     frame = client.entities.search().to_pandas()
     assert frame.empty
-    assert "revision" in frame.columns
+    assert {"revision", "project", "held", "breaks"} <= set(frame.columns)
 
 
 # --- Runs --------------------------------------------------------------------------------------

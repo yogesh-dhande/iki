@@ -2091,6 +2091,171 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     page.context.close()
 
 
+BATCH = "acme/protein.Batch"
+
+
+def _lab_roles(world: World, **given: tuple[str, ...]) -> None:
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    for who, roles in given.items():
+        grant = world.project.memberships.get(user=world.users[who])
+        for role in roles:
+            LabRoleGrant.objects.create(
+                membership=grant, role=f"acme/protein.{role}", granted_by=world.users["admin"]
+            )
+        permissions.forget(world.users[who])
+
+
+@pytest.mark.wasm
+def test_a_rule_holds_a_record_and_someone_else_reviews_it(open_as: Any, world: World) -> None:
+    """A rule that holds (ADR 0127): a result outside its specification is saved with why,
+    and held, its record says so, and someone else with the rule's lab role reviews it. By
+    role, never by label, and the hold's card by its heading (Firefox; see above)."""
+    _lab_roles(world, editor=("analyst", "qa"), admin=("qa",))
+    page: Page = open_as("editor", f"/projects/kinase-atlas/entities/new/?type={BATCH}")
+    page.get_by_role("heading", level=2, name="New batch").wait_for()
+    page.get_by_role("textbox", name="Name", exact=True).fill("L-7")
+    page.get_by_role("textbox", name=re.compile("^Purity")).fill("82.5")
+    # The form checks the rule as it's typed, with iki-wasm: it holds, so it asks why.
+    why = page.get_by_role("textbox", name=re.compile("^Why save it anyway"))
+    why.wait_for()
+    page.get_by_text("It breaks “Purity in specification”, which holds it for review.").wait_for()
+    page.get_by_role("button", name="Create batch").click()
+    page.get_by_text(
+        "Say why it’s saved though it breaks these rules.", exact=True
+    ).first.wait_for()
+    assert why.get_attribute("aria-invalid") == "true"
+    assert_clean(page)
+    why.fill("As measured on the SEC; retest booked.")
+    page.get_by_role("button", name="Create batch").click()
+    page.wait_for_url(re.compile(r"/entities/BAT-\d+/"))
+    hrid = Entity.objects.get(type=BATCH).hrid
+
+    heading = page.get_by_role("heading", name="Held for review")
+    heading.wait_for()
+    held = page.locator("section", has=heading)
+    held.get_by_text("Purity in specification", exact=True).wait_for()
+    held.get_by_text("“As measured on the SEC; retest booked.”", exact=False).wait_for()
+    # Whoever saved it doesn't review it, though they're QA too: the button says why.
+    review = held.get_by_role("button", name="Review")
+    assert review.get_attribute("aria-disabled") == "true"
+    held.get_by_text("Someone else reviews it: you saved what held it.").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+    page = open_as("admin", f"/entities/{hrid}/")
+    heading = page.get_by_role("heading", name="Held for review")
+    heading.wait_for()
+    page.locator("section", has=heading).get_by_role("button", name="Review").click()
+    dialog = page.get_by_role("alertdialog", name=f"Review the hold on {hrid}")
+    dialog.get_by_text(re.compile("^As one of its QA reviewers")).wait_for()
+    dialog.get_by_role("button", name="Clear the hold").click()
+    dialog.get_by_text("Say why it may stand as it is.", exact=True).wait_for()
+    assert_clean(page)
+    dialog.get_by_role("textbox", name=re.compile("^Why it may stand")).fill(
+        "Investigated: the SEC column was failing."
+    )
+    dialog.get_by_role("button", name="Clear the hold").click()
+    page.get_by_text(f"The hold on {hrid} (“Purity in specification”) is reviewed.").wait_for()
+    heading.wait_for(state="detached")
+    assert_clean(page)
+    page.context.close()
+
+
+def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: World) -> None:
+    """Search filters for what rules caught (ADR 0135): `is:held` in the search box, and a
+    rule's filter in the panel, with the Rules column saying which caught each record."""
+    from django.db import connection
+
+    from iki_server.entities import breaches, registry
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import RulesChecked
+
+    editor = world.users["editor"]
+    entities.create(
+        editor, BATCH, world.project, {"name": "Held", "purity": 82.5}, hold_reason="As measured."
+    )
+    broken = entities.create(
+        editor,
+        BATCH,
+        world.project,
+        {"name": "Broken", "made_on": "2026-11-01", "expires_on": "2026-12-01"},
+    )
+    entities.create(editor, BATCH, world.project, {"name": "Fine", "purity": 97.0})
+    # As if saved before its rule: straight to its table, then a deploy's check.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f'UPDATE "{registry.model(BATCH)._meta.db_table}" SET expires_on = %s '  # noqa: S608
+            "WHERE entity_id = %s",
+            ["2026-10-01", broken.entity.pk],
+        )
+    RulesChecked.objects.all().delete()
+    breaches.recheck()
+
+    page: Page = open_as("viewer", f"/projects/kinase-atlas/entities/?type={BATCH}")
+    page.get_by_role("table", name="3 batches").wait_for()
+    assert page.get_by_role("columnheader", name="Rules").count() == 0
+    page.get_by_role("searchbox", name="Search").fill("is:held")
+    grid = page.get_by_role("table", name="1 batch match")
+    grid.get_by_role("columnheader", name="Rules").wait_for()
+    grid.get_by_role(
+        "cell", name=re.compile("^Held for review: Purity in specification")
+    ).wait_for()
+    assert_clean(page)
+
+    page.get_by_role("searchbox", name="Search").fill("")
+    page.get_by_role("table", name="3 batches").wait_for()
+    page.get_by_role("button", name="Filters").click()
+    panel = page.get_by_role("region", name="Filters")
+    panel.get_by_role("button", name="Add a filter").click()
+    panel.get_by_role("combobox", name="Filter 1: field").select_option(label="Breaks")
+    panel.get_by_role("combobox", name="Filter 1: condition").select_option(label="the rule")
+    panel.get_by_role("combobox", name="Filter 1: value").select_option(
+        label="Expires after it's made"
+    )
+    grid = page.get_by_role("table", name="1 batch match")
+    grid.get_by_role("cell", name=re.compile("^Breaks: Expires after it's made")).wait_for()
+    assert_clean(page)
+    # The address keeps it, and the condition reads back.
+    page.reload()
+    page.get_by_role("table", name="1 batch match").wait_for()
+    condition = page.get_by_role("combobox", name="Filter 1: condition")
+    assert condition.locator("option:checked").inner_text() == "the rule"
+    page.context.close()
+
+
+def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
+    """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
+    state's control says so in the guard's words, and won't set it."""
+    from iki_server.entities import services as entities
+
+    _lab_roles(world, editor=("analyst", "reviewer"))
+    made = entities.create(world.users["editor"], BATCH, world.project, {"name": "L-8"})
+    hrid = cast("Entity", made.entity).hrid
+
+    page: Page = open_as("editor", f"/entities/{hrid}/")
+    states = page.locator("section", has=page.get_by_role("heading", name="States"))
+    states.get_by_text("Status: In testing").wait_for()
+    states.get_by_role("button", name="Set Status").click()
+    dialog = page.get_by_role("alertdialog", name=f"Set Status of {hrid}")
+    # Approved only from In review: the guard's message by the state.
+    assert dialog.get_by_role("radio", name=re.compile("^Approved")).is_disabled()
+    dialog.get_by_text("A batch is approved from In review.").wait_for()
+    dialog.get_by_role("radio", name=re.compile("^In review")).check()
+    dialog.get_by_role("button", name="Set Status").click()
+    page.get_by_text(f"{hrid}’s Status is In review now.").wait_for()
+    states.get_by_text("Status: In review").wait_for()
+
+    states.get_by_role("button", name="Set Status").click()
+    dialog = page.get_by_role("alertdialog", name=f"Set Status of {hrid}")
+    approved = dialog.get_by_role("radio", name=re.compile("^Approved"))
+    assert approved.is_disabled()
+    dialog.get_by_text("You submitted L-8 for review, so someone else approves it.").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, world: World) -> None:
     """People in records (ADR 0122): open work taken from My work, a reviewer named with
     the picker, their work once its Status is In review (ADR 0125), and reassigning from

@@ -150,6 +150,15 @@ iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
 from_donor = {"field": "downstream", "op": "of", "value": "DNR-000001"}
 unreleased = {"not": {"field": "state", "op": "eq", "value": "released"}}
 iki.entities.search("iki/example_lims.Sample", where={"all": [from_donor, unreleased]})
+
+# What plugins' rules caught (ADR 0127): what a rule holds for review, and what breaks a
+# rule it was saved before, by the rule's name, or by any with is_set. Each says why.
+held = {"field": "held", "op": "eq", "value": "purity_in_specification"}
+breaking = {"field": "breaks", "op": "is_set", "value": True}
+caught = iki.entities.search("iki/example_lims.Sample", where={"any": [held, breaking]})
+caught.to_pandas()[["held", "breaks"]]  # the rules, by name
+for record in caught:
+    print(record["hrid"], [(h["label"], h["reason"]) for h in record["holds"]])
 ```
 
 Conditions take `op` as one of `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`,

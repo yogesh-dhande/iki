@@ -359,3 +359,175 @@ def test_the_rules_a_type_keeps_are_its_own_and_its_extensions() -> None:
     keys = [r.key for r in checking.rules_of("acme/protein.Protein")]
     assert keys == ["acme/prediction:predictor_named"]
     assert registry.types()[BATCH].rules["one_per_well"].kind == "unique"
+
+
+# --- Finding what rules caught (ADR 0135) -------------------------------------------------------
+
+
+def found(world: World, where: dict[str, Any], who: str = "editor", **body: Any) -> list[str]:
+    """The names of the batches a search finds."""
+    answer = api_as(world, who).post(
+        "/entities/search", {"type": BATCH, "where": where, "limit": 100, **body}
+    )
+    assert answer.status_code == 200, answer.content
+    return sorted(e["values"]["name"] for e in answer.json()["items"])
+
+
+def caught(world: World) -> dict[str, dict[str, Any]]:
+    """Three batches: one a save held, one a deploy found breaking a rule, and one fine."""
+    held = made(world, {"name": "Held", "purity": 82.5}, hold_reason="As measured on the SEC.")
+    broken = made(world, {"name": "Broken", "made_on": "2026-11-01", "expires_on": "2026-12-01"})
+    fine = made(world, {"name": "Fine", "purity": 97.0})
+    _set_column(broken["id"], "expires_on", "2026-10-01")
+    RulesChecked.objects.all().delete()
+    breaches.recheck()
+    return {"held": held, "broken": broken, "fine": fine}
+
+
+def test_a_search_finds_what_rules_hold_and_break_and_says_which(world: World) -> None:
+    roles(world, admin=(QA,))
+    records = caught(world)
+    held = {"field": "held", "op": "is_set", "value": True}
+    assert found(world, held) == ["Held"]
+    assert found(world, {"field": "held", "op": "eq", "value": "purity_in_specification"}) == [
+        "Held"
+    ]
+    assert found(world, {"field": "held", "op": "is_set", "value": False}) == ["Broken", "Fine"]
+    assert found(world, {"field": "held", "op": "ne", "value": "purity_in_specification"}) == [
+        "Broken",
+        "Fine",
+    ]
+    assert found(world, {"field": "breaks", "op": "is_set", "value": True}) == ["Broken"]
+    assert found(
+        world,
+        {"field": "breaks", "op": "in", "value": ["expires_after_made", "pass_in_specification"]},
+    ) == ["Broken"]
+    # Either: what a rule caught, of any kind.
+    either = {"any": [held, {"field": "breaks", "op": "is_set", "value": True}]}
+    assert found(world, either) == ["Broken", "Held"]
+    # Each result says why: which rule holds it, and which it breaks.
+    answer = api_as(world, "editor").post(
+        "/entities/search", {"type": BATCH, "where": either, "sort": {"field": "name"}}
+    )
+    broken_out, held_out = answer.json()["items"]
+    assert [(h["rule"], h["label"]) for h in held_out["holds"]] == [
+        ("purity_in_specification", "Purity in specification")
+    ]
+    assert [(b["rule"], b["label"]) for b in broken_out["breaches"]] == [
+        ("expires_after_made", "Expires after it's made")
+    ]
+    # Reviewed, it isn't held any more.
+    review = f"/entities/{records['held']['id']}/holds/{held_out['holds'][0]['id']}/review"
+    assert api_as(world, "admin").post(review, {"reason": "Investigated."}).status_code == 200
+    assert found(world, held) == []
+    # Without a type, any entity: a rule's name is any rule's of that name.
+    assert found(world, held, type=None) == []
+    named = {"field": "breaks", "op": "eq", "value": "expires_after_made"}
+    assert found(world, named, type=None) == ["Broken"]
+
+
+def test_a_search_by_rule_names_one_of_its_types(world: World) -> None:
+    caught(world)
+    api = api_as(world, "viewer")
+
+    def refused(where: dict[str, Any]) -> list[tuple[str, str]]:
+        body = problem(
+            api.post("/entities/search", {"type": BATCH, "where": where}), 422, "validation_failed"
+        )
+        return [(e["pointer"], e["detail"]) for e in body["errors"]]
+
+    assert refused({"field": "held", "op": "eq", "value": "expires_after_made"}) == [
+        (
+            "#/where/value",
+            "isn't a rule that holds them for review: Batches have `purity_in_specification`.",
+        )
+    ]
+    assert refused({"field": "breaks", "op": "in", "value": ["expires_after_made", "nope"]}) == [
+        (
+            "#/where/value/1",
+            "isn't a rule they can break once saved: Batches have `pass_in_specification`, "
+            "`reviewer_isnt_analyst`, `expires_after_made` or `protein_not_bsl3`.",
+        )
+    ]
+    assert refused({"field": "held", "op": "is_set", "value": "yes"}) == [
+        ("#/where/value", "must be true or false.")
+    ]
+    assert refused({"field": "held", "op": "eq", "value": ""}) == [
+        ("#/where/value", "must name a rule, such as `purity_in_specification`.")
+    ]
+    assert refused({"field": "breaks", "op": "gt", "value": "x"})[0][0] == "#/where/op"
+    sort = api.post("/entities/search", {"type": BATCH, "sort": {"field": "held"}})
+    problem(sort, 422, "validation_failed")
+    # A rule its plugin no longer has still names what it holds.
+    RuleHold.objects.update(rule="purity_at_least_90")
+    assert found(world, {"field": "held", "op": "eq", "value": "purity_at_least_90"}) == ["Held"]
+    # Another type has none that hold.
+    protein_search = api.post(
+        "/entities/search",
+        {
+            "type": "acme/protein.Protein",
+            "where": {"field": "held", "op": "eq", "value": "purity_in_specification"},
+        },
+    )
+    body = problem(protein_search, 422, "validation_failed")
+    assert body["errors"][0]["detail"] == "Proteins have no rules that hold them for review."
+
+
+def test_a_search_finds_only_what_you_can_read_held(world: World) -> None:
+    caught(world)
+    other = Project.objects.create(team=world.team, name="Elsewhere")
+    entity_services.create(
+        world.users["org_admin"],
+        BATCH,
+        other,
+        {"name": "Elsewhere", "purity": 50.0},
+        hold_reason="As measured.",
+    )
+    assert RuleHold.objects.filter(entity__owner_project=other).count() == 1
+    held = {"field": "held", "op": "is_set", "value": True}
+    # Members of the project read its held batch, and nobody's reads the other's.
+    for who in ("viewer", "editor", "admin"):
+        assert found(world, held, who) == ["Held"], who
+    assert found(world, held, "outsider") == []
+    assert found(world, held, "outsider", type=None) == []
+    # Naming the project you can't read is refused, as it is for any search.
+    elsewhere = api_as(world, "viewer").post(
+        "/entities/search", {"type": BATCH, "project": str(other.pk), "where": held}
+    )
+    assert elsewhere.status_code == 404 or elsewhere.json()["items"] == [], elsewhere.content
+
+
+def test_a_saved_search_keeps_what_rules_caught(world: World) -> None:
+    caught(world)
+    api = api_as(world, "editor")
+    held = {"field": "held", "op": "eq", "value": "purity_in_specification"}
+    saved = api.post(
+        "/saved-searches",
+        {
+            "project": str(world.project.pk),
+            "name": "Held for QA",
+            "query": {"type": BATCH, "where": held},
+        },
+    )
+    assert saved.status_code == 201, saved.content
+    query = saved.json()["query"]
+    assert query["where"] == held
+    assert found(world, query["where"]) == ["Held"]
+    wrong = api.post(
+        "/saved-searches",
+        {
+            "project": str(world.project.pk),
+            "name": "Typo",
+            "query": {"type": BATCH, "where": {**held, "value": "purity"}},
+        },
+    )
+    body = problem(wrong, 422, "validation_failed")
+    assert body["errors"][0]["pointer"] == "#/query/where/value"
+
+
+def test_the_searches_columns_are_the_specs() -> None:
+    from iki_server.entities import search
+    from iki_spec import conditions
+
+    assert set(search._BUILT_IN) == set(conditions.BUILT_IN)
+    assert {n: c.kind for n, c in search._BUILT_IN.items()} == dict(conditions.BUILT_IN)

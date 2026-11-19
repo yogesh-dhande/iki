@@ -27,6 +27,7 @@ from iki_spec import (
     actions,
     apis,
     components,
+    conditions,
     naming,
     notifications,
     releases,
@@ -158,6 +159,9 @@ RESERVED_FIELD_NAMES = frozenset(
         "checks",
     }
     | {k for k in keyword.kwlist if k.islower()}
+    # What a search names on every entity (ADR 0037): a field so named couldn't be searched,
+    # such as `held`, what a rule holds for review (ADR 0135).
+    | set(conditions.BUILT_IN)
 )
 
 SECRET_WORDS = frozenset(

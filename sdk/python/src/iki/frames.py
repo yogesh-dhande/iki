@@ -14,6 +14,9 @@ __all__ = ["entities", "records", "runs"]
 
 #: What every entity has, before its own fields.
 _ENTITY_COLUMNS = ("type", "revision", "archived", "created_at", "updated_at", "id")
+#: What plugins' rules caught (ADR 0127): the rules holding it for review, and those it
+#: breaks that it was saved before, by name, as a search's `held` and `breaks` name them.
+_CAUGHT_COLUMNS = (("held", "holds"), ("breaks", "breaches"))
 _RUN_COLUMNS = (
     "action",
     "status",
@@ -58,9 +61,10 @@ def _readable(value: Any, refs: Mapping[str, Any]) -> Any:  # noqa: ANN401 - a v
 
 
 def entities(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
-    """One row per entity, indexed by HRID: what every entity has, then its values, one
-    column per field; a state field's are its states' names. References show the HRIDs of
-    the entities they refer to."""
+    """One row per entity, indexed by HRID: what every entity has, the rules holding it for
+    review (``held``) and those it breaks (``breaks``), then its values, one column per
+    field; a state field's are its states' names. References show the HRIDs of the
+    entities they refer to."""
     pd = _pandas()
     rows = []
     for entity in items:
@@ -69,11 +73,14 @@ def entities(items: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
         row.update({key: entity.get(key) for key in _ENTITY_COLUMNS})
         owner = entity.get("owner_project")
         row["project"] = owner.get("slug") if isinstance(owner, Mapping) else None
+        for column, key in _CAUGHT_COLUMNS:
+            row[column] = [r["rule"] for r in entity.get(key) or ()]
         for field, value in (entity.get("values") or {}).items():
             # A field named like a column above keeps both: the field gets a prefix.
             row[field if field not in row else f"values.{field}"] = _readable(value, refs)
         rows.append(row)
-    frame = pd.DataFrame(rows, columns=None if rows else ["hrid", *_ENTITY_COLUMNS])
+    empty = ["hrid", *_ENTITY_COLUMNS, "project", *(c for c, _ in _CAUGHT_COLUMNS)]
+    frame = pd.DataFrame(rows, columns=None if rows else empty)
     return _dates(frame).set_index("hrid")
 
 

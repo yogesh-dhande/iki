@@ -49,6 +49,8 @@ OPERATORS: Mapping[str, tuple[str, ...]] = {
     "making": ("has",),
     # Across the graph (ADR 0123): upstream or downstream `of` an entity.
     "graph": ("of",),
+    # What plugins' rules caught (ADR 0127): by a rule's name, or by any with `is_set`.
+    "rule": EQUALITY,
 }
 ALL_OPERATORS = ("is_set", *dict.fromkeys(op for ops in OPERATORS.values() for op in ops))
 
@@ -77,4 +79,8 @@ BUILT_IN: Mapping[str, str] = {
     # by its ID or HRID, or `{"entity": …, "depth": …, "edges": […]}`.
     "upstream": "graph",
     "downstream": "graph",
+    # What plugins' rules caught (ADR 0127): records a rule holds for review now, and those
+    # that break a rule they were saved before (one added or changed since, or brought).
+    "held": "rule",
+    "breaks": "rule",
 }

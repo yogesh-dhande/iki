@@ -278,6 +278,42 @@ def test_a_search_names_the_types_fields_with_their_operators(tmp_path: Path) ->
     ]
 
 
+RULED = (
+    PLUGIN + "roles:\n  qa: { label: QA }\n",
+    TYPES
+    + """\
+rules:
+  signal_in_range:
+    check: record.signal < 10.0
+    message: The signal is out of range.
+    hold: { reviewed_by: [qa] }
+  well_named:
+    check: record.well != "X"
+    message: Name its well.
+""",
+)
+
+
+def test_a_search_finds_what_rules_caught_by_the_rules_name(tmp_path: Path) -> None:
+    plugin, types = RULED
+
+    def ruled(where: str) -> Result:
+        return made(tmp_path, search(where), **{"plugin.yaml": plugin, "types/types.yaml": types})
+
+    assert ruled("{ field: held, op: is_set, value: true }").problems == []
+    assert ruled("{ field: held, op: eq, value: signal_in_range }").problems == []
+    assert ruled("{ field: breaks, op: in, value: [well_named] }").problems == []
+    assert only(ruled("{ field: held, op: eq, value: well_named }"), "unknown-rule") == (
+        "`acme/lab.Readout` has no rule `well_named` that holds its records for review."
+    )
+    assert only(ruled("{ field: breaks, op: eq, value: wel_named }"), "unknown-rule") == (
+        "`acme/lab.Readout` has no rule `wel_named` that its records can break once saved."
+    )
+    assert only(ruled("{ field: held, op: lt, value: x }"), "unknown-operator") == (
+        "`held` takes `is_set`, `eq`, `ne`, `in`, not `lt`."
+    )
+
+
 def test_a_search_leaves_room_for_a_refinement(tmp_path: Path) -> None:
     leaf = "{ field: well, op: eq, value: A1 }"
     deep = leaf

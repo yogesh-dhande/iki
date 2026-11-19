@@ -397,6 +397,9 @@ def test_reserved_field_names(tmp_path: Path) -> None:
     # The names a generated models.py uses in its classes' bodies.
     result = make(tmp_path, fields("models: { type: string }\ndatetime: { type: string }\n"))
     assert codes(result) == ["reserved-name", "reserved-name"]
+    # What a search names on every entity, such as what a rule holds (ADR 0135).
+    result = make(tmp_path, fields("held: { type: bool }\nassigned: { type: string }\n"))
+    assert codes(result) == ["reserved-name", "reserved-name"]
 
 
 def test_ref_columns_dont_collide(tmp_path: Path) -> None:

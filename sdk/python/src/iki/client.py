@@ -375,6 +375,16 @@ class Entities(_Part):
 
         Combine conditions with ``{"all": [...]}``, ``{"any": [...]}`` or
         ``{"not": ...}``. `archived` is False by default; None finds both.
+
+        What plugins' rules caught (ADR 0127): ``held``, what a rule holds for review,
+        and ``breaks``, what breaks a rule it was saved before, by the rule's name or by
+        any rule (``is_set``). Each says why in its ``holds`` and ``breaches``, and a
+        DataFrame's ``held`` and ``breaks`` columns name the rules::
+
+            iki.entities.search(
+                "iki/example_lims.Sample",
+                where={"field": "held", "op": "eq", "value": "purity_in_specification"},
+            ).to_pandas()[["held", "purity"]]
         """
         client = self._client
         body: dict[str, Any] = {

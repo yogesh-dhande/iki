@@ -8,6 +8,8 @@
  * readable. "Is me" is `{{ me }}`: a shared search finds each reader's own.
  */
 
+import type { Schemas } from "@ikisci/sdk";
+
 import type { EntityType, FieldDef } from "./entities";
 import {
   defaultUnit,
@@ -95,7 +97,7 @@ export const SOFTWARE = builtIn("software", "Software", "string");
 /** The parts of a making's draft, in order. */
 export type MakingDraft = [software: string, kind: string, by: string];
 
-/** An enum value's label: a state's (ADR 0125), or the value itself. */
+/** An enum value's label: a state's (ADR 0125), a rule's (ADR 0127), or the value itself. */
 export function optionLabel(field: FieldDef, value: string): string {
   return field.states.find((s) => s.name === value)?.label ?? value;
 }
@@ -113,6 +115,50 @@ export const ASSIGNED: FieldDef = {
 };
 /** Records whose assignee can't be assigned them any more. */
 export const NEEDS_REASSIGNING = builtIn("needs_reassigning", "Needs reassigning", "bool");
+
+/** What plugins' rules caught (ADR 0127): records a rule holds for review now, and records
+ * that break a rule they were saved before (one added or changed since, or brought from
+ * elsewhere). By one of the type's rules, or by any. */
+export const HELD = builtIn("held", "Held for review", "rule");
+export const BREAKS = builtIn("breaks", "Breaks", "rule");
+
+type Rule = Schemas["RuleOut"];
+
+/** A filter by the rules that catch records one way: theirs are its values, as an enum's,
+ * each with its label (as a state's is, which is all `optionLabel` reads). */
+function byRules(field: FieldDef, rules: Rule[]): FieldDef {
+  return {
+    ...field,
+    values: rules.map((r) => r.name),
+    states: rules.map((r) => ({
+      name: r.name,
+      label: r.label,
+      description: r.description ?? null,
+      locks: false,
+      reason: null,
+      set_by: [],
+      signatures: [],
+    })),
+  };
+}
+
+/** The filters by what rules caught: without a type, by any rule; with one, those its
+ * rules can catch, by each. */
+function caughtBy(type: EntityType | undefined): FieldDef[] {
+  if (!type) return [HELD, BREAKS];
+  const checks = (type.rules ?? []).filter((r) => r.kind === "check");
+  const holding = checks.filter((r) => r.hold);
+  const refusing = checks.filter((r) => !r.hold);
+  return [
+    ...(holding.length ? [byRules(HELD, holding)] : []),
+    ...(refusing.length ? [byRules(BREAKS, refusing)] : []),
+  ];
+}
+
+/** Whether a search's conditions ask what rules caught. */
+export function asksWhatRulesCaught(conditions: Filter[]): boolean {
+  return conditions.some((c) => c.field === HELD.name || c.field === BREAKS.name);
+}
 
 /** What it was derived from, or what it was used to make, across the graph (ADR 0123):
  * one row of a filter, which the API has as `downstream` or `upstream` `of` an entity. */
@@ -166,7 +212,8 @@ export function askedByField(projects: readonly { id: string; name: string }[]):
 
 /** What a grid can filter by: every entity's ID and times, built-in fields it's given
  * (`extra`, such as the service a request was sent to), its state fields (ADR 0125), who
- * it's assigned to, the type's other fields, how each was made, and its lineage. */
+ * it's assigned to, the type's other fields, what its rules caught, how each was made,
+ * and its lineage. */
 export function filterable(type: EntityType | undefined, extra: FieldDef[] = []): FieldDef[] {
   const fields = type?.fields ?? [];
   const states = fields.filter((f) => f.type === "state");
@@ -178,6 +225,7 @@ export function filterable(type: EntityType | undefined, extra: FieldDef[] = [])
     ...states.map(asEnum),
     ...assigned,
     ...rest,
+    ...caughtBy(type),
     CREATED,
     UPDATED,
     MADE,
@@ -251,6 +299,18 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
           ["set", "is recorded"],
           ["unset", "isn’t recorded"],
         ];
+      case "rule": {
+        // "Held for review by the rule …", "Breaks the rule …": by one, if the type has any.
+        const held = field.name === HELD.name;
+        const one: [Op, string][] = field.values.length
+          ? [["eq", held ? "by the rule" : "the rule"]]
+          : [];
+        return [
+          ["set", held ? "by any rule" : "any rule"],
+          ...one,
+          ["unset", held ? "by no rule" : "no rule"],
+        ];
+      }
       case "file":
       case "json":
         return [];
@@ -290,6 +350,7 @@ export function takesValue(op: Op): boolean {
 /** The field a filter's value is typed into: a list's item, for `has`. */
 export function valueField(field: FieldDef): FieldDef {
   if (field.type === "lineage") return { ...field, type: "ref", required: true };
+  if (field.type === "rule") return { ...field, type: "enum", required: true };
   const typed = field.type === "list" ? itemField(field) : field;
   // The rules of what can be stored don't limit what can be searched for, and the
   // words looked for in long text fit on a line.
@@ -426,9 +487,11 @@ export function toFilter(
 
 /** What the search box's words say of people (ADR 0122), as conditions: `assigned:me`,
  * `assigned:none`, `assigned:@ana@example.com`, `needs:reassigning`, and a field naming
- * people, such as `reviewer:me` or `reviewer:@ana@example.com`; and of lineage (ADR
- * 0123): `downstream:DNR-000001` (what was derived from it) and `upstream:RES-000004`
- * (what it was derived from). The rest is text. */
+ * people, such as `reviewer:me` or `reviewer:@ana@example.com`; of lineage (ADR 0123):
+ * `downstream:DNR-000001` (what was derived from it) and `upstream:RES-000004` (what it
+ * was derived from); and of what rules caught (ADR 0135): `is:held` and `is:breaking`, by
+ * any rule, and `held:purity_in_specification` and `breaks:expires_after_made`, by one.
+ * The rest is text. */
 export function searchWords(q: string): { text: string; conditions: Filter[] } {
   const conditions: Filter[] = [];
   const rest: string[] = [];
@@ -438,6 +501,13 @@ export function searchWords(q: string): { text: string; conditions: Filter[] } {
     const said = match?.[2] ?? "";
     if ((name === "downstream" || name === "upstream") && said) {
       conditions.push({ field: name, op: "of", value: said });
+    } else if (name === "is" && said.toLowerCase() === "held") {
+      conditions.push({ field: HELD.name, op: "is_set", value: true });
+    } else if (name === "is" && said.toLowerCase() === "breaking") {
+      conditions.push({ field: BREAKS.name, op: "is_set", value: true });
+    } else if ((name === HELD.name || name === BREAKS.name) && said) {
+      // A rule by its name, as its type lists it: an extension's has its plugin before it.
+      conditions.push({ field: name, op: "eq", value: said });
     } else if (name === "needs" && said.toLowerCase() === "reassigning") {
       conditions.push({ field: "needs_reassigning", op: "eq", value: true });
     } else if (name === "assigned" && said.toLowerCase() === "none") {

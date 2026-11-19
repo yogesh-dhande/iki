@@ -35,6 +35,7 @@ from iki_spec.model import (
     ComponentSlot,
     EntityType,
     Field,
+    Rule,
     names_people,
     qualify,
 )
@@ -51,7 +52,16 @@ MAX_MODULE_BYTES = 10 * 1024**2
 #: The context a condition's value can be: `{{ entity }}` or `{{ me }}`, and nothing else.
 _CONTEXT = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 #: The columns every entity has that a declared search can name.
-_COLUMNS = ("hrid", "created_by", "created_at", "updated_at", "assigned", "needs_reassigning")
+_COLUMNS = (
+    "hrid",
+    "created_by",
+    "created_at",
+    "updated_at",
+    "assigned",
+    "needs_reassigning",
+    "held",
+    "breaks",
+)
 #: The columns `{{ me }}` can be compared with, beside the type's fields that name people
 #: (ADR 0122).
 _PEOPLE = ("created_by", "assigned")
@@ -177,6 +187,19 @@ class _Rules:
                 if extension.extends_type in chain:
                     fields.update(extension.fields)
         return {n: f for n, f in fields.items() if not f.removed}
+
+    def rules_of(self, entity_type: EntityType) -> list[Rule]:
+        """The rules the type's records keep: its own, its parents', and those this
+        plugin's extensions and its dependencies' declare (ADR 0127)."""
+        chain = [*reversed(self.s.ancestors(entity_type)), entity_type]
+        names = {t.qualified_name for t in chain}
+        out = [r for t in chain for r in t.rules.values()]
+        plugins = [self.s.plugin, *(o.plugin for o in self.s.others.values() if o.plugin)]
+        for plugin in plugins:
+            for extension in plugin.extensions:
+                if extension.extends_type in names:
+                    out.extend(extension.rules.values())
+        return out
 
     def field(self, name: str, path: Path) -> Field | None:
         assert self.fields is not None and self.shown is not None  # noqa: S101 - checked first
@@ -333,6 +356,8 @@ class _Search:
         for value in values:
             context = context_of(value)
             if context is None:
+                if kind == "rule" and node["op"] != "is_set":
+                    self.rule(node["field"], value, (*path, "value"))
                 continue
             at: Path = (*path, "value")
             if context == "" and now_of(value) and kind in ("date", "datetime"):
@@ -357,6 +382,26 @@ class _Search:
                     at,
                 )
             self.context.add(context)
+
+    def rule(self, column: str, value: Any, at: Path) -> None:  # noqa: ANN401 - YAML
+        """A rule ``held`` or ``breaks`` names: one of the type's that catches records so."""
+        assert self.rules.shown is not None  # noqa: S101 - checked first
+        holding = column == "held"
+        known = [
+            r.key
+            for r in self.rules.rules_of(self.rules.shown)
+            if r.kind == "check" and bool(r.hold) == holding
+        ]
+        if isinstance(value, str) and value in known:
+            return
+        what = "holds its records for review" if holding else "its records can break once saved"
+        self.add(
+            "unknown-rule",
+            f"`{self.rules.shown.qualified_name}` has no rule `{value}` that {what}.",
+            self.source,
+            at,
+            hint=schemas._did_you_mean(str(value), known),
+        )
 
     def entity(self, node: Mapping[str, Any], kind: str, found: Field | None, at: Path) -> None:
         if self.slot.slot != "entity.tab":

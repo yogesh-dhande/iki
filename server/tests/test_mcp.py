@@ -667,6 +667,53 @@ async def test_agents_create_and_change_entities_on_the_record(world: World) -> 
     ]
 
 
+async def test_agents_find_what_rules_hold_and_why(world: World) -> None:
+    """ADR 0127: an agent saves a result outside its specification with why, and finds what
+    rules hold, each with the rule and the reason."""
+    token = await token_for(world)
+    held = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Batch",
+            project=str(world.project.pk),
+            values={"name": "L-1", "purity": 82.5},
+            reason="",
+            hold_reason="As measured on the SEC.",
+        )
+    )
+    data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Batch",
+            project=str(world.project.pk),
+            values={"name": "L-2", "purity": 97.0},
+            reason="",
+        )
+    )
+    found = data(
+        await tool(
+            token,
+            "search_entities",
+            type="acme/protein.Batch",
+            where={"field": "held", "op": "eq", "value": "purity_in_specification"},
+        )
+    )
+    assert [e["hrid"] for e in found["items"]] == [held["hrid"]]
+    [hold] = found["items"][0]["holds"]
+    assert (hold["rule"], hold["reason"]) == ("purity_in_specification", "As measured on the SEC.")
+    wrong = error(
+        await tool(
+            token,
+            "search_entities",
+            type="acme/protein.Batch",
+            where={"field": "held", "op": "eq", "value": "purity"},
+        )
+    )
+    assert "#/where/value" in wrong and "purity_in_specification" in wrong
+
+
 async def test_agents_set_records_states(world: World) -> None:
     """ADR 0125: an agent sees which states the person may set, sets one on the record, and
     can't change a record a state locks."""

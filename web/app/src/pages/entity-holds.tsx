@@ -6,20 +6,24 @@
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
-import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
+import { fieldErrors, iki, labRolesQuery, problemOf, useApiMutation, type LabRole } from "../api";
 import { ENTITIES, entityQuery, personName, type Entity } from "../entities";
 import { WORK } from "../people";
 import { Button, ConfirmDialog, RelativeTime, TextField, useMessages } from "../ui";
 
 type Hold = Schemas["HoldOut"];
 
-function roles(names: string[]): string {
-  const short = names.map((n) => n.split(":").pop() ?? n);
-  if (short.length <= 1) return short.join("");
-  return `${short.slice(0, -1).join(", ")} or ${short[short.length - 1] ?? ""}`;
+/** The lab roles (ADR 0116) that review a hold, as their plugins label them: “QA”, not
+ * `iki/example_lims.qa`. A role no plugin declares now is named by its own short name. */
+function roles(names: string[], declared: readonly LabRole[]): string {
+  const labels = names.map(
+    (n) => declared.find((r) => r.name === n)?.label ?? n.split(/[.:]/).pop() ?? n,
+  );
+  if (labels.length <= 1) return labels.join("");
+  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1] ?? ""}`;
 }
 
 export function EntityHolds({ entity }: { entity: Entity }) {
@@ -27,6 +31,8 @@ export function EntityHolds({ entity }: { entity: Entity }) {
   const id = useId();
   const holds = entity.holds ?? [];
   const breaches = entity.breaches ?? [];
+  // Who reviews a hold, by their roles' labels: asked for with the holds, not the dialog.
+  const declared = useQuery({ ...labRolesQuery, enabled: holds.length > 0 }).data ?? [];
   if (!holds.length && !breaches.length) return null;
   return (
     <>
@@ -105,6 +111,7 @@ export function EntityHolds({ entity }: { entity: Entity }) {
         <ReviewDialog
           entity={entity}
           hold={reviewing}
+          declared={declared}
           onClose={() => {
             setReviewing(null);
           }}
@@ -117,10 +124,12 @@ export function EntityHolds({ entity }: { entity: Entity }) {
 function ReviewDialog({
   entity,
   hold,
+  declared,
   onClose,
 }: {
   entity: Entity;
   hold: Hold;
+  declared: readonly LabRole[];
   onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
@@ -168,8 +177,8 @@ function ReviewDialog({
         {hold.reason}”.
       </p>
       <p>
-        As one of its {roles(hold.reviewed_by)} reviewers, you say why it may stand as it is. Your
-        name and reason are kept in its history, and the hold is cleared.
+        As one of its {roles(hold.reviewed_by, declared)} reviewers, you say why it may stand as it
+        is. Your name and reason are kept in its history, and the hold is cleared.
       </p>
       <TextField
         label="Why it may stand"

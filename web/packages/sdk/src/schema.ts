@@ -963,6 +963,12 @@ export interface paths {
          *     ``{"field": "downstream", "op": "of", "value": "DNR-000001"}``, or with a ``depth``
          *     and ``edges``: ``{"entity": "DNR-000001", "depth": 5, "edges": ["reference"]}``; and
          *     ``is_set``, whether anything you can read is that way.
+         *     ``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds
+         *     for review now, and records that break a rule they were saved before (one its plugin
+         *     added or changed since, or one a bundle brought). They take a rule's name with ``eq``,
+         *     ``ne`` and ``in``, as ``{"field": "held", "op": "eq", "value": "purity_in_specification"}``,
+         *     and ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``
+         *     say which, and why.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];

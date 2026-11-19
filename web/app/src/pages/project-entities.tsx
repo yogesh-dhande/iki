@@ -27,7 +27,16 @@ import {
   type FieldDef,
 } from "../entities";
 import type { EntitySearch, Showing } from "../entities";
-import { filterable, HRID, sentToField, sortable, UPDATED, type Filter } from "../filters";
+import {
+  asksWhatRulesCaught,
+  filterable,
+  HRID,
+  searchWords,
+  sentToField,
+  sortable,
+  UPDATED,
+  type Filter,
+} from "../filters";
 import { problemOf } from "../api";
 import { usePageTitle } from "../layout";
 import { sentToQuery } from "../requests";
@@ -191,6 +200,31 @@ function columnsFor(
   const rest = fields.filter((_, index) => type.fields[index]?.type !== "state");
   return [id, ...(type.subtypes.length ? [kind] : []), ...sides, ...states, ...rest, updated];
 }
+
+/** Why a record is in a search of what rules caught (ADR 0127): the rules holding it for
+ * review, and those it breaks, each with what it was told. */
+const CAUGHT: Column = {
+  key: "caught",
+  label: "Rules",
+  width: "minmax(16rem, 2fr)",
+  cell: (e) => {
+    const holds = e.holds ?? [];
+    const breaches = e.breaches ?? [];
+    const why = [
+      ...holds.map((h) => `Held for review: ${h.label}`),
+      ...breaches.map((b) => `Breaks: ${b.label}`),
+    ].join("; ");
+    const told = holds[0]?.message ?? breaches[0]?.message;
+    return why ? (
+      <>
+        {why}
+        {told ? <span className="cell-meta">{told}</span> : null}
+      </>
+    ) : (
+      "None"
+    );
+  },
+};
 
 function unitOf(field: FieldDef): string {
   if (field.display_scale != null && field.display_unit) {
@@ -374,7 +408,15 @@ export function EntityGrid({
       />
     ),
   };
-  const columns = [...(selectable ? [select] : []), ...columnsFor(type, types, sides)];
+  // A search of what rules caught says, by each record, which caught it and why.
+  const caught = asksWhatRulesCaught([...filters, ...searchWords(search.q ?? "").conditions]);
+  const [id, ...others] = columnsFor(type, types, sides);
+  const columns = [
+    ...(selectable ? [select] : []),
+    ...(id ? [id] : []),
+    ...(caught ? [CAUGHT] : []),
+    ...others,
+  ];
 
   const scroller = useRef<HTMLDivElement>(null);
   // TanStack Virtual hands back functions that read its live state, so the React Compiler
@@ -397,7 +439,7 @@ export function EntityGrid({
 
   const captionId = useId();
   const template = columns.map((c) => c.width ?? "minmax(9rem, 1fr)").join(" ");
-  const minWidth = `${String(columns.filter((c) => !c.width).length * 9 + (selectable ? 2.75 : 0))}rem`;
+  const minWidth = `${String(columns.filter((c) => !c.width).length * 9 + (selectable ? 2.75 : 0) + (caught ? 16 : 0))}rem`;
   // The types it offers and their subtypes, an abstract one as any of its kinds.
   const typeOptions = [
     { value: "", label: `All ${plural.many}` },
@@ -456,9 +498,11 @@ export function EntityGrid({
           placeholder={
             type?.fields.some((f) => f.assignment)
               ? `ID, name, or assigned:me`
-              : type
-                ? `ID or ${inSentence(type.label)} name`
-                : "ID or name"
+              : type?.rules?.some((r) => r.hold)
+                ? `ID, name, or is:held`
+                : type
+                  ? `ID or ${inSentence(type.label)} name`
+                  : "ID or name"
           }
           onSearch={(q) => {
             navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
