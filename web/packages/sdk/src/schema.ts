@@ -2440,6 +2440,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/sent-from": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The projects that have sent a project requests
+         * @description Each project that has sent this one a request (ADR 0132), by name: what its queue's
+         *     requests' `asking_project` says, which its `owner_project` condition finds. Its members
+         *     can read them, though they can't see those projects; nothing else of theirs shows.
+         */
+        get: operations["iki_server_api_requests_list_sent_from"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sent-to": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The services a project has sent requests to
+         * @description Each project this one has sent a request to (ADR 0132), by name, whether or not it
+         *     still takes them: what its requests' `service` says, and the `sent_to` condition
+         *     finds. Its members can read them; nothing else of those projects shows.
+         */
+        get: operations["iki_server_api_requests_list_sent_to"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/services": {
         parameters: {
             query?: never;
@@ -17208,6 +17252,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NameableOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_requests_list_sent_from: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRef"][];
+                };
+            };
+        };
+    };
+    iki_server_api_requests_list_sent_to: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRef"][];
                 };
             };
         };

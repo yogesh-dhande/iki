@@ -389,6 +389,11 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     }
     fake.on("GET", f"/api/v1/projects/{core}/intake", intake)
     assert client.projects.intake(core) == intake
+    named: Any = [{"id": core, "name": "Core", "slug": "core"}]
+    fake.on("GET", f"/api/v1/projects/{project}/sent-to", named)
+    assert client.projects.sent_to(project) == named
+    fake.on("GET", f"/api/v1/projects/{core}/sent-from", [])
+    assert client.projects.sent_from(core) == []
 
 
 def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:

@@ -223,6 +223,36 @@ def request_sides(w: World) -> tuple[Any, ...]:
     return f"/entities/{found.pk}/request", None
 
 
+def request_sent_to(w: World) -> tuple[Any, ...]:
+    from iki_server.entities import requests
+
+    requests.submit(w.users["editor"], _assay_request(w), _service(w), expected_revision=1)
+    return f"/projects/{w.project.pk}/sent-to", None
+
+
+def request_sent_from(w: World) -> tuple[Any, ...]:
+    """The projects that sent requests to the world's project, as a service."""
+    from iki_server.accounts.models import User
+    from iki_server.entities import requests
+    from iki_server.entities import services as entities
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+    asking = Project.objects.create(team=w.team, name="Discovery")
+    # One per world: the IDOR fuzzing builds a foreign one beside it.
+    chemist = User.objects.create_user(f"chemist-{w.project.pk}@example.com", "Chemist")
+    ProjectMembership.objects.create(project=asking, user=chemist, role=ProjectRole.EDITOR)
+    requests.set_intake(
+        w.project,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=w.users["org_admin"],
+    )
+    found: Any = entities.create(chemist, "acme/protein.AssayRequest", asking, {"title": "Purity"})
+    requests.submit(chemist, found.entity, w.project, expected_revision=1)
+    return f"/projects/{w.project.pk}/sent-from", None
+
+
 INTAKE = {"types": ["acme/protein.AssayRequest"], "from_registry": True, "projects": []}
 
 
@@ -892,6 +922,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/projects/{project_id}/intake", project("/intake"), visible(200, org_admin=403)),
     ("PUT", "/projects/{project_id}/intake", project("/intake", INTAKE), visible(403, admin=200)),
     ("GET", "/projects/{project_id}/services", project("/services"), visible(200, org_admin=403)),
+    ("GET", "/projects/{project_id}/sent-to", request_sent_to, visible(200, org_admin=403)),
+    ("GET", "/projects/{project_id}/sent-from", request_sent_from, visible(200, org_admin=403)),
     ("POST", "/entities/{ref}/submit", request_submit, editors(200)),
     ("GET", "/entities/{ref}/request", request_sides, readers(200)),
     # Whom its records can name is its data: an Org Admin sees the project, not its people.

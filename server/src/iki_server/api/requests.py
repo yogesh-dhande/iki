@@ -3,7 +3,9 @@ one, and a request's two sides.
 
 - ``/projects/{id}/intake`` is what a project takes as a service: the request types it
   accepts, and from which projects. Its Admins set it.
-- ``/projects/{id}/services`` lists the services a project may send requests to.
+- ``/projects/{id}/services`` lists the services a project may send requests to, and
+  ``/projects/{id}/sent-to`` those it has sent requests to; ``/projects/{id}/sent-from``
+  the projects that have sent requests to it.
 - ``POST /entities/{ref}/submit`` sends a request to one, with the records it sends.
 - ``/entities/{ref}/request`` is a request's two sides: what it sent the service, and
   the results the service released back.
@@ -209,6 +211,36 @@ def list_services(
             }
         )
     return out
+
+
+@router.get(
+    "/projects/{project_id}/sent-to",
+    response=list[ProjectRef],
+    summary="The services a project has sent requests to",
+)
+def list_sent_to(request: HttpRequest, project_id: UUID) -> list[Project]:
+    """Each project this one has sent a request to (ADR 0132), by name, whether or not it
+    still takes them: what its requests' `service` says, and the `sent_to` condition
+    finds. Its members can read them; nothing else of those projects shows."""
+    me = caller(request)
+    asking = project(me, project_id, Action.PROJECT_READ)
+    sent = Request.objects.filter(entity__owner_project=asking).values("service_id")
+    return list(Project.objects.filter(pk__in=sent).order_by("name", "pk")[:200])
+
+
+@router.get(
+    "/projects/{project_id}/sent-from",
+    response=list[ProjectRef],
+    summary="The projects that have sent a project requests",
+)
+def list_sent_from(request: HttpRequest, project_id: UUID) -> list[Project]:
+    """Each project that has sent this one a request (ADR 0132), by name: what its queue's
+    requests' `asking_project` says, which its `owner_project` condition finds. Its members
+    can read them, though they can't see those projects; nothing else of theirs shows."""
+    me = caller(request)
+    service = project(me, project_id, Action.PROJECT_READ)
+    asking = Request.objects.filter(service=service).values("entity__owner_project_id")
+    return list(Project.objects.filter(pk__in=asking).order_by("name", "pk")[:200])
 
 
 def services_list(asking: Project, type_name: str | None) -> list[Project]:

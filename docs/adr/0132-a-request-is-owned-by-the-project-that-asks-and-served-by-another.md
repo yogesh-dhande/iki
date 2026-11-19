@@ -105,7 +105,12 @@ read, list and search exactly those.
 
 **The queue is the requests sent to a project.** They're linked into it,
 so they're in its grid and search, and a built-in `sent_to` condition
-finds those sent to a project, or not sent at all. Each request's page
+finds those sent to a project, or not sent at all. A project's Requests
+tab, as GitHub's Issues tab, is its queue as a service, filtered by status,
+assignee and the project that asked, and the requests it sent, filtered by
+status and service. Each side lists the other by name alone (the projects
+that sent it requests, the services it sent to), so it can filter by them
+without seeing anything else of theirs. Each request's page
 shows both sides: who asked, who serves it, whose each field is, what it
 sent and what came back. Audited as `request.submitted` in the asking
 project and `request.received` in the service's, each told to webhooks;

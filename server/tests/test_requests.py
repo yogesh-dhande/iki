@@ -292,6 +292,43 @@ def test_sending_a_request_shares_it_and_its_samples_with_the_service(lab: Lab) 
     problem(submit(lab, made["id"]), 409, "refused")
 
 
+def test_a_project_lists_the_services_it_has_sent_to_by_name_alone(lab: Lab) -> None:
+    path = f"/projects/{lab.world.project.pk}/sent-to"
+    viewer = lab.api("viewer")
+    assert viewer.get(path).json() == []
+    sent(lab)
+    expected = [{"id": str(lab.core.pk), "name": "Protein Core", "slug": lab.core.slug}]
+    assert viewer.get(path).json() == expected
+    # Once it's sent there, it stays listed, though the core takes no more of them.
+    takes(lab, types=[])
+    assert viewer.get(path).json() == expected
+    assert viewer.get(f"/projects/{lab.world.project.pk}/services").json() == []
+    # Nothing else of the core's shows its asker, nor the other way round.
+    problem(viewer.get(f"/projects/{lab.core.pk}"), 404, "not_found")
+    problem(viewer.get(f"/projects/{lab.core.pk}/sent-to"), 404, "not_found")
+    assert lab.api("core_viewer").get(f"/projects/{lab.core.pk}/sent-to").json() == []
+
+
+def test_a_service_lists_who_has_sent_it_requests_by_name_alone(lab: Lab) -> None:
+    path = f"/projects/{lab.core.pk}/sent-from"
+    tech = lab.api("tech")
+    assert tech.get(path).json() == []
+    made = sent(lab)
+    asking = lab.world.project
+    assert tech.get(path).json() == [
+        {"id": str(asking.pk), "name": asking.name, "slug": asking.slug}
+    ]
+    # Its queue is searched by who asked, though its people can't see that project.
+    problem(tech.get(f"/projects/{asking.pk}"), 404, "not_found")
+    found = tech.post(
+        "/entities/search",
+        {"type": ASK, "where": {"field": "owner_project", "op": "eq", "value": str(asking.pk)}},
+    )
+    assert [e["hrid"] for e in found.json()["items"]] == [made["hrid"]]
+    problem(tech.get(f"/projects/{asking.pk}/sent-from"), 404, "not_found")
+    assert lab.api("viewer").get(f"/projects/{asking.pk}/sent-from").json() == []
+
+
 def test_a_project_that_doesnt_take_it_looks_like_none_at_all(lab: Lab) -> None:
     made = ask(lab)
     nothing = problem(submit(lab, made["id"]), 404, "not_found")

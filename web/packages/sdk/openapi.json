@@ -29023,6 +29023,98 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/sent-from": {
+      "get": {
+        "description": "Each project that has sent this one a request (ADR 0132), by name: what its queue's\nrequests' `asking_project` says, which its `owner_project` condition finds. Its members\ncan read them, though they can't see those projects; nothing else of theirs shows.",
+        "operationId": "iki_server_api_requests_list_sent_from",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRef"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The projects that have sent a project requests",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sent-to": {
+      "get": {
+        "description": "Each project this one has sent a request to (ADR 0132), by name, whether or not it\nstill takes them: what its requests' `service` says, and the `sent_to` condition\nfinds. Its members can read them; nothing else of those projects shows.",
+        "operationId": "iki_server_api_requests_list_sent_to",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRef"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The services a project has sent requests to",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/services": {
       "get": {
         "description": "Each project that takes requests from this one (ADR 0132), of `type` if given, with\nthe request types it takes. Its members can read them: a service's name and description\nare what it shows those it serves.",

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         NotificationOut,
         OriginOut,
         ProjectOut,
+        ProjectRef,
         RequestOut,
         RevisionOut,
         RunArtifactOut,
@@ -1086,6 +1087,22 @@ class Projects(_Part):
             self._client.request(
                 "GET", _path("/projects/{id}/services", id=found), params={"type": type}
             ),
+        )
+
+    def sent_to(self, project: str) -> builtins.list[ProjectRef]:
+        """The services a project has sent requests to (ADR 0132), by name."""
+        found = self._client._project_id(project)
+        return cast(
+            "builtins.list[ProjectRef]",
+            self._client.request("GET", _path("/projects/{id}/sent-to", id=found)),
+        )
+
+    def sent_from(self, project: str) -> builtins.list[ProjectRef]:
+        """The projects that have sent requests to a service (ADR 0132), by name."""
+        found = self._client._project_id(project)
+        return cast(
+            "builtins.list[ProjectRef]",
+            self._client.request("GET", _path("/projects/{id}/sent-from", id=found)),
         )
 
     def intake(self, project: str) -> IntakeOut:
