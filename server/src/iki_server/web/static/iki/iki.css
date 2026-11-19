@@ -1646,6 +1646,15 @@ input[type="date"] {
   margin-bottom: 0;
 }
 
+/* Choices a search lists in a dialog, such as a quota's team or project: a height of their
+   own, so what's below doesn't move as answers come. */
+.scope-choices {
+  height: 13rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-bottom: 1rem;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .dialog-overlay[data-entering] {
     animation: dialog-fade 120ms ease-out;

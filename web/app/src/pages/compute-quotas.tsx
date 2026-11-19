@@ -4,7 +4,7 @@
  * change and remove them; every change is audited.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type SubmitEvent } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
@@ -203,7 +203,9 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
   const { say } = useMessages();
   const [kind, setKind] = useState<"organization" | QuotaScopeKind>("organization");
   const [search, setSearch] = useState("");
-  const [picked, setPicked] = useState("");
+  // The chosen team or project itself, not only its ID: it stays listed, and is what's
+  // saved, whatever the search finds next, so a quota never goes on one the dialog hides.
+  const [picked, setPicked] = useState<Schemas["QuotaScopeOut"] | null>(null);
   const [tier, setTier] = useState<"all" | Tier>("all");
   const [running, setRunning] = useState(quota?.max_running?.toString() ?? "");
   const [queued, setQueued] = useState(quota?.max_queued?.toString() ?? "");
@@ -213,6 +215,10 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
     ...quotaScopesQuery(kind === "organization" ? "team" : kind, search),
     enabled: quota === undefined && kind !== "organization",
   });
+  const options = [
+    ...(picked ? [picked] : []),
+    ...(scopes.data ?? []).filter((s) => s.id !== picked?.id),
+  ];
 
   const save = useApiMutation(async () => {
     const limits = { max_running: limitOf(running), max_queued: limitOf(queued) };
@@ -228,8 +234,8 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
       await iki.POST("/api/v1/compute/quotas", {
         body: {
           ...limits,
-          ...(kind === "team" ? { team: picked } : {}),
-          ...(kind === "project" ? { project: picked } : {}),
+          ...(kind === "team" && picked ? { team: picked.id } : {}),
+          ...(kind === "project" && picked ? { project: picked.id } : {}),
           ...(tier === "all" ? {} : { tier }),
         },
       }),
@@ -243,7 +249,7 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
       scope:
         quota === undefined &&
         kind !== "organization" &&
-        picked === "" &&
+        picked === null &&
         `Choose the ${kind} it limits.`,
       max_running:
         limitError(running, 100_000) ||
@@ -292,7 +298,7 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
                   value={kind}
                   onChange={(value) => {
                     setKind(value);
-                    setPicked("");
+                    setPicked(null);
                     setSearch("");
                   }}
                   options={SCOPE_KINDS}
@@ -307,29 +313,36 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
                       help="Any of them, whether you’re a member or not. Archived ones aren’t listed."
                       optional
                     />
-                    {scopes.isPending ? (
-                      <Loading label={search.trim() ? "Searching…" : `Loading ${kind}s…`} />
-                    ) : scopes.isError ? (
-                      <ProblemAlert problem={problemOf(scopes.error)} />
-                    ) : scopes.data.length ? (
-                      <RadioField
-                        label={kind === "team" ? "Team" : "Project"}
-                        value={picked}
-                        onChange={setPicked}
-                        error={
-                          form.errors["scope"] ?? form.errors["team"] ?? form.errors["project"]
-                        }
-                        options={scopes.data.map((s) => ({
-                          value: s.id,
-                          label: s.name,
-                          ...(s.team ? { description: `${s.team} team` } : {}),
-                        }))}
-                      />
-                    ) : (
-                      <p className="muted" role="status">
-                        No {kind}s{search.trim() ? ` with “${search.trim()}” in the name` : ""}.
-                      </p>
-                    )}
+                    {/* Its own height, whatever it holds: an answer arriving late doesn't move
+                    the tier and limits below, nor the chosen one, which stays first. */}
+                    <div className="scope-choices">
+                      {scopes.isError ? <ProblemAlert problem={problemOf(scopes.error)} /> : null}
+                      {options.length ? (
+                        <RadioField
+                          label={kind === "team" ? "Team" : "Project"}
+                          value={picked?.id ?? ""}
+                          onChange={(id) => {
+                            setPicked(options.find((s) => s.id === id) ?? null);
+                          }}
+                          error={
+                            form.errors["scope"] ?? form.errors["team"] ?? form.errors["project"]
+                          }
+                          options={options.map((s) => ({
+                            value: s.id,
+                            label: s.name,
+                            ...(s.team ? { description: `${s.team} team` } : {}),
+                          }))}
+                        />
+                      ) : null}
+                      {scopes.isPending ? (
+                        <Loading label={search.trim() ? "Searching…" : `Loading ${kind}s…`} />
+                      ) : scopes.isError || scopes.data.some((s) => s.id !== picked?.id) ? null : (
+                        <p className="muted" role="status">
+                          No {picked ? `other ${kind}s` : `${kind}s`}
+                          {search.trim() ? ` with “${search.trim()}” in the name` : ""}.
+                        </p>
+                      )}
+                    </div>
                   </>
                 )}
                 <SelectField label="Tier" value={tier} onChange={setTier} options={TIERS} />

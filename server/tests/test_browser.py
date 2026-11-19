@@ -448,6 +448,35 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     page.context.close()
 
 
+def test_a_quota_goes_on_the_team_chosen_whatever_is_searched_next(
+    open_as: Any, world: World
+) -> None:
+    """The chosen team stays listed, and chosen, in place, while another is searched for,
+    so the quota saved is on the team the dialog shows ticked."""
+    from iki_server.runs.models import RunQuota
+
+    page = open_as("compute_admin", "/compute/quotas/")
+    page.get_by_role("button", name="Set a quota").click()
+    dialog = page.get_by_role("dialog", name="Set a quota")
+    dialog.get_by_role("radio", name="A team").check()
+    chosen = dialog.get_by_role("radio", name="Structural Biology", exact=True)
+    chosen.check()
+    tier = dialog.get_by_role("combobox", name="Tier")
+    where = (chosen.bounding_box(), tier.bounding_box())
+    dialog.get_by_role("textbox", name="Find a team").fill("chem")
+    dialog.get_by_role("radio", name="Chemistry", exact=True).wait_for()
+    assert chosen.is_checked()
+    # Nothing moved as the answer came: not the chosen team, nor what's below.
+    assert (chosen.bounding_box(), tier.bounding_box()) == where
+    assert_clean(page)
+    dialog.get_by_role("textbox", name="Jobs running at once").fill("2")
+    dialog.get_by_role("button", name="Set quota").click()
+    page.get_by_text("Set a quota for Structural Biology.").wait_for()
+    (quota,) = RunQuota.objects.all()
+    assert (quota.team_id, quota.project_id, quota.max_running) == (world.team.pk, None, 2)
+    page.context.close()
+
+
 def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world: World) -> None:
     admin, viewer = world.users["admin"], world.users["viewer"]
     notify(

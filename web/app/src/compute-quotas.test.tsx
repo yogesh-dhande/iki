@@ -138,6 +138,77 @@ describe("Compute → Quotas", () => {
     expect(dialog.queryByRole("radio", { name: "Antibodies" })).not.toBeInTheDocument();
   });
 
+  it("keeps the chosen team listed, and saved, whatever's searched for next", async () => {
+    const quotas: Schemas["QuotaOut"][] = [];
+    onQuotas(quotas);
+    const team = (n: number, name: string) => ({
+      id: `00000000-0000-7000-8000-0000000000t${String(n)}`,
+      name,
+      team: null,
+      team_id: null,
+    });
+    const [antibodies, biologics] = [team(1, "Antibodies"), team(2, "Biologics")];
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer("GET /api/v1/compute/quota-scopes", async (r: { query: URLSearchParams }) => {
+      const search = r.query.get("search") ?? "";
+      if (!search) return [antibodies, biologics];
+      await held;
+      return [antibodies, biologics].filter((t) => t.name.toLowerCase().includes(search));
+    });
+    const saved = quota({ project: null, team: { id: antibodies.id, name: antibodies.name } });
+    answer("POST /api/v1/compute/quotas", () => {
+      quotas.push(saved);
+      return saved;
+    });
+    const { user } = await renderApp("/compute/quotas/");
+    await card().findByText(/No quotas/);
+    await user.click(card().getByRole("button", { name: "Set a quota" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
+    await user.click(dialog.getByRole("radio", { name: /A team/ }));
+    await user.click(await dialog.findByRole("radio", { name: "Antibodies" }));
+
+    await user.type(dialog.getByRole("textbox", { name: /Find a team/ }), "bio");
+    // Still there, and still chosen, while "bio" is searched for and once it's found.
+    expect(dialog.getByRole("radio", { name: "Antibodies" })).toBeChecked();
+    expect(dialog.getByRole("status")).toHaveTextContent("Searching…");
+    await act(async () => {
+      release();
+      await held;
+    });
+    const found = await dialog.findByRole("radio", { name: "Biologics" });
+    const chosen = dialog.getByRole("radio", { name: "Antibodies" });
+    expect(chosen).toBeChecked();
+    expect(found).not.toBeChecked();
+    // First, where it was: the answer didn't move it.
+    expect(chosen.compareDocumentPosition(found) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.type(dialog.getByRole("textbox", { name: /Jobs running at once/ }), "2");
+    await user.click(dialog.getByRole("button", { name: "Set quota" }));
+
+    expect(await screen.findByText("Set a quota for Antibodies.")).toBeVisible();
+    expect(calls("POST", "/api/v1/compute/quotas").map((c) => c.body)).toEqual([
+      { team: antibodies.id, max_running: 2, max_queued: null },
+    ]);
+  });
+
+  it("says when nothing else matches, keeping the chosen project", async () => {
+    onQuotas([]);
+    answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
+      r.query.get("search") ? [] : [{ ...PROJECT, team: "Structural biology", team_id: null }],
+    );
+    const { user } = await renderApp("/compute/quotas/");
+    await card().findByText(/No quotas/);
+    await user.click(card().getByRole("button", { name: "Set a quota" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
+    await user.click(dialog.getByRole("radio", { name: /A project/ }));
+    await user.click(await dialog.findByRole("radio", { name: /Cryo-EM screening/ }));
+    await user.type(dialog.getByRole("textbox", { name: /Find a project/ }), "zzz");
+    expect(await dialog.findByText("No other projects with “zzz” in the name.")).toBeVisible();
+    expect(dialog.getByRole("radio", { name: /Cryo-EM screening/ })).toBeChecked();
+  });
+
   it("asks for a whole number", async () => {
     onQuotas([]);
     const { user } = await renderApp("/compute/quotas/");
