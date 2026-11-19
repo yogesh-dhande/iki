@@ -160,7 +160,9 @@ would charge 5 + 2n: Iki's opening cost is the first base's, as EMBOSS and
 Biopython count it.) A circular sequence is aligned as if it went round
 again, so a read across its origin aligns in one piece. A read aligns if at
 least half its trimmed bases do (and 20); others are left out, and the run
-says so, as is one with nothing scoring above zero (all N, say). The run says
+says so, as is one with nothing scoring above zero (all N, say): a warning
+for each reason, naming the reads, and each read, with why, in the run's
+artifact `left_out.tsv`. The run says
 where the reads cover the sequence: a read's base covers its place only when
 it says what's there, so N, or another ambiguity code that could be the
 sequence's base, covers nothing, and the run lists where reads have only such

@@ -383,6 +383,33 @@ def test_reads_that_dont_code_for_it_are_left_out_saying_so(tmp_path: Path) -> N
     assert output["metrics"]["aligned"] == 1
 
 
+def test_many_reads_left_out_are_said_in_a_warning_for_each_reason(tmp_path: Path) -> None:
+    strangers = [(f"stranger-{i:03}", made_up(300, 1000 + i, "ACGT"), 40) for i in range(120)]
+    files = {
+        "good.fastq": fastq(("good", coding(PROTEIN[50:250]), 40)),
+        "strangers.fastq": fastq(*strangers),
+        "poor.fastq": fastq(*[(f"poor-{i}", coding(PROTEIN[:100]), 3) for i in range(3)]),
+    }
+
+    _, output = run(tmp_path, files)
+
+    assert output is not None  # its messages fit the run-output schema
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert len(warnings) == 2
+    assert warnings[0].startswith(
+        "120 reads don't code for any of PRT-000001 in any frame, so they're left out: "
+        "stranger-000, stranger-001, "
+    )
+    assert warnings[0].endswith(", stranger-099, and 20 more. left_out.tsv lists each, with why.")
+    assert warnings[1] == (
+        "3 reads have no bases good enough to keep, so they're left out: poor-0, poor-1, poor-2. "
+        "left_out.tsv lists each, with why."
+    )
+    left = (tmp_path / "out" / "left_out.tsv").read_text().splitlines()
+    assert len(left) == 1 + 123
+    assert output["metrics"]["aligned"] == 1
+
+
 @pytest.mark.parametrize(
     ("files", "sequence", "said"),
     [
@@ -412,15 +439,31 @@ def test_what_cant_be_aligned_fails_its_run_saying_why(
 
 
 @pytest.mark.parametrize(
-    "name", ["Read", "mott", "unique", "read_file", "ranges", "spans", "percent", "fail"]
+    "name",
+    [
+        "Read",
+        "mott",
+        "unique",
+        "read_file",
+        "ranges",
+        "spans",
+        "percent",
+        "Left",
+        "short",
+        "fitted",
+        "left_out",
+        "fail",
+    ],
 )
 def test_reading_reads_is_kept_as_the_dna_plugin_has_it(name: str) -> None:
     # Each plugin ships its own scripts, so the protein plugin has a copy of these.
     mine = load(SCRIPT, "protein_reads")
     theirs = load(DNA_SCRIPT, "dna_reads")
     assert inspect.getsource(getattr(mine, name)) == inspect.getsource(getattr(theirs, name))
-    assert (mine.LIMIT, mine.MAX_READS, mine.MAX_READ) == (
+    assert (mine.LIMIT, mine.MAX_READS, mine.MAX_READ, mine.MAX_LISTED, mine.MAX_TEXT) == (
         theirs.LIMIT,
         theirs.MAX_READS,
         theirs.MAX_READ,
+        theirs.MAX_LISTED,
+        theirs.MAX_TEXT,
     )

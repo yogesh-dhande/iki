@@ -6,6 +6,7 @@ difference from it."""
 import importlib.util
 import json
 import random
+import re
 import struct
 import subprocess
 import sys
@@ -376,6 +377,72 @@ def test_reads_that_dont_align_or_have_nothing_good_are_left_out_saying_so(tmp_p
     assert output["metrics"]["reads"] == 3
     assert output["metrics"]["aligned"] == 1
     assert output["creates"][0]["values"]["name"] == "1 read on pTEST"
+
+
+def test_a_thousand_reads_mostly_left_out_still_align_the_rest(tmp_path: Path) -> None:
+    # The most reads a run takes: one good, the rest each left out for one of two reasons.
+    blanks = "".join(f">blank-{i:03}\n{'N' * 24}\n" for i in range(600))
+    poor = [(f"poor-{i:03}", PLASMID[0:200], 3) for i in range(399)]
+    files = {
+        "blank.fasta": blanks.encode(),
+        "poor.fastq": fastq(*poor),
+        "good.fastq": fastq(("good", PLASMID[100:400], 40)),
+    }
+
+    _, output = run(tmp_path, files)
+
+    assert output is not None  # its messages fit the run-output schema
+    assert output["metrics"] == {
+        "reads": 1000,
+        "aligned": 1,
+        "coverage_percent": 50.0,
+        "differences": 0,
+    }
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert len(warnings) == 2
+    assert warnings[0].startswith(
+        "600 reads don't align to DNA-000001, so they're left out: "
+        "blank-000 (no stretch of it scores above zero), "
+        "blank-001 (no stretch of it scores above zero), "
+    )
+    assert warnings[0].endswith(" more. left_out.tsv lists each, with why.")
+    assert warnings[1].startswith(
+        "399 reads have no bases good enough to keep, so they're left out: poor-000, poor-001, "
+    )
+    assert all(len(w) <= 2000 for w in warnings)
+    left = (tmp_path / "out" / "left_out.tsv").read_text().splitlines()
+    assert left[0] == "read\tfile\twhy"
+    assert len(left) == 1 + 999
+    assert left[1] == (
+        "blank-000\tblank.fasta\tblank-000 doesn't align to DNA-000001: "
+        "no stretch of it scores above zero. It's left out."
+    )
+    assert (
+        left[-1]
+        == "poor-398\tpoor.fastq\tpoor-398 has no bases good enough to keep: it's left out."
+    )
+
+
+def test_a_long_list_of_differences_fits_in_its_message(tmp_path: Path) -> None:
+    # Every fourth base changed, in reads with long names: more than a message holds.
+    changed = "".join(
+        ("A" if b != "A" else "C") if i % 4 == 2 else b for i, b in enumerate(PLASMID)
+    )
+    name = "clone-7-primer-M13-forward-plate-3-well-H12-sequenced-2026-11-02"
+    files = {"r.fastq": fastq((name, changed[0:300], 40), (name, changed[300:600], 40))}
+
+    _, output = run(tmp_path, files, trim=False)
+
+    assert output is not None  # its messages fit the run-output schema
+    count = output["metrics"]["differences"]
+    assert count > 100
+    listed = next(t for t in texts(output) if t.startswith("Differences from DNA-000001: "))
+    assert len(listed) <= 2000
+    first = f"{PLASMID[2]}3{changed[2]} ({name} Q40)"
+    assert listed.startswith(f"Differences from DNA-000001: {first}; ")
+    shown = re.fullmatch(r"Differences from DNA-000001: (.*); and (\d+) more\.", listed)
+    assert shown is not None
+    assert len(shown[1].split("; ")) + int(shown[2]) == count
 
 
 def test_untrimmed_reads_keep_their_ends(tmp_path: Path) -> None:
