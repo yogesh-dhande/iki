@@ -27,6 +27,14 @@ domain, and 300 or more is the whole of an IgG's. An isotype is a heavy chain co
 region's class: an IgG's is one of IgG's four subclasses; a Fab's, any class's; an Fv,
 scFv or VHH has none. `other`, for any other format, isn't checked, but its isotype
 needs a heavy chain with a constant region.
+
+Where the heavy chain has a constant region, it says the isotype: its residues after the
+variable domain are compared with IMGT's human constant regions (constant_regions.py).
+An isotype given that isn't the one they are is refused; one left out is theirs. A
+hybrid's (an IgG2/IgG4, say) may be given as any of its domains' subclasses, and is
+left out otherwise, as is one as near two references as each other, saying so; one no
+human reference matches, such as a mouse's, keeps the isotype given, unchecked, saying
+so.
 """
 
 from __future__ import annotations
@@ -36,6 +44,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+
+import constant_regions
 
 #: Formats with a heavy and a light chain.
 PAIRED = {"igg": "A whole antibody (IgG)", "fab": "A Fab", "fv": "An Fv"}
@@ -157,7 +167,8 @@ def _check_chains(
 def assembled(
     heavy: dict[str, Any], light: dict[str, Any] | None, params: dict[str, Any]
 ) -> dict[str, Any]:
-    """The antibody the chains make, as a create. Raises :class:`RefusedError`."""
+    """The antibody the chains make, as a run's output: its create, and what the run says
+    of its isotype. Raises :class:`RefusedError`."""
     form = params.get("format") or "igg"
     isotype = params.get("isotype")
     if light is not None and light["id"] == heavy["id"]:
@@ -178,6 +189,7 @@ def assembled(
             "whole antibody of another class, choose other."
         )
     _check_chains(form, heavy, light, isotype)
+    isotype, messages = _isotype(form, heavy, isotype)
     name = params.get("name") or (
         f"{_label(heavy)} / {_label(light)}" if light is not None else _label(heavy)
     )
@@ -188,20 +200,78 @@ def assembled(
     }
     if light is not None:
         values["light_chain"] = light["id"]
-    for key in ("isotype", "target"):
-        if params.get(key):
-            values[key] = params[key]
+    if isotype:
+        values["isotype"] = isotype
+    if params.get("target"):
+        values["target"] = params["target"]
     derived = [heavy["id"], *([light["id"]] if light is not None else [])]
-    return {"type": "iki/antibody.Antibody", "values": values, "derived_from": derived}
+    create = {"type": "iki/antibody.Antibody", "values": values, "derived_from": derived}
+    return {"creates": [create], "messages": messages}
+
+
+def _isotype(
+    form: str, heavy: dict[str, Any], isotype: str | None
+) -> tuple[str | None, list[dict[str, str]]]:
+    """The isotype, as the heavy chain's constant region says, and what the run says of it.
+    Raises :class:`RefusedError` when the one given isn't what the chain is."""
+    domains = _domains(heavy)
+    if form in VARIABLE_ONLY or domains is None or _after(heavy, domains) < CONSTANT_DOMAIN:
+        return isotype, []
+    sequence = heavy["values"]["sequence"].removesuffix("*")
+    found = constant_regions.call(sequence[max(int(d["end"]) for d in domains) :])
+    region = f"{_label(heavy)}'s constant region {found.describe()}"
+    names = constant_regions.NAMES
+    if not found.isotypes:
+        if isotype:
+            return isotype, [
+                {
+                    "level": "warning",
+                    "text": f"{region}. Its isotype, {isotype}, is as given, unchecked.",
+                }
+            ]
+        return None, [{"level": "info", "text": f"{region}, so it says no isotype."}]
+    allowed = [i for i in found.isotypes if i in ISOTYPES[form]]
+    if not allowed:
+        raise RefusedError(
+            f"{region}: an IgG's isotype is one of IgG's subclasses, so choose other, or check "
+            "the chain."
+        )
+    if isotype and isotype not in found.isotypes:
+        given = found.match(isotype)
+        raise RefusedError(
+            f"{region}. It isn't {names[isotype]}'s ({given.identity:.1%} identical to it): give "
+            + " or ".join(allowed)
+            + ", or leave the isotype out"
+            + (" to take it from the chain." if len(allowed) == 1 else ".")
+        )
+    if len(found.isotypes) > 1:
+        if isotype:
+            return isotype, [{"level": "warning", "text": f"{region}. It's given as {isotype}."}]
+        return None, [
+            {
+                "level": "warning",
+                "text": f"{region}, so its isotype is left out: give "
+                + " or ".join(allowed)
+                + ", whichever it's called.",
+            }
+        ]
+    said = "as given" if isotype else "from its heavy chain"
+    return found.isotypes[0], [
+        {"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {said}: {region}."}
+    ]
 
 
 def assemble(run: dict[str, Any]) -> dict[str, Any]:
     inputs = run["inputs"]
     (heavy,) = inputs["heavy_chain"]
     lights = inputs.get("light_chain") or []
-    create = assembled(heavy, lights[0] if lights else None, run.get("params") or {})
-    print(f"{create['values']['name']}: {create['values']['format']}")
-    return {"creates": [create]}
+    result = assembled(heavy, lights[0] if lights else None, run.get("params") or {})
+    values = result["creates"][0]["values"]
+    print(
+        f"{values['name']}: {values['format']}"
+        + (f", {values['isotype']}" if "isotype" in values else "")
+    )
+    return result
 
 
 def main() -> None:

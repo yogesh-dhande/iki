@@ -20,8 +20,9 @@ structures.
     different heavy chains (their constant regions differ), and an IgG and a
     Fab differ in how much of the heavy chain there is. Two variable domains
     alone are an Fv, which has no isotype. `assemble` checks the format and
-    isotype against the chains, and the type's rules keep what the format says
-    of its chains and isotype at every save.
+    isotype against the chains, reading the isotype off the heavy chain's
+    constant region, and the type's rules keep what the format says of its
+    chains and isotype at every save.
   - It keeps its format (`registry: derived`), its isotype (a registry fact:
     given once, then changed only by a registrar, so a second assembly that
     claims another is refused) and what it binds (`target`).
@@ -99,9 +100,36 @@ variable domains end, so the chains must have been numbered first
 An immunoglobulin constant domain is about 100 residues (human IGKC's is 107,
 IGHG1's CH1 98) and an IgG heavy chain's constant region 326 to 377 (IGHG2's to
 IGHG3's), so fewer than 90 residues after a variable domain count as no
-constant domain, and 300 or more as an IgG's whole constant region. Which class
-a constant region is isn't read from its sequence: the isotype given is
-checked against the format and that there's a constant region.
+constant domain, and 300 or more as an IgG's whole constant region.
+
+Where the heavy chain has a constant region, its sequence says the isotype.
+`assemble` aligns the residues after the variable domain with each human heavy
+chain constant region (`scripts/constant_regions.py`): IMGT's first allele of
+each IGHC gene, secreted form, domain by domain (IGHG1\*01 to IGHG4\*01,
+IGHA1\*01, IGHA2\*01, IGHM\*01, IGHE\*01 and IGHD\*01, from IMGT's
+[protein display of the human IGH C-REGIONs](https://www.imgt.org/IMGTrepertoire/Proteins/protein/human/IGH/IGHC/Hu_IGHCallgenes.html),
+CC BY 4.0), each checked against UniProt's secreted isoform of the gene
+(P01857-1, P01859-1, P01860-1, P01861-1, P01876-1, P01877-1, P01871-1,
+P01854-1, P01880-1) in `server/tests/test_antibody_isotype.py`. The one it's
+nearest is its isotype when it's at least 90% identical to it and the next is
+at least 3 differences further:
+
+- an isotype left out is the chain's, and the run says how sure (_"Its isotype
+  is igg1, from its heavy chain: … IgG1's, 99.4% identical to IMGT's IGHG1\*01
+  (J00228) over 329 residues; the next nearest, IgG2's, is 91.8%"_);
+- one given that isn't the chain's is refused, saying which it is;
+- an IgG whose constant region is another class's is refused: choose `other`;
+- a hybrid, whose domains are different subclasses' (an IgG2/IgG4 such as
+  eculizumab's, CH1 and hinge IgG2's, CH2 and CH3 IgG4's), may be given as
+  either, with a warning, and is left out otherwise, as is one as near two
+  references as each other;
+- one that matches no human reference (a mouse's IgG1 is about 64% identical
+  to the nearest) keeps the isotype given, unchecked, with a warning.
+
+Allotypes differ from these alleles by a residue or two, and engineered Fc
+regions (S228P, LALA, YTE) by a few; subclasses differ by 20 or more over a
+whole constant region, and by 4 or more over CH1 alone, so a Fab's CH1 says its
+subclass too.
 
 What can be told from the antibody's own fields is a rule of its type
 ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),

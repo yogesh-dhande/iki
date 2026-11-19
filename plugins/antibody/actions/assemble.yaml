@@ -8,7 +8,9 @@ description: >-
   chain is for a VHH or an scFv. An antibody already in Iki with the same chains
   is reused. The chains must have been numbered (number_chains): where their
   variable domains end says whether they have the constant regions the format
-  and isotype say they do.
+  and isotype say they do. Where the heavy chain has a constant region, it
+  says the isotype: compared with IMGT's human constant regions, it's the one
+  it matches.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -30,7 +32,8 @@ params:
     values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
     description: >-
       Its heavy chain constant region's class: one of IgG's subclasses for an
-      IgG; none for an Fv, scFv or VHH.
+      IgG; none for an Fv, scFv or VHH. Left out, it's the heavy chain's
+      constant region's, where it has one; given, it must be that.
   target: { type: string, max_length: 255, description: What it binds. }
 effects:
   creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]

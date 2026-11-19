@@ -279,3 +279,83 @@ inputs:
 params: { format: vhh, isotype: igg1 }
 expect:
   error: "A VHH has no constant region, so no isotype: leave it out."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: the_isotype_is_the_heavy_chains
+description: >-
+  Without an isotype, trastuzumab's is read off its heavy chain's constant
+  region: IgG1's, IMGT's IGHG1*01 (EMBL J00228) but for its allotype's E356
+  and M358 (EU numbering) where IGHG1*01 has D and L, and without the
+  C-terminal lysine.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { target: HER2 }
+expect:
+  output:
+    creates:
+      - values:
+          format: igg
+          isotype: igg1
+    messages:
+      - level: info
+        text: "Its isotype is igg1, from its heavy chain: trastuzumab heavy chain's constant region is IgG1's, 99.4% identical to IMGT's IGHG1*01 (J00228) over 329 residues; the next nearest, IgG2's, is 91.8%."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_isotype_the_heavy_chain_isnt
+description: >-
+  Trastuzumab's heavy chain is an IgG1's, so it can't be assembled as an IgG4.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { isotype: igg4 }
+expect:
+  error: "trastuzumab heavy chain's constant region is IgG1's, 99.4% identical to IMGT's IGHG1*01 (J00228) over 329 residues; the next nearest, IgG2's, is 91.8%. It isn't IgG4's (91.5% identical to it): give igg1, or leave the isotype out to take it from the chain."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_fabs_ch1_says_its_subclass
+description: >-
+  A Fab's heavy chain has only CH1 and the start of the hinge, which still
+  differ between subclasses: trastuzumab's Fd is an IgG1's, not an IgG2's.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab Fd
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSC
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fab, isotype: igg2 }
+expect:
+  error: "It isn't IgG2's"
