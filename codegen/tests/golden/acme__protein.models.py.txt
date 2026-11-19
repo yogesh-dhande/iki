@@ -342,7 +342,7 @@ class Batch_History(models.Model):
 
 
 class Bispecific(Entity):
-    """Bispecific antibody (acme/protein.Bispecific), schema version 1. Two heavy chains, one or two light chains and at most one linker, a row each. It's its parts, how many of each and in which role, whatever their order (ADR 0138)."""
+    """Bispecific antibody's chains (acme/protein.Bispecific), schema version 1. The chains an IgG-like bispecific antibody is made of, a row per chain: its two heavy chains, its two light chains (the same protein twice where they share one, as emicizumab's do) and at most one linker. It's its chains, in which role, whatever their order (ADR 0138), so one set of chains has one record. It's an inventory: it doesn't say which light chain pairs with which heavy chain, so a mispaired assembly of the same four chains is the same record. A type that registers assemblies makes each row an arm, its heavy and its light chain."""
 
     IKI_TYPE = 'acme/protein.Bispecific'
 
@@ -386,7 +386,7 @@ class Bispecific_History(models.Model):
 
 
 class Bispecific_Entry(Entity):
-    """Registry entries of Bispecific antibody (acme/protein.Bispecific), ADR 0115."""
+    """Registry entries of Bispecific antibody's chains (acme/protein.Bispecific), ADR 0115."""
 
     IKI_TYPE = 'acme/protein.Bispecific'
     IKI_ENTRY = True
@@ -433,17 +433,12 @@ class Bispecific_Entry_components(models.Model):
     )
     position = models.PositiveIntegerField()
     part = models.ForeignKey(Entity, models.PROTECT, related_name='+')
-    copies = models.BigIntegerField(db_default=1)
     chain = models.CharField(max_length=10, null=True)
     role = models.TextField()
 
     class Meta:
         db_table = 'acme__protein_bispecific__entry__components'
         constraints = [
-            models.CheckConstraint(
-                condition=Q(copies__gte=1),
-                name='acme__protein_bispecific__entry__components__copies__min',
-            ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('chain'), 1),
                 name='acme__protein_bispecific__entry__components__chain__not_empty',
@@ -455,10 +450,6 @@ class Bispecific_Entry_components(models.Model):
             models.CheckConstraint(
                 condition=Q(role__in=['heavy', 'light', 'linker']),
                 name='acme__protein_bispecific__entry__components__role__values',
-            ),
-            models.CheckConstraint(
-                condition=Q(position__lt=8),
-                name='acme__protein_bispecific__entry__components__positi__88f941c27b',
             ),
         ]
 

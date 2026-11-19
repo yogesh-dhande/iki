@@ -163,7 +163,7 @@ inputs:
           - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
 params: { format: fab }
 expect:
-  error: "A Fab's heavy chain has CH1 but no Fc, and trastuzumab heavy chain has 329 residues after its variable domain: choose igg for a whole antibody."
+  error: "A Fab's heavy chain has CH1, and perhaps some of the hinge, but no Fc, and trastuzumab heavy chain's constant region has IgG1's CH1, hinge, CH2 and CH3: choose igg for a whole antibody."
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -359,3 +359,52 @@ inputs:
 params: { format: fab, isotype: igg2 }
 expect:
   error: "It isn't IgG2's"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_fabs_heavy_chain_stops_before_ch2
+description: >-
+  Trastuzumab's VH on IgG1's CH1, hinge and CH2 (IMGT's IGHG1*01): 223
+  residues after the variable domain, fewer than a whole IgG's constant
+  region, but CH2 is the Fc's, so it isn't a Fab.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab VH-CH1-hinge-CH2
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAK
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fab }
+expect:
+  error: "A Fab's heavy chain has CH1, and perhaps some of the hinge, but no Fc, and trastuzumab VH-CH1-hinge-CH2's constant region has IgG1's CH1, hinge and CH2: choose other."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_fc_fusions_isotype
+description: >-
+  Etanercept (KEGG DRUG D00742), TNFR2's extracellular domain on IgG1's
+  hinge, CH2 and CH3, has no variable domain, so numbering leaves it as it
+  was: as an other, its whole chain says its isotype.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: etanercept
+        sequence: LPAQVAFTPYAPEPGSTCRLREYYDQTAQMCCSKCSPGQHAKVFCTKTSDTVCDSCEDSTYTQLWNWVPECLSCGSRCSSDQVETQACTREQNRICTCRPGWYCALSKQEGCRLCAPLRKCRPGFGVARPGTETSDVVCKPCAPGTFSNTTSSTDICRPHQICNVVAIPGNASMDAVCTSTSPTRSMAPGAVHLPQPVSTRSQHTQPTPEPSTAPSTSFLLPMGPSPPAEGSTGDEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+params: { format: other, isotype: igg1 }
+expect:
+  output:
+    creates:
+      - values:
+          format: other
+          isotype: igg1
+    messages:
+      - level: info
+        text: "Its isotype is igg1, as given: etanercept, compared whole as it has no numbered variable domain, is IgG1's, 99.1% identical to IMGT's IGHG1*01 (J00228) over 232 residues; the next nearest, IgG2's, is 92.2%."

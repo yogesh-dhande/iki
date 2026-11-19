@@ -11,22 +11,26 @@ are what its chains are, so the same chains are the same antibody: an IgG1 and a
 of the same variable domains differ in their heavy chains' constant regions, and an IgG
 and a Fab in how much of the heavy chain there is. So the format is checked against the
 chains, read off their numbering (number_chains), which says where each chain's
-variable domain ends:
+variable domain ends, and off the human constant region the heavy chain's matches:
 
 - an Fv's, scFv's and VHH's chains end at their variable domains (fewer residues after
   them than a constant domain has);
 - a Fab's light chain has a constant domain after its variable domain, and its heavy
-  chain one (CH1, perhaps with some of the hinge) but no Fc;
-- an IgG's light chain has its constant domain, and its heavy chain all of CH1, the
-  hinge, CH2 and CH3.
+  chain CH1, perhaps with some of the hinge, but no Fc: none of CH2 or CH3;
+- an IgG's light chain has its constant domain, and its heavy chain CH1, CH2 and CH3.
 
-An immunoglobulin constant domain is about 100 residues (human IGKC's is 107, IGHG1's
-CH1 98), and an IgG heavy chain's constant region 326 to 377 (CH1, hinge, CH2 and CH3:
-IGHG2's to IGHG3's), so fewer than 90 residues after a variable domain isn't a constant
-domain, and 300 or more is the whole of an IgG's. An isotype is a heavy chain constant
-region's class: an IgG's is one of IgG's four subclasses; a Fab's, any class's; an Fv,
-scFv or VHH has none. `other`, for any other format, isn't checked, but its isotype
-needs a heavy chain with a constant region.
+Which constant domains a heavy chain has is read off how its residues after the
+variable domain align with the human reference they match (constant_regions.py): at
+least 10 of a domain's residues are that domain. An immunoglobulin constant domain is
+about 100 residues (human IGKC's is 107, IGHG1's CH1 98), so fewer than 90 residues
+after a variable domain isn't a constant domain. Where no human reference matches (a
+mouse's), the length says the rest: an IgG heavy chain's constant region is 326 to 377
+(CH1, hinge, CH2 and CH3: IGHG2's to IGHG3's), so 300 or more is the whole of an IgG's.
+An isotype is a heavy chain constant region's class: an IgG's is one of IgG's four
+subclasses; a Fab's, any class's; an Fv, scFv or VHH has none. `other`, for any other
+format, isn't checked, but its isotype needs a heavy chain with a constant region; one
+without numbered variable domains (an Fc, or a receptor's fused to one, which numbering
+leaves as it was) is compared whole.
 
 Where the heavy chain has a constant region, it says the isotype: its residues after the
 variable domain are compared with IMGT's human constant regions (constant_regions.py).
@@ -62,8 +66,14 @@ ISOTYPES = {
 #: Fewer residues than this after a variable domain aren't a constant domain.
 CONSTANT_DOMAIN = 90
 #: This many residues or more after a heavy chain's variable domain are an IgG's whole
-#: constant region: CH1, the hinge, CH2 and CH3.
+#: constant region: CH1, the hinge, CH2 and CH3. Only for a constant region no human
+#: reference matches: one that matches says which domains it has.
 WHOLE_HEAVY = 300
+#: A heavy chain constant region's domains, in order; those of its Fc; and those an IgG's
+#: heavy chain has all of.
+DOMAINS = ("CH1", "hinge", "CH2", "CH3", "CH4")
+FC = ("CH2", "CH3", "CH4")
+WHOLE = ("CH1", "CH2", "CH3")
 MAX_NAME = 255
 
 
@@ -95,8 +105,17 @@ def _after(chain: dict[str, Any], domains: list[dict[str, Any]]) -> int:
 def _check_chains(
     form: str, heavy: dict[str, Any], light: dict[str, Any] | None, isotype: str | None
 ) -> None:
-    """That the chains are what the format says they are. Raises :class:`RefusedError`."""
-    if form == "other" and not isotype:
+    """That the chains are numbered and their variable domains are what the format says.
+    Raises :class:`RefusedError`."""
+    if form == "other":
+        # Only an isotype is checked, and a chain without numbered domains (an Fc, or a
+        # receptor's fused to one) is compared whole.
+        domains = _domains(heavy)
+        if isotype and domains is not None and _after(heavy, domains) < CONSTANT_DOMAIN:
+            raise RefusedError(
+                f"{_label(heavy)} ends {_after(heavy, domains)} residues after its variable "
+                "domain, too few for a constant region, so it has no isotype: leave it out."
+            )
         return
     chains = [heavy, *([light] if light is not None else [])]
     unnumbered = [_label(c) for c in chains if _domains(c) is None]
@@ -109,14 +128,6 @@ def _check_chains(
         )
     heavy_domains = _domains(heavy) or []
     heavy_kinds = sorted({d["chain"] for d in heavy_domains})
-    after = _after(heavy, heavy_domains)
-    if form == "other":
-        if after < CONSTANT_DOMAIN:
-            raise RefusedError(
-                f"{_label(heavy)} ends {after} residues after its variable domain, too few for "
-                "a constant region, so it has no isotype: leave it out."
-            )
-        return
     wanted = {"vhh": ["H"], "scfv": ["H", "K/L"]}.get(form, ["H"])
     kinds = ["K/L" if k in ("K", "L") else k for k in heavy_kinds]
     if sorted(set(kinds)) != wanted or (form == "vhh" and len(heavy_domains) != 1):
@@ -145,22 +156,77 @@ def _check_chains(
                 f"has {light_after} residues after its variable domain: if it's the variable "
                 "domains alone, choose fv."
             )
+    after = _after(heavy, heavy_domains)
     if form in VARIABLE_ONLY and after >= CONSTANT_DOMAIN:
         raise RefusedError(
             f"{_label(heavy)} has {after} residues after its variable domain, a constant "
             f"region, which {_noun(form)} hasn't. Choose fab, igg or other."
         )
-    if form == "fab" and not CONSTANT_DOMAIN <= after < WHOLE_HEAVY:
+    if form in ("fab", "igg") and after < CONSTANT_DOMAIN:
         raise RefusedError(
-            f"A Fab's heavy chain has CH1 but no Fc, and {_label(heavy)} has {after} residues "
-            "after its variable domain: "
-            + ("choose igg for a whole antibody." if after >= WHOLE_HEAVY else "choose fv.")
+            f"{PAIRED[form]}'s heavy chain has a constant region, and {_label(heavy)} has "
+            f"{after} residues after its variable domain: choose fv."
         )
-    if form == "igg" and after < WHOLE_HEAVY:
+
+
+def _region(form: str, heavy: dict[str, Any]) -> tuple[constant_regions.Call, bool] | None:
+    """What the heavy chain's constant region is, if it may have one, and whether the
+    chain was compared whole: its residues after its last variable domain, or, for a
+    format `other` chain without numbered domains (an Fc, or a fusion to one), all of it.
+    None when it has no constant region."""
+    if form in VARIABLE_ONLY:
+        return None
+    sequence = heavy["values"]["sequence"].removesuffix("*")
+    domains = _domains(heavy)
+    if domains is None:
+        return (constant_regions.call(sequence), True) if form == "other" else None
+    if _after(heavy, domains) < CONSTANT_DOMAIN:
+        return None
+    return constant_regions.call(sequence[max(int(d["end"]) for d in domains) :]), False
+
+
+def _listed(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _check_domains(
+    form: str, heavy: dict[str, Any], region: tuple[constant_regions.Call, bool] | None
+) -> None:
+    """That a Fab's or an IgG's heavy chain has the constant domains its format says: a
+    Fab's CH1, perhaps with some of the hinge, and no Fc (CH2 or CH3); an IgG's CH1, CH2
+    and CH3. Read off how the constant region aligns with the human reference it matches,
+    and, where none matches (a mouse's), off its length. Raises :class:`RefusedError`."""
+    if form not in ("fab", "igg") or region is None:
+        return
+    found, _ = region
+    after = _after(heavy, _domains(heavy) or [])
+    if not found.isotypes:
+        if form == "fab" and after >= WHOLE_HEAVY:
+            raise RefusedError(
+                f"A Fab's heavy chain has CH1 but no Fc, and {_label(heavy)} has {after} "
+                "residues after its variable domain: choose igg for a whole antibody."
+            )
+        if form == "igg" and after < WHOLE_HEAVY:
+            raise RefusedError(
+                f"A whole antibody's heavy chain has CH1, the hinge, CH2 and CH3, and "
+                f"{_label(heavy)} has {after} residues after its variable domain: choose fab."
+            )
+        return
+    present = [d for d in DOMAINS if found.has(d)]
+    fc = [d for d in present if d in FC]
+    whole = all(d in present for d in WHOLE)
+    nearest = constant_regions.NAMES[found.matches[0].isotype]
+    said = f"{_label(heavy)}'s constant region has {nearest}'s {_listed(present)}"
+    if form == "fab" and fc:
         raise RefusedError(
-            f"A whole antibody's heavy chain has CH1, the hinge, CH2 and CH3, and "
-            f"{_label(heavy)} has {after} residues after its variable domain: "
-            + ("choose fab." if after >= CONSTANT_DOMAIN else "choose fv.")
+            f"A Fab's heavy chain has CH1, and perhaps some of the hinge, but no Fc, and "
+            f"{said}: " + ("choose igg for a whole antibody." if whole else "choose other.")
+        )
+    if form == "igg" and not whole:
+        missing = [d for d in WHOLE if d not in present]
+        raise RefusedError(
+            f"A whole antibody's heavy chain has CH1, the hinge, CH2 and CH3, and {said} "
+            f"but no {_listed(missing)}: " + ("choose other." if fc else "choose fab.")
         )
 
 
@@ -189,7 +255,9 @@ def assembled(
             "whole antibody of another class, choose other."
         )
     _check_chains(form, heavy, light, isotype)
-    isotype, messages = _isotype(form, heavy, isotype)
+    region = _region(form, heavy)
+    _check_domains(form, heavy, region)
+    isotype, messages = _isotype(form, heavy, isotype, region)
     name = params.get("name") or (
         f"{_label(heavy)} / {_label(light)}" if light is not None else _label(heavy)
     )
@@ -210,54 +278,60 @@ def assembled(
 
 
 def _isotype(
-    form: str, heavy: dict[str, Any], isotype: str | None
+    form: str,
+    heavy: dict[str, Any],
+    isotype: str | None,
+    region: tuple[constant_regions.Call, bool] | None,
 ) -> tuple[str | None, list[dict[str, str]]]:
     """The isotype, as the heavy chain's constant region says, and what the run says of it.
     Raises :class:`RefusedError` when the one given isn't what the chain is."""
-    domains = _domains(heavy)
-    if form in VARIABLE_ONLY or domains is None or _after(heavy, domains) < CONSTANT_DOMAIN:
+    if region is None:
         return isotype, []
-    sequence = heavy["values"]["sequence"].removesuffix("*")
-    found = constant_regions.call(sequence[max(int(d["end"]) for d in domains) :])
-    region = f"{_label(heavy)}'s constant region {found.describe()}"
+    found, whole = region
+    what = (
+        f"{_label(heavy)}, compared whole as it has no numbered variable domain,"
+        if whole
+        else f"{_label(heavy)}'s constant region"
+    )
+    said = f"{what} {found.describe()}"
     names = constant_regions.NAMES
     if not found.isotypes:
         if isotype:
             return isotype, [
                 {
                     "level": "warning",
-                    "text": f"{region}. Its isotype, {isotype}, is as given, unchecked.",
+                    "text": f"{said}. Its isotype, {isotype}, is as given, unchecked.",
                 }
             ]
-        return None, [{"level": "info", "text": f"{region}, so it says no isotype."}]
+        return None, [{"level": "info", "text": f"{said}, so it says no isotype."}]
     allowed = [i for i in found.isotypes if i in ISOTYPES[form]]
     if not allowed:
         raise RefusedError(
-            f"{region}: an IgG's isotype is one of IgG's subclasses, so choose other, or check "
+            f"{said}: an IgG's isotype is one of IgG's subclasses, so choose other, or check "
             "the chain."
         )
     if isotype and isotype not in found.isotypes:
         given = found.match(isotype)
         raise RefusedError(
-            f"{region}. It isn't {names[isotype]}'s ({given.identity:.1%} identical to it): give "
+            f"{said}. It isn't {names[isotype]}'s ({given.identity:.1%} identical to it): give "
             + " or ".join(allowed)
             + ", or leave the isotype out"
             + (" to take it from the chain." if len(allowed) == 1 else ".")
         )
     if len(found.isotypes) > 1:
         if isotype:
-            return isotype, [{"level": "warning", "text": f"{region}. It's given as {isotype}."}]
+            return isotype, [{"level": "warning", "text": f"{said}. It's given as {isotype}."}]
         return None, [
             {
                 "level": "warning",
-                "text": f"{region}, so its isotype is left out: give "
+                "text": f"{said}, so its isotype is left out: give "
                 + " or ".join(allowed)
                 + ", whichever it's called.",
             }
         ]
-    said = "as given" if isotype else "from its heavy chain"
+    how = "as given" if isotype else "from its heavy chain"
     return found.isotypes[0], [
-        {"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {said}: {region}."}
+        {"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {how}: {said}."}
     ]
 
 

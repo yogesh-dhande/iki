@@ -14,8 +14,10 @@ aren't.
 
 A protein's fields describe its first heavy domain and its first light domain: a heavy
 chain has one, a light chain the other, an scFv both. Every field is set, so numbering
-a protein again leaves nothing of the last time. A protein with none is left as it was,
-and the run warns which.
+a protein again leaves nothing of the last time: a chain whose liabilities were found
+(find_liabilities) has them found again on the new numbering, since each liability's
+number and region are its numbering's. A protein with none is left as it was, and the
+run warns which.
 
 The numbering scheme (IMGT, Kabat, Chothia, Martin or AHo) says how residues are
 numbered. The CDR definition says where the CDRs are, by residue number in the numbering
@@ -51,6 +53,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import liabilities
 from anarci import anarci
 
 #: A CDR's first and last residue numbers, each with its insertions.
@@ -369,11 +372,28 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
             )
         else:
             values, notes = fields(domains, sequence, scheme, definition)
+            rescreened = None
+            if entity["values"].get("liability_count") is not None:
+                # Its liabilities were found on the numbering this replaces: their numbers
+                # and regions are that numbering's, so they're found again on this one.
+                renumbered = {**entity, "values": {**entity["values"], **values}}
+                screened, note = liabilities.screened(
+                    entity, liabilities.liabilities(renumbered) or []
+                )
+                values |= screened
+                notes += [note.removeprefix(f"{_label(entity)} ").rstrip(".")] if note else []
+                rescreened = {
+                    "level": "info",
+                    "text": f"{_label(entity)}'s liabilities were found again on the new "
+                    f"numbering: {screened['liability_count']:,}.",
+                    "entity": entity["id"],
+                }
             updates.append({"entity": entity["id"], "values": values})
             messages += [
                 {"level": "warning", "text": f"{_label(entity)}: {note}.", "entity": entity["id"]}
                 for note in notes
             ]
+            messages += [rescreened] if rescreened else []
             shown = ", ".join(
                 f"{k} {values[k]}"
                 for k in ("chain_type", "species", "cdr_h3", "cdr_l3")

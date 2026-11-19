@@ -158,11 +158,12 @@ fields:
     computed: true
     description: >-
       The sequence liabilities a developability screen reports, one per motif
-      found in its variable domains, in order along the chain: the kind of
-      liability, the residues that make it, where it is (its index in the
-      sequence, from 1, and its number in the scheme the chain was numbered in),
-      whether it falls in a CDR (which one) or in framework, and how severe
-      published screens call it. Each is a potential site, which needs
+      found in its variable domains or at its N-terminus, in order along the
+      chain: the kind of liability, the residues that make it, where it is (its
+      index in the sequence, from 1, and its number in the scheme the chain was
+      numbered in, for a residue in a variable domain), whether it falls in a
+      CDR (which one), in framework or outside the variable domains, and how
+      severe published screens call it. Each is a potential site, which needs
       measuring; one whose motif holds only if an unknown residue (X) is what
       it needs is marked uncertain.
     schema:
@@ -171,7 +172,7 @@ fields:
       items:
         type: object
         additionalProperties: false
-        required: [kind, motif, position, number, region, severity]
+        required: [kind, motif, position, region, severity]
         properties:
           kind:
             enum:
@@ -186,7 +187,7 @@ fields:
           position: { type: integer, minimum: 1 }
           number: { type: string, minLength: 1, maxLength: 8 }
           region:
-            enum: [cdr_h1, cdr_h2, cdr_h3, cdr_l1, cdr_l2, cdr_l3, framework]
+            enum: [cdr_h1, cdr_h2, cdr_h3, cdr_l1, cdr_l2, cdr_l3, framework, outside]
           severity: { enum: [high, medium, low] }
           uncertain: { const: true }
   liability_counts:
