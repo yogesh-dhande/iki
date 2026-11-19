@@ -851,6 +851,63 @@ def test_a_picker_takes_a_press_as_the_page_scrolls(open_as: Any, world: World) 
     assert_clean(page)
 
 
+def test_escape_closes_a_pickers_list_then_puts_back_what_was_chosen(
+    open_as: Any, world: World
+) -> None:
+    """Escape closes the list and keeps what's typed, and the list stays closed; Escape
+    again, or leaving the box, puts back what's chosen, or clears the box if nothing is
+    (WAI-ARIA's combo box pattern). Each step is checked as soon as it's done: a list that
+    opened again at once would be caught."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    gene = Entity.objects.get(
+        pk=entities.create(
+            world.users["admin"],
+            "acme/dna.DNASequence",
+            world.project,
+            {"bases": "ATG", "name": "abl1"},
+        ).entity.pk
+    )
+    page = open_as("admin", "/projects/kinase-atlas/entities/new/?type=acme/protein.Protein")
+    picker = page.get_by_role("combobox", name="Encoded by (optional)")
+    picker.fill("abl")
+    page.get_by_role("option", name=re.compile("abl1")).wait_for()
+    picker.press("Escape")
+    page.evaluate(NEXT_FRAMES)
+    assert picker.get_attribute("aria-expanded") == "false"
+    assert page.get_by_role("listbox").count() == 0
+    assert picker.input_value() == "abl"
+    picker.press("Escape")
+    page.evaluate(NEXT_FRAMES)
+    assert picker.input_value() == ""
+    assert picker.get_attribute("aria-expanded") == "false"
+
+    # Typed and left (by Tab): nothing chosen, so nothing's left in the box.
+    picker.fill("abl")
+    page.get_by_role("option", name=re.compile("abl1")).wait_for()
+    picker.press("Tab")
+    page.evaluate(NEXT_FRAMES)
+    assert picker.input_value() == ""
+    assert picker.get_attribute("aria-expanded") == "false"
+
+    # Chosen, typed over and left: what's chosen comes back.
+    picker.fill("abl")
+    page.get_by_role("option", name=re.compile("abl1")).click()
+    assert picker.input_value() == f"abl1 ({gene.hrid})"
+    picker.fill("xyz")
+    # The list opens again, the chosen record in it.
+    page.get_by_role("listbox").wait_for()
+    picker.press("Escape")
+    page.evaluate(NEXT_FRAMES)
+    assert picker.input_value() == "xyz"
+    assert picker.get_attribute("aria-expanded") == "false"
+    picker.press("Tab")
+    page.evaluate(NEXT_FRAMES)
+    assert picker.input_value() == f"abl1 ({gene.hrid})"
+    assert_clean(page)
+
+
 @pytest.fixture
 def browser_name(browser: Browser) -> str:
     return browser.browser_type.name

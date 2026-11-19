@@ -174,6 +174,31 @@ describe("saving a view", () => {
     });
   });
 
+  it("keeps its dialog open while Escape closes the picker's list and clears what it typed", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET]));
+    answer("POST /api/v1/entities/search", { items: [], next_cursor: null });
+    answer("GET /api/v1/entities", {
+      items: [entity({ id: PROTEIN_ID, hrid: "PRT-000001" })],
+      next_cursor: null,
+    });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    await user.click(await screen.findByRole("button", { name: "Save view" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Save this view" });
+    const add = within(dialog).getByRole("combobox", { name: /^Add another entity/ });
+    await user.type(add, "abl");
+    await user.keyboard("{Escape}");
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    expect(add).toHaveValue("abl");
+    expect(dialog).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(add).toHaveValue("");
+    expect(dialog).toBeInTheDocument();
+    // Nothing left to undo in the box: Escape closes the dialog.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("lists every view it's in, saying what else a view shows", async () => {
     onTypes();
     answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET]));

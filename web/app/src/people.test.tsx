@@ -240,6 +240,24 @@ describe("suggesting people as they're typed", () => {
     expect(picker).toHaveValue("Bo Chen (bo@example.com)");
   });
 
+  it("closes on Escape, keeping what's typed, and clears it on leaving if nobody's chosen", async () => {
+    onSample();
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, (call: Sent) =>
+      narrowNameable([ana, bo, cy], "", call.query.get("q") ?? ""),
+    );
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
+    await user.type(picker, "bo");
+    expect(await screen.findByRole("option", { name: /Bo Chen/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(picker).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(picker).toHaveValue("bo");
+    await user.tab();
+    expect(picker).toHaveValue("");
+    expect(picker).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("says it's searching, rather than show people another text found", async () => {
     onSample();
     const many = Array.from({ length: 20 }, (_, i) => ({
