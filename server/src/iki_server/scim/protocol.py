@@ -14,6 +14,7 @@ Iki implements what Microsoft Entra ID and Okta use:
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -22,8 +23,8 @@ from uuid import UUID
 from django.urls import reverse
 
 from iki_server.accounts.models import User
-from iki_server.scim.models import ScimGroup
-from iki_server.scim.services import GroupPatch, Profile, invalid
+from iki_server.scim.models import ScimGroup, ScimGroupMember
+from iki_server.scim.services import GroupPatch, MemberChange, Profile, ScimError, invalid
 
 USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
 GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group"
@@ -56,11 +57,15 @@ _VALUE_FILTER = re.compile(
 )
 
 
-def _normalize_attribute(attribute: str) -> str:
-    attribute = attribute.strip()
+def _without_schema(attribute: str) -> str:
     for schema in (USER_SCHEMA, GROUP_SCHEMA):
         if attribute.lower().startswith(schema.lower() + ":"):
-            attribute = attribute[len(schema) + 1 :]
+            return attribute[len(schema) + 1 :]
+    return attribute
+
+
+def _normalize_attribute(attribute: str) -> str:
+    attribute = _without_schema(attribute.strip())
     match = _VALUE_FILTER.match(attribute)
     if match:
         attribute = f"{match.group(1)}.{match.group(3) or 'value'}"
@@ -207,6 +212,8 @@ def user_patch(document: dict[str, Any]) -> Profile:
 
 
 def member_ids(value: Any) -> list[UUID]:  # noqa: ANN401 - JSON
+    """The members a POST, PUT, add or replace names. Values that aren't IDs Iki issued are
+    ignored, as identity providers expect of members Iki doesn't know."""
     if value is None:
         return []
     if not isinstance(value, list):
@@ -219,6 +226,49 @@ def member_ids(value: Any) -> list[UUID]:  # noqa: ANN401 - JSON
     return ids
 
 
+#: ``members``, ``members.value`` or ``members[value eq "<id>"]``: the only ways to select members.
+_MEMBERS = re.compile(r"members\b", re.IGNORECASE)
+_MEMBER_PATH = re.compile(
+    r'members(?:\[\s*value\s+eq\s+"((?:[^"\\]|\\.)*)"\s*\])?(?:\.value)?', re.IGNORECASE
+)
+
+
+def _no_target(detail: str) -> ScimError:
+    return ScimError(400, detail, "noTarget")
+
+
+def _removed_id(value: Any) -> UUID:  # noqa: ANN401 - JSON
+    """A member a remove names, which must be an ID Iki issued: removing by anything else
+    would match nobody, and silently keep someone the provider meant to remove."""
+    found = uuid(value.get("value") if isinstance(value, dict) else value)
+    if found is None:
+        raise _no_target(f"{str(value)[:100]} isn't the id of one of Iki's users.")
+    return found
+
+
+def _member_change(op: str, path: str, value: Any) -> MemberChange:  # noqa: ANN401 - JSON
+    match = _MEMBER_PATH.fullmatch(path)
+    if match is None:
+        raise ScimError(
+            400,
+            f'Members are selected by value, as members[value eq "<id>"]: {path[:200]}',
+            "invalidFilter",
+        )
+    selector = match.group(1)
+    if selector is not None:
+        if op != "remove":
+            raise ScimError(
+                400, "A filter on members can only select ones to remove.", "invalidPath"
+            )
+        return MemberChange("remove", (_removed_id(re.sub(r"\\(.)", r"\1", selector)),))
+    if op != "remove":
+        return MemberChange("add" if op == "add" else "replace", tuple(member_ids(value)))
+    if value is None:
+        return MemberChange("remove", None)  # no filter and no value: every member (§3.5.2.2)
+    values = value if isinstance(value, list) else [value]
+    return MemberChange("remove", tuple(_removed_id(v) for v in values))
+
+
 def group_patch(document: dict[str, Any]) -> GroupPatch:
     patch = GroupPatch()
     for op, path, value in _operations(document):
@@ -228,27 +278,15 @@ def group_patch(document: dict[str, Any]) -> GroupPatch:
                 raise invalid("An operation without a path needs an object value.")
             targets = list(value.items())
         for target, item in targets:
-            raw = target.strip()
+            raw = _without_schema(target.strip())
+            if _MEMBERS.match(raw):
+                patch.members.append(_member_change(op, raw, item))
+                continue
             attribute = _normalize_attribute(raw)
-            match = _VALUE_FILTER.match(raw)
             if attribute == "displayname" and op != "remove":
                 patch.display_name = string(item, "displayName")
             elif attribute == "externalid":
                 patch.external_id = "" if op == "remove" else string(item, "externalId")
-            elif attribute in ("members", "members.value"):
-                ids = member_ids(item)
-                if match and match.group(2):
-                    single = uuid(match.group(2))
-                    ids = [single] if single else []
-                if op == "add":
-                    patch.add += ids
-                elif op == "remove":
-                    if ids:
-                        patch.remove += ids
-                    else:
-                        patch.remove_all = True
-                else:
-                    patch.replace = ids
     return patch
 
 
@@ -293,7 +331,10 @@ def user_resource(
     return resource
 
 
-def group_resource(group: ScimGroup, base: str, *, members: bool = True) -> dict[str, Any]:
+def group_resource(
+    group: ScimGroup, base: str, *, members: Iterable[ScimGroupMember] | None
+) -> dict[str, Any]:
+    """``members``: the group's memberships, with their users, to list; None leaves them out."""
     resource: dict[str, Any] = {
         "schemas": [GROUP_SCHEMA],
         "id": str(group.pk),
@@ -307,14 +348,14 @@ def group_resource(group: ScimGroup, base: str, *, members: bool = True) -> dict
     }
     if group.external_id:
         resource["externalId"] = group.external_id
-    if members:
+    if members is not None:
         resource["members"] = [
             {
                 "value": str(m.user_id),
                 "display": m.user.email,
                 "$ref": base + reverse("scim:user", kwargs={"resource_id": m.user_id}),
             }
-            for m in group.memberships.select_related("user").order_by("user__email")
+            for m in members
         ]
     return resource
 

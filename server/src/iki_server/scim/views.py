@@ -6,9 +6,11 @@ per client address. Every change is audited through the SCIM channel.
 """
 
 import json
+from collections import defaultdict
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
+from uuid import UUID
 
 import structlog
 from django.db.models import QuerySet
@@ -21,7 +23,7 @@ from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
 from iki_server.scim import protocol, services, tokens
-from iki_server.scim.models import ScimGroup
+from iki_server.scim.models import ScimGroup, ScimGroupMember
 from iki_server.scim.services import ScimError
 from iki_server.web.ratelimit import RateLimiter, client_key
 
@@ -222,17 +224,27 @@ def _user_or_404(resource_id: str) -> User:
     return get_object_or_404(_provisioned(), pk=resource_id)
 
 
+def _user_bodies(request: HttpRequest, people: list[User]) -> list[dict[str, Any]]:
+    """The people as SCIM resources, with their groups, in two queries however many."""
+    groups: dict[UUID, list[ScimGroup]] = defaultdict(list)
+    memberships = ScimGroupMember.objects.filter(user__in=people).select_related("group")
+    for membership in memberships.order_by("group__display_name"):
+        groups[membership.user_id].append(membership.group)
+    base = _base(request)
+    return [protocol.user_resource(u, base, groups=groups[u.pk]) for u in people]
+
+
 def _user_body(request: HttpRequest, user: User) -> dict[str, Any]:
-    groups = list(ScimGroup.objects.filter(memberships__user=user).order_by("display_name"))
-    return protocol.user_resource(user, _base(request), groups=groups)
+    return _user_bodies(request, [user])[0]
 
 
 @scim_view("GET", "POST")
 def users(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         user = services.provision(protocol.profile(_document(request)))
-        response = _json(_user_body(request, user), status=201)
-        response["Location"] = _user_body(request, user)["meta"]["location"]
+        body = _user_body(request, user)
+        response = _json(body, status=201)
+        response["Location"] = body["meta"]["location"]
         return response
     queryset = _filtered(
         _provisioned(),
@@ -248,7 +260,7 @@ def users(request: HttpRequest) -> HttpResponse:
     start, count = _page(request)
     total = queryset.count()
     page = list(queryset[start - 1 : start - 1 + count])
-    return _json(protocol.list_response([_user_body(request, u) for u in page], total, start))
+    return _json(protocol.list_response(_user_bodies(request, page), total, start))
 
 
 @scim_view("GET", "PUT", "PATCH", "DELETE")
@@ -271,9 +283,24 @@ def _groups() -> QuerySet[ScimGroup]:
     return ScimGroup.objects.order_by("created_at", "pk")
 
 
-def _group_body(request: HttpRequest, group: ScimGroup) -> dict[str, Any]:
+def _group_bodies(request: HttpRequest, groups: list[ScimGroup]) -> list[dict[str, Any]]:
+    """The groups as SCIM resources, with their members unless the request excludes them, in
+    two queries however many."""
     excluded = {a.strip().lower() for a in request.GET.get("excludedAttributes", "").split(",")}
-    return protocol.group_resource(group, _base(request), members="members" not in excluded)
+    members: dict[UUID, list[ScimGroupMember]] = defaultdict(list)
+    if "members" not in excluded:
+        memberships = ScimGroupMember.objects.filter(group__in=groups).select_related("user")
+        for membership in memberships.order_by("user__email"):
+            members[membership.group_id].append(membership)
+    base = _base(request)
+    return [
+        protocol.group_resource(g, base, members=None if "members" in excluded else members[g.pk])
+        for g in groups
+    ]
+
+
+def _group_body(request: HttpRequest, group: ScimGroup) -> dict[str, Any]:
+    return _group_bodies(request, [group])[0]
 
 
 @scim_view("GET", "POST")
@@ -285,7 +312,7 @@ def groups(request: HttpRequest) -> HttpResponse:
             protocol.string(document.get("externalId"), "externalId"),
             protocol.member_ids(document.get("members")),
         )
-        body = protocol.group_resource(group, _base(request))
+        body = _group_body(request, group)
         response = _json(body, status=201)
         response["Location"] = body["meta"]["location"]
         return response
@@ -303,7 +330,7 @@ def groups(request: HttpRequest) -> HttpResponse:
     start, count = _page(request)
     total = queryset.count()
     page = list(queryset[start - 1 : start - 1 + count])
-    return _json(protocol.list_response([_group_body(request, g) for g in page], total, start))
+    return _json(protocol.list_response(_group_bodies(request, page), total, start))
 
 
 @scim_view("GET", "PUT", "PATCH", "DELETE")

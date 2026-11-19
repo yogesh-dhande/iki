@@ -7,7 +7,7 @@ channel, naming the token that made it. The HTTP layer
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -139,7 +139,8 @@ def provision(profile: Profile) -> User:
     return user
 
 
-_PROFILE_FIELDS = ("email", "name", "scim_user_name", "scim_external_id")
+#: What SCIM can change about a person; a change to any of them is audited.
+_PROFILE_FIELDS = ("email", "name", "scim_user_name", "scim_external_id", "scim_name")
 
 
 def update(user: User, profile: Profile) -> User:
@@ -164,17 +165,16 @@ def update(user: User, profile: Profile) -> User:
             for f in _PROFILE_FIELDS
             if getattr(user, f) != before[f]
         }
-        if changes or names:
+        if changes:
             taken = User.objects.exclude(pk=user.pk).filter(
                 Q(email=user.email) | Q(scim_user_name=user.scim_user_name)
             )
             if taken.exists():
                 raise conflict("Another person already has that userName or email.")
             try:
-                user.save(update_fields=[*_PROFILE_FIELDS, "scim_name"])
+                user.save(update_fields=list(_PROFILE_FIELDS))
             except IntegrityError as error:
                 raise conflict("Another person already has that userName or email.") from error
-        if changes:
             audit.record("user.updated", target=user, data=changes)
         if profile.active is not None:
             _set_active(user, profile.active)
@@ -304,32 +304,46 @@ def replace_group(
     return group
 
 
+@dataclass(frozen=True)
+class MemberChange:
+    """One PATCH operation on a group's members."""
+
+    op: Literal["add", "remove", "replace"]
+    #: The members it names. ``None``, for a remove, means every member.
+    ids: tuple[UUID, ...] | None
+
+
 @dataclass
 class GroupPatch:
     display_name: str | None = None
     external_id: str | None = None
-    add: list[UUID] = field(default_factory=list)
-    remove: list[UUID] = field(default_factory=list)
-    #: Replace the member list with exactly these (applied before add/remove).
-    replace: list[UUID] | None = None
-    remove_all: bool = False
+    #: The changes to the members, applied in the order the PATCH gives them (RFC 7644 §3.5.2).
+    members: list[MemberChange] = field(default_factory=list)
 
 
 def patch_group(group: ScimGroup, patch: GroupPatch) -> ScimGroup:
+    """Applies the PATCH's operations in order to the locked group, then records the result
+    as one change: someone a later operation removes again isn't added, and the reverse."""
     with transaction.atomic():
         group = _locked(group)
         data = _save_group(group, patch.display_name, patch.external_id)
         current = set(group.memberships.values_list("user_id", flat=True))
-        add = _members(patch.add)
-        remove_ids = set(patch.remove)
-        if patch.remove_all:
-            remove_ids |= current
-        if patch.replace is not None:
-            wanted = _members(patch.replace)
-            add += wanted
-            remove_ids |= current - {u.pk for u in wanted}
-        remove_ids -= {u.pk for u in add}
-        data |= _apply_members(group, add=add, remove=User.objects.filter(pk__in=remove_ids))
+        named = {i for c in patch.members if c.op != "remove" for i in c.ids or ()}
+        known = {u.pk: u for u in _members(named)}
+        final = set(current)
+        for change in patch.members:
+            ids = set(change.ids or ())
+            if change.op == "add":
+                final |= ids & known.keys()
+            elif change.op == "replace":
+                final = ids & known.keys()
+            else:
+                final = set() if change.ids is None else final - ids
+        data |= _apply_members(
+            group,
+            add=[known[i] for i in final - current],
+            remove=User.objects.filter(pk__in=current - final),
+        )
         _after_member_change(group, data)
     return group
 

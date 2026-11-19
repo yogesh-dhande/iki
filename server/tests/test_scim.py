@@ -4,7 +4,9 @@ import json
 from typing import Any
 
 import pytest
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 
 from iki_server.accounts.models import User, UserSession
 from iki_server.audit.models import AuditEvent, Via
@@ -454,3 +456,184 @@ def test_renaming_into_another_groups_name_conflicts(scim: Scim) -> None:
         f"/Groups/{group_id}", {"op": "replace", "path": "displayName", "value": "Chemistry"}
     )
     assert response.status_code == 409
+
+
+# --- PATCH operations apply in order (RFC 7644 §3.5.2) -------------------------------
+
+
+def _group(scim: Scim, *member_ids: str) -> str:
+    body = {"displayName": "Chemistry", "members": [{"value": m} for m in member_ids]}
+    return str(scim.post("/Groups", body).json_body["id"])
+
+
+def test_a_member_added_then_removed_in_one_patch_isnt_a_member(scim: Scim) -> None:
+    ada, grace = _people(scim, "ada", "grace")
+    group_id = _group(scim, ada)
+    response = scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "add", "path": "members", "value": [{"value": grace}]},
+        {"op": "remove", "path": f'members[value eq "{grace}"]'},
+    )
+    assert response.status_code == 204
+    assert _member_ids(scim, group_id) == {ada}
+    # Nothing changed in the end, so nothing is recorded as changed.
+    assert not AuditEvent.objects.filter(action="scim.group_updated").exists()
+
+
+def test_a_member_removed_then_added_in_one_patch_stays(scim: Scim) -> None:
+    ada, grace = _people(scim, "ada", "grace")
+    group_id = _group(scim, ada, grace)
+    scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "Remove", "path": "members", "value": [{"value": grace}]},
+        {"op": "Add", "path": "members", "value": [{"value": grace}]},
+    )
+    assert _member_ids(scim, group_id) == {ada, grace}
+
+
+def test_a_replace_decides_the_members_whatever_came_before_it(scim: Scim) -> None:
+    ada, grace, alan = _people(scim, "ada", "grace", "alan")
+    group_id = _group(scim, grace)
+    scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "add", "path": "members", "value": [{"value": alan}]},
+        {"op": "replace", "path": "members", "value": [{"value": ada}]},
+    )
+    assert _member_ids(scim, group_id) == {ada}
+    scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "replace", "path": "members", "value": [{"value": grace}]},
+        {"op": "add", "path": "members", "value": [{"value": alan}]},
+    )
+    assert _member_ids(scim, group_id) == {grace, alan}
+    last = AuditEvent.objects.filter(action="scim.group_updated").order_by("occurred_at").last()
+    assert last is not None
+    assert (last.data["added"], last.data["removed"]) == (
+        ["alan@example.com", "grace@example.com"],
+        ["ada@example.com"],
+    )
+
+
+def test_a_clear_then_an_add_leaves_only_the_added(scim: Scim) -> None:
+    ada, grace = _people(scim, "ada", "grace")
+    group_id = _group(scim, ada)
+    scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "remove", "path": "members"},
+        {"op": "add", "path": "members", "value": [{"value": grace}]},
+    )
+    assert _member_ids(scim, group_id) == {grace}
+
+
+# --- A selector that can't match is refused, never read as "everyone" -----------------
+
+
+@pytest.mark.parametrize(
+    ("operation", "scim_type"),
+    [
+        ({"op": "remove", "path": 'members[value eq "00u1okta"]'}, "noTarget"),
+        ({"op": "remove", "path": "members", "value": [{"value": "nope"}]}, "noTarget"),
+        ({"op": "remove", "path": "members", "value": [{"display": "ada"}]}, "noTarget"),
+        ({"op": "remove", "path": 'members[type eq "direct"]'}, "invalidFilter"),
+        ({"op": "remove", "path": 'members[display eq "ada@example.com"]'}, "invalidFilter"),
+        ({"op": "remove", "path": 'members[value ne "x"]'}, "invalidFilter"),
+        ({"op": "add", "path": 'members[value eq "x"]', "value": []}, "invalidPath"),
+    ],
+    ids=[
+        "not-an-id",
+        "value-not-an-id",
+        "value-without-id",
+        "type-filter",
+        "display-filter",
+        "other-operator",
+        "filtered-add",
+    ],
+)
+def test_a_member_selector_that_cant_match_is_refused_and_changes_nothing(
+    scim: Scim, operation: dict[str, Any], scim_type: str
+) -> None:
+    ada, grace, alan = _people(scim, "ada", "grace", "alan")
+    group_id = _group(scim, ada, grace)
+    response = scim.patch(
+        f"/Groups/{group_id}",
+        {"op": "add", "path": "members", "value": [{"value": alan}]},
+        operation,
+    )
+    assert response.status_code == 400, response.json_body
+    assert response.json_body["scimType"] == scim_type
+    # The PATCH is refused whole: the earlier operation didn't happen either.
+    assert _member_ids(scim, group_id) == {ada, grace}
+
+
+def test_removing_someone_who_isnt_a_member_changes_nothing(scim: Scim) -> None:
+    (ada,) = _people(scim, "ada")
+    group_id = _group(scim, ada)
+    unknown = "0190f7b6-7a1e-7000-8000-000000000000"
+    response = scim.patch(
+        f"/Groups/{group_id}", {"op": "remove", "path": f'members[value eq "{unknown}"]'}
+    )
+    assert response.status_code == 204
+    assert _member_ids(scim, group_id) == {ada}
+
+
+# --- Every change to a person is audited ----------------------------------------------
+
+
+def test_a_change_to_a_name_part_is_audited_even_when_the_display_name_stays(
+    scim: Scim,
+) -> None:
+    user_id = scim.post("/Users", okta_user()).json_body["id"]
+    change = {"op": "replace", "path": "name.givenName", "value": "Augusta"}
+    response = scim.patch(f"/Users/{user_id}", change)
+    assert response.status_code == 200
+    assert response.json_body["displayName"] == "Ada Lovelace"
+    assert response.json_body["name"]["givenName"] == "Augusta"
+    event = AuditEvent.objects.get(action="user.updated")
+    assert (event.via, event.target_id) == (Via.SCIM, user_id)
+    before, after = event.data["scim_name"]
+    assert (before["givenName"], after["givenName"]) == ("Ada", "Augusta")
+    assert "name" not in event.data  # the displayed name didn't change
+    # The same change again changes nothing, and records nothing.
+    scim.patch(f"/Users/{user_id}", change)
+    assert AuditEvent.objects.filter(action="user.updated").count() == 1
+
+
+# --- Listing costs the same few queries however long the page --------------------------
+
+
+def _queries(scim: Scim, path: str) -> int:
+    with CaptureQueriesContext(connection) as queries:
+        response = scim.get(path)
+    assert response.status_code == 200
+    return len(queries)
+
+
+def test_listing_people_takes_the_same_queries_for_one_or_many(scim: Scim) -> None:
+    ada, grace = _people(scim, "ada", "grace")
+    scim.post("/Groups", {"displayName": "Chemistry", "members": [{"value": ada}]})
+    scim.post("/Groups", {"displayName": "Biology", "members": [{"value": ada}, {"value": grace}]})
+    _queries(scim, "/Users")  # the token's last use is recorded at most once a minute
+    one = _queries(scim, "/Users?count=1")
+    _people(scim, *(f"p{n}" for n in range(20)))
+    many = scim.get("/Users?count=200").json_body
+    assert many["itemsPerPage"] == 22
+    first = next(r for r in many["Resources"] if r["id"] == ada)
+    assert [g["display"] for g in first["groups"]] == ["Biology", "Chemistry"]
+    assert _queries(scim, "/Users?count=200") == one
+
+
+def test_listing_groups_takes_the_same_queries_for_one_or_many(scim: Scim) -> None:
+    ada, grace = _people(scim, "ada", "grace")
+    scim.post("/Groups", {"displayName": "G0", "members": [{"value": ada}]})
+    _queries(scim, "/Groups")
+    one = _queries(scim, "/Groups?count=1")
+    lean = _queries(scim, "/Groups?count=1&excludedAttributes=members")
+    for n in range(1, 20):
+        scim.post(
+            "/Groups", {"displayName": f"G{n}", "members": [{"value": ada}, {"value": grace}]}
+        )
+    listed = scim.get("/Groups?count=200").json_body["Resources"]
+    assert len(listed) == 20
+    assert [m["display"] for m in listed[1]["members"]] == ["ada@example.com", "grace@example.com"]
+    assert _queries(scim, "/Groups?count=200") == one
+    assert _queries(scim, "/Groups?count=200&excludedAttributes=members") == lean < one
