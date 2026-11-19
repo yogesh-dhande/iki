@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_composition
+label: Compute a complex's composition
+description: >-
+  A complex's formula, average and monoisotopic masses and chain count, from
+  its parts, each times its copies: a protein's formula from its residues and
+  water, a nucleic acid's or an oligonucleotide's, a small molecule's or
+  another complex's from its entry's molecular formula. A part with neither (a
+  sequence with an ambiguous residue, or a molecule whose formula isn't known
+  yet) is named, and nothing is computed. The run also says its formula and
+  masses with its disulfides, two hydrogens off for each.
+inputs:
+  complex: { type: iki/core.Complex, schema: ">=1", include: [components.part] }
+effects:
+  updates:
+    - input: complex
+      fields: [molecular_formula, molecular_weight, monoisotopic_mass, chain_count]
+runs_on: { tier: backend, environment: complex-tools }
+command: [python, ./scripts/composition.py]
+deterministic: true
+batchable: 100
+timeout: 5m

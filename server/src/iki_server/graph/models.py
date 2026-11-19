@@ -49,7 +49,7 @@ class Edge(models.Model):
         Entity, on_delete=models.DO_NOTHING, related_name="+", db_comment="What it depends on."
     )
     kind = models.CharField(max_length=16, choices=EdgeKind.choices)
-    #: A reference's field; a run's input (``antibody.heavy_chain`` for what it included);
+    #: A reference's field; a run's input (``antibody.components.part`` for what it included);
     #: a file param's name; empty for a record.
     field = models.CharField(max_length=127, blank=True, default="", db_default="")
     #: For a reference: the column (``table.column``) or list table that holds it, by which

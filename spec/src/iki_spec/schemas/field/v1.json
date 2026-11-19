@@ -829,7 +829,7 @@
       }
     },
     "row": {
-      "description": "A list's item that's a row of typed fields (ADR 0137), such as a complex's component: its part, its copies, its chain and its role. Rows can say per role what each may refer to and how many rows each role takes.",
+      "description": "A list's item that's a row of typed fields (ADR 0137), such as a complex's component: its part, its copies and its role. Rows can say per role what each may refer to and how many rows each role takes.",
       "type": "object",
       "required": ["type", "fields"],
       "additionalProperties": false,
@@ -860,11 +860,11 @@
           }
         },
         "by": {
-          "description": "The row field, an enum, whose value is each row's role, which `roles` says more of.",
+          "description": "The row field, an enum or a string, whose value is each row's role, which `roles` says more of. Where it's a string, the roles named are the only ones a row may have; an abstract type can leave them to its subtypes, which give them in `refines` (ADR 0164).",
           "$ref": "#/$defs/fieldName"
         },
         "roles": {
-          "description": "Per role (a value of `by`): how many rows take it, and what their references may refer to. A role it doesn't name takes any number of rows, and refers to what its fields do. Anything subtler is a rule's.",
+          "description": "Per role (a value of `by`): how many rows take it, and what their references may refer to. A role it doesn't name takes any number of rows, and refers to what its fields do, unless `by` is a string: then a row may have only the roles named. Anything subtler is a rule's.",
           "type": "object",
           "minProperties": 1,
           "maxProperties": 100,
@@ -877,8 +877,7 @@
         }
       },
       "dependentRequired": {
-        "roles": ["by"],
-        "by": ["roles"]
+        "roles": ["by"]
       }
     },
     "cell": {

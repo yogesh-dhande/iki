@@ -165,6 +165,12 @@ def cel_value(f: Field, value: Any) -> Any:  # noqa: ANN401 - a database value i
     has timestamps, not dates)."""
     if value is None:
         return None
+    if f.is_rows:
+        # Each row as a map of its cells, a reference as its ID (ADR 0137).
+        assert f.items is not None  # noqa: S101 - lists always have items
+        return [
+            {n: cel_value(cell, row.get(n)) for n, cell in f.items.fields.items()} for row in value
+        ]
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         return [cel_value(f.items, item) for item in value]

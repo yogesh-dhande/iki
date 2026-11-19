@@ -173,6 +173,16 @@ describe("a run's page", () => {
               hrid: "DNA-000004",
               revision: 3,
             },
+            // A complex's parts, a list of rows' references (ADR 0161).
+            {
+              input: "protein",
+              position: 0,
+              field: "components.part",
+              index: 1,
+              entity: "00000000-0000-7000-8000-00000000d002",
+              hrid: "PRT-000007",
+              revision: 2,
+            },
           ],
         }),
       () => [attempt()],
@@ -182,6 +192,9 @@ describe("a run's page", () => {
     const inputs = await screen.findByRole("region", { name: "Inputs" });
     const read = within(inputs).getByText("Encoded by").nextSibling;
     expect(read).toHaveTextContent("DNA-000004 as of revision 3, which PRT-000001 names");
+    expect(within(inputs).getByText("Components · Part").nextSibling).toHaveTextContent(
+      "PRT-000007 as of revision 2, which PRT-000001 names",
+    );
     expect(within(inputs).getByRole("link", { name: "DNA-000004" })).toHaveAttribute(
       "href",
       "/entities/DNA-000004/",

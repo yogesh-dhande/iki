@@ -28,6 +28,7 @@ from iki_spec.model import (
     Software,
     Updates,
     Volume,
+    included_reference,
     parse_duration,
     parse_quantity,
     qualify,
@@ -566,7 +567,7 @@ class _Rules:
         """An input's `include`: its type's references, its own or a parent's."""
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         for index, name in enumerate(put.include):
-            found = fields.get(name)
+            found = included_reference(fields, name)
             where = (*path, "include", index)
             if found is None:
                 self.add(
@@ -940,4 +941,12 @@ def _reference(f: Field) -> bool:
 
 def _references(fields: dict[str, Field]) -> str:
     names = sorted(n for n, f in fields.items() if _reference(f))
+    # And the references of its lists of rows (ADR 0161).
+    names += sorted(
+        f"{n}.{c}"
+        for n, f in fields.items()
+        if f.is_rows and f.items is not None
+        for c, cell in f.items.fields.items()
+        if cell.type == "ref"
+    )
     return ", ".join(f"`{n}`" for n in names) or "it has none"

@@ -29,8 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from iki_spec import API_VERSION, schemas
-from iki_spec.model import Action, EntityType, Field, Input, Plugin
+from iki_spec import API_VERSION, naming, schemas
+from iki_spec.model import Action, EntityType, Field, Input, Plugin, included_reference
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -299,10 +299,11 @@ class _Check:
                     hint=_known("It includes", dict.fromkeys(given.include)),
                 )
                 continue
-            targets = targets_of(fields[reference]) if reference in fields else ()
+            found = included_reference(fields, reference)
+            targets = targets_of(found) if found is not None else ()
             # Without a type, an included entity is of the reference's only one.
             to = targets[0] if len(targets) == 1 else None
-            one = reference in fields and fields[reference].type == "ref"
+            one = found is not None and found.type == "ref"
             if one and len(named) > 1:
                 self.add(
                     "input-count",
@@ -346,6 +347,8 @@ class _Check:
                 )
 
     def _is_a(self, entity_type: EntityType, wanted: str) -> bool:
+        if wanted == naming.ENTITY:
+            return True
         current: EntityType | None = entity_type
         while current is not None:
             if current.qualified_name == wanted:
@@ -458,13 +461,25 @@ def run_input(
                 given = entity.get("included") or {}
                 included: dict[str, list[dict[str, Any]]] = {}
                 for reference in put.include:
-                    targets = targets_of(fields[reference])
+                    found = included_reference(fields, reference)
+                    assert found is not None  # noqa: S101 - the action was validated
+                    targets = targets_of(found)
                     to = targets[0] if len(targets) == 1 else ""
                     named = given.get(reference) or []
                     included[reference] = [made(o, o.get("type") or to) for o in named]
-                    if reference in given:
-                        ids = [o["id"] for o in included[reference]]
-                        list_of = fields[reference].type == "list"
+                    if reference not in given:
+                        continue
+                    ids = [o["id"] for o in included[reference]]
+                    if "." in reference:
+                        # A list of rows' references (ADR 0161): each row's, in order.
+                        rows_name, _, cell = reference.partition(".")
+                        rows = document["values"].get(rows_name) or []
+                        document["values"][rows_name] = [
+                            {**row, cell: ids[i] if i < len(ids) else row.get(cell)}
+                            for i, row in enumerate(rows)
+                        ]
+                    else:
+                        list_of = found.type == "list"
                         document["values"][reference] = ids if list_of else (ids or [None])[0]
                 document["included"] = included
             inputs[name].append(document)

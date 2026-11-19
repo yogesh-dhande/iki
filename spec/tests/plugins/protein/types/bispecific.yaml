@@ -1,39 +1,47 @@
+# A lab's own specific complex (ADR 0161): its plugin, not Iki's, fixes which parts its
+# bispecifics take (ADR 0164), so searching iki/core.Complex finds them beside every other
+# complex, and the same chains and copies registered as another type of complex are this
+# one's entry.
 apiVersion: iki/v1
 kind: EntityType
 name: Bispecific
-label: Bispecific antibody's chains
-schema_version: 1
+label: Bispecific antibody
+extends: iki/core.Complex
+schema_version: 2
 description: >-
-  The chains an IgG-like bispecific antibody is made of, a row per chain: its
-  two heavy chains, its two light chains (the same protein twice where they
-  share one, as emicizumab's do) and at most one linker. It's its chains, in
-  which role, whatever their order (ADR 0138), so one set of chains has one
-  record. It's an inventory: it doesn't say which light chain pairs with which
-  heavy chain, so a mispaired assembly of the same four chains is the same
-  record. A type that registers assemblies makes each row an arm, its heavy and
-  its light chain.
+  An IgG-like bispecific antibody, by its chains and how many copies of each:
+  its two heavy chains, its light chains (one protein twice where both arms
+  share it, as emicizumab's do) and at most one linker. Its chains and copies
+  are its identity, whatever their order (ADR 0138); which light chain pairs
+  with which heavy chain is its arms, a fact of its registry entry, so a
+  mispaired assembly of the same chains is the same molecule's impurity, not
+  another molecule.
 hrid: { prefix: BSP }
-identity: [components]
-fields:
-  name: { type: string, required: true, max_length: 200 }
-  # Its parts (ADR 0137): each role says how many rows take it and what they refer to, so
-  # it has four or five. A row is one chain, so a chain the antibody has two of is two
-  # rows: with a count on each row as well, one set of chains could be written two ways,
-  # and have two records.
+refines:
   components:
+    roles:
+      heavy: { min: 1, max: 2, to: { part: Protein } }
+      light: { label: Light chain, min: 1, max: 2, to: { part: Protein } }
+      linker: { max: 1, to: { part: acme/dna.DNASequence } }
+fields:
+  arms:
     type: list
-    required: true
-    immutable: true
+    registry: fact
+    max_items: 2
+    description: Each arm's heavy chain and the light chain it pairs with, and what it binds.
     items:
       type: row
       fields:
-        part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
-        chain: { type: string, max_length: 10 }
-        role: { type: enum, values: [heavy, light, linker], required: true }
-      # A chain's label doesn't make it another antibody.
-      identity: [part, role]
-      by: role
-      roles:
-        heavy: { min: 2, max: 2, to: { part: Protein } }
-        light: { label: Light chain, min: 2, max: 2, to: { part: Protein } }
-        linker: { max: 1, to: { part: acme/dna.DNASequence } }
+        heavy: { type: ref, to: Protein, required: true }
+        light: { type: ref, to: Protein, required: true }
+        target: { type: string, max_length: 40, pattern: "^[A-Z0-9][A-Za-z0-9-]*$" }
+      identity: [heavy, light]
+rules:
+  two_heavy_chains:
+    label: Two heavy chains in all
+    check: >-
+      record.components.filter(c, c.role == "heavy").size() == 1
+      ? record.components.all(c, c.role != "heavy" || c.copies == 2)
+      : record.components.all(c, c.role != "heavy" || c.copies == 1)
+    message: It has two heavy chains in all.
+    fields: [components]

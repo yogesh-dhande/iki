@@ -22,6 +22,7 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import File
 
 import iki_plugin_acme__dna.models
+import iki_plugin_iki__core.models
 
 
 class AssayRequest(Entity):
@@ -341,33 +342,22 @@ class Batch_History(models.Model):
         db_table = 'acme__protein_batch__history'
 
 
-class Bispecific(Entity):
-    """Bispecific antibody's chains (acme/protein.Bispecific), schema version 1. The chains an IgG-like bispecific antibody is made of, a row per chain: its two heavy chains, its two light chains (the same protein twice where they share one, as emicizumab's do) and at most one linker. It's its chains, in which role, whatever their order (ADR 0138), so one set of chains has one record. It's an inventory: it doesn't say which light chain pairs with which heavy chain, so a mispaired assembly of the same four chains is the same record. A type that registers assemblies makes each row an arm, its heavy and its light chain."""
+class Bispecific(iki_plugin_iki__core.models.Complex):
+    """Bispecific antibody (acme/protein.Bispecific), schema version 2. An IgG-like bispecific antibody, by its chains and how many copies of each: its two heavy chains, its light chains (one protein twice where both arms share it, as emicizumab's do) and at most one linker. Its chains and copies are its identity, whatever their order (ADR 0138); which light chain pairs with which heavy chain is its arms, a fact of its registry entry, so a mispaired assembly of the same chains is the same molecule's impurity, not another molecule."""
 
     IKI_TYPE = 'acme/protein.Bispecific'
 
-    entity = models.OneToOneField(
-        Entity,
+    complex_ptr = models.OneToOneField(
+        iki_plugin_iki__core.models.Complex,
         models.PROTECT,
         parent_link=True,
         primary_key=True,
         db_column='entity_id',
         related_name='+',
     )
-    name = models.CharField(max_length=200)
 
     class Meta:
         db_table = 'acme__protein_bispecific'
-        constraints = [
-            models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('name'), 1),
-                name='acme__protein_bispecific__name__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(name__regex='[\\r\\n]'),
-                name='acme__protein_bispecific__name__one_line',
-            ),
-        ]
 
 
 class Bispecific_History(models.Model):
@@ -379,20 +369,19 @@ class Bispecific_History(models.Model):
     pk = models.CompositePrimaryKey('entity_id', 'revision')
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
-    name = models.TextField(null=True)
 
     class Meta:
         db_table = 'acme__protein_bispecific__history'
 
 
-class Bispecific_Entry(Entity):
-    """Registry entries of Bispecific antibody's chains (acme/protein.Bispecific), ADR 0115."""
+class Bispecific_Entry(iki_plugin_iki__core.models.Complex_Entry):
+    """Registry entries of Bispecific antibody (acme/protein.Bispecific), ADR 0115: the registry fields it adds to its parent's (ADR 0165)."""
 
     IKI_TYPE = 'acme/protein.Bispecific'
     IKI_ENTRY = True
 
-    entity = models.OneToOneField(
-        Entity,
+    complex_entry_ptr = models.OneToOneField(
+        iki_plugin_iki__core.models.Complex_Entry,
         models.PROTECT,
         parent_link=True,
         primary_key=True,
@@ -413,16 +402,16 @@ class Bispecific_Entry_History(models.Model):
     pk = models.CompositePrimaryKey('entity_id', 'revision')
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
-    components = models.JSONField(null=True)
+    arms = models.JSONField(null=True)
 
     class Meta:
         db_table = 'acme__protein_bispecific__entry__history'
 
 
-class Bispecific_Entry_components(models.Model):
-    """The items of acme/protein.Bispecific.components, in order."""
+class Bispecific_Entry_arms(models.Model):
+    """The items of acme/protein.Bispecific.arms, in order."""
 
-    IKI_LIST_OF = ('Bispecific_Entry', 'components')
+    IKI_LIST_OF = ('Bispecific_Entry', 'arms')
 
     pk = models.CompositePrimaryKey('entity', 'position')
     entity = models.ForeignKey(
@@ -432,24 +421,28 @@ class Bispecific_Entry_components(models.Model):
         related_name='+',
     )
     position = models.PositiveIntegerField()
-    part = models.ForeignKey(Entity, models.PROTECT, related_name='+')
-    chain = models.CharField(max_length=10, null=True)
-    role = models.TextField()
+    heavy = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
+    light = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
+    target = models.CharField(max_length=40, null=True)
 
     class Meta:
-        db_table = 'acme__protein_bispecific__entry__components'
+        db_table = 'acme__protein_bispecific__entry__arms'
         constraints = [
             models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('chain'), 1),
-                name='acme__protein_bispecific__entry__components__chain__not_empty',
+                condition=GreaterThanOrEqual(Length('target'), 1),
+                name='acme__protein_bispecific__entry__arms__target__not_empty',
             ),
             models.CheckConstraint(
-                condition=~Q(chain__regex='[\\r\\n]'),
-                name='acme__protein_bispecific__entry__components__chain__one_line',
+                condition=~Q(target__regex='[\\r\\n]'),
+                name='acme__protein_bispecific__entry__arms__target__one_line',
             ),
             models.CheckConstraint(
-                condition=Q(role__in=['heavy', 'light', 'linker']),
-                name='acme__protein_bispecific__entry__components__role__values',
+                condition=Q(target__regex='^(?:^[A-Z0-9][A-Za-z0-9-]*$)$'),
+                name='acme__protein_bispecific__entry__arms__target__pattern',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=2),
+                name='acme__protein_bispecific__entry__arms__position__max_items',
             ),
         ]
 

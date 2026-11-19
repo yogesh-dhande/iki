@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The generic complex (ADR 0161): any parts, each with its copies and a role the lab
+# names, loosely checked (each part once, its bonds within its parts). A complex whose
+# parts are fixed is a specific type, an antibody's or a lab's own, which refines them.
+apiVersion: iki/v1
+kind: EntityType
+name: ProteinComplex
+label: Protein complex
+label_plural: Protein complexes
+extends: iki/core.Complex
+schema_version: 1
+description: >-
+  Molecules held together as one, of any parts: proteins, nucleic acids, small
+  molecules or other complexes, each with how many copies it has and its role
+  in it, such as hemoglobin (two α and two β chains) or a receptor bound to its
+  ligand. Two with the same parts and copies are the same complex, whatever
+  type registered them: a protein complex of an antibody's chains is that
+  antibody.
+hrid: { prefix: PCX }
+fields:
+  complex_portal_id:
+    type: string
+    registry: fact
+    label: Complex Portal ID
+    pattern: "^CPX-[1-9][0-9]*$"
+    max_length: 20
+    indexed: true
+    description: >-
+      Its accession in EMBL-EBI's Complex Portal, such as CPX-2158 (human
+      hemoglobin A). A registry fact: given once, then changed only by its
+      registrars.
+  structure:
+    type: ref
+    to: iki/protein.ProteinStructure
+    description: A structure that shows it, such as its PDB entry's.
+display:
+  title: "{{ name or hrid }}"

@@ -93,13 +93,14 @@ def model(qualified: str) -> type[models.Model]:
 
 
 def entry_model(qualified: str) -> type[models.Model] | None:
-    """The Django model of a type's registry entries (ADR 0115): its identity's type's, which
-    its subtypes share. None for a type without an identity."""
+    """The Django model of a type's registry entries (ADR 0115). A subtype's is under its
+    parent's, as its records' is (ADR 0165), with the registry fields it adds. None for a
+    type without an identity."""
     found = types().get(qualified)
     owner = identity_owner(found) if found is not None else None
-    if owner is None:
+    if found is None or owner is None:
         return None
-    return apps.get_model(naming.app_label(owner.plugin), naming.entry_model(owner.name))
+    return apps.get_model(naming.app_label(found.plugin), naming.entry_model(found.name))
 
 
 def app(plugin: str) -> Any:  # noqa: ANN401 - Django's AppConfig

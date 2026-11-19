@@ -1,0 +1,360 @@
+# Run with `iki plugin test plugins/antibody --with plugins/dna --with plugins/protein` (ADR 0093).
+#
+# Each antibody's chains are KEGG DRUG's, numbered as number_chains leaves them (their
+# residues' numbers left out): each VH ends at its J region's VTVSS and each VL at its
+# FGxGTKLEIK, IMGT's 128 and 127.
+apiVersion: iki/v1
+kind: ActionTest
+name: emicizumab
+description: >-
+  Emicizumab (KEGG DRUG D10821), an IgG4 whose two heavy chains, anti-factor
+  IXa (448 residues) and anti-factor X (444), as Japan's PMDA's review report
+  gives them, share one kappa light chain: two copies of it, one for each arm.
+  Its heavy chains are made to pair by charge pairs, E356K in the anti-FIXa
+  chain and K439E in the anti-FX chain (EU numbering), and its disulfides are
+  KEGG's: H137-L214, h133-L'214, H229-h225 and H232-h228.
+action: assemble_multispecific
+inputs:
+  heavy_chain:
+    - values:
+        name: emicizumab anti-FIXa heavy chain
+        sequence: QVQLVESGGGLVQPGGSLRLSCAASGFTFSYYDIQWVRQAPGKGLEWVSSISPSGQSTYYRREVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARRTGREYGGGWYFDYWGQGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQKEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNRYTQKSLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 123, numbering: [], closest: {}, human: {} }
+  second_heavy_chain:
+    - values:
+        name: emicizumab anti-FX heavy chain
+        sequence: QVQLVQSGSELKKPGASVKVSCKASGYTFTDNNMDWVRQAPGQGLEWMGDINTRSGGSIYNEEFQDRVIMTVDKSTDTAYMELSSLRSEDTATYHCARRKSYGYYLDEWGEGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQEEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNHYTQESLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 119, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: emicizumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCKASRNIERQLAWYQQKPGQAPELLIYQASRKESGVPDRFSGSRYGTDFTLTISSLQPEDIATYYCQQYSDPPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { name: emicizumab, targets: [F9, F10] }
+expect:
+  output:
+    creates:
+      - type: iki/antibody.MultispecificAntibody
+        values:
+          name: emicizumab
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000003, copies: 2, role: light }
+          binding_sites:
+            - {
+                heavy: 00000000-0000-7000-8003-000000000001,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000003,
+                target: F9,
+              }
+            - {
+                heavy: 00000000-0000-7000-8003-000000000002,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000003,
+                target: F10,
+              }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 137,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 133,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 2,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 229,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 225,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 232,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 228,
+              }
+          isotype: igg4
+          fc_pairing: charge_pairs
+        derived_from:
+          [
+            00000000-0000-7000-8003-000000000001,
+            00000000-0000-7000-8003-000000000002,
+            00000000-0000-7000-8003-000000000003,
+          ]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: amivantamab
+description: >-
+  Amivantamab (KEGG DRUG D11894), an IgG1 made by Fab-arm exchange (Genmab's
+  DuoBody): its anti-EGFR arm, whose variable domains are zalutumumab's (KEGG
+  D10031) residue for residue, carries F405L, and its anti-MET arm K409R.
+  Each heavy chain has its own light chain, and its disulfides are KEGG's:
+  A228-C214, B222-D214, A234-B228 and A237-B231.
+action: assemble_multispecific
+inputs:
+  heavy_chain:
+    - values:
+        name: amivantamab anti-EGFR heavy chain
+        sequence: QVQLVESGGGVVQPGRSLRLSCAASGFTFSTYGMHWVRQAPGKGLEWVAVIWDDGSYKYYGDSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARDGITMVRGVMKDYFDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKRVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFLLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 125, numbering: [], closest: {}, human: {} }
+  second_heavy_chain:
+    - values:
+        name: amivantamab anti-MET heavy chain
+        sequence: QVQLVQSGAEVKKPGASVKVSCETSGYTFTSYGISWVRQAPGHGLEWMGWISAYNGYTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDLRGTNYFDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKRVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSRLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 119, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: amivantamab anti-EGFR light chain
+        sequence: AIQLTQSPSSLSASVGDRVTITCRASQDISSALVWYQQKPGKAPKLLIYDASSLESGVPSRFSGSESGTDFTLTISSLQPEDFATYYCQQFNSYPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+  second_light_chain:
+    - values:
+        name: amivantamab anti-MET light chain
+        sequence: DIQMTQSPSSVSASVGDRVTITCRASQGISNWLAWFQHKPGKAPKLLIYAASSLLSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQANSFPITFGQGTRLEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { name: amivantamab, targets: [EGFR, MET] }
+expect:
+  output:
+    creates:
+      - values:
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000003, copies: 1, role: light }
+            - { part: 00000000-0000-7000-8003-000000000004, copies: 1, role: light }
+          binding_sites:
+            - {
+                heavy: 00000000-0000-7000-8003-000000000001,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000003,
+                target: EGFR,
+              }
+            - {
+                heavy: 00000000-0000-7000-8003-000000000002,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000004,
+                target: MET,
+              }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 228,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 222,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 234,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 228,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 237,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 231,
+              }
+          isotype: igg1
+          fc_pairing: fab_arm_exchange
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: mosunetuzumab
+description: >-
+  Mosunetuzumab (KEGG DRUG D11463), an IgG1 made by knobs into holes: its
+  anti-CD20 heavy chain is the knob (T366W) and its anti-CD3 heavy chain the
+  hole (T366S, L368A and Y407V), as US patent 11,958,906 says. Its disulfides
+  are KEGG's: A222-B219, C225-E213, A228-C231 and A231-C234.
+action: assemble_multispecific
+inputs:
+  heavy_chain:
+    - values:
+        name: mosunetuzumab anti-CD3 heavy chain
+        sequence: EVQLVQSGAEVKKPGASVKVSCKASGYTFTNYYIHWVRQAPGQGLEWIGWIYPGDGNTKYNEKFKGRATLTADTSTSTAYLELSSLRSEDTAVYYCARDSYSNYYFDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYGSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLSCAVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLVSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 119, numbering: [], closest: {}, human: {} }
+  second_heavy_chain:
+    - values:
+        name: mosunetuzumab anti-CD20 heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGYTFTSYNMHWVRQAPGKGLEWVGAIYPGNGDTSYNQKFKGRFTISVDKSKNTLYLQMNSLRAEDTAVYYCARVVYYSNSYWYFDVWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYGSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLWCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 122, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: mosunetuzumab anti-CD3 light chain
+        sequence: DIVMTQSPDSLAVSLGERATINCKSSQSLLNSRTRKNYLAWYQQKPGQPPKLLIYWASTRESGVPDRFSGSGSGTDFTLTISSLQAEDVAVYYCTQSFILRTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 112, numbering: [], closest: {}, human: {} }
+  second_light_chain:
+    - values:
+        name: mosunetuzumab anti-CD20 light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASSSVSYMHWYQQKPGKAPKPLIYAPSNLASGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQWSFNPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 106, numbering: [], closest: {}, human: {} }
+params: { targets: [CD3E, MS4A1] }
+expect:
+  output:
+    creates:
+      - values:
+          name: mosunetuzumab anti-CD3 heavy chain / mosunetuzumab anti-CD20 heavy chain / mosunetuzumab anti-CD3 light chain / mosunetuzumab anti-CD20 light chain
+          binding_sites:
+            - {
+                heavy: 00000000-0000-7000-8003-000000000001,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000003,
+                target: CD3E,
+              }
+            - {
+                heavy: 00000000-0000-7000-8003-000000000002,
+                domain: 1,
+                light: 00000000-0000-7000-8003-000000000004,
+                target: MS4A1,
+              }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 222,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 219,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 225,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 213,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 228,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 231,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 231,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 234,
+              }
+          isotype: igg1
+          fc_pairing: knobs_into_holes
+    messages:
+      - level: info
+        text: "Its isotype is igg1, from its heavy chains: mosunetuzumab anti-CD3 heavy chain's constant region is IgG1's, 98.2% identical to IMGT's IGHG1*01 (J00228) over 330 residues; the next nearest, IgG2's, is 90.6%; mosunetuzumab anti-CD20 heavy chain's constant region is IgG1's, 98.8% identical to IMGT's IGHG1*01 (J00228) over 330 residues; the next nearest, IgG2's, is 91.2%."
+      - level: info
+        text: "Its Fc chains pair by knobs into holes: T366W in one heavy chain and T366S, L368A and Y407V in the other."
+      - level: info
+        text: "Its chains' disulfides, as its subclass places them: H222-L219, h225-l213, H228-h231, H231-h234."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_target_for_each_site
+description: >-
+  Emicizumab's chains make two binding sites, so two targets.
+action: assemble_multispecific
+inputs:
+  heavy_chain:
+    - values:
+        name: emicizumab anti-FIXa heavy chain
+        sequence: QVQLVESGGGLVQPGGSLRLSCAASGFTFSYYDIQWVRQAPGKGLEWVSSISPSGQSTYYRREVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARRTGREYGGGWYFDYWGQGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQKEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNRYTQKSLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 123, numbering: [], closest: {}, human: {} }
+  second_heavy_chain:
+    - values:
+        name: emicizumab anti-FX heavy chain
+        sequence: QVQLVQSGSELKKPGASVKVSCKASGYTFTDNNMDWVRQAPGQGLEWMGDINTRSGGSIYNEEFQDRVIMTVDKSTDTAYMELSSLRSEDTATYHCARRKSYGYYLDEWGEGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQEEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNHYTQESLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 119, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: emicizumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCKASRNIERQLAWYQQKPGQAPELLIYQASRKESGVPDRFSGSRYGTDFTLTISSLQPEDIATYYCQQYSDPPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { targets: [F9] }
+expect:
+  error: "Its chains make 2 binding sites (emicizumab anti-FIXa heavy chain's VH 1 with emicizumab light chain; emicizumab anti-FX heavy chain's VH 1 with emicizumab light chain): give 2 targets, in that order, not 1."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_specificity_is_an_antibody
+description: >-
+  Two sites that bind the same target are an antibody of one specificity.
+action: assemble_multispecific
+inputs:
+  heavy_chain:
+    - values:
+        name: emicizumab anti-FIXa heavy chain
+        sequence: QVQLVESGGGLVQPGGSLRLSCAASGFTFSYYDIQWVRQAPGKGLEWVSSISPSGQSTYYRREVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARRTGREYGGGWYFDYWGQGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQKEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNRYTQKSLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 123, numbering: [], closest: {}, human: {} }
+  second_heavy_chain:
+    - values:
+        name: emicizumab anti-FX heavy chain
+        sequence: QVQLVQSGSELKKPGASVKVSCKASGYTFTDNNMDWVRQAPGQGLEWMGDINTRSGGSIYNEEFQDRVIMTVDKSTDTAYMELSSLRSEDTATYHCARRKSYGYYLDEWGEGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTISKAKGQPREPQVYTLPPSQEEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGNVFSCSVMHEALHNHYTQESLSLSP
+        variable_domains:
+          - { chain: H, start: 1, end: 119, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: emicizumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCKASRNIERQLAWYQQKPGQAPELLIYQASRKESGVPDRFSGSRYGTDFTLTISSLQPEDIATYYCQQYSDPPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { targets: [F9, F9] }
+expect:
+  error: "Its binding sites all bind F9: an antibody of one specificity is an Antibody (assemble)."

@@ -1,0 +1,289 @@
+# Run with `iki plugin test plugins/complex --with plugins/dna --with plugins/protein --with plugins/small_molecule --with plugins/antibody` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: hemoglobin_a
+description: >-
+  Human hemoglobin A (Complex Portal CPX-2158, "2xHBA1:2xHBB"): two α chains
+  (UniProt P69905 without its initiator methionine, 141 residues), two β
+  chains (P68871, 146) and a heme b on each (C34H32FeN4O4). Its α chain alone
+  is 15,126.16 u, as Rai, Landin and Green measured a normal α chain by
+  electrospray (15,126.4 Da; Waters application note, "The analysis of human
+  haemoglobin variants using mass spectrometry"), and the whole is 64.45 ku,
+  Complex Portal's 64 kD.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: hemoglobin A
+        complex_portal_id: CPX-2158
+        components:
+          - { copies: 2, role: alpha }
+          - { copies: 2, role: beta }
+          - { copies: 4, role: heme }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values:
+              {
+                name: hemoglobin subunit alpha,
+                sequence: VLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR,
+              }
+          - type: iki/protein.Protein
+            values:
+              {
+                name: hemoglobin subunit beta,
+                sequence: VHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLDNLKGTFATLSELHCDKLHVDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH,
+              }
+          - type: iki/small_molecule.Compound
+            values:
+              {
+                name: heme b,
+                smiles: "CC1=C(CCC(O)=O)C2=CC3=C(CCC(O)=O)C(C)=C4C=C5C(C)=C(C=C)C6=[N]5[Fe]7(N34)N2C1=CC1=C(C)C(C=C)=C6[N]17",
+                molecular_formula: C34H32FeN4O4,
+              }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C2954H4508Fe4N780O806S12
+            molecular_weight: 64452.3
+            monoisotopic_mass: 64412.9788
+            chain_count: 4
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: amivantamab
+description: >-
+  Amivantamab's four chains (KEGG DRUG D11894) as a protein complex, one copy
+  of each, with the 16 disulfides KEGG lists. Its parts as they are, each
+  cysteine's thiol free, are C6472H10046N1730O2023S46; with its disulfides,
+  C6472H10014N1730O2023S46, as KEGG gives it, 145,900.13 u average and
+  145,810.1054 u monoisotopic, where KEGG gives 145,900.22 and 145,810.1055:
+  its atomic weights differ from Biopython's in their last figures.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: amivantamab
+        components:
+          - { copies: 1, role: heavy }
+          - { copies: 1, role: heavy }
+          - { copies: 1, role: light }
+          - { copies: 1, role: light }
+        bonds:
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 22,
+              partner: 00000000-0000-7000-8003-000000000002,
+              partner_residue: 96,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 152,
+              partner: 00000000-0000-7000-8003-000000000002,
+              partner_residue: 208,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 228,
+              partner: 00000000-0000-7000-8003-000000000004,
+              partner_residue: 214,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 234,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 228,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 237,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 231,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 269,
+              partner: 00000000-0000-7000-8003-000000000002,
+              partner_residue: 329,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000002,
+              residue: 375,
+              partner: 00000000-0000-7000-8003-000000000002,
+              partner_residue: 433,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000003,
+              residue: 22,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 96,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000003,
+              residue: 146,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 202,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000003,
+              residue: 222,
+              partner: 00000000-0000-7000-8003-000000000005,
+              partner_residue: 214,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000003,
+              residue: 263,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 323,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000003,
+              residue: 369,
+              partner: 00000000-0000-7000-8003-000000000003,
+              partner_residue: 427,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000004,
+              residue: 23,
+              partner: 00000000-0000-7000-8003-000000000004,
+              partner_residue: 88,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000004,
+              residue: 134,
+              partner: 00000000-0000-7000-8003-000000000004,
+              partner_residue: 194,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000005,
+              residue: 23,
+              partner: 00000000-0000-7000-8003-000000000005,
+              partner_residue: 88,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000005,
+              residue: 134,
+              partner: 00000000-0000-7000-8003-000000000005,
+              partner_residue: 194,
+            }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values:
+              {
+                name: amivantamab anti-EGFR heavy chain,
+                sequence: QVQLVESGGGVVQPGRSLRLSCAASGFTFSTYGMHWVRQAPGKGLEWVAVIWDDGSYKYYGDSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCARDGITMVRGVMKDYFDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKRVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFLLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK,
+              }
+          - type: iki/protein.Protein
+            values:
+              {
+                name: amivantamab anti-MET heavy chain,
+                sequence: QVQLVQSGAEVKKPGASVKVSCETSGYTFTSYGISWVRQAPGHGLEWMGWISAYNGYTNYAQKLQGRVTMTTDTSTSTAYMELRSLRSDDTAVYYCARDLRGTNYFDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKRVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSRLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK,
+              }
+          - type: iki/protein.Protein
+            values:
+              {
+                name: amivantamab anti-EGFR light chain,
+                sequence: AIQLTQSPSSLSASVGDRVTITCRASQDISSALVWYQQKPGKAPKLLIYDASSLESGVPSRFSGSESGTDFTLTISSLQPEDFATYYCQQFNSYPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC,
+              }
+          - type: iki/protein.Protein
+            values:
+              {
+                name: amivantamab anti-MET light chain,
+                sequence: DIQMTQSPSSVSASVGDRVTITCRASQGISNWLAWFQHKPGKAPKLLIYAASSLLSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQANSFPITFGQGTRLEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC,
+              }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C6472H10046N1730O2023S46
+            molecular_weight: 145932.38
+            monoisotopic_mass: 145842.3559
+            chain_count: 4
+    messages:
+      - level: info
+        text: "With its 16 disulfides: C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u monoisotopic."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_ambiguous_residue
+description: A part with an X has no one formula, so the complex has none.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        components:
+          - { copies: 2 }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values: { name: partly read, sequence: MKXLV }
+expect:
+  error: "partly read has 'X', an ambiguous or unknown residue, which has no one formula."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: trastuzumab_fab_bound_to_her2
+description: >-
+  Trastuzumab's Fab bound to HER2's extracellular domain, as PDB 1N8Z shows
+  it (Cho et al., Nature 421:756, 2003): a complex of a complex. Its parts
+  are the Fab, an antibody whose composition was computed from its light
+  chain (1N8Z's chain A, 214 residues, 23,442.82 u) and its heavy chain's Fd
+  (chain B, 220, 23,403.96 u), and HER2's residues 1 to 607 (chain C,
+  66,919.62 u), each as Biopython weighs it; RCSB's entity weights for the
+  three are 0.1% higher (23.466, 23.425 and 66.989 kDa). Its chains are the
+  Fab's two and HER2's one.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/antibody.AntibodyAntigenComplex
+      values:
+        name: trastuzumab Fab–HER2
+        components:
+          - { copies: 1, role: antibody }
+          - { copies: 1, role: antigen }
+      included:
+        components.part:
+          - type: iki/antibody.Antibody
+            values:
+              name: trastuzumab Fab
+              format: fab
+              molecular_formula: C2074H3209N555O659S12
+              chain_count: 2
+          - type: iki/protein.Protein
+            values:
+              {
+                name: HER2 extracellular domain,
+                sequence: TQVCTGTDMKLRLPASPETHLDMLRHLYQGCQVVQGNLELTYLPTNASLSFLQDIQEVQGYVLIAHNQVRQVPLQRLRIVRGTQLFEDNYALAVLDNGDPLNNTTPVTGASPGGLRELQLRSLTEILKGGVLIQRNPQLCYQDTILWKDIFHKNNQLALTLIDTNRSRACHPCSPMCKGSRCWGESSEDCQSLTRTVCAGGCARCKGPLPTDCCHEQCAAGCTGPKHSDCLACLHFNHSGICELHCPALVTYNTDTFESMPNPEGRYTFGASCVTACPYNYLSTDVGSCTLVCPLHNQEVTAEDGTQRCEKCSKPCARVCYGLGMEHLREVRAVTSANIQEFAGCKKIFGSLAFLPESFDGDPASNTAPLQPEQLQVFETLEEITGYLYISAWPDSLPDLSVFQNLQVIRGRILHNGAYSLTLQGLGISWLGLRSLRELGSGLALIHHNTHLCFVHTVPWDQLFRNPHQALLHTANRPEDECVGEGLACHQLCARGHCWGPGPTQCVNCSQFLRGQECVEECRVLQGLPREYVNARHCLPCHPECQPQNGSVTCFGPEADQCVACAHYKDPPFCVARCPSGVKPDLSYMPIWKFPDEEGACQPCPIN,
+              }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C4980H7745N1389O1538S65
+            molecular_weight: 113766.39
+            monoisotopic_mass: 113694.238
+            chain_count: 3

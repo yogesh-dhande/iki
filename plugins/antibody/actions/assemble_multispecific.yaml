@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assemble_multispecific
+label: Assemble a multispecific antibody
+description: >-
+  Registers the IgG-like multispecific antibody its chains make: two heavy
+  chains, or one twice, each with the light chain given with it, or both with
+  one common light chain, as emicizumab's. A multispecific antibody already in
+  Iki with the same chains and copies is reused. The chains must have been
+  numbered (number_chains): each heavy chain's VH domains pair, in order, with
+  its light chain's VL domains, and a VH left over (a VHH, or an scFv's, fused
+  to the chain) is a binding site of its own; each site binds the target given
+  for it, in that order. It reads its heavy chains' subclass from their
+  constant regions, how they're made to pair from their CH3 domains (knobs
+  into holes, Fab-arm exchange or charge pairs, in EU numbering), and, for an
+  IgG1 or an IgG4, the disulfides between its chains. A format whose chains
+  pair otherwise, such as a 2+1 format's Fd or a CrossMab's, is registered with
+  its binding sites through the form, the API or a bundle.
+inputs:
+  heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
+  light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
+  second_heavy_chain:
+    type: iki/protein.Protein
+    schema: ">=2"
+    label: Second heavy chain
+    optional: true
+    description: The other heavy chain; left out, the heavy chain is twice.
+  second_light_chain:
+    type: iki/protein.Protein
+    schema: ">=2"
+    label: Second light chain
+    optional: true
+    description: >-
+      The second heavy chain's light chain; left out, both heavy chains share
+      the light chain.
+params:
+  name:
+    type: string
+    max_length: 255
+    description: Its name. Without one, it's named after its chains.
+  targets:
+    type: list
+    required: true
+    items: { type: string, max_length: 40 }
+    description: >-
+      What each binding site binds, by its gene's HGNC symbol (F9, EGFR, CD3E),
+      in order: the heavy chain's sites, from its N-terminus, then the second
+      heavy chain's.
+  isotype:
+    type: enum
+    values: [igg1, igg2, igg3, igg4]
+    description: >-
+      Its heavy chains' subclass. Left out, it's their constant regions'; given,
+      it must be that.
+effects:
+  creates:
+    - type: MultispecificAntibody
+      cardinality: one
+      derived_from: [heavy_chain, light_chain, second_heavy_chain, second_light_chain]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: antibody-tools }
+command: [python, ./scripts/complexes.py, assemble_multispecific]
+deterministic: true
+timeout: 5m

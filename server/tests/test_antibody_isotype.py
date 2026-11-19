@@ -243,7 +243,14 @@ def test_assembling_takes_the_isotype_from_the_heavy_chain(tmp_path: Path) -> No
     assert code == 0
     (made,) = output["creates"]
     assert made["values"]["isotype"] == "igg4"
-    (said,) = output["messages"]
+    said, bonds = output["messages"]
+    # An IgG4's light chains bond its heavy chains' C131 (EU), in CH1, and its heavy chains
+    # each other at C226 and C229: pembrolizumab's H134, H226 and H229 (KEGG DRUG D10574)
+    # behind trastuzumab's VH, which is as long as pembrolizumab's.
+    assert bonds["text"] == (
+        "Its chains' disulfides, as its subclass places them: H134-L214, H′134-L′214, "
+        "H226-H′226, H229-H′229."
+    )
     assert said["level"] == "info"
     assert said["text"].startswith(
         "Its isotype is igg4, from its heavy chain: heavy's constant region is IgG4's, 99.7% "
@@ -288,9 +295,12 @@ def test_a_hybrid_may_be_given_as_either_subclass_and_isnt_guessed(tmp_path: Pat
 def test_a_constant_region_no_human_reference_matches_is_unchecked(tmp_path: Path) -> None:
     code, _, output = assemble(tmp_path, UNIPROT["P01868"], isotype="igg1")  # a mouse's IgG1
     assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
-    (said,) = output["messages"]
+    said, bonds = output["messages"]
     assert said["level"] == "warning"
     assert said["text"].endswith("Its isotype, igg1, is as given, unchecked.")
+    # A human subclass's disulfides aren't placed on a mouse's chain.
+    assert "bonds" not in output["creates"][0]["values"]
+    assert bonds["text"].startswith("Its chains' disulfides aren't given: its heavy chain's")
 
 
 # --- alleles, crossovers and Fc fusions -------------------------------------------------

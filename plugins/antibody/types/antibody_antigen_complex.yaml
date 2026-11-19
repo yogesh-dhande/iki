@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A specific complex (ADR 0161) of complexes: an antibody, itself a complex of its chains,
+# and what it binds, each a part with its copies, so a Fab bound to one antigen and an IgG
+# bound to two are different complexes of the same antibody and antigen.
+apiVersion: iki/v1
+kind: EntityType
+name: AntibodyAntigenComplex
+label: Antibody–antigen complex
+label_plural: Antibody–antigen complexes
+extends: iki/core.Complex
+schema_version: 1
+description: >-
+  An antibody bound to its antigen, as a crystal or cryo-EM structure shows it,
+  such as trastuzumab's Fab bound to HER2's extracellular domain (PDB 1N8Z).
+  Its parts are the antibody, a Fab or a whole one, and its antigens, each with
+  its copies: a Fab binds one, an IgG two.
+hrid: { prefix: AAC }
+refines:
+  components:
+    roles:
+      antibody:
+        label: Antibody
+        min: 1
+        max: 1
+        to: { part: [Antibody, MultispecificAntibody] }
+      antigen:
+        label: Antigen
+        min: 1
+        max: 4
+        to: { part: [iki/protein.Protein, iki/core.Complex] }
+fields:
+  structure:
+    type: ref
+    to: iki/protein.ProteinStructure
+    description: >-
+      The structure that shows it, such as its PDB entry's, imported with the
+      protein plugin.
+  epitope:
+    type: text
+    max_length: 2000
+    description: Where on its antigen it binds, such as HER2's domain IV.
+display:
+  title: "{{ name or hrid }}"

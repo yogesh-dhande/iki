@@ -1,20 +1,35 @@
 # antibody
 
-Iki's antibody plugin: antibodies, assembled from the proteins that are their
-chains, what their variable domains say about them, and their predicted
-structures.
+Iki's antibody plugin: antibodies and the molecules made like them, assembled
+from the proteins that are their chains, what their variable domains say about
+them, and their predicted structures.
 
-- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody, by its chains.
-  - A whole IgG (`igg`), a Fab (`fab`) or an Fv (`fv`, the two variable
-    domains alone) has a heavy chain and a light chain. A single domain
-    (`vhh`, a camelid's or a nanobody) or both variable domains on one chain
-    (`scfv`) has one chain, its `heavy_chain`.
-  - Its identity is its heavy chain and its light chain, if it has one: each
-    antibody is registered once in a registry (ADR 0115), with one ID, and
-    assembling the same chains again, in any project, finds that entry. A VHH
-    and an antibody with the same heavy chain and a light chain are different
-    antibodies
-    ([ADR 0104](../../docs/adr/0104-an-identity-can-name-an-optional-field.md)).
+Each is a complex
+([ADR 0161](../../docs/adr/0161-a-complex-is-its-parts-and-their-copies.md)):
+it extends `iki/core.Complex`, so its `components` are its chains, each a
+protein with its `copies` and its `role`, and its identity is its chains and
+their copies, whatever their roles or order. Searching `iki/core.Complex` finds
+every one, beside other plugins' and a lab's own complexes; the graph finds
+every complex a chain is part of; and the complex plugin computes each one's
+formula and masses. Each type says which roles its chains take, how many and of
+what ([ADR 0164](../../docs/adr/0164-a-subtype-says-which-roles-its-rows-take.md)),
+and its `bonds`, a registry fact, are its inter-chain disulfides, each from a
+copy's cysteine to another's.
+
+- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody of one specificity,
+  by its chains: a `heavy` chain and, unless it's a VHH or an scFv, a `light`
+  chain.
+  - A whole IgG (`igg`) is two copies of each; a Fab (`fab`), an Fv (`fv`, the
+    two variable domains alone), a single domain (`vhh`, a camelid's or a
+    nanobody) or both variable domains on one chain (`scfv`) one of each.
+  - Its identity is its chains and their copies: each antibody is registered
+    once in a registry (ADR 0115), with one ID, and assembling the same chains
+    again, in any project, finds that entry. A VHH and an antibody with the
+    same heavy chain and a light chain are different antibodies, and so are a
+    whole IgG and a half-antibody of the same two chains, one copy of each.
+    The same chains and copies registered as another complex type, such as a
+    protein complex, are this antibody: that registration is refused, saying
+    so.
   - Its format and isotype are what its chains are, so they don't need to be
     in its identity: an IgG1 and an IgG4 of the same variable domains have
     different heavy chains (their constant regions differ), and an IgG and a
@@ -22,10 +37,42 @@ structures.
     alone are an Fv, which has no isotype. `assemble` checks the format and
     isotype against the chains, reading the isotype off the heavy chain's
     constant region, and the type's rules keep what the format says of its
-    chains and isotype at every save.
+    chains, their copies and its isotype at every save.
   - It keeps its format (`registry: derived`), its isotype (a registry fact:
     given once, then changed only by a registrar, so a second assembly that
     claims another is refused) and what it binds (`target`).
+
+- **`iki/antibody.MultispecificAntibody`** (`MSA-000001`): an antibody whose
+  binding sites bind two or more targets, or epitopes: a bispecific or a
+  trispecific.
+  - Its chains are two heavy chains in all (two different ones, one copy of
+    each, or one, twice), up to two copies of each of up to three light
+    chains, and up to two Fd chains (a Fab arm's heavy chain without an Fc, as
+    a 2+1 format's).
+  - Its `binding_sites`, a registry fact of two to eight, are what binds what:
+    each a heavy chain, which of its variable domains (1 for its first, 2 for
+    a second fused after it), the light chain it pairs with and its target,
+    by HGNC symbol (`F9`, `EGFR`, `CD3E`), with its epitope if two sites bind
+    one target. Which chains pair isn't its identity: a mispaired assembly of
+    the same chains is a product-related impurity of the same molecule
+    (Schaefer et al., _PNAS_ 108:11187-11192, 2011), so a registration with
+    other pairing is refused, as any differing fact is.
+  - Its rules keep its sites made of its own chains, every light chain paired
+    with a site, and more than one specificity.
+  - Its `isotype` (a fact) and `fc_pairing` (derived: `knobs_into_holes`,
+    `charge_pairs`, `fab_arm_exchange` or `none`) are its heavy chains'.
+
+- **`iki/antibody.FcFusion`** (`FCF-000001`): a protein fused to an IgG's Fc,
+  such as etanercept or aflibercept: one `fusion` chain twice, two different
+  ones, or one with a plain `fc` chain (a monovalent fusion). Its isotype (a
+  fact), how its Fc pairs (derived) and its target.
+
+- **`iki/antibody.AntibodyAntigenComplex`** (`AAC-000001`): an antibody bound
+  to its antigen, as a structure shows it: its parts are the `antibody` (an
+  antibody or a multispecific, itself a complex) and up to four `antigen`s
+  (proteins or complexes), each with its copies, and its `structure` links the
+  structure that shows it, such as trastuzumab's Fab bound to HER2 (PDB 1N8Z,
+  imported with the protein plugin), with its `epitope`.
 
 - **Proteins' numbering** (an extension of `iki/protein.Protein`): what numbering a
   chain finds, in the plugin's own table.
@@ -72,6 +119,8 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 | Action                                 | What it does                                                                 | Tier      |
 | -------------------------------------- | ---------------------------------------------------------------------------- | --------- |
 | `assemble`                             | Registers the antibody its chains make, or finds its registry entry.         | backend   |
+| `assemble_multispecific`               | Registers the multispecific its chains make: its sites, pairing and bonds.   | backend   |
+| `assemble_fc_fusion`                   | Registers the Fc fusion its chains make: its isotype, pairing and bonds.     | backend   |
 | `number_chains`                        | Numbers proteins' variable domains with ANARCI: CDRs, species and humanness. | container |
 | `find_liabilities`                     | Finds the sequence liabilities a developability screen reports in a chain.   | backend   |
 | `predict_structure_with_immunebuilder` | Predicts an antibody's structure with ImmuneBuilder, and how sure it is.     | container |
@@ -155,16 +204,84 @@ regions (S228P, LALA, YTE) by a few; subclasses differ by 20 or more over a
 whole constant region, and by 4 or more over CH1 alone, so a Fab's CH1 says its
 subclass too.
 
+`assemble` gives an IgG and a Fab its inter-chain disulfides, where its
+subclass places them in EU numbering (Edelman et al., _PNAS_ 63:78-85, 1969),
+read off how its heavy chain's constant region aligns with IGHG1\*01, which is
+EU numbering's residue for residue (Liu and May, _mAbs_ 4:17-23, 2012):
+
+| Subclass | Light chain's last cysteine to | Heavy chain to heavy chain |
+| -------- | ------------------------------ | -------------------------- |
+| IgG1     | C220, the hinge's first        | C226 and C229              |
+| IgG4     | C131, in CH1                   | C226 and C229              |
+
+IgG2's light-chain disulfides take more than one arrangement (its A, B and A/B
+isoforms), and IgG3's hinge has 11 between its heavy chains, so neither's are
+given; nor are those of `fv`, `scfv`, `vhh` and `other`. Trastuzumab's are
+KEGG DRUG's (D03257): H223-L214, H229-H′229 and H232-H′232.
+
 What can be told from the antibody's own fields is a rule of its type
 ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),
 kept at every save however it's registered: by `assemble`, through the API, a
 bulk import or a bundle. An IgG, a Fab and an Fv have a light chain, a VHH and
-an scFv none, and the two chains differ; an Fv, scFv or VHH has no isotype; an
-IgG's is one of its subclasses. Whether a chain has the constant region its
+an scFv none; an IgG has two copies of each chain, the others one; an Fv, scFv
+or VHH has no isotype; an IgG's is one of its subclasses. The two chains
+differ, as every complex's parts do: a part is given once, with its copies. Whether a chain has the constant region its
 format says is `assemble`'s check alone: it reads where the chain's variable
 domains end, its project's numbering, which a rule can't, as a reference holds
 the chain's registry entry. `assemble` names the antibody after its chains
 unless it's given a name.
+
+### Multispecifics and Fc fusions
+
+`assemble_multispecific` takes one or two heavy chains and up to two light
+chains, numbered first, and the `targets` of its binding sites, in order. Its
+sites are read off each heavy chain's variable domains, paired with a light
+chain's by their order: a heavy chain's first VH with the light chain given
+with it (`light_chain` for `heavy_chain`, `second_light_chain` for
+`second_heavy_chain`, or the one both share). A light chain both arms share
+is one part with two copies. Its isotype is its heavy chains' constant
+regions', which must be one subclass's, and their pairing is read off their CH3
+domains at EU numbers:
+
+- **knobs into holes**: T366W in one heavy chain and T366S, L368A and Y407V in
+  the other (Ridgway et al., _Protein Eng_ 9:617-621, 1996; Atwell et al.,
+  _J Mol Biol_ 270:26-35, 1997), as mosunetuzumab's;
+- **Fab-arm exchange**: F405L in one and K409R in the other, Genmab's DuoBody
+  (Labrijn et al., _PNAS_ 110:5145-5150, 2013), as amivantamab's;
+- **charge pairs**: charges swapped between them at two or more of EU 356, 357,
+  370, 392, 399, 405, 409 and 439 (Gunasekaran et al., _J Biol Chem_
+  285:19637-19646, 2010), such as emicizumab's E356K and K439E (Sampei et al.,
+  _PLoS ONE_ 8:e57479, 2013).
+
+Its disulfides are each heavy chain's to its light chain and the two heavy
+chains' to each other, as for an IgG. These match KEGG DRUG's for each, and
+its targets the review reports':
+
+| Antibody             | KEGG DRUG | Sites                                       | Pairing          | Disulfides                                  |
+| -------------------- | --------- | ------------------------------------------- | ---------------- | ------------------------------------------- |
+| Emicizumab (IgG4)    | D10821    | F9 (448-residue chain), F10 (444)           | charge pairs     | H137-L214, h133-L′214, H229-h225, H232-h228 |
+| Amivantamab (IgG1)   | D11894    | EGFR (A with C), MET (B with D)             | Fab-arm exchange | A228-C214, B222-D214, A234-B228, A237-B231  |
+| Mosunetuzumab (IgG1) | D11463    | CD3E (hole A with B), MS4A1 (knob C with E) | knobs into holes | A222-B219, C225-E213, A228-C231, A231-C234  |
+
+Emicizumab's arms are Japan's PMDA's (review report, Hemlibra, 2018): its
+448-residue heavy chain binds factor IXa and its 444-residue one factor X.
+Amivantamab's EGFR arm is zalutumumab's, 100% identical in its variable domains
+(KEGG D10031). Mosunetuzumab's CD20 arm is its knob (US 11,958,906).
+
+Formats it can't assemble, because their chains aren't one heavy chain's VH
+with its own light chain, are registered through the form, the API or a
+bundle, with their sites given, and the type's rules check them: a 2+1 format's
+Fd chain, a CrossMab's crossed domains, a CODV or a trispecific with a light
+chain fused to a heavy one, such as tilrekimig (KEGG D12962; IL4, IL13 and
+TSLP).
+
+`assemble_fc_fusion` takes a fusion chain and, optionally, a second: another
+fusion, or a plain Fc, whose hinge starts within its first 25 residues. Its
+isotype is its Fc's, compared whole. Without a light chain, an IgG1 hinge's
+first cysteine (EU C220) bonds the other chain's: etanercept (KEGG D00742) has
+three inter-chain disulfides, C240, C246 and C249 to their twins, as Lamanna et
+al. found (_Sci Rep_ 7:3951, 2017), and aflibercept (D09574), fused after that
+cysteine, two, C211 and C214, as KEGG lists them.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image
@@ -332,6 +449,13 @@ the OpenCL platform its wheel carries, which these runs don't use, LGPL-3.0.
 ```console
 iki plugin test plugins/antibody --with plugins/dna --with plugins/protein
 ```
+
+`tests/assemble_multispecific.yaml` assembles emicizumab, amivantamab and
+mosunetuzumab from KEGG DRUG's chains, and `tests/assemble_fc_fusion.yaml`
+etanercept and aflibercept, each checked against KEGG's disulfides. The dev
+cluster's end-to-end check assembles emicizumab and etanercept, waits for the
+complex plugin to compute their compositions, and finds both by searching
+`iki/core.Complex`.
 
 `server/tests/test_antibody_numbering.py` runs `number_chains`' script with a
 stand-in ANARCI that answers what the real one said in the image

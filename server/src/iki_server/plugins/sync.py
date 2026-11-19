@@ -295,6 +295,14 @@ def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]
                 f"Registry entries of {t.label} ({t.qualified_name}): their identity and "
                 "the values every project holding one shares (ADR 0115).",
             )
+        elif registry.identity_owner(t) is not None:
+            yield (
+                t.plugin,
+                _entry_model(t.plugin, t.name),
+                entry,
+                f"Registry entries of {t.label} ({t.qualified_name}): the registry fields "
+                "it adds to its parent's (ADR 0165).",
+            )
     for e in registry.extensions():
         record, entry = split_entry(e.fields)
         described = f"Fields the {e.plugin} plugin adds to {e.extends_type}."

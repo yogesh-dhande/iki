@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 import constant_regions
+import interchain
 
 #: Formats with a heavy and a light chain.
 PAIRED = {"igg": "A whole antibody (IgG)", "fab": "A Fab", "fv": "An Fv"}
@@ -261,13 +262,30 @@ def assembled(
     name = params.get("name") or (
         f"{_label(heavy)} / {_label(light)}" if light is not None else _label(heavy)
     )
+    copies = _copies(form, params, region)
+    components = [{"part": heavy["id"], "copies": copies, "role": "heavy"}]
+    if light is not None:
+        components.append({"part": light["id"], "copies": copies, "role": "light"})
+    # A subclass places its disulfides only where the chain's constant region was read as
+    # that one subclass's: not a hybrid's, nor one no human reference matches.
+    read = region is not None and len(region[0].isotypes) == 1
+    bonds, said = _bonds(form, heavy, light, isotype if read else None, copies)
+    if isotype and not read and form in ("igg", "fab"):
+        said = [
+            {
+                "level": "info",
+                "text": "Its chains' disulfides aren't given: its heavy chain's constant region "
+                "isn't one human subclass's, so give them yourself if they're known.",
+            }
+        ]
+    messages += said
     values: dict[str, Any] = {
-        "heavy_chain": heavy["id"],
+        "components": components,
         "name": name[:MAX_NAME],
         "format": form,
     }
-    if light is not None:
-        values["light_chain"] = light["id"]
+    if bonds:
+        values["bonds"] = bonds
     if isotype:
         values["isotype"] = isotype
     if params.get("target"):
@@ -275,6 +293,88 @@ def assembled(
     derived = [heavy["id"], *([light["id"]] if light is not None else [])]
     create = {"type": "iki/antibody.Antibody", "values": values, "derived_from": derived}
     return {"creates": [create], "messages": messages}
+
+
+def _copies(
+    form: str, params: dict[str, Any], region: tuple[constant_regions.Call, bool] | None
+) -> int:
+    """How many copies of each chain: an IgG's two, a Fab's, Fv's, scFv's and VHH's one;
+    for another format, as given, or two for a chain with an Fc (CH2 and CH3, which pair),
+    one without. Raises :class:`RefusedError` for copies its format can't have."""
+    given = params.get("copies")
+    fixed = {"igg": 2, "fab": 1, "fv": 1, "scfv": 1, "vhh": 1}.get(form)
+    if fixed is not None:
+        if given is not None and given != fixed:
+            raise RefusedError(
+                f"{_noun(form)[0].upper()}{_noun(form)[1:]} has {fixed} cop"
+                f"{'y' if fixed == 1 else 'ies'} of each chain, not {given}: for another "
+                "number, choose other."
+            )
+        return fixed
+    if given is not None:
+        return int(given)
+    found = region[0] if region is not None else None
+    fc = found is not None and bool(found.isotypes) and any(found.has(d) for d in FC)
+    return 2 if fc else 1
+
+
+def _bonds(
+    form: str,
+    heavy: dict[str, Any],
+    light: dict[str, Any] | None,
+    isotype: str | None,
+    copies: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """The disulfides between its chains (interchain.py), as an IgG's subclass places them:
+    each light chain to its heavy chain, and, with two heavy chains, those to each other.
+    None for a format without a constant region, for `other`, whose chains may be joined
+    any way (an Fc fusion's are assemble_fc_fusion's), and for a subclass whose aren't
+    known."""
+    if form not in ("igg", "fab"):
+        return [], []
+    sequence = heavy["values"]["sequence"].removesuffix("*").upper()
+    domains = _domains(heavy) or []
+    offset = max((int(d["end"]) for d in domains), default=0)
+    found = interchain.heavy_cysteines(sequence, offset, isotype)
+    if found is None:
+        if isotype is None:
+            return [], []
+        return [], [
+            {
+                "level": "info",
+                "text": "Its chains' disulfides aren't given: an "
+                f"{constant_regions.NAMES[isotype]}'s take more than one arrangement, or more "
+                "than an IgG1's or IgG4's, so give them yourself if they're known.",
+            }
+        ]
+    to_light, to_heavy = found
+    bonds: list[interchain.Bond] = []
+    if light is not None and to_light is not None:
+        partner = interchain.last_cysteine(light["values"]["sequence"].removesuffix("*").upper())
+        if partner is not None:
+            bonds += [
+                interchain.Bond(heavy["id"], n, to_light, light["id"], n, partner)
+                for n in range(1, copies + 1)
+            ]
+    if copies == 2:
+        bonds += [interchain.Bond(heavy["id"], 1, c, heavy["id"], 2, c) for c in to_heavy]
+    if not bonds:
+        return [], []
+    listed = ", ".join(_bond_text(b, heavy, light) for b in bonds)
+    return [b.row() for b in bonds], [
+        {"level": "info", "text": f"Its chains' disulfides, as its subclass places them: {listed}."}
+    ]
+
+
+def _bond_text(bond: interchain.Bond, heavy: dict[str, Any], light: dict[str, Any] | None) -> str:
+    def end(part: str, copy: int, residue: int) -> str:
+        letter = "H" if part == heavy["id"] else "L"
+        return f"{letter}{chr(0x2032) * (copy - 1)}{residue}"
+
+    return (
+        f"{end(bond.part, bond.copy, bond.residue)}-"
+        f"{end(bond.partner, bond.partner_copy, bond.partner_residue)}"
+    )
 
 
 def _isotype(

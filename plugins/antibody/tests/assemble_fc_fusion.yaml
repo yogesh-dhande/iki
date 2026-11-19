@@ -1,0 +1,163 @@
+# Run with `iki plugin test plugins/antibody --with plugins/dna --with plugins/protein` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: etanercept
+description: >-
+  Etanercept (KEGG DRUG D00742): TNFR2's extracellular domain (residues 1 to
+  235) on IgG1's hinge, CH2 and CH3, twice. Without a light chain, its hinge's
+  first cysteine (C240, EU C220) bonds the other chain's too, so it has three
+  inter-chain disulfides, as Lamanna et al. (Sci Rep 7:3951, 2017) found:
+  C240, C246 and C249 to their twins.
+action: assemble_fc_fusion
+inputs:
+  fusion_chain:
+    - values:
+        name: etanercept
+        sequence: LPAQVAFTPYAPEPGSTCRLREYYDQTAQMCCSKCSPGQHAKVFCTKTSDTVCDSCEDSTYTQLWNWVPECLSCGSRCSSDQVETQACTREQNRICTCRPGWYCALSKQEGCRLCAPLRKCRPGFGVARPGTETSDVVCKPCAPGTFSNTTSSTDICRPHQICNVVAIPGNASMDAVCTSTSPTRSMAPGAVHLPQPVSTRSQHTQPTPEPSTAPSTSFLLPMGPSPPAEGSTGDEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK
+params: { target: TNF }
+expect:
+  output:
+    creates:
+      - type: iki/antibody.FcFusion
+        values:
+          name: etanercept
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: fusion }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 240,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 240,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 246,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 246,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 249,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 249,
+              }
+          isotype: igg1
+          fc_pairing: none
+          target: TNF
+        derived_from: [00000000-0000-7000-8003-000000000001]
+    messages:
+      - level: info
+        text: "Its isotype is igg1, from its Fc: etanercept, compared whole, is IgG1's, 99.1% identical to IMGT's IGHG1*01 (J00228) over 232 residues; the next nearest, IgG2's, is 92.2%."
+      - level: info
+        text: "Its chains' disulfides, as its subclass places them: A240-A′240, A246-A′246, A249-A′249."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: aflibercept
+description: >-
+  Aflibercept (KEGG DRUG D09574): VEGFR1's second immunoglobulin domain and
+  VEGFR2's third on IgG1's Fc from its hinge's DKTHT, after the cysteine that
+  bonds a light chain, twice. So its chains are joined at C211 and C214, as
+  KEGG lists them (211-211', 214-214').
+action: assemble_fc_fusion
+inputs:
+  fusion_chain:
+    - values:
+        name: aflibercept
+        sequence: SDTGRPFVEMYSEIPEIIHMTEGRELVIPCRVTSPNITVTLKKFPLDTLIPDGKRIIWDSRKGFIISNATYKEIGLLTCEATVNGHLYKTNYLTHRQTNTIIDVVLSPSHGIELSVGEKLVLNCTARTELNVGIDFNWEYPSSKHQHKKLVNRDLKTQSGSEMKKFLSTLTIDGVTRSDQGLYTCAASSGLMTKKNSTFVRVHEKDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSRDELTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+params: { target: VEGFA }
+expect:
+  output:
+    creates:
+      - values:
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: fusion }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 211,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 211,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 214,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 214,
+              }
+          isotype: igg1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_monovalent_fusion
+description: >-
+  Aflibercept's chain paired with a plain Fc, its own from DKTHT on: a
+  monovalent fusion, as efmoroctocog alfa (factor VIII on one chain, a plain Fc
+  on the other) is. Their CH3 domains aren't made to pair with each other, so
+  the run says they make a mixture.
+action: assemble_fc_fusion
+inputs:
+  fusion_chain:
+    - values:
+        name: aflibercept
+        sequence: SDTGRPFVEMYSEIPEIIHMTEGRELVIPCRVTSPNITVTLKKFPLDTLIPDGKRIIWDSRKGFIISNATYKEIGLLTCEATVNGHLYKTNYLTHRQTNTIIDVVLSPSHGIELSVGEKLVLNCTARTELNVGIDFNWEYPSSKHQHKKLVNRDLKTQSGSEMKKFLSTLTIDGVTRSDQGLYTCAASSGLMTKKNSTFVRVHEKDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSRDELTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+  second_chain:
+    - values:
+        name: IgG1 Fc
+        sequence: DKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSRDELTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+expect:
+  output:
+    creates:
+      - values:
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: fusion }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: fc }
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 211,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 6,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 214,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 9,
+              }
+          isotype: igg1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_fc_alone_isnt_a_fusion
+description: An Fc alone isn't fused to anything.
+action: assemble_fc_fusion
+inputs:
+  fusion_chain:
+    - values:
+        name: IgG1 Fc
+        sequence: DKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSRDELTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+expect:
+  error: "IgG1 Fc is an Fc alone: an Fc fusion's first chain is a protein fused to one."

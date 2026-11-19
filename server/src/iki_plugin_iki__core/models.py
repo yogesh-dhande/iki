@@ -281,6 +281,257 @@ class Collection_members(models.Model):
         ]
 
 
+class Complex(Entity):
+    """Complex (iki/core.Complex), schema version 1. Molecules held together as one: an antibody's chains, a bispecific antibody's, an Fc fusion's, an antibody bound to its antigen, or any other complex. It's its parts and how many copies of each, whatever their order, so one set of parts is one registry entry, whichever type of complex registered it."""
+
+    IKI_TYPE = 'iki/core.Complex'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=255, null=True, db_index=True)
+    description = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'iki__core_complex'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='iki__core_complex__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='iki__core_complex__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='iki__core_complex__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='iki__core_complex__description__max_length',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_7936eb2ad9f1941f6b25',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_1d54ab87528df50',
+            ),
+        ]
+
+
+class Complex_History(models.Model):
+    """The history of iki__core_complex: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Complex'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'iki__core_complex__history'
+
+
+class Complex_Entry(Entity):
+    """Registry entries of Complex (iki/core.Complex), ADR 0115."""
+
+    IKI_TYPE = 'iki/core.Complex'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    molecular_formula = models.CharField(max_length=255, null=True)
+    molecular_weight = QuantityField(unit='u', null=True, db_index=True)
+    monoisotopic_mass = QuantityField(unit='u', null=True)
+    chain_count = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'iki__core_complex__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('molecular_formula'), 1),
+                name='iki__core_complex__entry__molecular_formula__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(molecular_formula__regex='[\\r\\n]'),
+                name='iki__core_complex__entry__molecular_formula__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(molecular_formula__regex='^(?:^([A-Z][a-z]?[0-9]*)+$)$'),
+                name='iki__core_complex__entry__molecular_formula__pattern',
+            ),
+            models.CheckConstraint(
+                condition=Q(molecular_weight__gt=float('-inf'), molecular_weight__lt=float('inf')),
+                name='iki__core_complex__entry__molecular_weight__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(molecular_weight__gte=0),
+                name='iki__core_complex__entry__molecular_weight__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    monoisotopic_mass__gt=float('-inf'),
+                    monoisotopic_mass__lt=float('inf'),
+                ),
+                name='iki__core_complex__entry__monoisotopic_mass__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(monoisotopic_mass__gte=0),
+                name='iki__core_complex__entry__monoisotopic_mass__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(chain_count__gte=0),
+                name='iki__core_complex__entry__chain_count__min',
+            ),
+        ]
+
+
+class Complex_Entry_History(models.Model):
+    """The history of iki__core_complex__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Complex_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    components = models.JSONField(null=True)
+    bonds = models.JSONField(null=True)
+    molecular_formula = models.TextField(null=True)
+    molecular_weight = QuantityField(unit='u', null=True)
+    monoisotopic_mass = QuantityField(unit='u', null=True)
+    chain_count = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'iki__core_complex__entry__history'
+
+
+class Complex_Entry_components(models.Model):
+    """The items of iki/core.Complex.components, in order."""
+
+    IKI_LIST_OF = ('Complex_Entry', 'components')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'Complex_Entry',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    part = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    copies = models.BigIntegerField(db_default=1)
+    role = models.CharField(max_length=40, db_default='part')
+
+    class Meta:
+        db_table = 'iki__core_complex__entry__components'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(copies__gte=1),
+                name='iki__core_complex__entry__components__copies__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(copies__lte=10000),
+                name='iki__core_complex__entry__components__copies__max',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('role'), 1),
+                name='iki__core_complex__entry__components__role__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(role__regex='[\\r\\n]'),
+                name='iki__core_complex__entry__components__role__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(role__regex='^(?:^[a-z][a-z0-9]*(_[a-z0-9]+)*$)$'),
+                name='iki__core_complex__entry__components__role__pattern',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=100),
+                name='iki__core_complex__entry__components__position__max_items',
+            ),
+        ]
+
+
+class Complex_Entry_bonds(models.Model):
+    """The items of iki/core.Complex.bonds, in order."""
+
+    IKI_LIST_OF = ('Complex_Entry', 'bonds')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'Complex_Entry',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    kind = models.TextField(db_default='disulfide')
+    part = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    copy = models.BigIntegerField(db_default=1)
+    residue = models.BigIntegerField()
+    partner = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    partner_copy = models.BigIntegerField(db_default=1)
+    partner_residue = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'iki__core_complex__entry__bonds'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(kind__in=['disulfide', 'isopeptide', 'thioether', 'other']),
+                name='iki__core_complex__entry__bonds__kind__values',
+            ),
+            models.CheckConstraint(
+                condition=Q(copy__gte=1),
+                name='iki__core_complex__entry__bonds__copy__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(copy__lte=10000),
+                name='iki__core_complex__entry__bonds__copy__max',
+            ),
+            models.CheckConstraint(
+                condition=Q(residue__gte=1),
+                name='iki__core_complex__entry__bonds__residue__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(partner_copy__gte=1),
+                name='iki__core_complex__entry__bonds__partner_copy__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(partner_copy__lte=10000),
+                name='iki__core_complex__entry__bonds__partner_copy__max',
+            ),
+            models.CheckConstraint(
+                condition=Q(partner_residue__gte=1),
+                name='iki__core_complex__entry__bonds__partner_residue__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=1000),
+                name='iki__core_complex__entry__bonds__position__max_items',
+            ),
+        ]
+
+
 class Organism(Entity):
     """Organism (iki/core.Organism), schema version 2. A taxon, such as a species or a strain, by its NCBI Taxonomy ID: what a sequence, a strain or a sample is from."""
 

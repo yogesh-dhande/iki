@@ -1,0 +1,176 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A specific complex (ADR 0161): its parts are its heavy and light chains, and its binding
+# sites say which heavy chain pairs with which light chain and what each binds. The parts
+# and their copies are its identity, as every complex's are: how they pair is what those
+# chains are made to do, so it's its registry entry's, a fact given with it.
+apiVersion: iki/v1
+kind: EntityType
+name: MultispecificAntibody
+label: Multispecific antibody
+label_plural: Multispecific antibodies
+extends: iki/core.Complex
+schema_version: 1
+description: >-
+  An IgG-like antibody whose binding sites bind two or more targets, or two
+  epitopes of one: a bispecific, such as emicizumab (two heavy chains sharing
+  one light chain), amivantamab (two heavy chains, each with its own light
+  chain) or a knobs-into-holes design, or a trispecific. Its parts are its heavy
+  chains, two copies in all, which pair at their Fc, and its light chains. Its
+  binding sites say which heavy chain pairs with which light chain, and what
+  each binds. A trispecific, such as tilrekimig (IL-4, IL-13 and TSLP), has
+  three.
+hrid: { prefix: MSA }
+# Two heavy chains in all, one protein twice or two, which pair at their Fc (ADR 0164); up
+# to three light chains: one shared by both arms, one per arm, or three for a 2+1 format;
+# and an Fd, a heavy chain's VH and CH1 alone, for a Fab whose light chain is fused to
+# another chain, as in tilrekimig's.
+refines:
+  components:
+    roles:
+      heavy:
+        label: Heavy chain
+        min: 1
+        max: 2
+        to: { part: iki/protein.Protein }
+      light:
+        label: Light chain
+        max: 3
+        to: { part: iki/protein.Protein }
+      fd:
+        label: Fd chain
+        max: 2
+        to: { part: iki/protein.Protein }
+fields:
+  binding_sites:
+    type: list
+    registry: fact
+    label: Binding sites
+    min_items: 2
+    max_items: 8
+    description: >-
+      Each of its binding sites: the heavy chain and light chain whose variable
+      domains make it, and what it binds. An arm with two sites, as a
+      cross-over dual variable (CODV) arm has, is two, told apart by which of
+      the heavy chain's variable domains each is. A registry fact: given once,
+      then changed only by its registrars.
+    items:
+      type: row
+      fields:
+        heavy:
+          type: ref
+          to: iki/protein.Protein
+          required: true
+          label: Heavy chain
+          description: >-
+            The chain with its heavy variable domain (VH): a heavy chain, an Fd,
+            or a chain with a VHH or an scFv.
+        light:
+          type: ref
+          to: iki/protein.Protein
+          label: Light chain
+          description: >-
+            The chain with its light variable domain (VL), which may be a heavy
+            chain too, with a light chain fused to it. None for a single domain
+            (a VHH), or an scFv, whose two are on one chain.
+        domain:
+          type: int
+          min: 1
+          max: 4
+          default: 1
+          required: true
+          label: Variable domain
+          description: >-
+            Which of its heavy chain's heavy variable domains (VH) it is, from
+            its N-terminus: 1 but for a chain with more than one, such as a
+            DVD-Ig's, a CODV's, or a heavy chain with an scFv fused to it.
+        target:
+          type: string
+          pattern: "^[A-Z0-9][A-Za-z0-9]*(-[A-Za-z0-9]+)*$"
+          max_length: 40
+          required: true
+          label: Target
+          description: >-
+            What it binds, by its gene's HGNC symbol, such as F9 (factor IXa),
+            EGFR, MET, MS4A1 (CD20) or CD3E.
+        epitope:
+          type: string
+          pattern: "^[A-Za-z0-9][A-Za-z0-9 ._/+-]*$"
+          max_length: 60
+          label: Epitope
+          description: >-
+            Where on its target it binds, such as ECD4, for two sites that bind
+            one target in different places (a biparatopic antibody).
+  isotype:
+    type: enum
+    registry: fact
+    values: [igg1, igg2, igg3, igg4]
+    indexed: true
+    description: Its heavy chains' constant regions' subclass.
+  fc_pairing:
+    type: enum
+    registry: derived
+    label: Fc pairing
+    values: [knobs_into_holes, charge_pairs, fab_arm_exchange, none]
+    indexed: true
+    description: >-
+      How its two heavy chains are made to pair with each other rather than
+      with themselves, as their CH3 domains' mutations say (EU numbering):
+      knobs into holes (T366W in one, T366S, L368A and Y407V in the other),
+      charge pairs (such as E356K and K439E, as emicizumab's), Fab-arm exchange
+      (F405L in one and K409R in the other, Genmab's DuoBody, as
+      amivantamab's), or none, for one heavy chain twice.
+rules:
+  two_heavy_chains:
+    label: Two heavy chains in all
+    description: An IgG-like antibody's Fc is two heavy chains, one protein twice or two.
+    check: >-
+      record.components.filter(c, c.role == "heavy").size() == 1
+      ? record.components.all(c, c.role != "heavy" || c.copies == 2)
+      : record.components.all(c, c.role != "heavy" || c.copies == 1)
+    message: >-
+      It has two heavy chains in all: one protein with copies 2, or two proteins
+      with copies 1 each.
+    fields: [components]
+  light_chains_at_most_two_of_each:
+    label: At most two copies of a light chain
+    check: record.components.all(c, c.role != "light" || c.copies <= 2)
+    message: A light chain pairs with one heavy chain per arm, so it has at most two copies.
+    fields: [components]
+  sites_are_made_of_its_chains:
+    label: Its binding sites are made of its chains
+    check: >-
+      record.binding_sites.all(s,
+        record.components.exists(c, c.part == s.heavy)
+        && (s.light == null || record.components.exists(c, c.part == s.light)))
+    message: Each binding site's chains are among its parts.
+    fields: [binding_sites]
+  every_light_chain_pairs:
+    label: Every light chain and Fd is in a binding site
+    check: >-
+      record.components.all(c, c.role == "heavy"
+        || record.binding_sites.exists(s, s.light == c.part || s.heavy == c.part))
+    message: >-
+      Each of its light chains and Fd chains pairs in one of its binding sites:
+      give the sites they make.
+    fields: [binding_sites]
+  fd_chains_once:
+    label: An Fd has one copy per site
+    check: record.components.all(c, c.role != "fd" || c.copies <= 2)
+    message: An Fd pairs with one light chain per arm, so it has at most two copies.
+    fields: [components]
+  more_than_one_specificity:
+    label: It binds more than one thing
+    description: >-
+      A multispecific antibody's sites bind different targets, or different
+      epitopes of one; an antibody of one specificity is an Antibody.
+    check: >-
+      record.binding_sites.exists(s, record.binding_sites.exists(t,
+        s.target != t.target || s.epitope != t.epitope))
+    when: record.binding_sites.size() > 0
+    message: >-
+      Its binding sites all bind {{ record.binding_sites[0].target }} in the same
+      place: an antibody of one specificity is an Antibody.
+    fields: [binding_sites]
+display:
+  title: "{{ name or hrid }}"

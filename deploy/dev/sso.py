@@ -2037,6 +2037,53 @@ TRASTUZUMAB_VL = (
     "DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYY"
     "CQQHYTTPPTFGQGTKVEIK"
 )
+
+
+#: Emicizumab's chains (KEGG DRUG D10821), an IgG4 bispecific against factors IXa and X:
+#: two heavy chains, made to pair by charge pairs (E356K, K439E), sharing one kappa light
+#: chain (Sampei et al., PLoS ONE 8:e57479, 2013).
+EMICIZUMAB = {
+    "heavy_chain": (
+        "Emicizumab anti-FIXa heavy chain",
+        "QVQLVESGGGLVQPGGSLRLSCAASGFTFSYYDIQWVRQAPGKGLEWVSSISPSGQSTYYRREVKGRFTISRDNSKNTLYLQMN"
+        "SLRAEDTAVYYCARRTGREYGGGWYFDYWGQGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGA"
+        "LTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKD"
+        "TLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIE"
+        "KTISKAKGQPREPQVYTLPPSQKEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRW"
+        "QEGNVFSCSVMHEALHNRYTQKSLSLSP",
+    ),
+    "second_heavy_chain": (
+        "Emicizumab anti-FX heavy chain",
+        "QVQLVQSGSELKKPGASVKVSCKASGYTFTDNNMDWVRQAPGQGLEWMGDINTRSGGSIYNEEFQDRVIMTVDKSTDTAYMELS"
+        "SLRSEDTATYHCARRKSYGYYLDEWGEGTLVTVSSASTKGPSVFPLAPCSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSG"
+        "VHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYTCNVDHKPSNTKVDKRVESKYGPPCPPCPAPEFLGGPSVFLFPPKPKDTLMI"
+        "SRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKGLPSSIEKTIS"
+        "KAKGQPREPQVYTLPPSQEEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQEGN"
+        "VFSCSVMHEALHNHYTQESLSLSP",
+    ),
+    "light_chain": (
+        "Emicizumab light chain",
+        "DIQMTQSPSSLSASVGDRVTITCKASRNIERQLAWYQQKPGQAPELLIYQASRKESGVPDRFSGSRYGTDFTLTISSLQPEDIA"
+        "TYYCQQYSDPPLTFGGGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDS"
+        "KDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC",
+    ),
+}
+#: Etanercept's chain (KEGG DRUG D00742): TNFR2's extracellular domain on IgG1's hinge,
+#: CH2 and CH3, which is two copies of it.
+ETANERCEPT = (
+    "LPAQVAFTPYAPEPGSTCRLREYYDQTAQMCCSKCSPGQHAKVFCTKTSDTVCDSCEDSTYTQLWNWVPECLSCGSRCSSDQVE"
+    "TQACTREQNRICTCRPGWYCALSKQEGCRLCAPLRKCRPGFGVARPGTETSDVVCKPCAPGTFSNTTSSTDICRPHQICNVVAI"
+    "PGNASMDAVCTSTSPTRSMAPGAVHLPQPVSTRSQHTQPTPEPSTAPSTSFLLPMGPSPPAEGSTGDEPKSCDKTHTCPPCPAP"
+    "ELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNG"
+    "KEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDS"
+    "DGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK"
+)
+#: Emicizumab and etanercept as the complex plugin computes them from their chains (each
+#: cysteine's thiol free): formula, average and monoisotopic masses, chain count.
+COMPOSITIONS = {
+    "iki/antibody.MultispecificAntibody": ("C6434H9972N1724O2047S45", 145669.27, 145579.6642, 4),
+    "iki/antibody.FcFusion": ("C4448H6944N1236O1402S72", 102474.85, 102408.9959, 2),
+}
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
@@ -2308,11 +2355,12 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
         fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
     antibody = record(alice, effects[0]["entity"])["values"]
-    if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["format"]) != (
-        entry_of(heavy),
-        entry_of(light),
-        "fv",
-    ):
+    # Its chains are its parts, one copy of each for an Fv (ADR 0161).
+    wanted = [
+        {"part": entry_of(heavy), "copies": 1, "role": "heavy"},
+        {"part": entry_of(light), "copies": 1, "role": "light"},
+    ]
+    if (antibody["components"], antibody["format"], antibody.get("bonds")) != (wanted, "fv", []):
         fail(f"{effects[0]['hrid']} is {antibody}")
     ok(
         f"iki/antibody.assemble made {effects[0]['hrid']} of {heavy['hrid']} and {light['hrid']} "
@@ -2320,6 +2368,154 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
+    complexes(alice, project, effects[0])
+
+
+def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
+    """Complexes (ADR 0161): emicizumab assembled from its numbered chains as a
+    multispecific antibody, its two binding sites, pairing and disulfides read off them, and
+    etanercept as an Fc fusion; each one's composition computed by the complex plugin's
+    trigger; both found by searching iki/core.Complex; and the Fv's chains, registered again
+    as a protein complex, found to be the antibody already."""
+    chains: dict[str, dict[str, Any]] = {}
+    for field, (name, sequence) in EMICIZUMAB.items():
+        chains[field] = registered(alice, project, name, sequence)
+        # Its arms are read off where each chain's variable domains are.
+        launch(alice, project, "iki/antibody.number_chains", {"protein": chains[field]["id"]})
+    run = launch(
+        alice,
+        project,
+        "iki/antibody.assemble_multispecific",
+        {field: chain["id"] for field, chain in chains.items()},
+        {"name": "Emicizumab", "targets": ["F9", "F10"]},
+    )
+    effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
+    if [e["type"] for e in effects] != ["iki/antibody.MultispecificAntibody"]:
+        fail(f"{run['hrid']} made {effects}, not one iki/antibody.MultispecificAntibody")
+    emicizumab = record(alice, effects[0]["entity"])
+    got = emicizumab["values"]
+    a, b, light = (entry_of(chains[f]) for f in EMICIZUMAB)
+    sites = [(s["heavy"], s["light"], s["target"]) for s in got.get("binding_sites") or []]
+    bonds = [
+        (bond["part"], bond["copy"], bond["residue"], bond["partner_copy"], bond["partner_residue"])
+        for bond in got.get("bonds") or []
+    ]
+    if (
+        sorted((c["part"], c["copies"], c["role"]) for c in got["components"])
+        != sorted([(a, 1, "heavy"), (b, 1, "heavy"), (light, 2, "light")])
+        or sites != [(a, light, "F9"), (b, light, "F10")]
+        or (got.get("isotype"), got.get("fc_pairing")) != ("igg4", "charge_pairs")
+        # KEGG DRUG's: H137-L214, h133-L'214, H229-h225, H232-h228.
+        or bonds
+        != [(a, 1, 137, 1, 214), (b, 1, 133, 2, 214), (a, 1, 229, 1, 225), (a, 1, 232, 1, 228)]
+    ):
+        fail(f"{run['hrid']} made {emicizumab['hrid']} as {got}")
+    ok(
+        f"iki/antibody.assemble_multispecific made {emicizumab['hrid']} ({run['hrid']}): "
+        "anti-FIXa and anti-FX arms sharing a light chain, charge pairs, IgG4, KEGG's disulfides"
+    )
+    run = launch(
+        alice,
+        project,
+        "iki/antibody.assemble_fc_fusion",
+        {"fusion_chain": registered(alice, project, "Etanercept", ETANERCEPT)["id"]},
+        {"target": "TNF"},
+    )
+    effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
+    if [e["type"] for e in effects] != ["iki/antibody.FcFusion"]:
+        fail(f"{run['hrid']} made {effects}, not one iki/antibody.FcFusion")
+    etanercept = record(alice, effects[0]["entity"])
+    got = etanercept["values"]
+    hinge = [(bond["residue"], bond["partner_residue"]) for bond in got.get("bonds") or []]
+    if (
+        [c["copies"] for c in got["components"]] != [2]
+        or (got.get("isotype"), got.get("fc_pairing")) != ("igg1", "none")
+        or hinge != [(240, 240), (246, 246), (249, 249)]
+    ):
+        fail(f"{run['hrid']} made {etanercept['hrid']} as {got}")
+    ok(
+        f"iki/antibody.assemble_fc_fusion made {etanercept['hrid']} ({run['hrid']}): two "
+        "copies, IgG1, joined at C240, C246 and C249"
+    )
+    for made in (emicizumab, etanercept):
+        composed(alice, made)
+    found = api_call(
+        alice,
+        "POST",
+        "/entities/search",
+        {"type": "iki/core.Complex", "project": project["id"], "limit": 100},
+    )
+    if found.status_code != 200:
+        fail(f"searching complexes answered HTTP {found.status_code}: {found.text[:300]}")
+    hrids = {item["hrid"] for item in found.json()["items"]}
+    if not {fv["hrid"], emicizumab["hrid"], etanercept["hrid"]} <= hrids:
+        fail(f"searching iki/core.Complex found {sorted(hrids)}")
+    ok(
+        f"searching iki/core.Complex found {fv['hrid']}, {emicizumab['hrid']} and "
+        f"{etanercept['hrid']}, each its own type"
+    )
+    # The Fv's parts and copies, as a protein complex: one molecule is one entry.
+    antibody = record(alice, fv["entity"])["values"]
+    again = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/complex.ProteinComplex",
+            "project": project["id"],
+            "values": {"name": "Trastuzumab Fv", "components": antibody["components"]},
+        },
+    )
+    problems = [] if again.status_code != 422 else again.json().get("errors") or []
+    if not any("registered already, as a iki/antibody.Antibody" in p["detail"] for p in problems):
+        fail(
+            f"the Fv's chains as a protein complex answered {again.status_code}: {again.text[:300]}"
+        )
+    ok(f"the Fv's chains as a protein complex are {fv['hrid']}, registered already as an antibody")
+
+
+def registered(
+    alice: requests.Session, project: dict[str, Any], name: str, sequence: str
+) -> dict[str, Any]:
+    """A protein of this sequence in the project: registered, or its entry found again."""
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/protein.Protein",
+            "project": project["id"],
+            "values": {"name": name, "sequence": sequence},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering {name} answered HTTP {made.status_code}: {made.text[:300]}")
+    found: dict[str, Any] = made.json()
+    return found
+
+
+def composed(alice: requests.Session, made: dict[str, Any]) -> None:
+    """A complex's composition, which iki/complex.compute_composition's trigger computes
+    when it's registered (ADR 0161)."""
+    formula, weight, monoisotopic, chains = COMPOSITIONS[made["type"]]
+    deadline = time.monotonic() + 180
+    got: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        got = record(alice, made["id"])["values"]
+        if got.get("molecular_formula"):
+            break
+        time.sleep(2)
+    if (
+        got.get("molecular_formula"),
+        got.get("molecular_weight"),
+        got.get("monoisotopic_mass"),
+        got.get("chain_count"),
+    ) != (formula, weight, monoisotopic, chains):
+        fail(f"{made['hrid']}'s composition is {got}, not {formula}, {weight} u, {chains} chains")
+    ok(
+        f"iki/complex.compute_composition's trigger computed {made['hrid']}: {formula}, "
+        f"{weight:,} u average, {monoisotopic:,} u monoisotopic, {chains} chains"
+    )
 
 
 #: What iki/antibody.find_liabilities finds in trastuzumab's chains, on their IMGT numbering:
@@ -2401,8 +2597,8 @@ def predicted(
         fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
     read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
     wanted = {
-        ("heavy_chain", heavy["id"], revisions[heavy["id"]]),
-        ("light_chain", light["id"], revisions[light["id"]]),
+        ("components.part", heavy["id"], revisions[heavy["id"]]),
+        ("components.part", light["id"], revisions[light["id"]]),
     }
     if read != wanted:
         fail(f"{run['hrid']} read {read} through its input, not {wanted}")

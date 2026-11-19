@@ -793,8 +793,9 @@ def column(form: Shape | None, name: str) -> Column | None:
     part = form.part_of(name)
     entry = None
     if part.entry:
-        # From the type's entries' table: an extension's entry fields are beside it.
-        entry = next(p.model for p in form.parts if p.entry and not p.extension)
+        # From the type's entries' table, under which are its parents' (ADR 0165): an
+        # extension's entry fields are beside it.
+        entry = form.entry_model
         prefix = f"{naming.entry_related_name(part.plugin)}__" if part.extension else ""
     else:
         prefix = f"{naming.extension_related_name(part.plugin)}__" if part.extension else ""

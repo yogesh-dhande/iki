@@ -5,12 +5,13 @@ against the plugins it depends on, with migrations that match its manifests,
 and migrating a database forwards and back.
 """
 
+import uuid
 from pathlib import Path
 
 import pytest
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
-from iki_spec.identity import identity_hash
+from iki_spec.identity import Kind, identity_hash
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "plugins"
@@ -22,6 +23,7 @@ FIRST_PARTY = {
     PLUGINS / "antibody": (PLUGINS / "dna", PLUGINS / "protein"),
     PLUGINS / "small_molecule": (),
     PLUGINS / "oligo": (),
+    PLUGINS / "complex": (PLUGINS / "dna", PLUGINS / "protein"),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
@@ -54,6 +56,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "antibody",
         PLUGINS / "small_molecule",
         PLUGINS / "oligo",
+        PLUGINS / "complex",
         TEMPLATE,
         "--output",
         out,
@@ -112,7 +115,13 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             numbered.numbering_scheme, numbered.cdr_definition, numbered.cdr_h1,
             Ext_iki_protein_Protein_Entry.objects.get(entity_id=bla.entry_id).chain_type,
         ]
-        vhh = make("iki/antibody.Antibody", heavy_chain=str(bla.pk), format="vhh", name="anti-bla")
+        # An antibody is a complex of its chains (ADR 0161): its parts, with their copies.
+        def parts(heavy, light=None, copies=1):
+            rows = [{"part": str(heavy.pk), "copies": copies, "role": "heavy"}]
+            if light is not None:
+                rows.append({"part": str(light.pk), "copies": copies, "role": "light"})
+            return rows
+        vhh = make("iki/antibody.Antibody", components=parts(bla), format="vhh", name="anti-bla")
         light = make("iki/protein.Protein", sequence="DIQMTQSP")
         aspirin = make(
             "iki/small_molecule.Compound", smiles="CC(=O)Oc1ccccc1C(=O)O",
@@ -123,15 +132,14 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             salt_equivalents=1.0,
         )
         fab = make(
-            "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
-            format="fab", isotype="igg1",
+            "iki/antibody.Antibody", components=parts(bla, light), format="fab", isotype="igg1",
         )
         # Its isotype is a registry fact: the same chains claimed as another isotype are
         # refused, not dropped, even where the project holds the antibody already.
         try:
             make(
-                "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
-                format="fab", isotype="igg4",
+                "iki/antibody.Antibody", components=parts(bla, light), format="fab",
+                isotype="igg4",
             )
             other_isotype = None
         except services.Invalid as invalid:
@@ -146,21 +154,100 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             return None
         other = make("iki/protein.Protein", sequence="EVQLVESG")
         format_rules = [
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="fv",
-                    isotype="igg1"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="igg",
-                    isotype="igm"),
-            refusal(heavy_chain=str(other.pk), format="igg", isotype="igg1"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="scfv"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(other.pk), format="fv"),
+            refusal(components=parts(other, light), format="fv", isotype="igg1"),
+            refusal(components=parts(other, light, 2), format="igg", isotype="igm"),
+            refusal(components=parts(other, copies=2), format="igg", isotype="igg1"),
+            refusal(components=parts(other, light), format="scfv"),
+            refusal(components=parts(other, other), format="fv"),
+            refusal(components=parts(other, light), format="igg"),
+            refusal(components=[*parts(other), {"part": str(light.pk), "role": "linker"}],
+                    format="other"),
         ]
-        whole_igm = refusal(heavy_chain=str(other.pk), light_chain=str(light.pk),
-                            format="other", isotype="igm")
+        whole_igm = refusal(components=parts(other, light, 2), format="other", isotype="igm")
+        # Every complex type is a complex (ADR 0161): one molecule is one entry whichever
+        # type registers it, and searching iki/core.Complex finds every kind.
+        try:
+            make("iki/complex.ProteinComplex", components=[
+                {"part": str(bla.pk), "copies": 1, "role": "alpha"},
+                {"part": str(light.pk), "copies": 1, "role": "beta"},
+            ])
+            as_another = None
+        except services.Invalid as invalid:
+            as_another = invalid.errors
+        dimer = make(
+            "iki/complex.ProteinComplex", name="bla dimer", complex_portal_id="CPX-1",
+            components=[{"part": str(bla.pk), "copies": 2, "role": "subunit"}],
+        )
+        site = {"heavy": str(bla.pk), "light": str(light.pk), "domain": 1}
+        second = {**site, "heavy": str(other.pk)}
+        chains = [*parts(bla, light), {"part": str(other.pk), "copies": 1, "role": "heavy"}]
+        bispecific = make(
+            "iki/antibody.MultispecificAntibody", name="BS", components=chains,
+            binding_sites=[{**site, "target": "EGFR"}, {**second, "target": "MET"}],
+        )
+        def msa(**values):
+            try:
+                make("iki/antibody.MultispecificAntibody", name="BS2", **values)
+            except services.Invalid as invalid:
+                return invalid.errors
+            return None
+        one_target = msa(
+            components=chains,
+            binding_sites=[{**site, "target": "EGFR"}, {**second, "target": "EGFR"}],
+        )
+        # A trispecific no action assembles, registered as it is (KEGG DRUG D12962):
+        # tilrekimig's A chain is a light chain fused to a heavy chain, its anti-IL13 VL
+        # pairing with the C chain, an Fd; its VH with D, for IL4; and B with E, for TSLP.
+        fasta, name = {}, ""
+        for line in open("@FASTA@").read().splitlines():
+            if line.startswith(">"):
+                name = line[1:].split()[0]
+                fasta[name] = ""
+            else:
+                fasta[name] += line
+        t = {x: make("iki/protein.Protein", sequence=fasta[f"D12962-{x}"]) for x in "ABCDE"}
+        def disulfide(a, i, b, j):
+            return {"kind": "disulfide", "part": str(t[a].pk), "copy": 1, "residue": i,
+                    "partner": str(t[b].pk), "partner_copy": 1, "partner_residue": j}
+        roles = {"A": "heavy", "B": "heavy", "C": "fd", "D": "light", "E": "light"}
+        tilrekimig = make(
+            "iki/antibody.MultispecificAntibody", name="tilrekimig", isotype="igg1",
+            components=[{"part": str(t[x].pk), "copies": 1, "role": r} for x, r in roles.items()],
+            binding_sites=[
+                {"heavy": str(t["C"].pk), "light": str(t["A"].pk), "target": "IL13"},
+                {"heavy": str(t["A"].pk), "light": str(t["D"].pk), "target": "IL4"},
+                {"heavy": str(t["B"].pk), "light": str(t["E"].pk), "target": "TSLP"},
+            ],
+            bonds=[disulfide("A", 218, "C", 221), disulfide("A", 447, "D", 218),
+                   disulfide("A", 453, "B", 231), disulfide("A", 456, "B", 234),
+                   disulfide("B", 225, "E", 213)],
+        )
+        # Its E chain paired with nothing is a light chain without a site.
+        unpaired = msa(
+            components=[{"part": str(t[x].pk), "copies": 1, "role": r} for x, r in roles.items()],
+            binding_sites=[
+                {"heavy": str(t["C"].pk), "light": str(t["A"].pk), "target": "IL13"},
+                {"heavy": str(t["A"].pk), "light": str(t["D"].pk), "target": "IL4"},
+            ],
+        )
+        fusion = make(
+            "iki/antibody.FcFusion", name="bla-Fc",
+            components=[{"part": str(other.pk), "copies": 2, "role": "fusion"}],
+        )
+        from iki_server.entities.search import Search, queryset
+        complexes = sorted(
+            e.type for e in queryset(alice, Search(type="iki/core.Complex", project=project.pk))
+        )
+        from iki_server.graph.models import Edge
+        part_of = sorted(
+            Edge.objects.filter(on_id=other.entry_id, field="components.part")
+            .values_list("node__type", flat=True)
+        )
         entries = {e.pk: e for e in Entity.objects.filter(registry__isnull=False)}
         # Giving the VHH a light chain would make it another antibody: it's refused.
         try:
             services.update(
-                alice, vhh, {"light_chain": str(light.pk)}, expected_revision=vhh.revision,
+                alice, vhh, {"components": parts(bla, light)}, expected_revision=vhh.revision,
             )
             refused = None
         except services.Invalid as invalid:
@@ -182,8 +269,19 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
                   ],
                   "refused": refused, "numbering": numbering,
                   "other_isotype": other_isotype, "format_rules": format_rules,
-                  "whole_igm": whole_igm}
-        """,
+                  "whole_igm": whole_igm, "as_another": as_another,
+                  "dimer": [dimer.type, dimer.hrid.split("-")[0]],
+                  "bispecific": bispecific.type, "one_target": one_target,
+                  "fusion": fusion.hrid.split("-")[0], "complexes": complexes,
+                  "part_of": part_of, "fab": fab.hrid,
+                  "tilrekimig": [
+                      tilrekimig.type,
+                      len(services.current_values_of([tilrekimig])[tilrekimig.pk]["bonds"]),
+                  ],
+                  "unpaired": unpaired}
+        """.replace(
+            "@FASTA@", str(ROOT / "server" / "tests" / "data" / "fc_fusions_and_bispecifics.fasta")
+        ),
     )
     assert result["types"] == [
         "iki/dna.DNASequence",
@@ -208,12 +306,16 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["aspirin"] == identity_hash(
         "iki/small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
     )
-    # An antibody is its chains, its light chain if it has one (a VHH hasn't).
-    chains = {"heavy_chain": ("ref", result["heavy"]), "light_chain": ("ref", None)}
-    paired = {**chains, "light_chain": ("ref", result["light"])}
+    # An antibody is a complex (ADR 0161): its parts and their copies, whatever their roles,
+    # as iki/core.Complex declares the identity.
+    rows = Kind("list", items=Kind("row", row=(("part", Kind("ref")), ("copies", Kind("int")))))
+    heavy, light = uuid.UUID(result["heavy"]), uuid.UUID(result["light"])
     assert result["identities"] == [
-        identity_hash("iki/antibody.Antibody", chains),
-        identity_hash("iki/antibody.Antibody", paired),
+        identity_hash("iki/core.Complex", {"components": (rows, [{"part": heavy, "copies": 1}])}),
+        identity_hash(
+            "iki/core.Complex",
+            {"components": (rows, [{"part": heavy, "copies": 1}, {"part": light, "copies": 1}])},
+        ),
     ]
     assert result["numbering"] == ["kabat", "kabat", "DTYIH", "heavy"]
     assert result["other_isotype"] == ["isotype"]
@@ -231,23 +333,74 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             ]
         },
         {
-            "light_chain": [
+            "components": [
                 "An IgG, a Fab and an Fv have a light chain: give one, or choose vhh or "
                 "scfv for an antibody of one chain."
             ]
         },
-        {"light_chain": ["A VHH and an scFv have one chain, so no light chain."]},
-        {"light_chain": ["One protein can't be both its heavy and its light chain."]},
+        {"components": ["A VHH and an scFv have one chain, so no light chain."]},
+        # One part twice is one part with two copies (ADR 0161).
+        {
+            "components/1/part": [
+                "lists PRT-000003 again: give each part once, with how many copies of it there are."
+            ]
+        },
+        {
+            "components": [
+                "A whole IgG has two copies of its heavy chain and two of its light chain: "
+                "give copies 2 for each."
+            ]
+        },
+        # An antibody's roles are all its parts may have (ADR 0164).
+        {"components/1/role": ["isn't one of its roles: heavy, light."]},
     ]
     # A whole IgM is `other`, which may take any class.
     assert result["whole_igm"] is None
-    assert result["refused"] == {
-        "light_chain": [
-            "is part of what makes it this one, so it can't be added later: "
-            "register another with it instead."
+    # The Fab's parts and copies, registered as a protein complex, are the Fab.
+    assert result["as_another"] == {
+        "type": [
+            f"This is registered already, as a iki/antibody.Antibody ({result['fab']}): "
+            "register it as one."
         ]
     }
+    assert result["dimer"] == ["iki/complex.ProteinComplex", "PCX"]
+    assert result["bispecific"] == "iki/antibody.MultispecificAntibody"
+    assert result["one_target"] == {
+        "binding_sites": [
+            "Its binding sites all bind EGFR in the same place: an antibody of one "
+            "specificity is an Antibody."
+        ]
+    }
+    assert result["tilrekimig"] == ["iki/antibody.MultispecificAntibody", 5]
+    assert result["unpaired"] == {
+        "binding_sites": [
+            "Each of its light chains and Fd chains pairs in one of its binding sites: give "
+            "the sites they make."
+        ]
+    }
+    assert result["fusion"] == "FCF"
+    # The VHH, the Fab and the whole IgM; the Fc fusion; the bispecific and tilrekimig; the
+    # dimer.
+    assert result["complexes"] == [
+        "iki/antibody.Antibody",
+        "iki/antibody.Antibody",
+        "iki/antibody.Antibody",
+        "iki/antibody.FcFusion",
+        "iki/antibody.MultispecificAntibody",
+        "iki/antibody.MultispecificAntibody",
+        "iki/complex.ProteinComplex",
+    ]
+    # The graph finds what a chain is part of, whatever type of complex (ADR 0161).
+    # Its other heavy chain is the whole IgM's, the Fc fusion's and the bispecific's.
+    assert result["part_of"] == [
+        "iki/antibody.Antibody",
+        "iki/antibody.FcFusion",
+        "iki/antibody.MultispecificAntibody",
+    ]
+    # Its parts are its identity: another chain is another antibody.
+    assert result["refused"] == {"components": ["can't change once it's set."]}
     for app in (
+        "iki__complex",
         "iki__oligo",
         "iki__small_molecule",
         "iki__antibody",
@@ -261,7 +414,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
         "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
-        "OR tablename LIKE 'oligo%%')",
+        "OR tablename LIKE 'oligo%%' OR tablename LIKE 'complex%%')",
     )
     assert left == [(0,)]
 

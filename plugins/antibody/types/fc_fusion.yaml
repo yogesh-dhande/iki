@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A specific complex (ADR 0161): an Fc is two chains, so an Fc fusion is one fusion
+# protein twice (etanercept, aflibercept), or two that pair at their Fc, such as a fusion
+# and a plain Fc (a monovalent fusion, as efmoroctocog alfa's FVIII-Fc and Fc).
+apiVersion: iki/v1
+kind: EntityType
+name: FcFusion
+label: Fc fusion protein
+label_plural: Fc fusion proteins
+extends: iki/core.Complex
+schema_version: 1
+description: >-
+  A protein fused to an antibody's Fc, which pairs it with another: a receptor's
+  ligand-binding domains, as etanercept's (TNFR2's) and aflibercept's (VEGFR1's
+  and VEGFR2's), an enzyme, a cytokine or a clotting factor. Its parts are its
+  two chains: one fusion protein twice, or a fusion and a plain Fc, or two
+  fusions, which pair at their CH3 domains.
+hrid: { prefix: FCF }
+refines:
+  components:
+    roles:
+      fusion:
+        label: Fusion chain
+        min: 1
+        max: 2
+        to: { part: iki/protein.Protein }
+      fc:
+        label: Fc chain
+        max: 1
+        to: { part: iki/protein.Protein }
+fields:
+  isotype:
+    type: enum
+    registry: fact
+    values: [igg1, igg2, igg3, igg4]
+    indexed: true
+    description: Its Fc's subclass.
+  fc_pairing:
+    type: enum
+    registry: derived
+    label: Fc pairing
+    values: [knobs_into_holes, charge_pairs, fab_arm_exchange, none]
+    indexed: true
+    description: >-
+      How two different chains are made to pair with each other, as their CH3
+      domains' mutations say (EU numbering), or none, for one chain twice.
+  target:
+    type: string
+    max_length: 255
+    indexed: true
+    description: What it binds, such as TNF or VEGF-A.
+rules:
+  two_chains:
+    label: Two chains in all
+    description: An Fc is two chains, joined at the hinge.
+    check: >-
+      record.components.size() == 1
+      ? record.components.all(c, c.copies == 2)
+      : record.components.all(c, c.copies == 1)
+    message: >-
+      An Fc fusion has two chains in all: one protein with copies 2, or two
+      proteins with copies 1 each.
+    fields: [components]
+display:
+  title: "{{ name or hrid }}"

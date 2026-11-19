@@ -1,35 +1,41 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A two-chain antibody is a specific complex (ADR 0161): its parts are a heavy chain and a
+# light chain, each with its copies, so it's found by searching complexes, and a complex of
+# the same parts registered as another type is this antibody's entry.
 apiVersion: iki/v1
 kind: EntityType
 name: Antibody
 label: Antibody
 label_plural: Antibodies
-schema_version: 1
+extends: iki/core.Complex
+schema_version: 2
 description: >-
-  An antibody, by the proteins that are its chains: a heavy chain and a light
-  chain, or for a single-domain antibody (a VHH) or an scFv, one chain. Two with
-  the same chains are the same antibody, so assembling one again finds its
-  registry entry. Its format and isotype are its chains': an IgG1 and an IgG4 of
-  the same variable domains have different heavy chains, so they're different
-  antibodies, and a heavy and a light variable domain alone are an Fv.
+  An antibody of one specificity, by the proteins that are its chains: a heavy
+  chain and a light chain, two copies of each for a whole IgG and one for a Fab
+  or an Fv, or for a single-domain antibody (a VHH) or an scFv, one chain. Two
+  with the same chains and copies are the same antibody, so assembling one again
+  finds its registry entry. Its format and isotype are its chains': an IgG1 and
+  an IgG4 of the same variable domains have different heavy chains, so they're
+  different antibodies, and a heavy and a light variable domain alone are an Fv.
+  An antibody with arms of two or more specificities is a multispecific
+  antibody.
 hrid: { prefix: ABY }
-identity: [heavy_chain, light_chain]
+# Its parts are its chains (ADR 0164): a heavy chain, and a light chain unless it's a VHH
+# or an scFv, each a protein.
+refines:
+  components:
+    roles:
+      heavy:
+        label: Heavy chain
+        min: 1
+        max: 1
+        to: { part: iki/protein.Protein }
+      light:
+        label: Light chain
+        max: 1
+        to: { part: iki/protein.Protein }
 fields:
-  heavy_chain:
-    type: ref
-    to: iki/protein.Protein
-    required: true
-    immutable: true
-    description: >-
-      Its heavy chain. For an scFv, its one chain, with both variable domains;
-      for a VHH, its one domain.
-  light_chain:
-    type: ref
-    to: iki/protein.Protein
-    immutable: true
-    description: Its light chain. A VHH or an scFv has none.
-  name: { type: string, max_length: 255, indexed: true }
-  description: { type: text, max_length: 10000 }
   format:
     type: enum
     registry: derived
@@ -38,11 +44,11 @@ fields:
     required: true
     indexed: true
     description: >-
-      What its chains make: igg a whole IgG (heavy chains with CH1, hinge, CH2
-      and CH3, and light chains with their constant domain), fab one arm of
-      one (CH1 but no Fc), fv the heavy and light variable domains alone, on
-      two chains, scfv both on one chain, vhh a single domain (a camelid's, or
-      a nanobody), and other anything else.
+      What its chains make: igg a whole IgG (two heavy chains with CH1, hinge,
+      CH2 and CH3, and two light chains with their constant domain), fab one arm
+      of one (CH1 but no Fc), fv the heavy and light variable domains alone, on
+      two chains, scfv both on one chain, vhh a single domain (a camelid's, or a
+      nanobody), and other anything else, such as a VHH fused to an Fc.
   isotype:
     type: enum
     registry: fact
@@ -58,32 +64,45 @@ fields:
     max_length: 255
     indexed: true
     description: What it binds, such as HER2 or PD-1.
-# What its format says of its chains and isotype, kept at every save, however it's
-# registered: by `assemble`, through the API, by a bulk import or in a bundle (ADR 0127).
-# Whether a chain has the constant region its format and isotype say is `assemble`'s
-# check: it reads where the chain's variable domains end, which is each project's
-# record's numbering, not the registry entry a reference holds.
+# What its format says of its chains, their copies and its isotype, kept at every save,
+# however it's registered: by `assemble`, through the API, by a bulk import or in a bundle
+# (ADR 0127). Whether a chain has the constant region its format and isotype say is
+# `assemble`'s check: it reads where the chain's variable domains end, which is each
+# project's record's numbering, not the registry entry a reference holds.
 rules:
   paired_formats_have_a_light_chain:
     label: An IgG, a Fab and an Fv have a light chain
-    check: record.light_chain != null
+    check: record.components.exists(c, c.role == "light")
     when: record.format in ["igg", "fab", "fv"]
     message: >-
       An IgG, a Fab and an Fv have a light chain: give one, or choose vhh or
       scfv for an antibody of one chain.
-    fields: [light_chain]
+    fields: [components]
   single_chain_formats_have_one_chain:
     label: A VHH and an scFv have one chain
-    check: record.light_chain == null
+    check: '!record.components.exists(c, c.role == "light")'
     when: record.format in ["vhh", "scfv"]
     message: A VHH and an scFv have one chain, so no light chain.
-    fields: [light_chain]
-  chains_differ:
-    label: Its heavy and light chains differ
-    check: record.heavy_chain.id != record.light_chain.id
-    when: record.light_chain != null
-    message: One protein can't be both its heavy and its light chain.
-    fields: [light_chain]
+    fields: [components]
+  an_igg_has_two_of_each_chain:
+    label: An IgG has two copies of each chain
+    description: >-
+      A whole IgG is two heavy chains, joined at the hinge, each with its light
+      chain.
+    check: record.components.all(c, c.copies == 2)
+    when: record.format == "igg"
+    message: >-
+      A whole IgG has two copies of its heavy chain and two of its light chain:
+      give copies 2 for each.
+    fields: [components]
+  one_arm_has_one_of_each_chain:
+    label: A Fab, an Fv, an scFv and a VHH have one copy of each chain
+    check: record.components.all(c, c.copies == 1)
+    when: record.format in ["fab", "fv", "scfv", "vhh"]
+    message: >-
+      A Fab, an Fv, an scFv and a VHH are one binding site, so one copy of each
+      chain: for two, choose igg or other.
+    fields: [components]
   no_isotype_without_a_constant_region:
     label: An Fv, scFv or VHH has no isotype
     description: >-

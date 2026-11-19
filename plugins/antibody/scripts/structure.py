@@ -27,9 +27,11 @@ H3 = range(105, 118)
 
 def chains(antibody: dict[str, Any]) -> tuple[dict[str, str], list[str], list[str]]:
     """What to model: sequences by chain ID (H, L), the protein each chain ID is, in order."""
-    included = antibody.get("included") or {}
-    heavy = (included.get("heavy_chain") or [None])[0]
-    light = (included.get("light_chain") or [None])[0]
+    # Its chains are its parts (ADR 0161), each row's included in the rows' order.
+    rows = antibody["values"].get("components") or []
+    parts = (antibody.get("included") or {}).get("components.part") or []
+    by_role = {row["role"]: part for row, part in zip(rows, parts, strict=False)}
+    heavy, light = by_role.get("heavy"), by_role.get("light")
     if heavy is None:
         raise ValueError("its heavy chain wasn't given to the run")
     h = heavy["values"]["sequence"].removesuffix("*").upper()

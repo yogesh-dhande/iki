@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assemble_fc_fusion
+label: Assemble an Fc fusion protein
+description: >-
+  Registers the Fc fusion protein its chains make: a fusion protein twice, as
+  etanercept and aflibercept are, or a fusion and a second chain, another
+  fusion or a plain Fc, that pairs with it at its Fc. One already in Iki with
+  the same chains and copies is reused. Each chain, compared whole with IMGT's
+  human constant regions (Biopython's pairwise aligner, BLOSUM62), must have
+  an IgG's Fc, which says its isotype; two different chains' CH3 domains say
+  how they're made to pair. For an IgG1 or an IgG4 it gives the disulfides
+  between the chains' hinges.
+inputs:
+  fusion_chain: { type: iki/protein.Protein, schema: ">=2", label: Fusion chain }
+  second_chain:
+    type: iki/protein.Protein
+    schema: ">=2"
+    label: Second chain
+    optional: true
+    description: >-
+      The chain it pairs with, a fusion or a plain Fc; left out, the fusion
+      chain is twice.
+params:
+  name:
+    type: string
+    max_length: 255
+    description: Its name. Without one, it's named after its chains.
+  isotype:
+    type: enum
+    values: [igg1, igg2, igg3, igg4]
+    description: Its Fc's subclass. Left out, it's its chains'; given, it must be that.
+  target: { type: string, max_length: 255, description: What it binds. }
+effects:
+  creates:
+    - { type: FcFusion, cardinality: one, derived_from: [fusion_chain, second_chain] }
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: antibody-tools }
+command: [python, ./scripts/complexes.py, assemble_fc_fusion]
+deterministic: true
+timeout: 5m

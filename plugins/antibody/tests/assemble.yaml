@@ -4,7 +4,10 @@ kind: ActionTest
 name: trastuzumab
 description: >-
   Trastuzumab (KEGG D03257): its whole heavy chain, an IgG1's, 120 residues of
-  variable domain then CH1, hinge, CH2 and CH3, and its whole kappa light chain.
+  variable domain then CH1, hinge, CH2 and CH3, and its whole kappa light chain,
+  two copies of each, joined by the disulfides KEGG lists: each light chain's
+  C214 to its heavy chain's C223 (EU C220), and the heavy chains' C229 and C232
+  (EU C226 and C229) to each other.
   The chains are numbered as number_chains leaves them (their residues' numbers
   left out), which says where the variable domains end.
 action: assemble
@@ -27,12 +30,51 @@ expect:
     creates:
       - type: iki/antibody.Antibody
         values:
-          heavy_chain: 00000000-0000-7000-8003-000000000001
-          light_chain: 00000000-0000-7000-8003-000000000002
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: light }
           name: trastuzumab heavy chain / trastuzumab light chain
           format: igg
           isotype: igg1
           target: HER2
+          # KEGG DRUG D03257's inter-chain bridges: H223-L214, H229-H'229 and H232-H'232.
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 223,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 2,
+                residue: 223,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 2,
+                partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 229,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 229,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 232,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 232,
+              }
         derived_from:
           - 00000000-0000-7000-8003-000000000001
           - 00000000-0000-7000-8003-000000000002
@@ -62,8 +104,9 @@ expect:
   output:
     creates:
       - values:
-          heavy_chain: 00000000-0000-7000-8003-000000000001
-          light_chain: 00000000-0000-7000-8003-000000000002
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: light }
           name: trastuzumab VH / trastuzumab VL
           format: fv
           target: HER2
@@ -93,11 +136,22 @@ expect:
   output:
     creates:
       - values:
-          heavy_chain: 00000000-0000-7000-8003-000000000001
-          light_chain: 00000000-0000-7000-8003-000000000002
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
+            - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: light }
           name: trastuzumab Fd / trastuzumab light chain
           format: fab
           isotype: igg1
+          bonds:
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 223,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 214,
+              }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -245,7 +299,8 @@ expect:
   output:
     creates:
       - values:
-          heavy_chain: 00000000-0000-7000-8003-000000000001
+          components:
+            - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
           name: caplacizumab
           format: vhh
         derived_from: [00000000-0000-7000-8003-000000000001]
@@ -312,6 +367,8 @@ expect:
     messages:
       - level: info
         text: "Its isotype is igg1, from its heavy chain: trastuzumab heavy chain's constant region is IgG1's, 99.4% identical to IMGT's IGHG1*01 (J00228) over 329 residues; the next nearest, IgG2's, is 91.8%."
+      - level: info
+        text: "Its chains' disulfides, as its subclass places them: H223-L214, H′223-L′214, H229-H′229, H232-H′232."
 ---
 apiVersion: iki/v1
 kind: ActionTest
