@@ -1,14 +1,63 @@
 //! The command's output on its way to the server: buffered, sent in ordered chunks with
 //! byte offsets, and sent again unchanged until the server has it (ADR 0043). `::progress`
 //! lines are picked out on the way.
+//!
+//! A log read from a file (a Slurm job's, ADR 0133) also knows where in the file each line
+//! ended, so a worker that restarts can carry on where the server's copy ends, reading the
+//! file from there rather than from its start (`Mark`, `Marks`).
 
+use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
+
+use serde::{Deserialize, Serialize};
 
 /// The most sent in one request: the server takes up to 256 KiB a chunk.
 pub const CHUNK: usize = 256 * 1024;
 /// The most held while the server can't be reached. The server keeps 16 MiB a job, so
 /// a longer outage loses only what it wouldn't have kept.
 pub const MAX_PENDING: usize = 16 * 1024 * 1024;
+
+/// A point in the log, and in the file it's read from: everything before `sent` bytes of
+/// the log holds what the file has before `read`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mark {
+    pub sent: u64,
+    pub read: u64,
+}
+
+/// Where a log stands, kept before each chunk is sent: what the server had, and what it
+/// will have once the chunk on its way arrives. Whichever the server's copy ends at says
+/// where to carry on after a restart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Marks {
+    pub acked: Mark,
+    pub sending: Option<Mark>,
+}
+
+impl Marks {
+    /// Where to carry on, given that the server has `end` bytes of the log. Unless `end`
+    /// is one of the two marks, the nearest before it: the server then says it has more,
+    /// and the worker skips ahead.
+    pub fn resume_at(&self, end: Option<u64>) -> Mark {
+        let Some(end) = end else {
+            return self.acked;
+        };
+        [self.sending, Some(self.acked)]
+            .into_iter()
+            .flatten()
+            .filter(|mark| mark.sent <= end)
+            .max_by_key(|mark| mark.sent)
+            .unwrap_or_default()
+    }
+}
+
+/// What the log holds from one push: where it ends in the log, and in the file it was read
+/// from (unchanged for the worker's own lines).
+#[derive(Debug, Clone, Copy)]
+struct Segment {
+    end: u64,
+    read: u64,
+}
 
 #[derive(Debug, Default)]
 struct State {
@@ -20,6 +69,12 @@ struct State {
     in_flight: Option<usize>,
     /// Bytes dropped since the last chunk, while the buffer was full.
     dropped: u64,
+    /// The pending pushes, in order.
+    segments: VecDeque<Segment>,
+    /// How far the file has been read.
+    read: u64,
+    /// The last push the server has all of.
+    mark: Mark,
 }
 
 /// A job's log. Readers push; one sender takes chunks and acknowledges them.
@@ -41,9 +96,26 @@ impl Log {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Adds what the command wrote.
-    pub fn push(&self, text: &str) {
+    /// Starts the log at `mark`, before anything is pushed: the server has `mark.sent`
+    /// bytes, which hold the file up to `mark.read`.
+    pub fn resume(&self, mark: Mark) {
         let mut state = self.lock();
+        debug_assert!(state.pending.is_empty());
+        state.acked = mark.sent;
+        state.read = mark.read;
+        state.mark = mark;
+    }
+
+    /// Adds a line of the worker's own.
+    pub fn push(&self, text: &str) {
+        let read = self.lock().read;
+        self.push_read(text, read);
+    }
+
+    /// Adds what the command wrote, read from a file up to `read`.
+    pub fn push_read(&self, text: &str, read: u64) {
+        let mut state = self.lock();
+        state.read = state.read.max(read);
         if state.pending.len() + text.len() > MAX_PENDING {
             state.dropped += text.len() as u64;
             return;
@@ -57,18 +129,32 @@ impl Log {
             state.dropped = 0;
         }
         state.pending.push_str(text);
+        let segment = Segment {
+            end: state.acked + state.pending.len() as u64,
+            read: state.read,
+        };
+        state.segments.push_back(segment);
     }
 
     /// The next chunk to send, as (offset, text): the same one again until it's
-    /// acknowledged.
+    /// acknowledged. It ends where a push ends, unless one push is longer than a chunk.
     pub fn next_chunk(&self) -> Option<(u64, String)> {
         let mut state = self.lock();
         if state.pending.is_empty() {
             return None;
         }
-        let size = state
-            .in_flight
-            .unwrap_or_else(|| boundary(&state.pending, CHUNK));
+        let size = state.in_flight.unwrap_or_else(|| {
+            let fits = state
+                .segments
+                .iter()
+                .map(|s| s.end - state.acked)
+                .take_while(|&end| end <= CHUNK as u64)
+                .last();
+            fits.map_or_else(
+                || boundary(&state.pending, CHUNK),
+                |end| usize::try_from(end).unwrap_or(CHUNK),
+            )
+        });
         state.in_flight = Some(size);
         Some((state.acked, state.pending[..size].to_owned()))
     }
@@ -84,6 +170,33 @@ impl Log {
         let cut = boundary(&state.pending, ahead);
         state.pending.drain(..cut);
         state.acked += cut as u64;
+        while let Some(segment) = state.segments.front().copied() {
+            if segment.end > state.acked {
+                break;
+            }
+            state.segments.pop_front();
+            state.mark = Mark {
+                sent: segment.end,
+                read: segment.read,
+            };
+        }
+    }
+
+    /// Where the log stands: what the server has, and, with a chunk on its way that ends
+    /// where a push does, what it will have.
+    pub fn marks(&self) -> Marks {
+        let state = self.lock();
+        let sending = state.in_flight.and_then(|size| {
+            let end = state.acked + size as u64;
+            state.segments.iter().find(|s| s.end == end).map(|s| Mark {
+                sent: s.end,
+                read: s.read,
+            })
+        });
+        Marks {
+            acked: state.mark,
+            sending,
+        }
     }
 
     /// Whether everything pushed has been acknowledged.
@@ -232,6 +345,62 @@ mod tests {
         assert_eq!(log.next_chunk(), Some((4, "ef".into())));
         log.acknowledge(1); // behind: ignored
         assert_eq!(log.next_chunk(), Some((4, "ef".into())));
+    }
+
+    #[test]
+    fn a_chunk_ends_where_a_push_does() {
+        let log = Log::default();
+        let line = format!("{}\n", "x".repeat(CHUNK / 2 - 1));
+        log.push(&line);
+        log.push(&line);
+        log.push(&line);
+        // Two whole lines fit in a chunk; a third would split.
+        let (_, chunk) = log.next_chunk().unwrap();
+        assert_eq!(chunk.len(), 2 * line.len());
+    }
+
+    #[test]
+    fn marks_say_how_much_of_the_file_the_server_has() {
+        let log = Log::default();
+        log.push_read("one\n", 4);
+        log.push("iki-worker: a note\n");
+        log.push_read("two\n", 8);
+        assert_eq!(log.marks(), Marks::default());
+        let (offset, chunk) = log.next_chunk().unwrap();
+        let end = offset + chunk.len() as u64;
+        // On its way: once it's there, the server has the file up to byte 8.
+        let marks = log.marks();
+        assert_eq!(marks.acked, Mark::default());
+        assert_eq!(marks.sending, Some(Mark { sent: end, read: 8 }));
+        log.acknowledge(end);
+        assert_eq!(log.marks().acked, Mark { sent: end, read: 8 });
+        assert_eq!(log.marks().sending, None);
+        // Part of a push isn't a mark: the last whole one is.
+        log.push_read("three\n", 14);
+        let _ = log.next_chunk();
+        log.acknowledge(end + 2);
+        assert_eq!(log.marks().acked, Mark { sent: end, read: 8 });
+    }
+
+    #[test]
+    fn a_restarted_log_carries_on_where_the_server_has_it() {
+        let marks = Marks {
+            acked: Mark { sent: 10, read: 6 },
+            sending: Some(Mark { sent: 30, read: 26 }),
+        };
+        // The server got the chunk on its way, or didn't.
+        assert_eq!(marks.resume_at(Some(30)), Mark { sent: 30, read: 26 });
+        assert_eq!(marks.resume_at(Some(10)), Mark { sent: 10, read: 6 });
+        // Somewhere else: the nearest before it, and the server says to skip ahead.
+        assert_eq!(marks.resume_at(Some(20)), Mark { sent: 10, read: 6 });
+        assert_eq!(marks.resume_at(Some(5)), Mark::default());
+        assert_eq!(marks.resume_at(None), Mark { sent: 10, read: 6 });
+        let log = Log::default();
+        log.resume(Mark { sent: 30, read: 26 });
+        log.push_read("rest\n", 31);
+        assert_eq!(log.next_chunk(), Some((30, "rest\n".into())));
+        log.acknowledge(35);
+        assert_eq!(log.marks().acked, Mark { sent: 35, read: 31 });
     }
 
     #[test]

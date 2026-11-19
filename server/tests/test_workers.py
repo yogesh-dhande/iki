@@ -535,8 +535,11 @@ def test_logs_arrive_in_order(world: World, monkeypatch: pytest.MonkeyPatch) -> 
     pod = worker(world)
     queued(world)
     job = pod.lease().json()
+    assert pod.report(job, "heartbeat").json()["log_offset"] == 0
     first = pod.report(job, "logs", offset=0, text="héllo\n")
     assert first.json() == {"next_offset": 7}
+    # A worker that restarts learns where to send the rest from.
+    assert pod.report(job, "heartbeat").json()["log_offset"] == 7
     # Sent again after a timeout: accepted, not duplicated.
     assert pod.report(job, "logs", offset=0, text="héllo\n").json() == {"next_offset": 7}
     gap = problem(pod.report(job, "logs", offset=10, text="x"), 409, "log_gap")

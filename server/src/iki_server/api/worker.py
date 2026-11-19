@@ -523,17 +523,23 @@ class HeartbeatOut(Schema):
     cancel_requested: bool = Field(
         description="Someone cancelled the run: stop the command, then report `cancelled`."
     )
+    log_offset: int = Field(
+        description="How much of the job's log the server has, in bytes of UTF-8: where a "
+        "worker that restarted sends the rest from."
+    )
 
 
 @api.post("/jobs/{job_id}/heartbeat", response=HeartbeatOut, summary="Keep a lease")
 def heartbeat(request: HttpRequest, job_id: UUID, payload: HeartbeatIn) -> dict[str, Any]:
     try:
-        expires, cancelled = queue.heartbeat(
-            _worker(request), job_id, payload.lease_token, payload.state
-        )
+        beat = queue.heartbeat(_worker(request), job_id, payload.lease_token, payload.state)
     except ValueError as error:
         raise Problem(409, str(error), code="wrong_state") from None
-    return {"lease_expires_at": expires, "cancel_requested": cancelled}
+    return {
+        "lease_expires_at": beat.lease_expires_at,
+        "cancel_requested": beat.cancel_requested,
+        "log_offset": beat.log_offset,
+    }
 
 
 class SlurmAllocIn(Schema):

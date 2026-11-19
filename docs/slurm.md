@@ -206,12 +206,15 @@ For each job, the worker:
    `sacct`, uploads its results, and removes its directory.
 
 On the node, `job.sh` runs `$IKI_SLURM_WORK_DIR/bin/iki-worker-<version>
-slurm-step <dir>`, which reads and deletes `secrets.json` and becomes:
+slurm-step <dir>`, which reads and deletes `secrets.json` and runs:
 
 ```sh
 apptainer exec --containall --cleanenv --home <dir>/home --bind <dir> [--nv] <image>.sif <command>
 ```
 
+The step writes what the command prints to `<dir>/log` with the job's
+secrets and its proxy credentials as `***`, so the log file never holds
+them. It passes on the signals Slurm sends, and exits as the command did.
 The worker's own token is never in the job's directory or its environment.
 
 To find Iki's jobs on the cluster:
@@ -227,10 +230,13 @@ The run's page shows the same Slurm job ID, its state, and why it waits.
 
 - **Restarting the worker** leaves its jobs running. On SIGTERM it stops
   leasing and lets go of its jobs. When it starts again, it picks up each
-  job from its directory's `slurm.json`. A job's lease lasts ten minutes
-  without the worker. If the worker is away longer, the server gives up on
-  the job, and the worker `scancel`s it and removes its directory when it
-  comes back.
+  job from its directory's `slurm.json`, and carries on with its log where
+  the run's page has it (`log.json` notes how far it got). A job's lease
+  lasts ten minutes without the worker. If the worker is away longer, the
+  server gives up on the job, and the worker `scancel`s it and removes its
+  directory when it comes back. A server that can't answer yet, or answers
+  that it's busy, says nothing of the lease: the worker asks again until it
+  does, and the job runs on meanwhile.
 - **Upgrading** works as for any self-hosted worker: it updates itself to
   the release the server wants when it holds no jobs, or IT installs the new
   binary and restarts the service. Running jobs keep the version they started

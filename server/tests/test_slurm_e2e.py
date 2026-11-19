@@ -10,15 +10,18 @@ the binary.
 """
 
 import hashlib
+import http.client
 import json
 import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -59,8 +62,10 @@ run = json.loads(Path(os.environ["IKI_INPUT"]).read_text())
 print(f"Folding {protein['hrid']} under Python {sys.version.split()[0]}", flush=True)
 print("host env:", "SLURM_JOB_ID" in os.environ, os.environ.get("HOME"), flush=True)
 print("secret:", os.environ.get("LAB_TOKEN"), flush=True)
+print("lease:", run["job"]["lease_token"], flush=True)
 print("secrets file left:", (Path(os.environ["IKI_INPUT"]).parent / "secrets.json").exists())
 time.sleep(float(os.environ.get("FOLD_SECONDS", "0")))
+print("secret again:", os.environ.get("LAB_TOKEN"), flush=True)
 pdb = "REMARK   1 FOLDED ON A SLURM CLUSTER\\nEND\\n"
 (Path(os.environ["IKI_OUT_DIR"]) / "fold.pdb").write_text(pdb)
 made = {"type": "acme/protein.ProteinStructure", "values": {
@@ -271,11 +276,14 @@ def world(
 
 
 class LoginNode:
-    """iki-worker on the cluster's login node, registered for `hpc1`."""
+    """iki-worker on the cluster's login node, registered for `hpc1`, with the server at
+    `url` (by default, the server itself)."""
 
-    def __init__(self, cluster: Cluster, server: Server, token: str) -> None:
+    def __init__(
+        self, cluster: Cluster, server: Server, token: str, url: str | None = None
+    ) -> None:
         self.cluster = cluster
-        self.url = f"http://{HOST}:{urlsplit(server.url).port}"
+        self.url = url or f"http://{HOST}:{urlsplit(server.url).port}"
         self.env = {
             "IKI_URL": self.url,
             "IKI_ALLOW_HTTP": "1",
@@ -366,17 +374,19 @@ class LoginNode:
 
 
 @pytest.fixture
-def login_node(cluster: Cluster, server: Server, world: World) -> Iterator[Callable[[], LoginNode]]:
+def login_node(
+    cluster: Cluster, server: Server, world: World
+) -> Iterator[Callable[..., LoginNode]]:
     made: list[LoginNode] = []
 
-    def register() -> LoginNode:
+    def register(url: str | None = None) -> LoginNode:
         _, token = workers.create_registration(
             label="hpc1 login nodes",
             tier="container",
             by=world.users["compute_admin"],
             slurm_cluster="hpc1",
         )
-        node = LoginNode(cluster, server, token)
+        node = LoginNode(cluster, server, token, url)
         made.append(node)
         return node
 
@@ -511,6 +521,10 @@ def test_a_run_goes_through_slurm_in_its_image_and_its_results_come_back(
     assert "secret: ***" in log
     assert "secrets file left: False" in log
     assert SECRET not in log
+    # The attempt's own credentials too.
+    job = Job.objects.get(run_id=run["id"])
+    assert "lease: ***" in log
+    assert str(job.lease_token) not in log
     # Its result file went up from the login node.
     body = api_as(world).get(f"/runs/{run['id']}").json()
     folded = api_as(world).get(f"/entities/{body['effects'][0]['entity']}").json()
@@ -529,7 +543,6 @@ def test_a_run_goes_through_slurm_in_its_image_and_its_results_come_back(
     assert slurm["submitted_at"] and slurm["started_at"] and slurm["ended_at"]
     assert slurm["image_signer"] == ""
     accounted = cluster.sacct(slurm["slurm_id"])
-    job = Job.objects.get(run_id=run["id"])
     assert accounted["Comment"] == f"iki:{job.pk}"
     assert accounted["Account"] == "rd-protein"
     assert accounted["User"] == "iki"
@@ -590,3 +603,110 @@ def test_a_login_node_restarting_leaves_its_jobs_running_and_picks_them_up(
     assert "Picked up a job on the cluster again." in said
     # One Slurm job, one attempt.
     assert len(api_as(world).get(f"/runs/{run['id']}/attempts").json()) == 1
+
+
+def test_a_login_node_restarting_keeps_its_jobs_secrets_hidden_and_its_log_whole(
+    world: World, cluster: Cluster, login_node: Callable[[], LoginNode]
+) -> None:
+    run = launch(world, fold_seconds=20, secret=True)
+    node = login_node()
+    node.start()
+    eventually(
+        lambda: "secrets file left" in log_of(run) and "started on" in log_of(run),
+        what="the job to print its secret",
+        explain=lambda: node.diagnosis(run),
+    )
+    node.stop()
+    job = Job.objects.get(run_id=run["id"])
+    # The job's log file on the cluster holds what it printed with its secrets hidden.
+    on_disk = cluster.run("cat", f"/scratch/iki/jobs/{job.pk}/log")
+    assert "secret: ***" in on_disk, on_disk
+    assert SECRET not in on_disk and str(job.lease_token) not in on_disk
+    node.start()
+    assert ended(world, run, node) == "succeeded", node.diagnosis(run)
+    node.stop()
+    log = log_of(run)
+    assert SECRET not in log and str(job.lease_token) not in log
+    # Once each: the log carries on where it was, rather than starting again.
+    printed = ("Folding", "secret: ***", "lease: ***", "secret again: ***", "Done.", "started on")
+    for line in printed:
+        assert log.count(line) == 1, (line, log)
+
+
+class FlakyServer:
+    """The server, through a proxy on this machine that answers 503 to the first
+    `failing` job heartbeats once armed, as a server restarting or overloaded would."""
+
+    def __init__(self, server: Server) -> None:
+        target = urlsplit(server.url)
+        host, port = target.hostname or "127.0.0.1", target.port
+        self.failing = 0
+        self.failed = 0
+        flaky = self
+
+        class Forward(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _forward(self) -> None:
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if self.path.endswith("/heartbeat") and flaky.failing > 0:
+                    flaky.failing -= 1
+                    flaky.failed += 1
+                    self._answer(503, {"Content-Type": "application/json"}, b'{"detail": "Busy."}')
+                    return
+                upstream = http.client.HTTPConnection(host, port, timeout=120)
+                headers = {k: v for k, v in self.headers.items() if k.lower() != "connection"}
+                upstream.request(self.command, self.path, body=body, headers=headers)
+                reply = upstream.getresponse()
+                data = reply.read()
+                skip = {"connection", "transfer-encoding", "content-length", "keep-alive"}
+                kept = {k: v for k, v in reply.getheaders() if k.lower() not in skip}
+                upstream.close()
+                self._answer(reply.status, kept, data)
+
+            def _answer(self, status: int, headers: dict[str, str], data: bytes) -> None:
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = do_PUT = do_DELETE = _forward  # noqa: N815
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        self.http = ThreadingHTTPServer(("0.0.0.0", 0), Forward)  # noqa: S104 - the cluster's container
+        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        self.url = f"http://{HOST}:{self.http.server_address[1]}"
+
+    def close(self) -> None:
+        self.http.shutdown()
+        self.http.server_close()
+
+
+def test_a_login_node_keeps_its_job_through_a_server_that_cant_answer_as_it_starts_again(
+    world: World, cluster: Cluster, server: Server, login_node: Callable[..., LoginNode]
+) -> None:
+    # The worker reaches the server through the proxy from the start: it's registered, and
+    # signs in, there.
+    flaky = FlakyServer(server)
+    try:
+        run = launch(world, fold_seconds=20)
+        node = login_node(flaky.url)
+        node.start()
+        started(run, node)
+        node.stop()
+        flaky.failing = 3
+        node.start()
+        assert ended(world, run, node) == "succeeded", node.diagnosis(run)
+        said = node.stop()
+    finally:
+        flaky.close()
+    assert flaky.failed == 3
+    assert "Couldn't renew a job's lease after starting again; trying again." in said
+    assert "Picked up a job on the cluster again." in said
+    # The same Slurm job and attempt, which ran to the end.
+    assert len(api_as(world).get(f"/runs/{run['id']}/attempts").json()) == 1
+    assert attempt(world, run)["slurm"]["state"] == "COMPLETED"

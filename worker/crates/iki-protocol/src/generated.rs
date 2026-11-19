@@ -733,6 +733,8 @@ pub struct HeartbeatOut {
     /// Someone cancelled the run: stop the command, then report `cancelled`.
     pub cancel_requested: bool,
     pub lease_expires_at: String,
+    /// How much of the job's log the server has, in bytes of UTF-8: where a worker that restarted sends the rest from.
+    pub log_offset: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

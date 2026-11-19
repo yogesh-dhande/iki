@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LeaseIn, LogIn, LogOut, ProgressIn, RunInput, RunInputFile,
+    HeartbeatOut, LeaseIn, LogIn, LogOut, ProgressIn, RunInput, RunInputFile, RunInputJob,
     RunInputJobCheckpointSaveOnItem as SaveOn, RunInputJobCheckpointSaved, SetupHeartbeatOut, fill,
     paths,
 };
@@ -122,6 +122,11 @@ pub trait Host: Send + Sync + 'static {
     }
     /// A line the command printed.
     fn line(&self, text: &str);
+    /// A line the command printed, read from a file whose first `read` bytes have now
+    /// been read.
+    fn line_read(&self, text: &str, _read: u64) {
+        self.line(text);
+    }
     /// Where the job has got to.
     fn state(&self, _state: HeartbeatInState) {}
     /// Why to stop the command, besides the worker stopping or its timeout.
@@ -159,6 +164,34 @@ pub(crate) struct Job {
     signals: Signals,
     log: Log,
     progress: Mutex<Option<(f64, String)>>,
+    /// Where to keep how far the log has got, before each chunk is sent: a Slurm job's,
+    /// so a worker that restarts carries on from there (ADR 0133).
+    log_marks: LogMarks,
+}
+
+/// Keeps a log's marks somewhere.
+type KeepMarks = Box<dyn Fn(&logs::Marks) + Send + Sync>;
+
+/// Keeps a log's marks somewhere they outlast the worker.
+#[derive(Default)]
+pub(crate) struct LogMarks {
+    keep: std::sync::OnceLock<KeepMarks>,
+    kept: Mutex<Option<logs::Marks>>,
+}
+
+impl LogMarks {
+    /// Keeps the log's marks unless they're what was kept last.
+    fn keep(&self, marks: impl FnOnce() -> logs::Marks) {
+        let Some(keep) = self.keep.get() else {
+            return;
+        };
+        let marks = marks();
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        if *kept != Some(marks) {
+            keep(&marks);
+            *kept = Some(marks);
+        }
+    }
 }
 
 /// A leased job, its heartbeats and the sender of its log, until it ends.
@@ -188,6 +221,7 @@ impl Held {
             signals: Signals::default(),
             log: Log::default(),
             progress: Mutex::new(None),
+            log_marks: LogMarks::default(),
         });
         let every = Duration::from_secs(u64::try_from(every.max(1)).unwrap_or(20));
         let beating = {
@@ -246,14 +280,15 @@ impl Job {
         self.signals.lost.load(Ordering::SeqCst)
     }
 
-    /// Renews the lease once, now: for a worker picking up a Slurm job it submitted
-    /// before restarting. Errs if the lease went elsewhere.
-    pub(crate) fn renew(&self) -> Result<bool, Error> {
-        let renewed = self.heartbeat();
-        if let Err(error) = &renewed {
-            self.note(error);
-        }
-        renewed
+    /// Starts the log where the server's copy ends, with the file it's read from read up
+    /// to there, before anything is pushed: for a Slurm job picked up after a restart.
+    pub(crate) fn resume_log(&self, mark: logs::Mark) {
+        self.log.resume(mark);
+    }
+
+    /// Keeps the log's marks with `keep` before each chunk is sent.
+    pub(crate) fn keep_log_marks(&self, keep: impl Fn(&logs::Marks) + Send + Sync + 'static) {
+        let _ = self.log_marks.keep.set(Box::new(keep));
     }
 
     fn path(&self, template: &str) -> String {
@@ -314,6 +349,7 @@ impl Job {
     /// Sends what's waiting in the log, chunk by chunk. False if it should stop trying.
     fn send_log(&self) -> bool {
         while let Some((offset, text)) = self.log.next_chunk() {
+            self.log_marks.keep(|| self.log.marks());
             let size = text.len() as u64;
             let body = LogIn {
                 lease_token: self.lease_token.clone(),
@@ -368,6 +404,12 @@ impl Job {
         }
     }
 
+    fn progress(&self, text: &str) {
+        if let Some(progress) = logs::progress(text) {
+            *self.progress.lock().unwrap_or_else(PoisonError::into_inner) = Some(progress);
+        }
+    }
+
     fn lease(&self) -> files::Lease<'_> {
         files::Lease {
             api: &self.api,
@@ -403,10 +445,13 @@ impl Host for Job {
     }
 
     fn line(&self, text: &str) {
-        if let Some(progress) = logs::progress(text) {
-            *self.progress.lock().unwrap_or_else(PoisonError::into_inner) = Some(progress);
-        }
+        self.progress(text);
         self.log.push(text);
+    }
+
+    fn line_read(&self, text: &str, read: u64) {
+        self.progress(text);
+        self.log.push_read(text, read);
     }
 
     fn state(&self, state: HeartbeatInState) {
@@ -445,27 +490,35 @@ impl Host for Job {
     }
 }
 
-/// Reads what the command prints, line by line, for its host.
+/// Reads what the command prints, line by line, for its host. `read` is how much of the
+/// stream's file was read before it, for a stream read from a file.
 pub(crate) fn read_lines(
     host: &impl Host,
     stream: impl Read,
+    mut read: u64,
     said: &Mutex<Option<String>>,
     mask: &logs::Mask,
 ) {
+    each_line(stream, |line| {
+        read += line.len() as u64;
+        let raw = String::from_utf8_lossy(line);
+        let text = mask.apply(&raw);
+        if let Some(why) = logs::error(&text) {
+            *said.lock().unwrap_or_else(PoisonError::into_inner) = Some(why);
+        }
+        host.line_read(&text, read);
+    });
+}
+
+/// Calls `each` with each line `stream` holds, up to 64 KiB at a time, until it ends.
+pub(crate) fn each_line(stream: impl Read, mut each: impl FnMut(&[u8])) {
     let mut reader = BufReader::new(stream);
     let mut line = Vec::new();
     loop {
         line.clear();
         match reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut line) {
             Ok(0) | Err(_) => return,
-            Ok(_) => {
-                let raw = String::from_utf8_lossy(&line);
-                let text = mask.apply(&raw);
-                if let Some(why) = logs::error(&text) {
-                    *said.lock().unwrap_or_else(PoisonError::into_inner) = Some(why);
-                }
-                host.line(&text);
-            }
+            Ok(_) => each(&line),
         }
     }
 }
@@ -735,6 +788,30 @@ fn write_trust(input: &RunInput, dirs: &Dirs) -> Result<(), String> {
     )
     .map_err(failed)?;
     std::fs::write(&dirs.api_ca, ca_bundle(None, &apis.ca)).map_err(failed)
+}
+
+/// What's hidden in what a command prints: the secrets its action declares (ADR 0054),
+/// and the attempt's own credentials, its lease token, which is the egress proxy's
+/// password too (ADR 0053).
+pub(crate) fn hidden(job: &RunInputJob) -> Vec<String> {
+    let mut values: Vec<String> = job
+        .secrets
+        .iter()
+        .flat_map(|secrets| secrets.values().cloned())
+        .collect();
+    values.push(job.lease_token.clone());
+    if let Some(password) = job.proxy.as_deref().and_then(proxy_password) {
+        values.push(password.to_owned());
+    }
+    values
+}
+
+/// The password in a proxy's address, `http://<user>:<password>@<host>`.
+fn proxy_password(proxy: &str) -> Option<&str> {
+    let (_, rest) = proxy.split_once("://")?;
+    let (userinfo, _) = rest.rsplit_once('@')?;
+    let (_, password) = userinfo.split_once(':')?;
+    Some(password).filter(|p| !p.is_empty())
 }
 
 /// The proxy, as programs look for it.
@@ -1155,13 +1232,7 @@ pub(crate) fn conclude<H: Host>(
     });
     // The last `::error` line the command printed: why it failed, if it fails.
     let said: Arc<Mutex<Option<String>>> = Arc::default();
-    let mask = logs::Mask::new(
-        input
-            .job
-            .secrets
-            .iter()
-            .flat_map(|secrets| secrets.values().map(String::as_str)),
-    );
+    let mask = logs::Mask::new(hidden(&input.job).iter().map(String::as_str));
     let Ran {
         status,
         stopped,
@@ -1237,7 +1308,7 @@ fn run_here<H: Host>(
             mask.clone(),
         );
         thread::spawn(move || {
-            read_lines(host.as_ref(), stream, &said, &mask);
+            read_lines(host.as_ref(), stream, 0, &said, &mask);
             let _ = done.send(());
         });
     }
@@ -1782,6 +1853,58 @@ mod tests {
             lines.contains("iki-worker: Saved a checkpoint: 2 files, 3.0 KiB."),
             "{lines}"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn what_a_job_prints_hides_its_secrets_and_the_attempts_credentials() {
+        let dir = std::env::temp_dir().join(format!("iki-job-hides-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let token = "4f1c2e0a-7d3b-4c55-9e61-2a8b0c9d1e7f";
+        let script = r#"echo "proxy: $HTTPS_PROXY"; echo "key: $LAB_TOKEN"
+            grep -o '"lease_token": "[^"]*"' "$IKI_INPUT"
+            echo "::error via $HTTPS_PROXY"; exit 2"#;
+        let mut raw = serde_json::to_value(input(&["sh", "-c", script])).unwrap();
+        raw["job"]["lease_token"] = token.into();
+        raw["job"]["proxy"] = format!("http://j:{token}@iki-egress-proxy:3128").into();
+        raw["job"]["secrets"] = serde_json::json!({"LAB_TOKEN": "s3cr3t-lab-token"});
+        let input: RunInput = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(
+            hidden(&input.job).iter().filter(|v| *v == token).count(),
+            2,
+            "the lease token, and the proxy's password"
+        );
+        let plan = Plan {
+            input: &input,
+            plugin_dir: &dir,
+            built: None,
+            timeout: Duration::from_secs(30),
+        };
+        let dirs = Dirs::new(&dir, "j");
+        let host = Arc::new(Saving::default());
+
+        let report = execute(&host, &plan, &dirs, &raw, &AtomicBool::new(false));
+
+        let lines = host.lines.lock().unwrap().join("");
+        assert!(
+            lines.contains("proxy: http://j:***@iki-egress-proxy:3128"),
+            "{lines}"
+        );
+        assert!(lines.contains("key: ***"), "{lines}");
+        assert!(
+            !lines.contains(token) && !lines.contains("s3cr3t-lab-token"),
+            "{lines}"
+        );
+        let message = match report {
+            Some(Report::Fail(FailInReason::Failed, message)) => message,
+            _ => String::new(),
+        };
+        assert_eq!(
+            message,
+            "via http://j:***@iki-egress-proxy:3128 (exit status 2)"
+        );
+        assert!(lines.contains(r#""lease_token": "***""#), "{lines}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
