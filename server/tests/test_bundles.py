@@ -172,7 +172,8 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     (pdb,) = bundle.lines("files.ndjson")
     assert pdb["id"] == str(lab["pdb"].pk)
     assert pdb["registered"] is None
-    assert b"".join(bundle.blob(pdb["sha256"])) == PDB
+    ((sha, chunks),) = bundle.blobs({pdb["sha256"]})
+    assert (sha, b"".join(chunks)) == (pdb["sha256"], PDB)
 
     outside = {o["id"]: o for o in bundle.lines("outside.ndjson")}
     assert outside[str(lab["elsewhere"].pk)] == {
@@ -312,6 +313,33 @@ def test_a_changed_bundle_is_refused(lab: dict[str, Any], tmp_path: Path) -> Non
     assert refused(bad).startswith("It isn't a bundle Iki can read")
     with pytest.raises(reading.BundleError, match="more than 10 bytes uncompressed"):
         reading.read(out, TRUSTED, limit=10)
+
+
+def test_a_files_bytes_are_checked_again_as_an_import_reads_them(
+    lab: dict[str, Any], tmp_path: Path
+) -> None:
+    """A bundle's file's bytes are checked against their SHA-256 when it's read and again
+    as they're read to be stored, so an archive changed in between stores nothing."""
+    _, out = exported(lab, tmp_path)
+    bundle = reading.read(out, TRUSTED, limit=LIMIT)
+    sha = hashlib.sha256(PDB).hexdigest()
+    assert [(s, b"".join(c)) for s, c in bundle.blobs({sha})] == [(sha, PDB)]
+    assert list(bundle.blobs(set())) == []
+    changed = tmp_path / "changed.tar.gz"
+
+    def edit_file(name: str, data: bytes) -> list[tuple[str, bytes]]:
+        return [(name, data.replace(b"KINASE", b"KINASF") if name.startswith("blobs/") else data)]
+
+    rewrite(out, changed, edit_file)
+    changed.replace(out)
+    ((_, chunks),) = bundle.blobs({sha})
+    with pytest.raises(reading.BundleError) as raised:
+        b"".join(chunks)
+    assert (
+        str(raised.value) == f"blobs/sha256/{sha} isn't what its bundle.json says: it was changed."
+    )
+    with pytest.raises(reading.BundleError, match=f"It has no blobs/sha256/{'0' * 64}"):
+        list(bundle.blobs({sha, "0" * 64}))
 
 
 def test_a_bundle_from_an_untrusted_key_reads_but_isnt_trusted(
