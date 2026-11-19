@@ -49,6 +49,7 @@ from chemistry import (
     run_input,
     standardise,
     stripped,
+    weight_withheld,
     why_not,
     write_output,
 )
@@ -392,6 +393,9 @@ def _creates(
         return [made], registered, left
     key = f"record-{record.number}"
     named = {"name": name} if name else {}
+    withheld = weight_withheld(registered)
+    if withheld:
+        record.warnings.append(withheld)
     lot = {
         "type": "iki/small_molecule.CompoundBatch",
         "values": {"compound": {"$create": key}, **named, **_batch(registered, batch)},

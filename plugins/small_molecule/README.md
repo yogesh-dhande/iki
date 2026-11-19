@@ -84,7 +84,9 @@ so the identity is Iki's computation, beside the record's origin.
 - **`compute_formula_weight`**: a batch's formula weight, from its compound's
   structure as it was when the run was launched (ADR 0105). Its triggers run
   it on each new batch, such as one made with its form, and again when its
-  salt or solvent changes.
+  salt or solvent changes. A batch whose structure as drawn has a part that's
+  neither its compound nor a salt or solvent Iki knows gets none, and the run
+  says why.
 - **`import_sdf`**: registers each record of an SDF file as a compound,
   standardised and identified as a SMILES line is, and with **batches** a batch
   of each (up to 5,000 records; without, a million, read a record at a time).
@@ -188,12 +190,18 @@ known as the compound's stereochemistry.
 
 The parent is what registration systems register: fragments that are salts or
 solvents Iki knows are taken off (matched by their structure, neutralised, so
-`[Cl-]` and `Cl` are both hydrochloride), of what's left the largest is kept
-(RDKit's LargestFragmentChooser), and it's neutralised where it can be
-(RDKit's Uncharger). So aspirin's sodium salt and aspirin are the same
+`[Cl-]` and `Cl` are both hydrochloride, and whatever configuration their
+stereocentres are drawn with, so sunitinib's (S)-malate is a malate and D-, L-
+and meso-tartrate are each a tartrate; a double bond's is kept, which tells
+maleate from fumarate, and so is an isotope, so D₂O isn't water), of what's
+left the largest is kept (RDKit's LargestFragmentChooser), and it's
+neutralised where it can be (RDKit's Uncharger). So aspirin's sodium salt and aspirin are the same
 compound, and its batch says `sodium`, one equivalent. Equivalents count for
 each parent: a calcium salt of two aspirins is half a calcium each. A part
 that isn't a salt or solvent Iki knows is left out, and the run warns which;
+with batches, its batch has no formula weight, since the part is in the
+material but what it adds isn't known (hydroxyzine pamoate's would be about
+half what it is), and the run says so, with what the drawing weighs for each parent;
 two different salts, or solvents, in one structure fail its line, since a
 batch records one of each. A name given with a structure is that structure's,
 so when the parent registered isn't the structure (aspirin from "aspirin

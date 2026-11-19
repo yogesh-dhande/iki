@@ -7,7 +7,9 @@ some other way than by the plugin's actions (by hand, through the API, with a ty
 its run fails, naming both keys, and the rest of a batch go on.
 
 A batch's formula weight is its compound's molecular weight, from the compound's SMILES,
-with its salt and solvent (`chemistry.formula_weight`).
+with its salt and solvent (`chemistry.formula_weight`). A batch whose structure as drawn
+has parts that are neither its compound nor a salt or solvent Iki knows has none: what
+they add to the material isn't known (`chemistry.weight_withheld`).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from chemistry import (
     from_smiles,
     identify,
     run_input,
+    standardise,
     write_output,
 )
 
@@ -74,6 +77,25 @@ def batches(run: dict[str, Any]) -> dict[str, Any]:
         except UnreadableError as why:
             messages.add("error", f"{found[0]['hrid']}: {why}.", entity["id"])
             continue
+        try:
+            left_out = _left_out(values.get("structure_as_drawn"), found[0]["values"]["smiles"])
+        except UnreadableError as why:
+            messages.add("error", f"{entity['hrid']}'s structure as drawn: {why}.", entity["id"])
+            continue
+        if left_out:
+            parts = ", ".join(left_out)
+            one = len(left_out) == 1
+            messages.add(
+                "warning",
+                f"{entity['hrid']} has no formula weight: its structure as drawn has {parts}, "
+                f"which {'is' if one else 'are'} neither {found[0]['hrid']} nor a salt or "
+                f"solvent Iki knows, so what {'it adds' if one else 'they add'} to the "
+                "material isn't known.",
+                entity["id"],
+            )
+            if values.get("formula_weight") is not None:
+                updates.append({"entity": entity["id"], "values": {"formula_weight": None}})
+            continue
         weight = formula_weight(
             mol,
             values.get("salt"),
@@ -84,6 +106,15 @@ def batches(run: dict[str, Any]) -> dict[str, Any]:
         updates.append({"entity": entity["id"], "values": {"formula_weight": round(weight, 3)}})
         print(f"{entity['hrid']} of {found[0]['hrid']}: {weight:.3f} g/mol")
     return {"updates": {"batch": updates}, "messages": messages.output()}
+
+
+def _left_out(drawn: str | None, compound: str) -> list[str]:
+    """The parts of a batch's structure as drawn that are neither its compound, nor a salt
+    or solvent Iki knows, as its registration left them out. A compound registered whole
+    is the structure drawn, so nothing of it was."""
+    if not drawn or drawn == compound:
+        return []
+    return standardise(from_smiles(drawn), parent=True).left_out
 
 
 def main() -> None:

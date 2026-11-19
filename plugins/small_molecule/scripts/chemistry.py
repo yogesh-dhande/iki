@@ -8,7 +8,10 @@ and so on), and charges moved to the most acidic sites. A compound is that struc
 whole, unless the run asks for its parent: then fragments that are known salts or
 solvents (`SALTS`, `SOLVENTS`) are taken off, of what's left the largest fragment is
 kept (RDKit's LargestFragmentChooser), and it's neutralised where it can be (RDKit's
-Uncharger). What was taken off is the batch's salt form.
+Uncharger). What was taken off is the batch's salt form. A salt or solvent is known by
+its constitution, whatever configuration its stereocentres are drawn with: (S)-malate is
+malate, and D-, L- and meso-tartrate are each tartrate. A part that's neither is left
+out, and a batch of it has no formula weight, since what it adds isn't known.
 
 A compound's identity is its standard InChIKey, from the InChI Trust's library, which
 RDKit's wheels carry, so the same structure drawn another way is the same compound.
@@ -47,7 +50,6 @@ MAX_CREATES = 10_000
 MAX_OUTPUT_BYTES = 2_500_000
 CREATES_FILE = "creates.ndjson"
 MAX_MESSAGES = 99
-WATER = 18.015
 
 
 class UnreadableError(Exception):
@@ -155,6 +157,7 @@ SALTS = {
         Counterion("maleate", adds="O=C(O)/C=C\\C(=O)O"),
         Counterion("fumarate", adds="O=C(O)/C=C/C(=O)O"),
         Counterion("succinate", adds="O=C(O)CCC(=O)O"),
+        # L-tartaric acid, (2R,3R), as most tartrates are; D- and meso- are tartrates too.
         Counterion("tartrate", adds="O=C(O)[C@H](O)[C@@H](O)C(=O)O"),
         Counterion("citrate", adds="O=C(O)CC(O)(CC(=O)O)C(=O)O"),
         Counterion("lactate", adds="CC(O)C(=O)O"),
@@ -200,11 +203,24 @@ def _neutral(mol: Chem.Mol) -> str:
     return str(Chem.MolToSmiles(uncharged))
 
 
+def _constitution(mol: Chem.Mol) -> str:
+    """What a salt or solvent is known by: its neutral canonical SMILES (`_neutral`), with
+    its stereocentres' configurations taken off. A counterion is the same salt whichever
+    enantiomer, or diastereomer, it is: sunitinib's (S)-malate is a malate, and a meso-
+    tartrate a tartrate. A double bond's configuration is kept, since it tells salts
+    apart: maleate is cis, fumarate trans. So is an isotope: heavy water isn't water."""
+    plain = Chem.RWMol(mol)
+    for atom in plain.GetAtoms():
+        atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    plain.SetStereoGroups([])
+    return _neutral(plain.GetMol())
+
+
 def _known() -> dict[str, tuple[str, Counterion]]:
     found: dict[str, tuple[str, Counterion]] = {}
     for kind, table in (("salt", SALTS), ("solvate", SOLVENTS)):
         for counterion in table.values():
-            key = counterion.metal or _neutral(Chem.MolFromSmiles(counterion.adds))
+            key = counterion.metal or _constitution(Chem.MolFromSmiles(counterion.adds))
             found[key] = (kind, counterion)
     return found
 
@@ -212,11 +228,17 @@ def _known() -> dict[str, tuple[str, Counterion]]:
 KNOWN = _known()
 
 
+def known_part(fragment: Chem.Mol) -> tuple[str, Counterion] | None:
+    """The salt or solvent a part of a structure is, if Iki knows it: ("salt", its
+    counterion) or ("solvate", its solvent)."""
+    return KNOWN.get(_constitution(fragment))
+
+
 def drawn_salts(mol: Chem.Mol) -> set[str]:
     """The salts Iki knows among a structure's parts, by name."""
     found = set()
     for fragment in Chem.GetMolFrags(mol, asMols=True):
-        known = KNOWN.get(_neutral(fragment))
+        known = known_part(fragment)
         if known is not None and known[0] == "salt":
             found.add(known[1].name)
     return found
@@ -278,6 +300,10 @@ class Registered:
     #: The structure as it was given, standardised, whole.
     as_drawn: str = ""
     warnings: list[str] = field(default_factory=list)
+    #: With the parent: its parts that are neither it nor a salt or solvent Iki knows,
+    #: which were left out, as SMILES; and how many parents it has.
+    left_out: list[str] = field(default_factory=list)
+    parents: int = 1
 
 
 def identify(mol: Chem.Mol) -> tuple[str, str, list[str]]:
@@ -377,7 +403,7 @@ def _parent(cleaned: Chem.Mol) -> Registered:
     taken: dict[tuple[str, str], int] = {}
     rest: list[Chem.Mol] = []
     for fragment in fragments:
-        known = KNOWN.get(_neutral(fragment))
+        known = known_part(fragment)
         if known is None:
             rest.append(fragment)
         else:
@@ -400,7 +426,7 @@ def _parent(cleaned: Chem.Mol) -> Registered:
             "It has other parts, which aren't salts or solvents Iki knows, so only its "
             f"largest part was kept: {', '.join(others)} left out."
         )
-    found = Registered(neutral, "", "", "", warnings=warnings)
+    found = Registered(neutral, "", "", "", warnings=warnings, left_out=others, parents=parents)
     for kind in ("salt", "solvate"):
         names = sorted(name for k, name in taken if k == kind)
         if len(names) > 1:
@@ -415,7 +441,8 @@ def _parent(cleaned: Chem.Mol) -> Registered:
                 found.solvate, found.solvate_equivalents = names[0], equivalents
     if not others:
         # Everything drawn is the parent, its salt and its solvent, so the formula weight
-        # from them must be the drawn structure's, for each parent.
+        # from them must be the drawn structure's, for each parent. With parts left out,
+        # there's no formula weight to check (`weight_withheld` says so).
         drawn = Descriptors.MolWt(cleaned) / parents
         computed = formula_weight(
             neutral, found.salt, found.salt_equivalents, found.solvate, found.solvate_equivalents
@@ -531,14 +558,33 @@ def name_left_out(registered: Registered, name: str, batches: bool) -> str | Non
     )
 
 
+def weight_withheld(registered: Registered) -> str | None:
+    """What to say of a batch whose structure has parts left out: it has no formula weight,
+    since those parts are in the material but what they add to it isn't known. A weight
+    without them would be too low, and a dose weighed out by it too little compound."""
+    if not registered.left_out:
+        return None
+    drawn = Descriptors.MolWt(Chem.MolFromSmiles(registered.as_drawn)) / registered.parents
+    one = len(registered.left_out) == 1
+    return (
+        f"Its batch has no formula weight: {', '.join(registered.left_out)} "
+        f"{'is' if one else 'are'} part of the material, but not a salt or solvent Iki "
+        f"knows, so what {'it adds' if one else 'they add'} isn't known. Its structure as "
+        f"drawn weighs {drawn:.3f} g/mol for each parent."
+    )
+
+
 def batch_values(registered: Registered) -> dict[str, Any]:
-    """A batch's salt form, from what was taken off its compound, and its formula weight."""
+    """A batch's salt form, from what was taken off its compound, and its formula weight,
+    unless parts of it that aren't salts or solvents were left out (`weight_withheld`)."""
     values: dict[str, Any] = {}
     if registered.as_drawn:
         values["structure_as_drawn"] = registered.as_drawn
     for name in ("salt", "salt_equivalents", "solvate", "solvate_equivalents"):
         if getattr(registered, name) is not None:
             values[name] = getattr(registered, name)
+    if registered.left_out:
+        return values
     values["formula_weight"] = round(
         formula_weight(
             registered.mol,
