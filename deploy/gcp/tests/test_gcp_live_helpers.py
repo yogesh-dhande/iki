@@ -276,8 +276,41 @@ def test_waiting_on_the_vm_tier_asks_again_when_a_request_stalls_and_keeps_evide
         found: dict[str, Any] = answer
         return found
 
-    d: Any = SimpleNamespace(gcp=Machines(), settings=settings)
+    d: Any = SimpleNamespace(gcp=Machines(), settings=settings, machine_observations=[])
     assert live.followed(d, "the run", look, {"succeeded", "failed"}, 60) == {"status": "succeeded"}
     written = (tmp_path / "logs" / "machines.log").read_text()
     assert "asking for the run failed: read timed out" in written
     assert written.count("iki-test-11190800-run-1") == 4
+    assert len(d.machine_observations) == 4
+
+
+def test_vm_attempt_requires_one_observed_instance_for_its_logical_worker() -> None:
+    launch = "01a1d3a1-04c4-7657-86e7-9bdd0aa33e57"
+    worker = "iki-run-" + launch.replace("-", "")
+    labels = {"iki-test": "true", "iki-launch": launch, "iki-deployment": SETTINGS.name}
+    vm: dict[str, Any] = {
+        "id": "101",
+        "name": f"{SETTINGS.name}-run-a",
+        "zone": "us-central1-b",
+        "labels": labels,
+    }
+    observations = [
+        {**vm, "name": f"{SETTINGS.name}other-run-a"},
+        {**vm, "labels": {**labels, "iki-test": "false"}},
+        {**vm, "labels": {**labels, "iki-launch": "another-launch"}},
+        {**vm, "labels": {}},
+    ]
+    deployment: Any = SimpleNamespace(settings=SETTINGS, machine_observations=observations)
+    with pytest.raises(AssertionError, match="expected one"):
+        live.check_attempt_machine(deployment, worker)
+    observations.append({**vm, "labels": {**labels, "iki-deployment": "other"}})
+    with pytest.raises(AssertionError):
+        live.check_attempt_machine(deployment, worker)
+    observations.pop()
+    observations.extend([vm, {**vm, "status": "STOPPING"}])
+    live.check_attempt_machine(deployment, worker)
+    with pytest.raises(AssertionError, match="invalid VM-tier worker name"):
+        live.check_attempt_machine(deployment, vm["name"])
+    observations.append({**vm, "id": "102"})
+    with pytest.raises(AssertionError, match="expected one"):
+        live.check_attempt_machine(deployment, worker)

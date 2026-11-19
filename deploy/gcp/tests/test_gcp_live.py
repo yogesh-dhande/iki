@@ -67,10 +67,11 @@ import re
 import shutil
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import gcp_cost
 import iki_live
@@ -81,9 +82,8 @@ from iki_live import REPO, Iki, until
 
 pytestmark = pytest.mark.gcp_live
 
-#: Bumped when what the suite checks changes: recorded with each passing run. 2: heavy
-#: runs and volumes on Compute Engine, with light stand-ins (48h).
-SUITE_VERSION = "3"
+#: Bumped when what the suite checks changes: recorded with each passing run.
+SUITE_VERSION = "4"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -587,6 +587,7 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
 @dataclass
 class Deployment(iki_live.Live):
     settings: Settings = None  # type: ignore[assignment]
+    machine_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def gcp(self) -> Gcp:
@@ -1205,17 +1206,38 @@ def setup_build(deployment: Deployment, compute_admin: Iki) -> dict[str, Any]:
 # --- What the VM tier's machines say, while they're there ------------------------------------
 
 
-def machines(gcp: Gcp, s: Settings) -> list[dict[str, Any]]:
-    """The deployment's VM-tier instances: named for it, as the provisioner names them."""
-    listed = gcp.gcloud(
+def machines(d: Deployment) -> list[dict[str, Any]]:
+    """List the deployment's current VMs and remember them after the provisioner deletes them."""
+    listed = d.gcp.gcloud(
         "compute",
         "instances",
         "list",
-        f"--filter=name~^{s.name}-",
-        "--format=json(name,zone.basename(),status,labels)",
+        f"--filter=name~^{d.settings.name}-",
+        "--format=json(id,name,zone.basename(),status,labels)",
     )
     found: list[dict[str, Any]] = json.loads(listed or "[]")
+    d.machine_observations.extend(found)
     return found
+
+
+def check_attempt_machine(deployment: Deployment, worker: str | None) -> None:
+    """Link the logical worker name to exactly one GCE instance observed during the run."""
+    launch = re.fullmatch(r"iki-run-([0-9a-f]{32})", worker or "")
+    assert launch, f"invalid VM-tier worker name: {worker!r}"
+    launch_id = str(UUID(launch[1]))
+    owner = deployment.settings.name
+    matches = {
+        (vm["zone"], vm["id"]): vm
+        for vm in deployment.machine_observations
+        if vm["name"].startswith(f"{owner}-")
+        and vm.get("labels", {}).get("iki-test") == "true"
+        and vm["labels"].get("iki-launch") == launch_id
+    }
+    assert len(matches) == 1, (
+        f"expected one {owner} GCE instance for {worker}, found {list(matches)}"
+    )
+    (machine,) = matches.values()
+    assert machine["labels"].get("iki-deployment") == owner, machine
 
 
 def keep_evidence(d: Deployment) -> list[dict[str, Any]]:
@@ -1227,7 +1249,7 @@ def keep_evidence(d: Deployment) -> list[dict[str, Any]]:
     logs = s.workdir / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     try:
-        found = machines(gcp, s)
+        found = machines(d)
     except AssertionError as error:
         with (logs / "machines.log").open("a") as out:
             out.write(f"listing failed: {error}\n")
@@ -1398,7 +1420,7 @@ def test_the_setup_build_fills_its_volume_on_a_compute_engine_machine(
         json.loads(key)["disk_kms_key"]
     ), described["imageEncryptionKey"]
     # Its machine shut itself down and was deleted, and the disk it filled too.
-    left = [m for m in machines(gcp, s) if m.get("labels", {}).get("iki-setup") == build["id"]]
+    left = [m for m in machines(deployment) if m.get("labels", {}).get("iki-setup") == build["id"]]
     assert not left, left
     disks = gcp.gcloud(
         "compute",
@@ -1416,7 +1438,6 @@ def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
     """Another e2-small, with a disk made from the version's image, mounted read-only: the
     run reads what the setup build wrote, keeps it as an artifact (uploaded from the
     machine to Cloud Storage), and records the version it read. Then its machine is gone."""
-    gcp, s = deployment.gcp, deployment.settings
     # Its runs wait for a version of the volume: with none to come, it fails now.
     build = admin.api("GET", f"/compute/setups/{setup_build['hrid']}").json()
     assert build["state"] == "succeeded", f"no version of the volume to read: {build}"
@@ -1435,8 +1456,6 @@ def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
     assert run["status"] == "succeeded", run
     (attempt,) = admin.api("GET", f"/runs/{run_id}/attempts").json()
     assert attempt["template"] == VM_TEMPLATE, attempt
-    # Its machine's name, which its worker took: the deployment's, then its launch's.
-    assert attempt["worker"].startswith(f"{s.name}-run-"), attempt
     read = attempt["volumes"][VM_VOLUME]
     assert (read["hrid"], read["data_version"]) == (build["hrid"], build["data_version"]), read
     artifacts = {a["path"]: a for a in admin.api("GET", f"/runs/{run_id}/artifacts").json()}
@@ -1461,7 +1480,8 @@ def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
     assert fields[1] == "/data/reference" and "ro" in fields[3].split(","), mount
     # The provisioner deletes the machine once it has shut itself down, and its disks
     # with it: none of the VM tier's is left.
-    until("the run's machine to go", lambda: not machines(gcp, s), 600, every=20)
+    until("the run's machine to go", lambda: not machines(deployment), 600, every=20)
+    check_attempt_machine(deployment, attempt["worker"])
 
 
 def test_tearing_down_leaves_only_what_google_cloud_keeps(deployment: Deployment) -> None:
