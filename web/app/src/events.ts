@@ -11,6 +11,9 @@
  *   something may have been missed meanwhile.
  * - A tab hidden for a while closes its stream and reopens it when shown, so
  *   background tabs don't hold a connection each.
+ * - Leaving the page closes its stream then, not when the browser gets round to
+ *   it, so a page kept for going back to holds no connection (a browser keeps a
+ *   page that has one open less often). It opens again when the page is back.
  * - If the server refuses the stream (too many tabs, or signed out), the
  *   browser stops; this checks who's signed in and tries again later.
  * - When the session has ended, the page says so (see `markSignedOut`) but
@@ -127,13 +130,25 @@ export function useLiveUpdates(enabled: boolean): void {
       }
     };
 
-    open();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+    const onPageHide = () => {
       clearTimeout(hiddenTimer);
       clearTimeout(retryTimer);
       close();
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      // Back from the back/forward cache: a page loaded anew opens its stream above.
+      if (event.persisted && document.visibilityState !== "hidden") open();
+    };
+
+    open();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+      onPageHide();
     };
   }, [enabled]);
 }

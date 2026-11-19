@@ -183,12 +183,24 @@ def playwright() -> Iterator[Playwright]:
         yield running
 
 
-@pytest.fixture(scope="module", params=BROWSERS)
-def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[Browser]:
+FIREFOX_PREFS = {
     # Headless Firefox on Linux turns WebGL off without a GPU; its software renderer
     # draws Mol* well enough to test (Chromium and WebKit use theirs anyway).
+    "webgl.force-enabled": True,
+    # When the machine's network changes (Docker adding or removing a container's
+    # interface, as testcontainers and other checks on the same machine do), Firefox
+    # closes each connection that carries nothing for the next 5 seconds
+    # (nsHttpConnectionMgr::VerifyTraffic): an open but quiet /api/v1/events stream, which
+    # the page then logs as "interrupted while the page was loading". The tests reach the
+    # server at 127.0.0.1, which no network change moves.
+    "network.notify.changed": False,
+}
+
+
+@pytest.fixture(scope="module", params=BROWSERS)
+def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[Browser]:
     options: dict[str, Any] = (
-        {"firefox_user_prefs": {"webgl.force-enabled": True}} if request.param == "firefox" else {}
+        {"firefox_user_prefs": FIREFOX_PREFS} if request.param == "firefox" else {}
     )
     try:
         launched = getattr(playwright, request.param).launch(**options)

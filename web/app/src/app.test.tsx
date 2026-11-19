@@ -1282,6 +1282,23 @@ describe("notifications", () => {
     expect(FakeEventSource.current()).toBeDefined();
     visibility.mockRestore();
   });
+
+  it("closes the stream when the page is left, and opens it again when the page is back", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const stream = FakeEventSource.current();
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+    });
+    expect(stream?.readyState).toBe(EventSource.CLOSED);
+    expect(FakeEventSource.current()).toBeUndefined();
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(FakeEventSource.current()).toBeDefined();
+    expect(FakeEventSource.opened).toHaveLength(2);
+  });
 });
 
 describe("webhooks", () => {
