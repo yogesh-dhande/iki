@@ -123,7 +123,9 @@ export function savedSearchesQuery(projectId: string) {
   });
 }
 
-/** Entities a reference can point at, for a picker: by HRID or the text in their title. */
+/** Entities a reference can point at, for a picker: by HRID or the text in their title. No
+ * placeholder: until the answer for `q` comes, a picker shows none, never another text's
+ * answer, which would change under someone choosing from it. */
 export function pickerQuery(type: string | undefined, q: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "picker", type ?? "", q.trim()],
@@ -140,7 +142,7 @@ export function pickerQuery(type: string | undefined, q: string) {
           },
         }),
       ).items,
-    placeholderData: (previous) => previous,
+    staleTime: 30_000,
   });
 }
 

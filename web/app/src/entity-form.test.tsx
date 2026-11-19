@@ -4,7 +4,7 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -17,7 +17,16 @@ import {
   renderApp,
   STRUCTURE,
 } from "./entity-fixtures";
-import { answer, calls, MAIN_REGISTRY, page, problem, respond, signedIn } from "./test-server";
+import {
+  answer,
+  calls,
+  MAIN_REGISTRY,
+  page,
+  problem,
+  respond,
+  signedIn,
+  type Sent,
+} from "./test-server";
 import { timing } from "./uploads";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a001";
@@ -296,6 +305,134 @@ describe("creating an entity", () => {
       "href",
       "/projects/kinase-atlas/entities/new/?type=lab.Sample",
     );
+  });
+});
+
+describe("choosing a reference as it's typed", () => {
+  const protein = (n: number, name: string) =>
+    entity({
+      id: `00000000-0000-7000-8000-0000000b000${String(n)}`,
+      hrid: `PRT-00000${String(n)}`,
+      values: { name },
+    });
+  const ABL1 = protein(1, "ABL1 kinase");
+  const ABL2 = protein(2, "ABL2 kinase");
+  const EGFR = protein(3, "EGFR kinase");
+  const ALL = [ABL1, ABL2, EGFR];
+
+  /** Each search, but the first, is answered only when let go: `release(q)` sends what
+   * matches `q`, whenever the test says, in whatever order. */
+  function holdSearches(): (q: string) => Promise<void> {
+    const waiting = new Map<string, () => void>();
+    answer("GET /api/v1/entities", (call: Sent) => {
+      const q = call.query.get("q") ?? "";
+      if (!q) return page(ALL);
+      return new Promise((resolve) => {
+        waiting.set(q, () => {
+          resolve(page(ALL.filter((e) => e.title.toLowerCase().includes(q.toLowerCase()))));
+        });
+      });
+    });
+    return async (q: string) => {
+      await waitFor(() => {
+        expect(waiting.has(q)).toBe(true);
+      });
+      await act(async () => {
+        waiting.get(q)?.();
+        await Promise.resolve();
+      });
+    };
+  }
+
+  async function openSource() {
+    onLab();
+    const release = holdSearches();
+    const rendered = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
+    const source = screen.getByRole("combobox", { name: /^Source/ });
+    await rendered.user.click(source);
+    await screen.findByRole("option", { name: /EGFR kinase/ });
+    return { ...rendered, source, release };
+  }
+
+  const shownText = () => screen.queryAllByRole("option").map((o) => o.textContent);
+
+  it("says it's searching until what's typed is answered, never listing another search's", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl");
+    // What the empty box found (EGFR among it) would move under the pointer when "abl"'s
+    // answer came: none of it shows.
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    // Said politely, as a status: focus stays in the box.
+    expect(screen.getByText("Searching…")).toHaveAttribute("role", "status");
+    expect(source).toHaveFocus();
+    await release("abl");
+    await waitFor(() => {
+      expect(shownText()).toEqual(["ABL1 kinase PRT-000001", "ABL2 kinase PRT-000002"]);
+    });
+    expect(screen.queryByText("Searching…")).not.toBeInTheDocument();
+  });
+
+  it("never lets an answer to earlier text replace the answer to what's typed", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl");
+    // "ab" was asked for on the way; its answer comes while "abl"'s is still on its way.
+    await release("ab");
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(screen.getByText("Searching…")).toBeInTheDocument();
+    await release("abl");
+    await waitFor(() => {
+      expect(shownText()).toEqual(["ABL1 kinase PRT-000001", "ABL2 kinase PRT-000002"]);
+    });
+    const shown = screen.getAllByRole("option");
+    // "a"'s comes last of all, and lists EGFR too: it changes nothing, not even an element.
+    await release("a");
+    expect(screen.getAllByRole("option")).toEqual(shown);
+  });
+
+  it("chooses the record clicked once the answer is in, and that's the one sent", async () => {
+    const { user, source, release } = await openSource();
+    answer(
+      "POST /api/v1/entities",
+      respond(201, { ...sample(), reused: false, registered: false }),
+    );
+    answer("GET /api/v1/entities/SMP-000001", sample());
+    answer("GET /api/v1/entities/SMP-000001/provenance", {});
+    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    await user.type(source, "abl");
+    await release("abl");
+    await user.click(await screen.findByRole("option", { name: /ABL2 kinase/ }));
+    expect(source).toHaveValue("ABL2 kinase (PRT-000002)");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Plasma A");
+    await user.type(screen.getByRole("textbox", { name: "Code" }), "P-1");
+    await user.click(screen.getByRole("button", { name: "Create sample" }));
+    await screen.findByText("Created SMP-000001.");
+    expect(
+      (calls("POST", "/api/v1/entities")[0]?.body as { values: { source: string } }).values.source,
+    ).toBe(ABL2.id);
+  });
+
+  it("keeps the chosen record first, where it is, as answers come", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl2");
+    await release("abl2");
+    await user.click(await screen.findByRole("option", { name: /ABL2 kinase/ }));
+    // Typed over: the chosen one stays listed, alone, until "kinase" is answered.
+    await user.type(source, "kinase", {
+      initialSelectionStart: 0,
+      initialSelectionEnd: "ABL2 kinase (PRT-000002)".length,
+    });
+    expect(shownText()).toEqual(["ABL2 kinase PRT-000002"]);
+    expect(screen.getByText("Searching…")).toBeInTheDocument();
+    const chosen = screen.getByRole("option");
+    await release("kinase");
+    await waitFor(() => {
+      expect(shownText()).toEqual([
+        "ABL2 kinase PRT-000002",
+        "ABL1 kinase PRT-000001",
+        "EGFR kinase PRT-000003",
+      ]);
+    });
+    expect(screen.getAllByRole("option")[0]).toBe(chosen);
   });
 });
 

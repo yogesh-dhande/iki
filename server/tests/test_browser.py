@@ -657,7 +657,27 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     page.get_by_role("textbox", name="Temperature optimum (optional)").fill("98.6")
     page.get_by_role("combobox", name="Unit for Temperature optimum").select_option("[degF]")
     picker = page.get_by_role("combobox", name="Encoded by (optional)")
+    # The search for "abl" is held. Until it's answered the picker says it's searching and
+    # lists nothing: not what the empty box found (abl1 among it), which the answer would
+    # move under the pointer, so a click on one record chose another, or nothing.
+    held: list[Any] = []
+
+    def searching_abl(url: str) -> bool:
+        return "/api/v1/entities?" in url and "q=abl" in url
+
+    def hold(route: Any) -> None:
+        held.append(route)
+
+    page.route(searching_abl, hold)
     picker.fill("abl")
+    page.get_by_text("Searching…").wait_for()
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert held and page.get_by_role("option").count() == 0
+    for route in held:
+        route.continue_()
+    page.unroute(searching_abl)
     page.get_by_role("option", name=re.compile("abl1")).click()
     assert picker.input_value() == f"abl1 ({gene.hrid})"
     page.get_by_role("button", name="Add Uniprot ids").click()
@@ -1925,12 +1945,18 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     states.get_by_text("Status: Received").wait_for()
     # Whoever reviews it is named before it's theirs.
     page.get_by_role("link", name="Edit", exact=True).click()
-    page.get_by_role("combobox", name="Reviewer").fill("adm")
+    reviewer = page.get_by_role("combobox", name="Reviewer")
+    reviewer.fill("adm")
     page.get_by_role("option").filter(has_text="admin@example.com").click()
     page.get_by_role("listbox").wait_for(state="hidden")
+    assert "(admin@example.com)" in reviewer.input_value()
     assert_clean(page)
     page.get_by_role("button", name="Save changes").click()
-    page.get_by_text(f"Saved revision 3 of {hrid}.").wait_for()
+    said = page.get_by_text(f"Saved revision 3 of {hrid}.")
+    # If it isn't saved, say why: the form's alert (nothing changed, someone saved first).
+    with contextlib.suppress(PlaywrightTimeoutError):
+        said.wait_for()
+    assert said.is_visible(), page.get_by_role("alert").all_inner_texts()
     page.get_by_role("listitem").filter(has_text="Reviewer: Admin").wait_for()
     for state in ("In testing", "In review"):
         states.get_by_role("button", name="Set Status").click()

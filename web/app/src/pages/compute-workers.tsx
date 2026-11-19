@@ -8,7 +8,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useDeferredValue, useState, type SubmitEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { iki, meQuery, problemOf, useApiMutation } from "../api";
@@ -315,12 +315,12 @@ function ScopeFields({
 }) {
   const [teamSearch, setTeamSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
-  const teamTerm = useDeferredValue(teamSearch);
-  const projectTerm = useDeferredValue(projectSearch);
   const teamIds = teams.map((t) => t.id);
-  const foundTeams = useQuery(quotaScopesQuery("team", teamTerm));
+  // Searched as typed, not deferred: only the answer for what's in the box is listed (see
+  // quotaScopesQuery), so a box isn't ticked for one team as another takes its place.
+  const foundTeams = useQuery(quotaScopesQuery("team", teamSearch));
   const foundProjects = useQuery({
-    ...quotaScopesQuery("project", projectTerm, teamIds),
+    ...quotaScopesQuery("project", projectSearch, teamIds),
     enabled: teams.length > 0,
   });
   // What's chosen stays listed, whatever the search finds.
@@ -355,11 +355,12 @@ function ScopeFields({
           help="It runs these teams’ self-hosted runs."
           error={errors["teams"]}
         />
-      ) : foundTeams.isPending ? (
-        <Loading label="Loading teams…" />
-      ) : (
+      ) : null}
+      {foundTeams.isPending ? (
+        <Loading label={teamSearch.trim() ? "Searching…" : "Loading teams…"} />
+      ) : teamOptions.length || foundTeams.isError ? null : (
         <p className="muted" role="status">
-          No teams{teamTerm.trim() ? ` with “${teamTerm.trim()}” in the name` : ""}.
+          No teams{teamSearch.trim() ? ` with “${teamSearch.trim()}” in the name` : ""}.
         </p>
       )}
       {teams.length ? (
@@ -389,6 +390,9 @@ function ScopeFields({
               help="Leave a team’s projects unticked for all of them, new ones included. Tick some to run only those of that team."
               error={errors["projects"]}
             />
+          ) : null}
+          {foundProjects.isPending ? (
+            <Loading label={projectSearch.trim() ? "Searching…" : "Loading projects…"} />
           ) : null}
         </>
       ) : null}

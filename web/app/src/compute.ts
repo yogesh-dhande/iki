@@ -96,7 +96,9 @@ export const quotasQuery = queryOptions({
 
 /**
  * Teams or projects to set a quota on or give a self-hosted worker to, any of them, by part
- * of the name; projects only of `teams`, when given.
+ * of the name; projects only of `teams`, when given. No placeholder: until the answer for
+ * `search` comes, none are listed, never another search's, which would change under someone
+ * choosing from them.
  */
 export function quotaScopesQuery(kind: QuotaScopeKind, search: string, teams: string[] = []) {
   return queryOptions({
@@ -109,6 +111,6 @@ export function quotaScopesQuery(kind: QuotaScopeKind, search: string, teams: st
           },
         }),
       ),
-    placeholderData: (previous) => previous,
+    staleTime: 30_000,
   });
 }

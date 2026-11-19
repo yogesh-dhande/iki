@@ -6,7 +6,7 @@
 
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { useDeferredValue, useState, type SubmitEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { iki, meQuery, problemOf, useApiMutation } from "../api";
@@ -207,9 +207,10 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
   const [tier, setTier] = useState<"all" | Tier>("all");
   const [running, setRunning] = useState(quota?.max_running?.toString() ?? "");
   const [queued, setQueued] = useState(quota?.max_queued?.toString() ?? "");
-  const term = useDeferredValue(search);
+  // Searched as typed, not deferred: only the answer for what's in the box is listed (see
+  // quotaScopesQuery), so a click meant for one team doesn't land on another.
   const scopes = useQuery({
-    ...quotaScopesQuery(kind === "organization" ? "team" : kind, term),
+    ...quotaScopesQuery(kind === "organization" ? "team" : kind, search),
     enabled: quota === undefined && kind !== "organization",
   });
 
@@ -307,7 +308,7 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
                       optional
                     />
                     {scopes.isPending ? (
-                      <Loading label={`Loading ${kind}s…`} />
+                      <Loading label={search.trim() ? "Searching…" : `Loading ${kind}s…`} />
                     ) : scopes.isError ? (
                       <ProblemAlert problem={problemOf(scopes.error)} />
                     ) : scopes.data.length ? (
@@ -326,7 +327,7 @@ function QuotaDialog({ quota, onClose }: { quota: Quota | undefined; onClose: ()
                       />
                     ) : (
                       <p className="muted" role="status">
-                        No {kind}s{term.trim() ? ` with “${term.trim()}” in the name` : ""}.
+                        No {kind}s{search.trim() ? ` with “${search.trim()}” in the name` : ""}.
                       </p>
                     )}
                   </>

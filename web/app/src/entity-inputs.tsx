@@ -9,10 +9,10 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  useDeferredValue,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -381,8 +381,61 @@ function pickedLabel(picked: Picked): string {
 }
 
 /**
+ * A picker's options: the chosen one first, where it stays as answers come, then those
+ * found. Each answer's rows come after it, so none moves under someone choosing.
+ */
+function withChosen(found: Picked[], chosen: Picked | null): Picked[] {
+  return chosen ? [chosen, ...found.filter((f) => f.id !== chosen.id)] : found;
+}
+
+/**
+ * What a picker's list says under its options: that it's searching, until the answer for
+ * the text in the box comes (it never shows another text's answer meanwhile), that the
+ * search failed, or that nothing matches. A status, kept in place while the list is open,
+ * so screen readers hear it change politely and focus stays in the box.
+ */
+function PickerMessage({
+  found,
+  shown,
+  none,
+}: {
+  found: { data: unknown; isError: boolean };
+  shown: number;
+  none: string;
+}) {
+  const message =
+    found.data === undefined
+      ? found.isError
+        ? "Couldn’t search. Try again in a moment."
+        : "Searching…"
+      : shown === 0
+        ? none
+        : "";
+  return (
+    <p className={message ? "listbox-empty" : "visually-hidden"} role="status">
+      {message}
+    </p>
+  );
+}
+
+/** An entity as a reference picker lists it. One function, so options aren't rebuilt for
+ * the same answer. */
+function refOption(item: Picked) {
+  return (
+    <Item key={item.id} textValue={pickedLabel(item)}>
+      <span>{item.title !== item.hrid ? item.title : item.hrid}</span>
+      {item.title !== item.hrid ? <span className="muted"> {item.hrid}</span> : null}
+    </Item>
+  );
+}
+
+/**
  * A reference: a combo box that searches as people type, from React Aria's hooks, which
- * handle its keyboard, focus and screen reader announcements.
+ * handle its keyboard, focus and screen reader announcements. It lists only the answer for
+ * the text in the box: until that comes it says it's searching. A search can't be worked
+ * out in the browser as people's can (see narrowNameable), and showing another text's
+ * answer meanwhile would let the answer land between pressing and releasing, so a click
+ * meant for one record chose another, or nothing.
  */
 function RefInput({ field, types, draft, onChange, error, note, disabled, itemLabel }: InputProps) {
   const picked = draft as Picked | null;
@@ -395,14 +448,20 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
   const text = typing.over === picked?.id ? typing.text : picked ? pickedLabel(picked) : "";
   // What was typed, not the chosen entity's label.
   const typed = picked && text === pickedLabel(picked) ? "" : text;
-  const search = useDeferredValue(typed);
-  const found = useQuery(pickerQuery(field.to ?? undefined, search));
+  // Asked for as typed, not deferred, so no render lists the answer for older text.
+  const found = useQuery(pickerQuery(field.to ?? undefined, typed));
   const target =
     field.to === "iki/core.Entity"
       ? "any entity"
       : inSentenceLabel(typeLabel(types, field.to ?? ""));
-  const items = (found.data ?? []).map((e) => ({ id: e.id, hrid: e.hrid, title: e.title }));
-  if (picked && !items.some((i) => i.id === picked.id)) items.unshift(picked);
+  const items = useMemo(
+    () =>
+      withChosen(
+        (found.data ?? []).map((e) => ({ id: e.id, hrid: e.hrid, title: e.title })),
+        picked,
+      ),
+    [found.data, picked],
+  );
   const help = helpText(field, note) ?? `Type an ID or a name to find ${target}.`;
   const label = itemLabel ?? field.label;
 
@@ -418,12 +477,7 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
     isDisabled: disabled ?? false,
     validationBehavior: "aria" as const,
     items,
-    children: (item: Picked) => (
-      <Item key={item.id} textValue={pickedLabel(item)}>
-        <span>{item.title !== item.hrid ? item.title : item.hrid}</span>
-        {item.title !== item.hrid ? <span className="muted"> {item.hrid}</span> : null}
-      </Item>
-    ),
+    children: refOption,
     inputValue: text,
     onInputChange: (value: string) => {
       setTyping({ text: value, over: value === "" ? undefined : picked?.id });
@@ -467,15 +521,11 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
       {state.isOpen ? (
         <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
           <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-          {state.collection.size === 0 ? (
-            <p className="listbox-empty">
-              {found.isFetching
-                ? "Searching…"
-                : typed
-                  ? `Nothing matches “${typed}”.`
-                  : "None yet."}
-            </p>
-          ) : null}
+          <PickerMessage
+            found={found}
+            shown={state.collection.size}
+            none={typed ? `Nothing matches “${typed}”.` : "None yet."}
+          />
         </Popover>
       ) : null}
     </div>
@@ -567,6 +617,16 @@ function personText(picked: Picked): string {
     : picked.title;
 }
 
+/** A person as a picker lists them (see refOption). */
+function personOption(item: Picked) {
+  return (
+    <Item key={item.id} textValue={personText(item)}>
+      <span>{item.title}</span>
+      {item.hrid && item.hrid !== item.title ? <span className="muted"> {item.hrid}</span> : null}
+    </Item>
+  );
+}
+
 export interface PersonPickerProps {
   label: string;
   projectId: string;
@@ -610,12 +670,14 @@ export function PersonPicker({
   // Asked for as typed, not deferred: the suggestions are only ever those for the text in
   // the box (see nameableQuery), so they don't change as someone moves to choose one.
   const found = useQuery(nameableQuery(projectId, role, typed));
-  const items: Picked[] = (found.data ?? []).map((p) => ({
-    id: p.id,
-    hrid: p.email,
-    title: p.name,
-  }));
-  if (value && !items.some((i) => i.id === value.id)) items.unshift(value);
+  const items = useMemo(
+    () =>
+      withChosen(
+        (found.data ?? []).map((p) => ({ id: p.id, hrid: p.email, title: p.name })),
+        value,
+      ),
+    [found.data, value],
+  );
   const shownHelp =
     help ??
     (roleLabel
@@ -634,12 +696,7 @@ export function PersonPicker({
     isDisabled: disabled,
     validationBehavior: "aria" as const,
     items,
-    children: (item: Picked) => (
-      <Item key={item.id} textValue={personText(item)}>
-        <span>{item.title}</span>
-        {item.hrid && item.hrid !== item.title ? <span className="muted"> {item.hrid}</span> : null}
-      </Item>
-    ),
+    children: personOption,
     inputValue: text,
     onInputChange: (next: string) => {
       setTyping({ text: next, over: next === "" ? undefined : value?.id });
@@ -686,15 +743,11 @@ export function PersonPicker({
       {state.isOpen ? (
         <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
           <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-          {state.collection.size === 0 ? (
-            <p className="listbox-empty">
-              {found.isFetching && !found.isPlaceholderData
-                ? "Searching…"
-                : typed
-                  ? `Nobody here matches “${typed}”.`
-                  : "Nobody can be named here yet."}
-            </p>
-          ) : null}
+          <PickerMessage
+            found={found}
+            shown={state.collection.size}
+            none={typed ? `Nobody here matches “${typed}”.` : "Nobody can be named here yet."}
+          />
         </Popover>
       ) : null}
     </div>

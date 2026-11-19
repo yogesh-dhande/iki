@@ -4,7 +4,7 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
@@ -101,6 +101,41 @@ describe("Compute → Quotas", () => {
     expect(calls("POST", "/api/v1/compute/quotas").map((c) => c.body)).toEqual([
       { project: PROJECT.id, tier: "vm", max_running: 4, max_queued: null },
     ]);
+  });
+
+  it("lists only the teams found for what's typed, saying it's searching till then", async () => {
+    onQuotas([]);
+    const team = (n: number, name: string) => ({
+      id: `00000000-0000-7000-8000-0000000000t${String(n)}`,
+      name,
+    });
+    const teams = [team(1, "Antibodies"), team(2, "Biologics")];
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer("GET /api/v1/compute/quota-scopes", async (r: { query: URLSearchParams }) => {
+      const search = r.query.get("search") ?? "";
+      if (!search) return teams;
+      await held;
+      return teams.filter((t) => t.name.toLowerCase().includes(search));
+    });
+    const { user } = await renderApp("/compute/quotas/");
+    await card().findByText(/No quotas/);
+    await user.click(card().getByRole("button", { name: "Set a quota" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
+    await user.click(dialog.getByRole("radio", { name: /A team/ }));
+    await dialog.findByRole("radio", { name: "Antibodies" });
+    await user.type(dialog.getByRole("textbox", { name: /Find a team/ }), "bio");
+    // The empty search's teams would move under the pointer when "bio"'s came: not shown.
+    expect(dialog.queryByRole("radio", { name: "Antibodies" })).not.toBeInTheDocument();
+    expect(dialog.getByRole("status")).toHaveTextContent("Searching…");
+    await act(async () => {
+      release();
+      await held;
+    });
+    expect(await dialog.findByRole("radio", { name: "Biologics" })).toBeInTheDocument();
+    expect(dialog.queryByRole("radio", { name: "Antibodies" })).not.toBeInTheDocument();
   });
 
   it("asks for a whole number", async () => {
