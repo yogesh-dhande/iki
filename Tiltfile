@@ -108,7 +108,7 @@ custom_build(
         # A local `make web` build; the image builds its own.
         'server/src/iki_server/web/static/app',
         # What deploy/dev/build-wasm.sh writes.
-        'spec/src/iki_spec/iki_wasm*',
+        '**/iki_spec/iki_wasm*',
     ],
 )
 
@@ -124,7 +124,7 @@ custom_build(
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',
     ],
-    ignore=['**/__pycache__', 'spec/src/iki_spec/iki_wasm*'],
+    ignore=['**/__pycache__', '**/iki_spec/iki_wasm*'],
 )
 
 k8s_yaml(helm(
