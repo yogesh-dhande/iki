@@ -1,0 +1,70 @@
+WEBVTT
+
+title
+00:00:00.000 --> 00:00:02.822
+Entities: one record, its whole history.
+
+problem-copies
+00:00:04.022 --> 00:00:08.326
+One antibody, trastuzumab, lives in
+five spreadsheets and a notebook.
+
+problem-names
+00:00:08.326 --> 00:00:13.741
+Each copy has its own name, and
+its own version of the sequence.
+
+problem-truth
+00:00:13.741 --> 00:00:17.804
+The same molecule, six
+versions of the truth.
+
+entity-one
+00:00:19.904 --> 00:00:24.948
+In Iki, it’s one entity: a typed
+record, defined by a plugin.
+
+entity-plugin
+00:00:24.948 --> 00:00:29.993
+The antibody plugin defines the type:
+its chains, format, isotype and target.
+
+identity-same
+00:00:31.193 --> 00:00:35.496
+Iki knows what makes two
+antibodies the same: their chains.
+
+identity-found
+00:00:35.496 --> 00:00:41.652
+Register the same chains again, and
+Iki finds ABY-000001, not a duplicate.
+
+registry-records
+00:00:42.852 --> 00:00:48.267
+One registry entry, one ID. Each
+project keeps its own record of it.
+
+history-revisions
+00:00:49.467 --> 00:00:54.881
+Every change is a new revision: who,
+when, how, and any reason given.
+
+history-kept
+00:00:54.881 --> 00:00:58.444
+Revisions can’t be changed
+or removed, by anyone.
+
+lineage-links
+00:00:59.644 --> 00:01:05.059
+Entities link to everything made from
+them, so you can always trace back.
+
+lineage-signed
+00:01:05.059 --> 00:01:10.474
+A lot’s release takes QA’s signature:
+a fresh sign-in, tied to that revision.
+
+close
+00:01:11.674 --> 00:01:15.978
+Entities are what everything
+in Iki works on. Next: actions.

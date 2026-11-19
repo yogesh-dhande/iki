@@ -3,6 +3,8 @@ packages:
   - "web/packages/*"
   # Builds the small_molecule plugin's depiction component from RDKit.js.
   - "plugins/small_molecule/web"
+  # The explainer videos (Motion Canvas), apart from the web app's dependencies.
+  - "media/videos"
 
 # Supply-chain hardening.
 # Refuse package versions published less than 3 days ago, which gives the
@@ -14,5 +16,8 @@ onlyBuiltDependencies: []
 # (it comes with swagger-ui-dist, which Mol*'s server tools use).
 allowBuilds:
   "@scarf/scarf": false
+  # Not needed: esbuild's install script (Vite 6's, for the videos) only checks that its
+  # platform binary, an optional dependency, is the one installed.
+  esbuild: false
 strictDepBuilds: true
 engineStrict: true

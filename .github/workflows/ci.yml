@@ -28,6 +28,7 @@ jobs:
       contents: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      videos: ${{ steps.diff.outputs.videos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -367,6 +368,34 @@ jobs:
         run: scripts/check-client.sh
       - name: Build
         run: pnpm build
+
+  # The explainer videos (media/videos): every script against its schema and rules, its
+  # captions against the committed .vtt, and a still from every scene, rendered headless.
+  # Only when they, the design tokens or the packages changed. The rendered MP4s are in
+  # Git LFS, which checkout doesn't fetch; nothing here reads them.
+  videos:
+    name: Videos
+    needs: changes
+    if: needs.changes.outputs.videos == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Install headless Chromium
+        run: pnpm --filter @ikisci/videos exec playwright-core install --with-deps chromium-headless-shell
+      - name: Scripts, captions and a still from every scene
+        run: make video-check
 
   rust:
     name: Rust
@@ -751,6 +780,7 @@ jobs:
         python-tests,
         python-summary,
         web,
+        videos,
         rust,
         server-image,
         worker-image,

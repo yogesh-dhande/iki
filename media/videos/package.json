@@ -1,0 +1,29 @@
+{
+  "name": "@ikisci/videos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Iki's explainer videos: Motion Canvas scenes driven by one script per video.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "render": "node tools/render.ts",
+    "check": "node tools/check.ts",
+    "captions": "node tools/captions.ts",
+    "frames": "node tools/frames.ts",
+    "tokens": "node tools/tokens.ts",
+    "schema": "node tools/schema.ts",
+    "editor": "vite"
+  },
+  "devDependencies": {
+    "@motion-canvas/2d": "3.17.2",
+    "@motion-canvas/core": "3.17.2",
+    "@motion-canvas/ui": "3.17.2",
+    "@motion-canvas/vite-plugin": "3.17.2",
+    "playwright-core": "1.65.0",
+    "vite": "6.4.6",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  }
+}

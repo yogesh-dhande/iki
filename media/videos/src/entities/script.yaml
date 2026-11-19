@@ -1,0 +1,361 @@
+# yaml-language-server: $schema=../../script.schema.json
+#
+# Entities: one record, its whole history. The first of Iki's concept videos.
+# Checked against the product on 2026-11-19. Where a line rests on a decision, the ADR is
+# named beside it; re-check those when the product changes (README: "After product changes").
+id: entities
+title: "Entities: one record, its whole history"
+series: Iki concepts
+target: 75
+scenes:
+  - id: title
+    layout: title
+    slots:
+      eyebrow: Iki concepts
+      title: Entities
+      subtitle: One record, its whole history
+    beats:
+      - id: title
+        say: "Entities: one record, its whole history."
+        do:
+          - together:
+              - show: eyebrow
+              - show: title
+                as: rise
+              - show: subtitle
+                as: rise
+
+  # The problem: one antibody, scattered. The differences are the kind real copies have:
+  # names, case, a stop codon's asterisk, only the variable domain.
+  - id: problem
+    layout: gallery
+    slots:
+      heading: Before
+      items:
+        - fragment:
+            kind: spreadsheet
+            file: antibodies_master.xlsx
+            columns: [Name, Heavy chain]
+            rows:
+              - [Trastuzumab, EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIH]
+        - fragment:
+            kind: spreadsheet
+            file: her2_program.xlsx
+            columns: [Molecule, HC sequence]
+            rows:
+              - [Herceptin, evqlvesgggLVQPGGSLRLSCAASGFNIKDTYIH]
+            highlight: [[0, 0], [0, 1]]
+        - fragment:
+            kind: spreadsheet
+            file: binding_assays.csv
+            columns: [Sample, Light chain]
+            rows:
+              - [TRZ-01, DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVA]
+            highlight: [[0, 0]]
+        - fragment:
+            kind: spreadsheet
+            file: cmc_tracker.xlsx
+            columns: [Product, Heavy chain ends]
+            rows:
+              - [Tras. biosimilar, "…SLSLSPG*"]
+            highlight: [[0, 0], [0, 1]]
+        - fragment:
+            kind: spreadsheet
+            file: structures_q3.xlsx
+            columns: [Name, VH only]
+            rows:
+              - [Trastuzumab Fv, EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIH]
+            highlight: [[0, 1]]
+        - fragment:
+            kind: notebook
+            file: notebook p. 42
+            rows:
+              - ["trastuzumab, re-sequenced:"]
+              - ["HC EVQLV ESGGG LVQPG …"]
+              - ["LC DIQMT QSPSS LSASV …"]
+            highlight: [[0, 0]]
+    beats:
+      - id: problem-copies
+        caption: One antibody, trastuzumab, lives in five spreadsheets and a notebook.
+        do:
+          - together:
+              - show: item:1
+                as: rise
+              - show: item:2
+                as: rise
+              - show: item:3
+                as: rise
+              - show: item:4
+                as: rise
+              - show: item:5
+                as: rise
+              - show: item:6
+                as: rise
+      - id: problem-names
+        caption: Each copy has its own name, and its own version of the sequence.
+      - id: problem-truth
+        caption: The same molecule, six versions of the truth.
+        hold: short
+
+  # The copies become one entity. The antibody type is the iki/antibody plugin's
+  # (plugins/antibody/types/antibody.yaml); its chains are Protein entries (PRT), its
+  # HRID prefix is ABY, numbered from 1 per deployment (ADR 0096).
+  - id: entity
+    layout: record-inset
+    transition:
+      custom: collapse
+      length: deliberate
+    slots:
+      record:
+        type: Antibody
+        hrid: ABY-000001
+        name: Trastuzumab
+        fields:
+          - label: Heavy chain
+            value: PRT-000001
+            kind: id
+            detail: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+            detailKind: sequence
+          - label: Light chain
+            value: PRT-000002
+            kind: id
+            detail: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+            detailKind: sequence
+          - label: Format
+            value: igg
+          - label: Isotype
+            value: igg1
+          - label: Target
+            value: HER2
+      inset:
+        name: iki/antibody
+        provides: Defines the Antibody type
+        fields:
+          - { name: components, type: heavy and light chains }
+          - { name: format, type: "igg, fab, fv, scfv, vhh…" }
+          - { name: isotype, type: igg1 … igd }
+          - { name: target, type: text }
+      link: defines its type
+    beats:
+      - id: entity-one
+        caption: "In Iki, it’s one entity: a typed record, defined by a plugin."
+      - id: entity-plugin
+        caption: "The antibody plugin defines the type: its chains, format, isotype and target."
+        do:
+          - show: link
+            as: draw
+          - show: inset
+            as: rise
+
+  # Identity: an antibody is its parts, as an unordered set of (part, copies); proteins are
+  # their sequences (ADR 0138). Registering it again in another project gives that project
+  # its own record of the entry: web/app/src/registries.ts's createdMessage.
+  - id: identity
+    layout: split
+    slots:
+      left:
+        label: Biosimilars registers
+        content:
+          record:
+            type: Antibody
+            name: Herceptin reference
+            fields:
+              - label: Heavy chain
+                value: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKG
+                kind: sequence
+              - label: Light chain
+                value: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSG
+                kind: sequence
+      right:
+        label: In the registry
+        content:
+          record:
+            type: Antibody
+            hrid: ABY-000001
+            name: Trastuzumab
+            fields:
+              - label: Heavy chain
+                value: PRT-000001
+                kind: id
+              - label: Light chain
+                value: PRT-000002
+                kind: id
+      link: same chains
+      note:
+        tone: accent
+        text: ABY-000001 was registered already, so Biosimilars now has its own record of it.
+        link: ABY-000001
+    beats:
+      - id: identity-same
+        caption: "Iki knows what makes two antibodies the same: their chains."
+        do:
+          - show: left
+            as: rise
+          - together:
+              - show: link
+                as: draw
+              - show: right
+                as: rise
+      - id: identity-found
+        caption: Register the same chains again, and Iki finds ABY-000001, not a duplicate.
+        say: Register the same chains again, and Iki finds A B Y one, not a duplicate.
+        do:
+          - show: note
+            as: rise
+
+  # Registry entries and project records (ADR 0115): the entry holds the identity and its
+  # one ID; each project's record holds that project's own values.
+  - id: registry
+    layout: graph
+    slots:
+      direction: down
+      nodes:
+        - id: entry
+          kind: Registry entry
+          title: Its chains, PRT-000001 and PRT-000002
+          hrid: ABY-000001
+          focus: true
+        - id: her2
+          kind: HER2 Program’s record
+          title: Trastuzumab
+          hrid: ABY-000001
+        - id: biosimilars
+          kind: Biosimilars’ record
+          title: Herceptin reference
+          hrid: ABY-000001
+      edges:
+        - { from: entry, to: her2 }
+        - { from: entry, to: biosimilars }
+    beats:
+      - id: registry-records
+        caption: One registry entry, one ID. Each project keeps its own record of it.
+        do:
+          - show: node:entry
+            as: pop
+          - together:
+              - show: edge:entry>her2
+                as: draw
+              - show: edge:entry>biosimilars
+                as: draw
+              - show: node:her2
+                as: rise
+              - show: node:biosimilars
+                as: rise
+
+  # History (ADR 0035): revisions are numbered, append-only, and record who, when, how
+  # (web, API, MCP or a run) and an optional reason. The History tab: "Revisions can't be
+  # changed or removed, by anyone."
+  - id: history
+    layout: timeline
+    slots:
+      subject: { type: Antibody, hrid: ABY-000001, name: Trastuzumab }
+      revisions:
+        - number: 1
+          what: Created
+          who: Priya Shah
+          when: 2 Mar 2026, in the web app
+        - number: 2
+          what: Edited
+          who: Priya Shah
+          when: 9 Mar 2026, in the web app
+          why: Target confirmed by SPR
+        - number: 3
+          what: Edited
+          who: Tomás Rivera
+          when: 21 Apr 2026, through the API
+          why: Description from the CMC review
+        - number: 4
+          what: Edited
+          who: Dana Kim
+          when: 3 Jun 2026, in the web app
+    beats:
+      - id: history-revisions
+        caption: "Every change is a new revision: who, when, how, and any reason given."
+        do:
+          - show: axis
+            as: draw
+          - together:
+              - show: revision:1
+                as: rise
+              - show: revision:2
+                as: rise
+              - show: revision:3
+                as: rise
+              - show: revision:4
+                as: rise
+      - id: history-kept
+        caption: Revisions can’t be changed or removed, by anyone.
+        do:
+          - emphasize: revision:1
+
+  # Lineage (ADR 0123): a lot names what it's a lot of; ImmuneBuilder's run made a
+  # structure from the antibody. A lot's release is a state that needs QA's signature
+  # (plugins/lots/types/lot.yaml; ADRs 0124, 0126): antibodies themselves have no states
+  # to sign.
+  - id: lineage
+    layout: graph
+    slots:
+      direction: right
+      nodes:
+        - id: antibody
+          kind: Antibody
+          title: Trastuzumab
+          hrid: ABY-000001
+          focus: true
+        - id: lot
+          kind: Protein lot
+          title: Lot 26-031
+          hrid: PLOT-000001
+          signature:
+            verb: Approved
+            by: Dana Kim
+            when: on 2026-06-10 at 14:03:22 UTC
+            meaning: QA release
+        - id: run
+          kind: Run
+          title: Predict structure with ImmuneBuilder
+          hrid: RUN-000007
+        - id: structure
+          kind: Protein structure
+          title: Trastuzumab Fv model
+          hrid: PST-000001
+      edges:
+        - { from: antibody, to: lot, label: lot of it }
+        - { from: antibody, to: run, label: input }
+        - { from: run, to: structure, label: made }
+    beats:
+      - id: lineage-links
+        caption: Entities link to everything made from them, so you can always trace back.
+        do:
+          - together:
+              - show: edge:antibody>lot
+                as: draw
+              - show: node:lot
+                as: rise
+          - together:
+              - show: edge:antibody>run
+                as: draw
+              - show: node:run
+                as: rise
+          - together:
+              - show: edge:run>structure
+                as: draw
+              - show: node:structure
+                as: rise
+      - id: lineage-signed
+        caption: "A lot’s release takes QA’s signature: a fresh sign-in, tied to that revision."
+        do:
+          - show: signature:lot
+            as: pop
+
+  - id: close
+    layout: closing
+    slots:
+      statement: Entities are what everything in Iki works on.
+      next: "Next: actions"
+    beats:
+      - id: close
+        say: "Entities are what everything in Iki works on. Next: actions."
+        do:
+          - show: next
+            as: rise

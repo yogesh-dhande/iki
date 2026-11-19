@@ -91,6 +91,17 @@ check-python: ## Ruff, mypy (strict) and pytest
 	uv run mypy
 	uv run pytest $(PYTEST_PARALLEL)
 
+# The explainer videos (media/videos/README.md). Not part of `check`: rendering is slow.
+VIDEO ?= entities
+
+.PHONY: video
+video: ## Render a video headless: make video VIDEO=entities (out/<video>.mp4, .vtt, .json)
+	$(PNPM) --filter @ikisci/videos exec node tools/render.ts $(VIDEO)
+
+.PHONY: video-check
+video-check: ## Check every video's script and captions, and render a still from each scene
+	$(PNPM) --filter @ikisci/videos exec node tools/check.ts
+
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations
 	uv run python scripts/build_core.py
