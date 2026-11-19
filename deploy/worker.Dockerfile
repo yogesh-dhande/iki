@@ -36,4 +36,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM ${IKI_WORKER_IMAGE}
 COPY --from=build /opt/iki/python /opt/iki/python
 COPY --from=build /opt/iki/envs /opt/iki/envs
-COPY plugins /opt/iki/plugins
+# A private build context still has to be readable by the non-root worker.
+COPY --chmod=u=rwX,go=rX plugins /opt/iki/plugins
