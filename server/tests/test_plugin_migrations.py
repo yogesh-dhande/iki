@@ -2120,6 +2120,52 @@ def test_a_rollback_that_loses_a_value_fails(versioned: Path, _postgres_url: str
     )
 
 
+def test_an_upgrade_keeps_each_revisions_values_as_its_migrations_say(
+    versioned: Path, _postgres_url: str
+) -> None:
+    """Each sample is made in two revisions, the first with only what it needs, and each
+    revision's values are compared after the upgrade: renamed and converted as its
+    migrations say they were (ADR 0148), and otherwise as they were. (A rename's rollback
+    is refused, so this one is one-way; the rollback's comparison is the test above's.)"""
+    write_sample(
+        versioned,
+        ("  name: {", "  title: {"),
+        ("unit: g,", "unit: mg,"),
+        ("schema_version: 1", "schema_version: 2"),
+    )
+    (versioned / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
+    (versioned / "tests" / "weighed.yaml").write_text(WEIGHED.replace("name: S1", "title: S1"))
+    made("lab", "--name", "changes", cwd=versioned.parent, answers="y\n")
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "  ok      upgraded: the samples and their history are intact" in result.stdout
+
+
+def test_an_upgrade_that_loses_a_revisions_values_fails(
+    versioned: Path, _postgres_url: str
+) -> None:
+    """A migration that empties a column of history, its records' own values intact: every
+    revision still reads, at the same revision count, but not what it held."""
+    (versioned / "migrations" / "0002_lose_counts.py").write_text(
+        "from django.db import migrations\n\n\n"
+        "class Migration(migrations.Migration):\n"
+        '    dependencies = [("acme__lab", "0001_initial")]\n'
+        "    operations = [\n"
+        "        migrations.RunSQL(\n"
+        '            "ALTER TABLE acme__lab_sample__history DROP COLUMN count; "\n'
+        '            "ALTER TABLE acme__lab_sample__history ADD COLUMN count integer",\n'
+        "            migrations.RunSQL.noop,\n"
+        "        )\n"
+        "    ]\n"
+    )
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "  FAILED  upgraded: the samples and their history are intact" in result.stdout
+    assert "SMP-000001's revision 2 (weighed's sample 1) held count 3, and holds null." in (
+        result.stdout
+    )
+
+
 def test_an_upgrade_needs_a_commit_and_a_database(versioned: Path, _postgres_url: str) -> None:
     result = iki("plugin", "test", versioned, "--upgrade-from", "main", "-k", "none", cwd=versioned)
     assert result.returncode == 1

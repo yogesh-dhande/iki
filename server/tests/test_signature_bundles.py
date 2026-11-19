@@ -19,7 +19,7 @@ from test_states import ANALYST, QA, REVIEWER, roles
 from iki_cli import bundle as cli
 from iki_server.bundles import reading
 from iki_server.entities.models import Entity, Revision
-from iki_server.signatures import offline
+from iki_server.signatures import offline, proof
 from iki_server.signatures.models import ForeignSigningKey, Signature, SigningKey
 
 pytestmark = pytest.mark.django_db
@@ -164,6 +164,11 @@ def test_offline_verification_reads_history_through_the_migrations_since(
     found = offline._one({**line, "since": [converted]}, keys, record, {})
     [check] = [c for c in found.checks if not c.ok]
     assert "`label` was signed in no unit, but a migration converted it from g" in check.detail
+    # An empty quantity converts to an empty one.
+    empty = {"values": {"mass": None, "masses": [1.5, None]}, "units": {"mass": "g", "masses": "g"}}
+    grams = {**converted, "from_unit": "g", "to_unit": "mg"}
+    changes = [{**grams, "field": "mass"}, {**grams, "field": "masses"}]
+    assert proof.migrated(empty, changes)["values"] == {"mass": None, "masses": [1500.0, None]}
 
 
 def test_the_bundle_command_reports_json(world: World, tmp_path: Path) -> None:

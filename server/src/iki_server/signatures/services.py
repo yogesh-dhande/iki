@@ -782,7 +782,23 @@ def since(signature: Signature, entity: Entity) -> list[dict[str, Any]]:
     as its bundle said. Only changes to the tables the record's fields are in count, as
     those tables were named then. Raises :class:`proof.Unexplained` for one that this
     deployment's signing key didn't sign: not a migration's."""
-    rows = list(HistoryChange.objects.filter(pk__gt=signature.history_seen).order_by("-pk"))
+    kept = history_changes(entity, signature.history_seen)
+    if kept:
+        own = signing_keys.mine()
+        for row in kept:
+            if row.key not in own or not keys.verify(row.key, bytes(row.signature), row.signed()):
+                raise proof.Unexplained(
+                    f"a change to its history recorded since ({row.kind} of `{row.name}`) "
+                    "isn’t signed by this deployment’s key, as a migration’s is."
+                )
+    return [*(signature.migrated or []), *(r.change() for r in kept)]
+
+
+def history_changes(entity: Entity, seen: int) -> list[HistoryChange]:
+    """What plugins' migrations have done to the record's kept history since ``seen``
+    (:func:`history_seen`), in the order they did it (ADR 0148): only changes to the tables
+    its fields are in, as those tables were named then."""
+    rows = list(HistoryChange.objects.filter(pk__gt=seen).order_by("-pk"))
     parts = {p.name for p in shape(entity.type).parts}
     kept: list[HistoryChange] = []
     for row in rows:  # newest first, so each is matched to the tables as named then
@@ -793,15 +809,7 @@ def since(signature: Signature, entity: Entity) -> list[dict[str, Any]]:
                 parts = named
         elif row.part in parts:
             kept.append(row)
-    if kept:
-        own = signing_keys.mine()
-        for row in kept:
-            if row.key not in own or not keys.verify(row.key, bytes(row.signature), row.signed()):
-                raise proof.Unexplained(
-                    f"a change to its history recorded since ({row.kind} of `{row.name}`) "
-                    "isn’t signed by this deployment’s key, as a migration’s is."
-                )
-    return [*(signature.migrated or []), *(r.change() for r in reversed(kept))]
+    return kept[::-1]
 
 
 def _retyped(part: str, new: str, old: str) -> str:
