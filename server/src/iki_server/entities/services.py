@@ -558,26 +558,9 @@ def fill_entry(
         return None
     locked = Entity.objects.select_for_update().get(pk=entry.pk)
     rows = Rows(form, None, _specific(locked))
-    errors: dict[str, list[str]] = {}
-    new: dict[str, Any] = {}
-    for name, value in values.items():
-        part = form.part_of(name)
-        f = part.fields[name]
-        current = rows.value(part, f)
-        empty = current is None or current == []
-        if value == current or (empty and (value is None or value == [])):
-            continue
-        if empty:
-            new[name] = value
-        elif value is None or value == []:
-            if explicit:
-                errors[name] = [settled(locked)]
-        elif f.registry == "fact":
-            errors[name] = [settled(locked)]
-        elif explicit or f.registry is None:
-            errors[name] = [
-                f"is {locked.hrid}'s registry entry's, as its identity gives it: it can't change."
-            ]
+    current = {name: rows.get(name) for name in values}
+    new, refused = entry_changes(form, current, values, explicit=explicit)
+    errors = {name: [refusal(locked, why)] for name, why in refused.items()}
     if not errors and new:
         errors = unique.taken(project, form, new, entry=locked.pk)
     if errors:
@@ -597,6 +580,44 @@ def fill_entry(
     _write_history(touched, rows, revision.number)
     _use_files(form.fields(), locked.pk, new, revision.number)
     return revision
+
+
+def entry_changes(
+    form: Shape,
+    current: Mapping[str, Any],
+    values: Mapping[str, Any],
+    *,
+    explicit: bool = False,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """What ``values`` change of an entry whose values are ``current``, both as the database
+    stores them (see :func:`fill_entry`): the values it sets, where the entry's are empty,
+    and those it can't, by why: ``settled`` (a fact the entry has another value for) or
+    ``identity`` (a value its identity gives it)."""
+    new: dict[str, Any] = {}
+    refused: dict[str, str] = {}
+    for name, value in values.items():
+        f = form.part_of(name).fields[name]
+        has = current.get(name)
+        empty = has is None or has == []
+        if value == has or (empty and (value is None or value == [])):
+            continue
+        if empty:
+            new[name] = value
+        elif value is None or value == []:
+            if explicit:
+                refused[name] = "settled"
+        elif f.registry == "fact":
+            refused[name] = "settled"
+        elif explicit or f.registry is None:
+            refused[name] = "identity"
+    return new, refused
+
+
+def refusal(entry: Entity, why: str) -> str:
+    """Why a holder can't set an entry's value, as :func:`entry_changes` says."""
+    if why == "settled":
+        return settled(entry)
+    return f"is {entry.hrid}'s registry entry's, as its identity gives it: it can't change."
 
 
 def settled(entry: Entity) -> str:
