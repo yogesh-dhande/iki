@@ -122,9 +122,19 @@ class _Stored:
 
 
 def files(*, sample: int | None, hashes: bool, external: bool) -> Check:
+    """A file the records name and the check didn't read is a failure, not a pass: a
+    restore whose storage isn't configured, or isn't reached, holds no file anyone can
+    read, however whole its database is."""
     found = Check("Files in storage")
+    expected = _expected(external=external)
     if not storage.configured():
-        found.note = "File storage isn't configured, so no file was checked."
+        if expected:
+            found.problem(
+                f"{expected} stored files are recorded, and file storage isn't configured"
+            )
+            found.note = "Set IKI_FILES_BUCKET to the bucket the files were restored to."
+        else:
+            found.note = "File storage isn't configured, and no file is recorded."
         return found
     kinds: list[Iterable[_Stored]] = [_own_blobs(), _artifacts()]
     if external:
@@ -133,9 +143,21 @@ def files(*, sample: int | None, hashes: bool, external: bool) -> Check:
         for stored in _sampled(kind, sample):
             found.checked += 1
             _check_one(found, stored, hashes=hashes)
+    if expected and not found.checked:
+        found.problem(f"{expected} stored files are recorded, and none was checked")
     if not external:
         found.note = "Files registered from other buckets weren't checked (--external)."
     return found
+
+
+def _expected(*, external: bool) -> int:
+    """How many stored files the records name, of the kinds this check reads."""
+    from iki_server.files.models import Blob, UploadState
+    from iki_server.runs.models import RunArtifact
+
+    blobs = Blob.objects.all() if external else Blob.objects.filter(registered_external=False)
+    artifacts = RunArtifact.objects.filter(deleted_at__isnull=True, upload__state=UploadState.READY)
+    return blobs.count() + artifacts.count()
 
 
 def _check_one(found: Check, stored: _Stored, *, hashes: bool) -> None:

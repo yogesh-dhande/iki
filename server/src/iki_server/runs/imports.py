@@ -1101,7 +1101,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             "), lines AS ("
             " SELECT s.line, s.entity_id, s.type, n.entry_id, n.entry_type, n.entry_hrid,"
             "  n.superseded_by_id, n.new_entry AND n.line = s.line AS makes_entry,"
-            "  NOT n.new_entry AND n.line = s.line AS fills_entry,"
+            "  CASE WHEN n.new_entry AND n.line <> s.line THEN n.line END AS registered_by,"
             "  COALESCE(h.id, f.entity_id, s.entity_id) AS target,"
             "  h.id IS NOT NULL AS reused"
             f" FROM {table} s"
@@ -1110,7 +1110,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " LEFT JOIN entries n ON n.identity_hash = f.identity_hash"
             " LEFT JOIN held h ON h.entry_id = n.entry_id"
             ") SELECT line, entity_id, type, entry_id, entry_type, entry_hrid, superseded_by_id,"
-            " makes_entry, fills_entry, target, reused,"
+            " makes_entry, registered_by, target, reused,"
             " target = entity_id AND NOT reused AS new,"
             " row_number() OVER (PARTITION BY target ORDER BY line) = 1 AS first"
             " FROM lines",
@@ -1233,8 +1233,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " WHERE r.first AND s.parents IS NOT NULL",
             params,
         )
-        fills = _entry_fills(cursor, table, identified)
-    _fill_entries(run, fills)
+    _fill_entries(run, table, identified)
     return created, reused, registered
 
 
@@ -1303,86 +1302,192 @@ def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, A
     return int(count)
 
 
-def _entry_fills(cursor: Any, table: str, identified: list[str]) -> list[tuple[Any, ...]]:  # noqa: ANN401 - a cursor
-    """The lines of identities registered already that carry entry values: each is checked
-    and written as a holder's create would (:func:`entities.fill_entry`), one by one, as
-    they're few. Values the entry has already, the same, are no change."""
+#: How many lines that may fill their registry entries are compared with them at a time.
+FILL_BATCH = 1000
+
+
+def _fill_entries(run: ActionRun, table: str, identified: list[str]) -> None:
+    """Each line of an identity, but the one that registers it, fills what its entry hasn't
+    got yet, as a holder's create would (ADR 0115): a fact the entry has another value
+    for, or that an earlier line gives another value, is refused, naming that line.
+
+    Lines that give only what their entries have already are found in SQL and skipped,
+    so an import of identities registered already costs a few queries per type, not per
+    line. The rest are compared with their entries a batch at a time, in line order, and
+    the entries they fill are written."""
     if not identified:
-        return []
+        return
+    with connection.cursor() as cursor:
+        cursor.execute("DROP TABLE IF EXISTS iki_import_fills")
+        cursor.execute(
+            "CREATE TEMP TABLE iki_import_fills (line bigint PRIMARY KEY, type text NOT NULL,"
+            " entry_id uuid NOT NULL, registered_by bigint) ON COMMIT DROP"
+        )
+        for type_name in identified:
+            _find_fills(cursor, table, type_name)
+        cursor.execute("ANALYZE iki_import_fills")
+    filling = _Filling(run)
+    after = 0
+    while len(filling.errors) < MAX_ERRORS:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT f.line, f.type, s.parts, f.entry_id, f.registered_by"  # noqa: S608 - ours; values are parameters
+                f" FROM iki_import_fills f JOIN {table} s USING (line)"
+                " WHERE f.line > %s ORDER BY f.line LIMIT %s",
+                [after, FILL_BATCH],
+            )
+            batch = cursor.fetchall()
+        if not batch:
+            break
+        after = batch[-1][0]
+        filling.batch(batch)
+    if filling.errors:
+        raise results.InvalidOutput(filling.errors[:MAX_ERRORS])
+
+
+def _find_fills(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN401 - a cursor
+    """The lines of one type that give their entry a value it hasn't got, the same: each
+    compared with the entry's tables, as Postgres stores both."""
+    form = shape(type_name)
+    identity = _identity(type_name)
+    joins: list[str] = []
+    differs: list[str] = []
+    for n, part in enumerate(p for p in form.parts if p.entry):
+        meta = part.model._meta
+        key = meta.db_table
+        columns = {f.name: _column(f) for f in meta.local_concrete_fields if not f.primary_key}
+        renames = "".join(
+            f" || jsonb_build_object({_literal(column)}, s.parts->{_literal(key)}->"
+            f"{_literal(name)})"
+            for name, column in columns.items()
+            if column != name
+        )
+        joins.append(
+            f" LEFT JOIN {_q(key)} t{n} ON t{n}.{_q(_column(meta.pk))} = q.entry_id"
+            f" CROSS JOIN LATERAL (SELECT jsonb_populate_record(NULL::{_q(key)},"
+            f" COALESCE(s.parts->{_literal(key)}, '{{}}'::jsonb){renames}) AS p) g{n}"
+        )
+        for name, f in part.fields.items():
+            if name in identity or f.removed:
+                continue
+            given = f"s.parts->{_literal(key)}->{_literal(name)}"
+            some = f"{given} IS NOT NULL AND {given} NOT IN ('null'::jsonb, '[]'::jsonb)"
+            column = columns.get(name)
+            if is_list_table(f) or column is None:
+                # Compared item by item, with the entry's, in Python.
+                differs.append(f"({some})")
+            else:
+                differs.append(
+                    f"({some} AND (g{n}.p).{_q(column)} IS DISTINCT FROM t{n}.{_q(column)})"
+                )
+    if not differs:
+        return
     cursor.execute(
-        f"SELECT s.line, s.type, s.parts, r.entry_id FROM {table} s"  # noqa: S608 - ours; values are parameters
-        " JOIN iki_import_resolved r USING (line) WHERE r.fills_entry"
-        " ORDER BY s.line"
+        "INSERT INTO iki_import_fills (line, type, entry_id, registered_by)"  # noqa: S608 - ours; values are parameters
+        " SELECT q.line, q.type, q.entry_id, q.registered_by"
+        " FROM iki_import_resolved q"
+        f" JOIN {table} s USING (line){''.join(joins)}"
+        " WHERE q.type = %s AND q.entry_id IS NOT NULL AND NOT q.makes_entry"
+        f" AND ({' OR '.join(differs)})",
+        [type_name],
     )
-    out = []
-    for line, type_name, parts_text, entry_id in cursor.fetchall():
-        parts = json.loads(parts_text) if isinstance(parts_text, str) else parts_text
-        form = shape(type_name)
-        tables = {p.model._meta.db_table: p for p in form.parts if p.entry}
-        values = {
-            n: v for name, fields in parts.items() if name in tables for n, v in fields.items()
+
+
+class _Filling:
+    """What the lines compared so far fill, and the errors they make."""
+
+    def __init__(self, run: ActionRun) -> None:
+        self.run = run
+        self.refs = access.refs_for(run.requested_by, run.project)
+        self.errors: list[dict[str, str]] = []
+        #: Which line set each entry value this import filled: a later line that gives
+        #: another is refused, naming it.
+        self.set_by: dict[tuple[uuid.UUID, str], int] = {}
+
+    def error(self, line: int, name: str, detail: str) -> None:
+        pointer = results.pointer("creates_file", line, "values", *name.split("/"))
+        self.errors.append({"pointer": pointer, "detail": detail})
+
+    def batch(self, batch: list[tuple[Any, ...]]) -> None:
+        """Compares a batch of lines with their entries, locked, in line order, and writes
+        what they fill."""
+        ids = sorted({entry_id for _, _, _, entry_id, _ in batch})
+        locked = {
+            e.pk: e for e in Entity.objects.select_for_update().filter(pk__in=ids).order_by("pk")
         }
-        if any(v is not None for n, v in values.items() if n not in _identity(type_name)):
-            out.append((line, type_name, values, entry_id))
-    return out
+        current = entities.current_values_of(list(locked.values()))
+        new: dict[uuid.UUID, dict[str, Any]] = {}
+        for line, type_name, parts_text, entry_id, registered_by in batch:
+            parts = json.loads(parts_text) if isinstance(parts_text, str) else parts_text
+            entry = locked[entry_id]
+            form = shape(type_name)
+            given = self._given(line, form, parts, _identity(type_name))
+            fills, refused = entities.entry_changes(form, current[entry_id], given)
+            for name, why in refused.items():
+                earlier = self.set_by.get((entry_id, name), registered_by)
+                if why == "settled" and earlier is not None:
+                    self.error(
+                        line,
+                        name,
+                        f"It gives {entry.hrid}'s {name} another value than line {earlier} "
+                        "does: a registry fact has one value.",
+                    )
+                else:
+                    self.error(
+                        line,
+                        name,
+                        f"It {entities.refusal(entry, why, form.part_of(name).fields[name])}",
+                    )
+            for name, value in fills.items():
+                current[entry_id][name] = value
+                new.setdefault(entry_id, {})[name] = value
+                self.set_by[(entry_id, name)] = line
+        # Written even after an error, which fails the import anyway: later lines are
+        # compared with what earlier ones filled.
+        with entities.quietly():
+            for entry_id, values in new.items():
+                try:
+                    entities.fill_entry(
+                        self.run.requested_by,
+                        shape(locked[entry_id].type),
+                        locked[entry_id],
+                        values,
+                        project=self.run.project,
+                        by_run=True,
+                    )
+                except Invalid as error:
+                    # Another entry's unique value, say: on the line that filled it.
+                    for name, messages in error.errors.items():
+                        line = self.set_by.get(
+                            (entry_id, name.split("/")[0]),
+                            min(self.set_by[(entry_id, n)] for n in values),
+                        )
+                        self.error(line, name, f"It {' '.join(messages)}")
+
+    def _given(
+        self, line: int, form: Shape, parts: dict[str, Any], identity: frozenset[str]
+    ) -> dict[str, Any]:
+        """The line's entry values but its identity, as the database stores them."""
+        tables = {p.model._meta.db_table for p in form.parts if p.entry}
+        fields = form.fields()
+        given: dict[str, Any] = {}
+        for key, values in parts.items():
+            if key not in tables:
+                continue
+            for name, value in values.items():
+                if name in identity:
+                    continue
+                try:
+                    given[name] = to_db(fields[name], value, self.refs)
+                except ValueError as error:
+                    for where, messages in problems_of(name, error).items():
+                        self.error(line, where, f"It {' '.join(messages)}")
+        return given
 
 
 def _identity(type_name: str) -> frozenset[str]:
     owner = registry.identity_owner(registry.types()[type_name])
     return frozenset(owner.identity) if owner is not None else frozenset()
-
-
-def _fill_entries(run: ActionRun, fills: list[tuple[Any, ...]]) -> None:
-    """Sets the entry values the lines of registered identities have that their entries
-    lack; a fact the entry has another value for is refused (ADR 0115)."""
-    if not fills:
-        return
-    user = run.requested_by
-    refs = access.refs_for(user, run.project)
-    errors: list[dict[str, str]] = []
-    with entities.quietly():
-        for line, type_name, values, entry_id in fills:
-            form = shape(type_name)
-            fields = form.fields()
-            given = {}
-            for name, value in values.items():
-                if name in _identity(type_name):
-                    continue
-                try:
-                    given[name] = to_db(fields[name], value, refs)
-                except ValueError as error:
-                    errors.extend(
-                        {
-                            "pointer": results.pointer(
-                                "creates_file", line, "values", *key.split("/")
-                            ),
-                            "detail": f"It {' '.join(messages)}",
-                        }
-                        for key, messages in problems_of(name, error).items()
-                    )
-            try:
-                entities.fill_entry(
-                    user,
-                    form,
-                    Entity.objects.get(pk=entry_id),
-                    given,
-                    project=run.project,
-                    by_run=True,
-                )
-            except Invalid as error:
-                for name, messages in error.errors.items():
-                    errors.append(
-                        {
-                            "pointer": results.pointer(
-                                "creates_file", line, "values", *name.split("/")
-                            ),
-                            "detail": f"It {' '.join(messages)}",
-                        }
-                    )
-            if len(errors) >= MAX_ERRORS:
-                break
-    if errors:
-        raise results.InvalidOutput(errors)
 
 
 def _insert_part(

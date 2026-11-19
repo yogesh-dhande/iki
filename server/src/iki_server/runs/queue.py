@@ -574,6 +574,9 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         job.secrets = sorted(given)
         job.save(update_fields=["secrets"])
         Job.objects.filter(packed_into=job).update(secrets=job.secrets)
+    # What the run input lists is what its worker may download: one set, for both.
+    job.input_files = sorted(files)
+    job.save(update_fields=["input_files"])
     return {
         "apiVersion": "iki/v1",
         "kind": "RunInput",
@@ -610,7 +613,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "params": run.params,
         "settings": run.plugin_settings,
         "inputs": inputs,
-        "files": input_files.describe(files),
+        "files": input_files.describe(set(job.input_files)),
         **({"volumes": job.volumes} if job.volumes else {}),
         **({"pack": pack} if members else {}),
         **outside.for_resume(job),

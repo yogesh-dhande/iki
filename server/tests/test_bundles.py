@@ -3,12 +3,14 @@
 import hashlib
 import io
 import tarfile
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
@@ -188,6 +190,47 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert event.data["sha256"] == made.sha256
     assert event.data["reason"] == "Validated structures, for production"
     assert event.data["entities"] == 2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_edit_while_it_exports_isnt_half_in_the_bundle(
+    lab: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bundle is the database at one moment: an edit committed after the export read
+    the structure's history, and before it read its revisions, isn't in it at all, so an
+    import can't show revision 3 with revision 2's values."""
+    structure = lab["structure"]
+    found = export._find
+
+    def edited_meanwhile(*args: Any) -> Any:
+        read = found(*args)
+
+        def edit() -> None:
+            try:
+                services.update(
+                    lab["alice"],
+                    Entity.objects.get(pk=structure.pk),
+                    {"method": "xray"},
+                    expected_revision=2,
+                    reason="Back to the crystal structure",
+                )
+            finally:
+                connection.close()
+
+        editor = threading.Thread(target=edit)
+        editor.start()
+        editor.join()
+        return read
+
+    monkeypatch.setattr(export, "_find", edited_meanwhile)
+    _made, out = exported(lab, tmp_path)
+
+    assert Entity.objects.get(pk=structure.pk).revision == 3
+    bundle = reading.read(out, TRUSTED, limit=LIMIT)
+    (s,) = [e for e in bundle.lines("entities.ndjson") if e["hrid"] == structure.hrid]
+    assert [r["number"] for r in s["revisions"]] == [1, 2]
+    values = [h for h in s["history"] if h["table"] == "acme/protein.ProteinStructure"]
+    assert [(h["revision"], h["values"]["method"]) for h in values] == [(1, "xray"), (2, "nmr")]
 
 
 def test_only_a_project_admin_exports_with_a_reason_and_a_key(

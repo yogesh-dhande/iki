@@ -1248,6 +1248,10 @@ class Job(models.Model):
     #: The versions of its environment's volumes its machine had (ADR 0075): by name, the
     #: setup build, its version and ``data_version``, for provenance.
     volumes = models.JSONField(default=dict, blank=True)
+    #: The files its run input lists, set when it's leased: its inputs' and its packed
+    #: runs' at their pinned revisions, their included references', and its file params'.
+    #: Its worker can download these and no others.
+    input_files = ArrayField(models.UUIDField(), default=list, blank=True)
     #: For an action that's ``checkpointable``: the checkpoint an earlier attempt saved that
     #: this one resumed from, once its worker restored it (ADR 0069).
     resumed_from = models.ForeignKey(

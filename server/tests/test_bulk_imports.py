@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 import requests
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from org_world import World
 from test_api_entities import api_as, create
 from test_files import run_tasks
@@ -16,6 +18,7 @@ from test_run_results import output
 from test_runs import launch, world
 from test_workers import WorkerClient, keep_connection, worker
 
+from iki_server.entities import services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import imports
@@ -227,6 +230,121 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     )
     imported = RunImport.objects.get(run_id=run["id"])
     assert (imported.created, imported.reused, imported.registered) == (2, 1, 2)
+
+
+def entry_of(sequence: str) -> Entity:
+    """The registry entry of a protein's identity (ADR 0115)."""
+    (found,) = [
+        e
+        for e in Entity.objects.filter(type="acme/protein.Protein", registry__isnull=False)
+        if services.current_values(services.specific(e))["sequence"] == sequence
+    ]
+    return found
+
+
+def facts(entry: Entity) -> dict[str, Any]:
+    values = services.current_values(services.specific(entry))
+    return {n: values[n] for n in ("ec_number", "hazard")}
+
+
+def test_every_line_of_an_identity_fills_what_its_entry_hasnt_got(world: World) -> None:
+    """A fact a later line of the same identity gives is kept, as a second registration's
+    would be, whether this import registers the identity or it's registered already."""
+    editor = api_as(world, "editor")
+    create(editor, world.project, {"name": "Old", "sequence": KINASES[1]}, "acme/protein.Protein")
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f),
+            protein(KINASES[1], "B", f),
+            protein(KINASES[0], "A again", f, ec_number="2.7.10.2"),
+            protein(KINASES[1], "B again", f, hazard="bsl1"),
+            # The same as the earlier line: nothing to fill, nor refuse.
+            protein(KINASES[0], "A once more", f, ec_number="2.7.10.2", hazard="none"),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    new, old = entry_of(KINASES[0]), entry_of(KINASES[1])
+    assert facts(new) == {"ec_number": "2.7.10.2", "hazard": "none"}
+    assert facts(old) == {"ec_number": None, "hazard": "bsl1"}
+    # Each fill is a revision of the entry, by the run.
+    filled = Revision.objects.filter(entity=new).order_by("number")
+    assert [(r.number, sorted(r.changed_fields), r.via) for r in filled] == [
+        (1, ["sequence"], "run"),
+        (2, ["ec_number", "hazard"], "run"),
+    ]
+
+
+def test_lines_of_an_identity_that_give_a_fact_two_values_fail_the_import(
+    world: World,
+) -> None:
+    editor = api_as(world, "editor")
+    create(
+        editor,
+        world.project,
+        {"name": "Old", "sequence": KINASES[1], "ec_number": "1.1.1.1"},
+        "acme/protein.Protein",
+    )
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, ec_number="2.7.10.2"),
+            protein(KINASES[1], "B", f),
+            protein(KINASES[0], "A again", f, ec_number="2.7.11.1"),
+            protein(KINASES[1], "B again", f, ec_number="2.7.11.1"),
+            protein(KINASES[2], "C", f),
+            protein(KINASES[2], "C again", f, hazard="bsl2"),
+            protein(KINASES[2], "C once more", f, hazard="bsl3"),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["code"] == "invalid_output"
+    a, b, c = body["error"]["errors"]
+    assert a["pointer"] == "#/creates_file/3/values/ec_number"
+    assert "another value than line 1 does" in a["detail"]
+    assert b["pointer"] == "#/creates_file/4/values/ec_number"
+    assert "only its registry's registrars change it" in b["detail"]
+    assert c["pointer"] == "#/creates_file/7/values/hazard"
+    assert "another value than line 6 does" in c["detail"]
+    # Nothing was written: no entry but the one there was, which has what it had.
+    assert Entity.objects.filter(type="acme/protein.Protein", registry__isnull=False).count() == 1
+    assert facts(entry_of(KINASES[1])) == {"ec_number": "1.1.1.1", "hazard": None}
+
+
+def _refresh_queries(world: World, count: int) -> int:
+    """Imports `count` proteins with facts, then the same file again: how many queries the
+    second import takes, from its check to its commit."""
+    letters = "ACDEFGHIKLMNPQRSTVWY"
+    sequences = [f"MKV{letters[n // 20]}{letters[n % 20]}LEIC" for n in range(count)]
+
+    def make(f: str) -> bytes:
+        return lines(
+            *(
+                protein(s, f"K{n}", f, ec_number="2.7.10.2", hazard="bsl1")
+                for n, s in enumerate(sequences)
+            )
+        )
+
+    first, _ = started(world, make)
+    assert finished(world, first)["status"] == "succeeded"
+    again, _ = started(world, make)
+    with CaptureQueriesContext(connection) as queries:
+        body = finished(world, again)
+    assert body["status"] == "succeeded", body
+    assert RunImport.objects.get(run_id=again["id"]).reused == count
+    return len(queries)
+
+
+def test_refreshing_registered_identities_takes_as_many_queries_however_many_there_are(
+    world: World,
+) -> None:
+    """Lines that give their entries only what they have are found in SQL: not compared, nor
+    locked, one by one, while the import holds the registry's lock on the type."""
+    few = _refresh_queries(world, 5)
+    many = _refresh_queries(world, 40)
+    assert many == few
 
 
 def test_a_project_that_keeps_its_entities_has_none_reused_or_referred_to(world: World) -> None:

@@ -664,6 +664,66 @@ def test_jobs_download_the_files_their_inputs_hold(world: World, s3: Any) -> Non
     problem(pod.report(stale, f"files/{file_id}"), 409, "stale_lease")
 
 
+def _downloads_all(pod: WorkerClient, job: dict[str, Any]) -> None:
+    """The worker stages every file its run input lists: each one downloads."""
+    for file_id in job["files"]:
+        got = pod.report(job, f"files/{file_id}")
+        assert got.status_code == 200, got.content
+        assert requests.get(got.json()["url"], timeout=30).status_code == 200
+
+
+def test_a_packed_jobs_worker_downloads_every_packed_runs_files(world: World, s3: Any) -> None:
+    """A batch of a ``batchable`` action on structures (ADR 0055), as DSSP's is: the pack's
+    run input lists each structure's file, and its worker can download each."""
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    held = []
+    for name in ("abl.pdb", "abl-apo.pdb"):
+        file_id = _stored(world, name)
+        values = {"structure": file_id, "method": "xray", "chains": [abl["id"]]}
+        made = create(editor, world.project, values, "acme/protein.ProteinStructure")
+        assert made.status_code == 201, made.content
+        held.append((file_id, made.json()["id"]))
+    launched = editor.post(
+        f"/actions/{RELAX}/runs/batch",
+        {"project": str(world.project.pk), "each": "structure", "entities": [s for _, s in held]},
+    )
+    assert launched.status_code == 201, launched.content
+    for run in ActionRun.objects.filter(batch__hrid=launched.json()["batch"]["hrid"]):
+        run.spec = {**run.spec, "batchable": 2}
+        run.save(update_fields=["spec"])
+    pod = worker(world)
+    job = pod.lease().json()
+    assert len(job["pack"]) == 2
+    assert sorted(job["files"]) == sorted(f for f, _ in held)
+    _downloads_all(pod, job)
+    # Still only what it lists.
+    problem(pod.report(job, f"files/{_stored(world, 'other.pdb')}"), 404, "not_found")
+
+
+def test_a_jobs_worker_downloads_the_files_its_included_references_hold(
+    world: World, s3: Any
+) -> None:
+    """A sample's lot, included (ADR 0105), with its report: listed, and downloaded."""
+    editor = api_as(world, "editor")
+    report = _stored(world, "lot-report.pdf")
+    lot = create(editor, world.project, {"label": "L-7", "report": report}, "acme/protein.Lot")
+    assert lot.status_code == 201, lot.content
+    values = {"label": "S-7", "lot": lot.json()["id"]}
+    sample = create(editor, world.project, values, "acme/protein.Sample")
+    assert sample.status_code == 201, sample.content
+    made = launch(
+        editor, world.project, {"sample": sample.json()["id"]}, "acme/protein.measure_purity"
+    )
+    assert made.status_code == 201, made.content
+    pod = worker(world)
+    job = pod.lease().json()
+    (given,) = job["inputs"]["sample"]
+    assert [lot["values"]["report"] for lot in given["included"]["lot"]] == [report]
+    assert list(job["files"]) == [report]
+    _downloads_all(pod, job)
+
+
 def test_a_job_without_input_files_lists_none(world: World) -> None:
     queued(world)
     assert worker(world).lease().json()["files"] == {}
