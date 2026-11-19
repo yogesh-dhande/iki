@@ -20651,7 +20651,7 @@
             "type": "string"
           },
           "disabled_reason": {
-            "description": "Why it's off: failing (Iki turned it off), org_admin, or empty.",
+            "description": "Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.",
             "title": "Disabled Reason",
             "type": "string"
           },
@@ -20807,7 +20807,7 @@
             "type": "string"
           },
           "disabled_reason": {
-            "description": "Why it's off: failing (Iki turned it off), org_admin, or empty.",
+            "description": "Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.",
             "title": "Disabled Reason",
             "type": "string"
           },

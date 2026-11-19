@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 
+import { resetActivity } from "./activity";
 import { queryClient, resetSignedOut } from "./api";
 import { resetApi, serverFetch } from "./test-server";
 
@@ -25,4 +26,5 @@ afterEach(() => {
   queryClient.clear();
   resetApi();
   resetSignedOut();
+  resetActivity();
 });

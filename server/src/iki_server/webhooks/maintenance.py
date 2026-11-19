@@ -1,4 +1,4 @@
-"""Housekeeping for webhook deliveries, run by ``iki-server maintain``."""
+"""Housekeeping for webhooks and their deliveries, run by ``iki-server maintain``."""
 
 from datetime import timedelta
 
@@ -28,3 +28,11 @@ def prune() -> int:
         delivery.save(update_fields=["attempts", "status", "finished_at"])
     deleted, _ = Delivery.objects.filter(created_at__lt=now - KEEP).delete()
     return deleted
+
+
+def lapse() -> int:
+    """Turns off webhooks apps added that they may no longer add, such as through a
+    delegation that ran out (ADR 0152). Returns how many."""
+    from iki_server.webhooks import services
+
+    return services.lapse()

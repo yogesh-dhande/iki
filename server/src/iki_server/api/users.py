@@ -39,6 +39,8 @@ def list_users(request: HttpRequest, filters: Query[UserFilters]) -> dict[str, A
     user = caller(request)
     users: QuerySet[User] = User.objects.all()
     if not filters.email and not permissions.can(user, Action.ORG_MANAGE):
+        if permissions.roles_allow(user, Action.ORG_MANAGE):
+            require(user, Action.ORG_MANAGE)  # says what the token lacks
         raise Problem(403, "Only Org Admins can list everyone. Look someone up by email.")
     if filters.email:
         users = users.filter(email=filters.email.strip())

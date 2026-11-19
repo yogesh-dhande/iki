@@ -4666,7 +4666,7 @@ class WebhookCreated(TypedDict):
     created_at: str
     created_by: PersonRef | None
     description: str
-    #: Why it's off: failing (Iki turned it off), org_admin, or empty.
+    #: Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.
     disabled_reason: str
     events: list[str]
     #: When deliveries started failing with no success since.
@@ -4695,7 +4695,7 @@ class WebhookOut(TypedDict):
     created_at: str
     created_by: PersonRef | None
     description: str
-    #: Why it's off: failing (Iki turned it off), org_admin, or empty.
+    #: Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.
     disabled_reason: str
     events: list[str]
     #: When deliveries started failing with no success since.

@@ -95,6 +95,35 @@ def test_activity_moves_the_idle_expiry_forward(signed_in: tuple[Browser, User])
     assert expiry > timezone.now() + timedelta(hours=7)
 
 
+@pytest.mark.parametrize(
+    ("path", "headers"),
+    [
+        # What a page asks for by itself while nobody uses it says so (ADR 0153).
+        ("/api/v1/me", {"Iki-Background": "1"}),
+        ("/api/v1/notifications/summary", {"Iki-Background": "1"}),
+        # Streams too: test_realtime.
+    ],
+)
+def test_only_what_the_person_does_moves_the_idle_expiry_forward(
+    signed_in: tuple[Browser, User], path: str, headers: dict[str, str]
+) -> None:
+    browser, _ = signed_in
+    key = browser.cookies["__Host-iki_session"].value
+    soon = timezone.now() + timedelta(minutes=5)
+    session = browser.session
+    session[session_policy.LAST_SEEN] = time.time() - 120
+    session.save()
+    UserSession.objects.filter(session_key=key).update(expire_date=soon)
+    for _ in range(3):
+        assert browser.get(path, headers=headers).status_code == 200
+    assert UserSession.objects.get(session_key=key).expire_date == soon
+    # The idle timeout it had still ends the session.
+    UserSession.objects.filter(session_key=key).update(
+        expire_date=timezone.now() - timedelta(seconds=1)
+    )
+    assert browser.get("/").status_code == 302
+
+
 def test_idle_sessions_expire(signed_in: tuple[Browser, User]) -> None:
     browser, _ = signed_in
     key = browser.cookies["__Host-iki_session"].value

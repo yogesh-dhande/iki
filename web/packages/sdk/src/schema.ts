@@ -13947,7 +13947,7 @@ export interface components {
             description: string;
             /**
              * Disabled Reason
-             * @description Why it's off: failing (Iki turned it off), org_admin, or empty.
+             * @description Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.
              */
             disabled_reason: string;
             /** Events */
@@ -14014,7 +14014,7 @@ export interface components {
             description: string;
             /**
              * Disabled Reason
-             * @description Why it's off: failing (Iki turned it off), org_admin, or empty.
+             * @description Why it's off: failing (Iki turned it off), org_admin, app (the app that added it no longer has access to it, ADR 0152), or empty.
              */
             disabled_reason: string;
             /** Events */

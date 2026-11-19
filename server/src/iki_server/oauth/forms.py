@@ -25,7 +25,15 @@ class ChoiceMixin(forms.Form):
 
     granted = ScopeChoiceField(label="It may", required=True)
     access = forms.ChoiceField(
-        label="In", choices=ACCESS_CHOICES, initial="chosen", widget=forms.RadioSelect
+        label="In",
+        choices=ACCESS_CHOICES,
+        initial="chosen",
+        widget=forms.RadioSelect,
+        # ADR 0152: what's beyond the chosen projects is the whole organization's.
+        help_text=(
+            "With only the projects you choose, it can’t act on your organization: its "
+            "people, teams, compute, costs, registries or webhooks."
+        ),
     )
     projects = forms.ModelMultipleChoiceField(
         label="Projects",

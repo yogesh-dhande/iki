@@ -7,13 +7,17 @@
   however active, a session ends this long after sign-in.
 - **Before sign-in**, a session only carries sign-in state (the OIDC state
   and PKCE verifier) and lasts ``ANONYMOUS_SESSION_SECONDS``.
-- **Background requests aren't activity.** A page's live-update stream
-  reconnects by itself, so it never moves the idle timeout forward: an
-  unattended tab still signs out on time.
+- **Only what the person does is activity** (21 CFR Part 11 §11.10(d), ADR 0153).
+  Pages make requests by themselves: their live-update streams reconnect, and
+  they poll and read again what changed. None of these moves the idle timeout
+  forward, so an unattended tab still signs out on time. Event streams are
+  :func:`passive` views; the web app sends ``Iki-Background: 1`` on any other
+  request made while the person isn't using the page.
 - The cookie itself lasts until the browser closes.
 """
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -30,9 +34,24 @@ logger = structlog.get_logger("iki.accounts")
 AUTHENTICATED_AT = "_iki_authenticated_at"
 LAST_SEEN = "_iki_last_seen"
 REFRESH_INTERVAL_SECONDS = 60
-#: Requests a page makes by itself, which don't count as the person being active.
-PASSIVE_PATHS = frozenset({"/api/v1/events"})
+#: The header the web app sends on requests it makes while nobody is using the page: they
+#: don't count as the person being active.
+BACKGROUND_HEADER = "Iki-Background"
 ANONYMOUS_SESSION_SECONDS = 15 * 60
+
+
+def passive[V: Callable[..., Any]](view: V) -> V:
+    """Marks a view that pages call by themselves, such as an event stream, which
+    reconnects on its own: calling it is never the person being active."""
+    view.iki_passive = True  # type: ignore[attr-defined]
+    return view
+
+
+def is_background(request: HttpRequest, view: Callable[..., Any]) -> bool:
+    """Whether the request was made without the person doing anything."""
+    return bool(getattr(view, "iki_passive", False)) or (
+        request.headers.get(BACKGROUND_HEADER) == "1"
+    )
 
 
 def start(request: HttpRequest, **_: Any) -> None:  # noqa: ANN401 - signal receiver
@@ -57,9 +76,20 @@ class SessionPolicyMiddleware(MiddlewareMixin):
         ):
             logger.info("session_expired", reason="max_age")
             logout(request)
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> None:
+        """The person was active: move the idle timeout forward, unless the page made the
+        request by itself."""
+        if not request.user.is_authenticated or is_background(request, view):
             return
-        if request.path in PASSIVE_PATHS:
-            return
+        session = request.session
+        now = time.time()
         last_seen = session.get(LAST_SEEN, 0)
         if not isinstance(last_seen, int | float) or now - last_seen >= REFRESH_INTERVAL_SECONDS:
             session[LAST_SEEN] = now  # marks the session modified, so its expiry moves forward

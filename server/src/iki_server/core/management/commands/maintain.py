@@ -48,6 +48,7 @@ class Command(BaseCommand):
         apps = oauth_maintenance.prune()
         tasks = task_maintenance.prune()
         deliveries = webhook_maintenance.prune()
+        lapsed_webhooks = webhook_maintenance.lapse()
         uploads = files.expire()
         registrations = files.expire_registrations()
         approvals_expired = approvals.expire()
@@ -64,6 +65,7 @@ class Command(BaseCommand):
             abandoned_oauth_apps=apps,
             finished_tasks=tasks,
             old_webhook_deliveries=deliveries,
+            lapsed_app_webhooks=lapsed_webhooks,
             abandoned_uploads=uploads,
             stalled_registrations=registrations,
             expired_run_approvals=approvals_expired,
@@ -77,7 +79,8 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
             f"{apps} abandoned app registration(s), {tasks} finished task(s) and "
-            f"{deliveries} old webhook deliveries, cancelled {uploads} abandoned upload(s), "
+            f"{deliveries} old webhook deliveries, turned off {lapsed_webhooks} webhook(s) "
+            f"apps added and may no longer, cancelled {uploads} abandoned upload(s), "
             f"failed {registrations} stalled registration(s), expired "
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "

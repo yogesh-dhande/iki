@@ -24,8 +24,10 @@ from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
 from iki_server.notifications.models import Notification
+from iki_server.oauth import services as oauth
+from iki_server.oauth.models import Approval, Consent
 from iki_server.org import services as org
-from iki_server.org.models import ProjectRole
+from iki_server.org.models import ProjectMembership, ProjectRole
 from iki_server.setup.models import Installation
 from iki_server.tasks.models import TaskRecord
 from iki_server.tasks.runner import Runner
@@ -793,6 +795,158 @@ def test_tokens_need_the_webhooks_scope(world: World) -> None:
     problem(listed, 403, "insufficient_scope")
     _, tokens = signed_in_token(world, "admin", scope="read webhooks")
     assert bearer(tokens["access_token"], "GET", f"/webhooks/{hook.pk}").status_code == 200
+
+
+# --- Webhooks apps add (ADR 0152) ---------------------------------------------------
+
+
+def added_by_app(world: World, **choice: Any) -> tuple[Any, Webhook]:
+    """A project webhook the project's Admin added through an app, with a token."""
+    client, tokens = signed_in_token(world, "admin", scope="read webhooks", **choice)
+    made = bearer(
+        tokens["access_token"],
+        "POST",
+        f"/projects/{world.project.pk}/webhooks",
+        {"url": "https://hooks.example.com/app", "events": ["project.updated"]},
+    )
+    assert made.status_code == 201, made.content
+    return client, Webhook.objects.get(pk=made.json()["id"])
+
+
+def assert_turned_off_for_its_app(
+    world: World, hook: Webhook, told: tuple[str, ...] = ("admin",)
+) -> None:
+    """Iki turned it off, said so to its managers, and sends it nothing more."""
+    org.update_project(world.project, "Renamed", "", by=world.users["org_admin"])
+    hook.refresh_from_db()
+    assert not hook.active
+    assert hook.disabled_reason == DisabledReason.APP
+    assert deliveries(hook) == []
+    event = AuditEvent.objects.get(action="webhook.disabled")
+    assert event.actor is None and event.agent is None
+    assert event.data == {"host": "hooks.example.com", "reason": "app"}
+    notes = Notification.objects.filter(kind="webhook.disabled")
+    assert {n.recipient for n in notes} == {world.users[p] for p in told}
+    assert all("the app that added it no longer has access" in n.title for n in notes)
+
+
+def test_an_apps_webhook_stops_when_its_consent_no_longer_covers_it(world: World) -> None:
+    client, hook = added_by_app(world)
+    agent = AuditEvent.objects.get(action="webhook.created").agent
+    assert agent is not None and hook.grant == agent.grant
+    other = org.create_project(world.team, "Other Atlas", "", by=world.users["admin"])
+    oauth.grant(world.users["admin"], client, oauth.Grant(["read", "webhooks"], False, [other]))
+    assert_turned_off_for_its_app(world, hook)
+
+
+def test_an_apps_org_webhook_stops_when_its_consent_is_narrowed_to_projects(
+    world: World,
+) -> None:
+    """The organization's webhooks hear of every project: a token given only some can't
+    add them, nor keep one it added."""
+    admin = world.users["org_admin"]
+    ProjectMembership.objects.create(project=world.project, user=admin, role=ProjectRole.VIEWER)
+    client, tokens = signed_in_token(world, "org_admin", scope="read webhooks")
+    body = {"url": "https://hooks.example.com/app", "events": ["project.updated"]}
+    made = bearer(tokens["access_token"], "POST", "/webhooks", body)
+    assert made.status_code == 201, made.content
+    hook = Webhook.objects.get(pk=made.json()["id"])
+    oauth.grant(admin, client, oauth.Grant(["read", "webhooks"], False, [world.project]))
+    problem(
+        bearer(tokens["access_token"], "POST", "/webhooks", body), 403, "token_limited_to_projects"
+    )
+    assert_turned_off_for_its_app(world, hook, told=("org_admin",))
+
+
+def test_an_apps_webhook_stops_when_its_consent_loses_the_webhooks_scope(
+    world: World,
+) -> None:
+    client, hook = added_by_app(world)
+    oauth.grant(world.users["admin"], client, oauth.Grant(["read"], True, []))
+    assert_turned_off_for_its_app(world, hook)
+
+
+def test_an_apps_webhook_stops_when_its_consent_is_revoked(world: World) -> None:
+    client, hook = added_by_app(world)
+    consent = Consent.objects.get(client=client)
+    oauth.revoke_consent(consent, by=world.users["admin"])
+    assert_turned_off_for_its_app(world, hook)
+    # Allowing the app again is a new grant: it doesn't bring the webhook back.
+    oauth.grant(world.users["admin"], client, oauth.Grant(["read", "webhooks"], True, []))
+    hook.refresh_from_db()
+    assert not hook.active
+
+
+def test_an_apps_webhook_stops_when_the_app_is_blocked(world: World) -> None:
+    client, hook = added_by_app(world)
+    oauth.set_approval(client, Approval.BLOCKED, by=world.users["org_admin"])
+    assert_turned_off_for_its_app(world, hook)
+
+
+def test_an_apps_webhook_stops_when_its_person_leaves(world: World) -> None:
+    _, hook = added_by_app(world)
+    org.set_active(world.users["admin"], False, by=world.users["org_admin"])
+    assert_turned_off_for_its_app(world, hook, told=())
+
+
+def test_an_apps_webhook_sends_nothing_once_its_person_may_no_longer_add_it(
+    world: World,
+) -> None:
+    """No change to the consent: the person stopped being the project's Admin. The next
+    event finds it out, and it's turned off instead of sent."""
+    _, hook = added_by_app(world)
+    by = world.users["org_admin"]
+    org.grant_project_role(world.project, ProjectRole.ADMIN, user=world.users["editor"], by=by)
+    org.grant_project_role(world.project, ProjectRole.EDITOR, user=world.users["admin"], by=by)
+    hook.refresh_from_db()
+    assert hook.active  # until there's something to send
+    assert_turned_off_for_its_app(world, hook, told=("editor",))
+
+
+def test_an_agents_webhook_stops_when_its_delegation_runs_out(world: World) -> None:
+    from test_delegation import Bot, delegate
+
+    bot = Bot(world, role="admin")
+    made = oauth.create_credential(
+        bot.account,
+        "Hooks",
+        ["read", "webhooks"],
+        by=world.users["org_admin"],
+        acts_for_people=True,
+    )
+    bot.client, bot.secret = made.client, made.secret
+    delegation = delegate(world, bot, "admin", ("read", "webhooks"))
+    token = bot.token(delegation.grant)
+    response = bearer(
+        token,
+        "POST",
+        f"/projects/{world.project.pk}/webhooks",
+        {"url": "https://hooks.example.com/app", "events": ["project.updated"]},
+    )
+    assert response.status_code == 201, response.content
+    hook = Webhook.objects.get(pk=response.json()["id"])
+    Consent.objects.filter(pk=delegation.pk).update(expires_at=timezone.now())
+    assert maintenance.lapse() == 1
+    assert_turned_off_for_its_app(world, hook)
+
+
+def test_a_webhook_added_in_the_browser_is_its_persons(world: World) -> None:
+    hook = make(world, "https://hooks.example.com/p", ["project.updated"])
+    assert hook.grant is None
+    assert maintenance.lapse() == 0
+    org.update_project(world.project, "Renamed", "", by=world.users["admin"])
+    assert len(deliveries(hook)) == 1
+
+
+def test_whoever_turns_an_apps_webhook_back_on_answers_for_it(world: World) -> None:
+    client, hook = added_by_app(world)
+    oauth.revoke_consent(Consent.objects.get(client=client), by=world.users["admin"])
+    hook.refresh_from_db()
+    services.update(hook, by=world.users["admin"], active=True)
+    hook.refresh_from_db()
+    assert hook.active and hook.grant is None
+    org.update_project(world.project, "Renamed", "", by=world.users["admin"])
+    assert len(deliveries(hook)) == 1
 
 
 def test_the_event_catalog_lists_each_scopes_events(world: World) -> None:

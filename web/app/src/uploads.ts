@@ -20,6 +20,7 @@ import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
+import { whileWorking } from "./activity";
 import { iki } from "./api";
 import { media } from "./media";
 
@@ -111,7 +112,18 @@ function put(
   });
 }
 
-export async function upload(
+/** Uploads the file to the project. The person waits on it, so they count as active
+ * while it runs, however long it takes (ADR 0153). */
+export function upload(
+  file: File,
+  projectId: string,
+  onProgress: (progress: Progress) => void,
+  signal?: AbortSignal,
+): Promise<UploadedFile> {
+  return whileWorking(() => uploadNow(file, projectId, onProgress, signal));
+}
+
+async function uploadNow(
   file: File,
   projectId: string,
   onProgress: (progress: Progress) => void,

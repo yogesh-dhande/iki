@@ -43,6 +43,18 @@ def require(user: User, action: Action, target: Team | Project | Registry | None
             code="insufficient_scope",
             headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{needed}"'},
         )
+    if (
+        limits is not None
+        and limits.beyond_projects(action)
+        and permissions.roles_allow(user, action, target)
+    ):
+        raise Problem(
+            403,
+            "This token was given only some of your projects, so it can’t act on the "
+            "organization, its teams or its registries. To do this, sign in to the app "
+            "again and allow it all your projects.",
+            code="token_limited_to_projects",
+        )
     raise Problem(403)
 
 

@@ -13,6 +13,7 @@ import {
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useId, useRef, useState, type SubmitEvent } from "react";
 
+import { whileWorking } from "../activity";
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize } from "../entities";
 import { required, useForm } from "../forms";
@@ -135,8 +136,18 @@ function peopleQuery(id: string, state: Import["state"]) {
 }
 
 /** Uploads a bundle to import into the project, as a file is uploaded (ADR 0036). Iki then
- * checks it and plans the import. */
-export async function importBundle(
+ * checks it and plans the import. The person waits on it, so they count as active while it
+ * runs (ADR 0153). */
+export function importBundle(
+  file: File,
+  projectId: string,
+  onProgress: (progress: Progress) => void,
+  signal?: AbortSignal,
+): Promise<Import> {
+  return whileWorking(() => sendBundle(file, projectId, onProgress, signal));
+}
+
+async function sendBundle(
   file: File,
   projectId: string,
   onProgress: (progress: Progress) => void,
