@@ -3,9 +3,11 @@ starts.
 
 The run input lists them (``files``, by ID, with name, size and SHA-256), and the worker
 asks for each through ``POST /worker/v1/jobs/{id}/files/{file_id}``, which answers a
-short-lived download URL. A worker can download only files its job's inputs hold (at
-the revisions the run was launched on) and its file params name, and only while it holds
-the job's lease.
+short-lived download URL. The job keeps the set its run input listed when it was leased:
+the files its inputs hold, and those of the runs packed into it (ADR 0055), at the
+revisions they were launched on; those their included references hold, at the revisions
+pinned (ADR 0105); and those its file params name. Its worker can download those, and
+only those, and only while it holds the job's lease.
 """
 
 from __future__ import annotations
@@ -15,15 +17,13 @@ from typing import Any
 
 from django.db import transaction
 
-from iki_server.entities import services as entities
-from iki_server.entities.values import shape
 from iki_server.files import storage
 from iki_server.files.models import File
-from iki_server.runs.models import ActionRun, RunInput, Worker
+from iki_server.runs.models import ActionRun, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
 
-__all__ = ["describe", "download", "file_ids", "is_file_list", "of_params", "of_run"]
+__all__ = ["describe", "download", "file_ids", "is_file_list", "of_params"]
 
 
 def is_file_list(f: Field) -> bool:
@@ -66,19 +66,6 @@ def of_params(run: ActionRun) -> set[uuid.UUID]:
     return found
 
 
-def of_run(run: ActionRun) -> set[uuid.UUID]:
-    """Every file the run's inputs hold, at the revisions it was launched on, and the files
-    its file params name."""
-    found = of_params(run)
-    for row in RunInput.objects.filter(run=run).select_related("entity"):
-        fields = shape(row.entity.type).fields()
-        values = entities.values_at(row.entity, row.revision, row.entry_revision)
-        for name, value in values.items():
-            if name in fields:
-                found |= file_ids(fields[name], value)
-    return found
-
-
 def describe(ids: set[uuid.UUID]) -> dict[str, dict[str, Any]]:
     """What the run input says of each file: enough for the worker to check what it gets."""
     return {
@@ -95,12 +82,12 @@ def describe(ids: set[uuid.UUID]) -> dict[str, dict[str, Any]]:
 def download(
     worker: Worker, job_id: uuid.UUID, token: uuid.UUID, file_id: uuid.UUID
 ) -> tuple[File, str]:
-    """The file and a URL that downloads it for five minutes, if the job's inputs hold it.
-    LookupError if they don't, as for a file that doesn't exist."""
+    """The file and a URL that downloads it for five minutes, if the job's run input lists
+    it. LookupError if it doesn't, as for a file that doesn't exist."""
     with transaction.atomic():
         job = held(worker, job_id, token)
-        if file_id not in of_run(job.run):
-            raise LookupError("This job's inputs and params don't hold that file.")
+        if file_id not in job.input_files:
+            raise LookupError("This job's run input doesn't list that file.")
         found = File.objects.select_related("blob").get(pk=file_id)
     blob = found.blob
     return found, storage.download_url(
