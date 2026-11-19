@@ -71,6 +71,9 @@ function statusOf(webhook: Pick<Webhook, "active" | "disabled_reason">): {
   if (webhook.disabled_reason === "org_admin") {
     return { text: "Off: turned off by an Org Admin", muted: true };
   }
+  if (webhook.disabled_reason === "app") {
+    return { text: "Off: its app lost access", muted: true };
+  }
   return { text: "Off", muted: true };
 }
 
@@ -544,6 +547,16 @@ function TurnedOff({ webhook }: { webhook: Webhook }) {
     return (
       <div className="alert alert-warning" role="status">
         <p>An Org Admin turned this webhook off. Only an Org Admin can turn it back on.</p>
+      </div>
+    );
+  }
+  if (webhook.disabled_reason === "app") {
+    return (
+      <div className="alert alert-warning" role="status">
+        <p>
+          An app added this webhook, and it no longer has access to it, so Iki turned it off. If you
+          turn it back on, it sends as yours.
+        </p>
       </div>
     );
   }

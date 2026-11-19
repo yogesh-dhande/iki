@@ -10,6 +10,7 @@
 import type { Schemas } from "@ikisci/sdk";
 import { useCallback, useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
 
+import { noticeInput } from "../activity";
 import { formatSize, type EntityType } from "../entities";
 import { readStoredFile } from "../stored";
 import { Button, Loading, useMessages } from "../ui";
@@ -404,6 +405,12 @@ function StructureFrame({
     }
     const channel = new MessageChannel();
     channel.port1.onmessage = (incoming) => {
+      // Turning and zooming the structure happen in the frame, which says so: the person
+      // is using the page (ADR 0153).
+      if ((incoming.data as { input?: unknown } | null)?.input === true) {
+        noticeInput();
+        return;
+      }
       const message = readMessage(incoming.data);
       if (!message) return;
       if ("state" in message || "superposed" in message || "error" in message) {

@@ -47,7 +47,8 @@ class WebhookOut(Schema):
     events: list[str]
     active: bool
     disabled_reason: str = Field(
-        description="Why it's off: failing (Iki turned it off), org_admin, or empty."
+        description="Why it's off: failing (Iki turned it off), org_admin, app (the app "
+        "that added it no longer has access to it, ADR 0152), or empty."
     )
     failing_since: datetime | None = Field(
         description="When deliveries started failing with no success since."

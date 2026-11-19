@@ -23,6 +23,7 @@ from oauth2_provider.oauth2_backends import get_oauthlib_core
 
 from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
+from iki_server.oauth import access
 from iki_server.oauth.scopes import SCOPES
 from iki_server.org import permissions
 from iki_server.web.ratelimit import Decision, RateLimiter, client_key
@@ -97,59 +98,40 @@ def agent_of(request: HttpRequest, client: Any, consent: Any) -> audit.AgentInfo
     )
 
 
+def token_access(request: HttpRequest) -> tuple[Any, access.Access]:
+    """The request's bearer token as it stands now: its client, and what it may do. Raises
+    a Problem when the token is invalid, expired or revoked, or has none of the API's
+    scopes. Open event streams ask again before each event (ADR 0152)."""
+    valid, oauth_request = get_oauthlib_core().verify_request(request, scopes=[])
+    if not valid or oauth_request is None:
+        _limit(request, RateLimiter("api_anonymous", ANONYMOUS_LIMIT), client_key(request))
+        raise _invalid_token(request)
+    client = oauth_request.client
+    scopes = frozenset(oauth_request.scopes)
+    found = access.of(client, oauth_request.user, scopes)
+    if found is None:
+        raise _invalid_token(request)
+    if not scopes & SCOPES.keys():
+        # A token for none of the API's scopes: it can do nothing here.
+        raise Problem(
+            403,
+            "This token has none of the scopes Iki’s API takes.",
+            code="insufficient_scope",
+            headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="read"'},
+        )
+    return client, found
+
+
 class BearerAuth(HttpBearer):
     """OAuth access tokens issued by Iki's authorization server."""
 
     def authenticate(self, request: HttpRequest, token: str) -> Any:  # noqa: ANN401
-        from iki_server.oauth.models import Consent
-
-        valid, oauth_request = get_oauthlib_core().verify_request(request, scopes=[])
-        if not valid or oauth_request is None:
-            _limit(request, RateLimiter("api_anonymous", ANONYMOUS_LIMIT), client_key(request))
-            raise _invalid_token(request)
-        client = oauth_request.client
-        user = oauth_request.user or client.service_account
-        if user is None or not user.is_active:
-            raise _invalid_token(request)
-        scopes = frozenset(oauth_request.scopes)
-        if not scopes & SCOPES.keys():
-            # A token for none of the API's scopes: it can do nothing here.
-            raise Problem(
-                403,
-                "This token has none of the scopes Iki’s API takes.",
-                code="insufficient_scope",
-                headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="read"'},
-            )
-        projects = None
-        consent = None
-        # A person's token from a service account's credential: one it got by acting for
-        # them, under their delegation (ADR 0073).
-        account = client.service_account if oauth_request.user is not None else None
-        if client.service_account_id is None or account is not None:
-            consent = (
-                Consent.objects.filter(user=user, client=client)
-                .prefetch_related("projects")
-                .first()
-            )
-            if consent is None or consent.expired:
-                raise _invalid_token(request)
-            # A narrowed consent applies to tokens issued before it changed.
-            scopes &= frozenset(consent.scope_list)
-            if not consent.all_projects:
-                projects = frozenset(p.pk for p in consent.projects.all())
-        if account is not None:
-            if not (client.acts_for_people and account.is_active):
-                raise _invalid_token(request)
-            # Only where the service account may go too.
-            theirs = frozenset(permissions.visible_projects(account).values_list("pk", flat=True))
-            projects = theirs if projects is None else projects & theirs
-        permissions.limit_to(
-            user,
-            permissions.TokenLimits(scopes=scopes, projects=projects, alongside=account),
-        )
+        client, found = token_access(request)
+        user = found.user
+        permissions.limit_to(user, found.limits)
         request.iki_oauth_client = client  # type: ignore[attr-defined]
-        request.iki_delegation = consent if account is not None else None  # type: ignore[attr-defined]
-        audit.note_agent(agent_of(request, client, consent))
+        request.iki_delegation = found.delegation  # type: ignore[attr-defined]
+        audit.note_agent(agent_of(request, client, found.consent))
         _limit(
             request, RateLimiter(POLICY, settings.IKI_API_RATE_LIMIT_PER_MINUTE), f"user:{user.pk}"
         )

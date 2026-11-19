@@ -411,12 +411,30 @@ function readAsk(data: unknown): Ask | null {
   return null;
 }
 
+/** How often the frame tells the page that the person is turning or zooming the structure,
+ * which the page can't see: so their session's idle timeout counts it (ADR 0153). */
+const INPUT_EVERY_MS = 15_000;
+
+function tellOfInput(port: MessagePort): void {
+  let told = 0;
+  const tell = () => {
+    const now = Date.now();
+    if (now - told < INPUT_EVERY_MS) return;
+    told = now;
+    port.postMessage({ input: true });
+  };
+  for (const type of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"]) {
+    window.addEventListener(type, tell, { capture: true, passive: true });
+  }
+}
+
 function accept(event: MessageEvent): void {
   // Only Iki may frame this page (frame-ancestors), so the parent's port is Iki's. Mol*
   // posts messages to its own window too (to schedule work), so wait for that one.
   const port = event.ports[0];
   if (event.source !== window.parent || !port) return;
   window.removeEventListener("message", accept);
+  tellOfInput(port);
   let started = false;
   port.onmessage = (message: MessageEvent<unknown>) => {
     if (started) {

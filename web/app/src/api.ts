@@ -20,6 +20,8 @@ import {
 } from "@tanstack/react-query";
 import { useCallback } from "react";
 
+import { BACKGROUND_HEADER, isIdle } from "./activity";
+
 export type Me = Schemas["MeOut"];
 export type Project = Schemas["ProjectOut"];
 export type Member = Schemas["ProjectMemberOut"];
@@ -45,6 +47,14 @@ export const iki: IkiClient = createIkiClient({
   csrfToken,
   // Looked up on each call, not captured once.
   fetch: (input, init) => globalThis.fetch(input, init),
+});
+
+// What the page asks for by itself doesn't keep the session open (ADR 0153).
+iki.use({
+  onRequest({ request }) {
+    if (isIdle()) request.headers.set(BACKGROUND_HEADER, "1");
+    return request;
+  },
 });
 
 let signingIn = false;

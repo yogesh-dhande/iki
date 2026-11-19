@@ -7,9 +7,11 @@ caller's permissions before it's sent. A stream:
 
 - starts with ``ready`` (the unread notification count), then sends
   ``notification``, ``notifications_read`` and ``resync`` as they happen;
-- sends a comment every ``HEARTBEAT`` seconds, so proxies keep it open, and
-  checks each time that the session or token is still valid, ending with
-  ``signed_out`` when it isn't;
+- sends a comment every ``HEARTBEAT`` seconds, so proxies keep it open;
+- before each event, and at each comment, checks the session or token again
+  as a request would be, ending with ``signed_out`` when it's no longer valid.
+  What the caller may see is decided afresh then: from their roles now, and
+  for a token from its person's consent now (ADR 0152);
 - ends after ``MAX_LIFETIME`` (and when the server shuts down). Browsers'
   EventSource reconnects by itself, to whichever pod is up.
 
@@ -32,12 +34,11 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.http import HttpRequest, HttpResponseBase, StreamingHttpResponse
 from django.utils import timezone
-from oauth2_provider.oauth2_backends import get_oauthlib_core
 
 from iki_server.accounts.models import User, UserSession
-from iki_server.accounts.session_policy import AUTHENTICATED_AT
+from iki_server.accounts.session_policy import AUTHENTICATED_AT, passive
 from iki_server.api.problems import Problem, response
-from iki_server.api.security import ANONYMOUS_LIMIT, POLICY, BearerAuth, _limit
+from iki_server.api.security import ANONYMOUS_LIMIT, POLICY, BearerAuth, _limit, token_access
 from iki_server.notifications import services as notifications
 from iki_server.org import permissions
 from iki_server.realtime.hub import Hub, Stream, hub
@@ -54,6 +55,8 @@ MAX_STREAMS = 2000
 #: Milliseconds browsers wait before reconnecting.
 RETRY_MS = 5000
 
+#: Checks the caller's credentials again, and decides afresh what they may see: False
+#: when the session or token is no longer valid.
 Check = Callable[[], bool]
 
 logger = structlog.get_logger("iki.realtime")
@@ -91,14 +94,22 @@ def _bearer(request: HttpRequest, token: str) -> tuple[User, Check]:
         )
 
     def still_valid() -> bool:
-        valid, _ = get_oauthlib_core().verify_request(request, scopes=[])
-        return valid and User.objects.filter(pk=user.pk, is_active=True).exists()
+        # As every API request does: the token, its person's consent now (narrowed,
+        # revoked or expired), and the person and any delegated service account active.
+        try:
+            _, found = token_access(request)
+        except Problem:
+            return False
+        if found.user.pk != user.pk or "read" not in found.limits.scopes:
+            return False
+        permissions.forget(user)
+        permissions.limit_to(user, found.limits)
+        return True
 
     return user, still_valid
 
 
-def _session(request: HttpRequest) -> tuple[User, Check]:
-    user = request.user
+def _session(request: HttpRequest, user: Any) -> tuple[User, Check]:  # noqa: ANN401
     if not (user.is_authenticated and user.is_active):
         _limit(request, RateLimiter("api_anonymous", ANONYMOUS_LIMIT), client_key(request))
         raise Problem(401)
@@ -109,19 +120,23 @@ def _session(request: HttpRequest) -> tuple[User, Check]:
     def still_valid() -> bool:
         if time.time() - started > settings.IKI_SESSION_MAX_AGE_SECONDS:
             return False
-        return (
+        valid = (
             UserSession.objects.filter(session_key=key, expire_date__gt=timezone.now()).exists()
             and User.objects.filter(pk=user.pk, is_active=True).exists()
         )
+        # Roles are read again, as each request reads them: someone who lost a role stops
+        # hearing of what it let them see.
+        permissions.forget(user)
+        return valid
 
     return user, still_valid
 
 
-def _authenticate(request: HttpRequest) -> tuple[User, Check]:
+def _authenticate(request: HttpRequest, signed_in: Any) -> tuple[User, Check]:  # noqa: ANN401
     header = request.headers.get("Authorization", "")
     if header[:7].lower() == "bearer ":
         return _bearer(request, header[7:].strip())
-    return _session(request)
+    return _session(request, signed_in)
 
 
 def _unread(user: User) -> int:
@@ -139,8 +154,10 @@ async def _open(request: HttpRequest) -> tuple[User, Check, Hub]:
     """Who's asking, and the hub, if there's room for another stream; else a Problem."""
     if request.method not in ("GET", "HEAD"):
         raise Problem(405, headers={"Allow": "GET"})
-    await request.auser()
-    user, still_valid = await db(_authenticate, request)
+    # The user itself, not request.user's lazy stand-in: what's cached on it about their
+    # roles is forgotten at each check.
+    signed_in = await request.auser()
+    user, still_valid = await db(_authenticate, request, signed_in)
     streams = hub()
     if streams.closing.is_set() or streams.count() >= MAX_STREAMS:
         raise Problem(
@@ -163,6 +180,7 @@ def _streaming(body: AsyncIterator[bytes]) -> StreamingHttpResponse:
     return reply
 
 
+@passive
 async def events(request: HttpRequest) -> HttpResponseBase:
     try:
         user, still_valid, streams = await _open(request)
@@ -197,6 +215,7 @@ def _can_read_run(user: User, run_id: str) -> bool:
     return runs.visible_runs(user).filter(pk=run_id).exists()
 
 
+@passive
 async def run_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     """``GET /api/v1/runs/{ref}/events``: live updates about one run, for its page.
 
@@ -232,6 +251,7 @@ def _can_read_batch(user: User, batch_id: str) -> bool:
     return runs.visible_batches(user).filter(pk=batch_id).exists()
 
 
+@passive
 async def batch_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     """``GET /api/v1/batches/{ref}/events``: live updates about a batch, for its page.
 
@@ -270,6 +290,7 @@ def _can_read_workflow(user: User, workflow_id: str) -> bool:
     return workflows.visible(user).filter(pk=workflow_id).exists()
 
 
+@passive
 async def workflow_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     """``GET /api/v1/workflow-runs/{ref}/events``: live updates about a workflow run, for
     its page (ADR 0079).
@@ -318,6 +339,7 @@ def _can_manage_compute(user: User) -> bool:
     return permissions.can(user, permissions.Action.COMPUTE_MANAGE)
 
 
+@passive
 async def setup_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     """``GET /api/v1/compute/setups/{ref}/events``: live updates about an environment setup
     build, for its page: ``ready``, then ``setup`` when its state, progress or log changes,
@@ -390,6 +412,10 @@ async def _run(
                 reason = "shutdown"
                 return
             if getting in done:
+                if not await db(still_valid):
+                    reason = "signed_out"
+                    yield sse("signed_out", {})
+                    return
                 message = await prepare(user, getting.result())
                 if message is not None:
                     yield message

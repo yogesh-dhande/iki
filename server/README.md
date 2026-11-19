@@ -230,7 +230,9 @@ actions and their runs, and your notifications. Live updates come from `/api/v1/
   or the browser session with the CSRF token (from the page's `csrf-token`
   meta tag) in `X-CSRFToken` for unsafe methods. A token can do what both
   its scopes and its user's roles allow; a missing scope answers 403 with
-  code `insufficient_scope`.
+  code `insufficient_scope`. A token given only some projects takes no
+  organization-wide action (ADR 0152): that answers 403 with code
+  `token_limited_to_projects`.
 - **Errors:** RFC 9457 problem details (`application/problem+json`) with a
   stable `code`, and the invalid fields in `errors`.
 - **Lists:** `?limit=` (1–100, default 50) and `?cursor=` from the previous

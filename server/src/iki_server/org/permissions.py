@@ -34,7 +34,8 @@ Decisions are cached on the user object, which lives for one request. Call
 **OAuth tokens only narrow** what their user may do (ADR 0028). A request
 made with a token carries a :class:`TokenLimits`: each action needs the
 token's scope for it, and a token limited to some projects can't touch the
-others.
+others. A token the person gave only some projects takes no action beyond
+them: none on the organization, its teams or its registries (ADR 0152).
 """
 
 from dataclasses import dataclass
@@ -176,17 +177,30 @@ class TokenLimits:
     #: For a token an agent got by acting for its user (ADR 0073), the agent's own
     #: service account, whose roles must allow each action too.
     alongside: Any = None
+    #: The person chose only some projects for it (ADR 0152): it acts in those and nowhere
+    #: else, so it takes no action on the organization, its teams or its registries.
+    only_projects: bool = False
 
     def allows(self, action: Action, target: "Team | Project | Registry | None") -> bool:
         if ACTION_SCOPES[action] not in self.scopes:
             return False
+        if isinstance(target, Project):
+            if self.only_projects and action in _ALSO_ORG_ADMIN:
+                # It adds people to the organization, as an Org Admin.
+                return False
+            return self.projects is None or target.pk in self.projects
+        if self.only_projects:
+            return False
         if self.projects is None:
             return True
-        if isinstance(target, Project):
-            return target.pk in self.projects
-        # A token limited to some projects can't create new ones, nor curate a registry,
-        # whose entries are every project's.
+        # A token held to the projects its agent's service account may go to can't create
+        # new ones, nor curate a registry, whose entries are every project's.
         return action is not Action.PROJECT_CREATE and action not in REGISTRY_ACTIONS
+
+    def beyond_projects(self, action: Action) -> bool:
+        """Whether it's refused `action` for acting beyond the projects it was given,
+        rather than for its scopes."""
+        return self.only_projects and (action not in PROJECT_ACTIONS or action in _ALSO_ORG_ADMIN)
 
 
 def limit_to(user: Any, limits: TokenLimits | None) -> None:  # noqa: ANN401
@@ -383,6 +397,11 @@ def can(user: Any, action: Action, target: Team | Project | Registry | None = No
     return _roles_allow(user, action, target)
 
 
+def roles_allow(user: Any, action: Action, target: Team | Project | Registry | None = None) -> bool:  # noqa: ANN401
+    """Whether the user's roles allow the action, whatever their token's limits."""
+    return _roles_allow(user, action, target)
+
+
 def _roles_allow(user: Any, action: Action, target: Team | Project | Registry | None) -> bool:  # noqa: ANN401
     if action in ORG_ACTIONS:
         if target is not None:
@@ -456,7 +475,7 @@ def visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     if not _active(user):
         return Team.objects.none()
     limits = token_limits(user)
-    if limits is not None and "read" not in limits.scopes:
+    if limits is not None and ("read" not in limits.scopes or limits.only_projects):
         return Team.objects.none()
     teams = Team.objects.all()
     if OrgRole.ORG_ADMIN not in org_roles(user):

@@ -6,6 +6,7 @@ import http.client
 import json
 import signal
 import time
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import connection
 from django.test import AsyncClient, Client
+from django.utils import timezone
 from org_world import World, build_world
 from real_server import app_role, serve, server_env
 from test_oauth import signed_in_token
@@ -20,10 +22,13 @@ from test_oauth import signed_in_token
 from iki_server.accounts.models import User, UserSession
 from iki_server.accounts.session_policy import LAST_SEEN
 from iki_server.notifications import kinds, services
-from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.oauth import services as oauth
+from iki_server.oauth.models import Consent
+from iki_server.org.models import OrgRoleAssignment, Project, ProjectMembership, ProjectRole
 from iki_server.realtime import hub as hub_module
 from iki_server.realtime import views
 from iki_server.realtime.hub import Stream, hub
+from iki_server.runs import live
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -193,6 +198,112 @@ async def test_token_streams_hear_only_what_their_token_may_see(world: World) ->
         await events.close()
 
 
+async def token_stream(token: str) -> Events:
+    return await open_stream(AsyncClient(), Authorization=f"Bearer {token}")
+
+
+async def test_a_narrowed_consent_applies_to_an_open_stream(world: World) -> None:
+    """As it does to every request (ADR 0152): what the stream sends next is held to the
+    projects the person allows now."""
+    editor = world.users["editor"]
+    other = await sync_to_async(Project.objects.create)(team=world.team, name="Second Screen")
+    await sync_to_async(ProjectMembership.objects.create)(
+        project=other, user=editor, role=ProjectRole.EDITOR
+    )
+    client, tokens = await sync_to_async(signed_in_token)(world, scope="read")
+    events = await token_stream(tokens["access_token"])
+    try:
+        choice = oauth.Grant(["read"], all_projects=False, projects=[other])
+        await sync_to_async(oauth.grant)(editor, client, choice)
+        await notify(editor, "Not any more", project=world.project)
+        allowed = await notify(editor, "Still", project=other)
+        assert await events.next() == ("notification", {"id": allowed, "unread": 1})
+    finally:
+        await events.close()
+
+
+async def test_a_stream_ends_when_its_consent_no_longer_lets_it_read(world: World) -> None:
+    editor = world.users["editor"]
+    client, tokens = await sync_to_async(signed_in_token)(world, scope="read write")
+    events = await token_stream(tokens["access_token"])
+    choice = oauth.Grant(["write"], all_projects=True, projects=[])
+    await sync_to_async(oauth.grant)(editor, client, choice)
+    await notify(editor, "Hello")
+    assert await events.next() == ("signed_out", {})
+    assert await events.next() is None
+
+
+async def test_a_stream_ends_when_its_delegation_does(world: World) -> None:
+    from test_delegation import Bot, delegate
+
+    bot = await sync_to_async(Bot)(world)
+    delegation = await sync_to_async(delegate)(world, bot, scopes=("read",))
+    token = await sync_to_async(bot.token)(delegation.grant)
+    events = await token_stream(token)
+    ended = timezone.now() - timedelta(seconds=1)
+    await sync_to_async(Consent.objects.filter(pk=delegation.pk).update)(expires_at=ended)
+    await notify(world.users["editor"], "After it ended")
+    assert await events.next() == ("signed_out", {})
+
+
+async def test_a_stream_ends_at_its_next_check_when_consent_is_revoked(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(views, "HEARTBEAT", 0.2)
+    _, tokens = await sync_to_async(signed_in_token)(world, scope="read")
+    events = await token_stream(tokens["access_token"])
+    consent = await sync_to_async(Consent.objects.select_related("user", "client").get)()
+    await sync_to_async(oauth.revoke_consent)(consent, by=world.users["editor"])
+    assert await events.next() == ("signed_out", {})
+
+
+async def test_someone_no_longer_a_compute_admin_hears_no_more_of_setup_builds(
+    world: World,
+) -> None:
+    """Roles are read again for each event, as for each request: not kept from when the
+    stream opened."""
+    from test_api_access import _setup
+
+    admin = world.users["compute_admin"]
+    build = await sync_to_async(_setup)(world)
+    client = await signed_in(admin)
+    response = await client.get(f"/api/v1/compute/setups/{build.hrid}/events", secure=True)
+    assert response.status_code == 200, response.content
+    events = Events(response)
+    assert await events.next() == ("ready", {"id": str(build.pk)})
+    await asyncio.wait_for(hub().listening.wait(), 5)
+    try:
+        await sync_to_async(live.setup_changed)(build.pk)
+        assert await events.next() == ("setup", {"id": str(build.pk)})
+        await sync_to_async(OrgRoleAssignment.objects.filter(user=admin).delete)()
+        await sync_to_async(live.setup_changed)(build.pk)
+        with pytest.raises(TimeoutError):
+            await events.next(timeout=1)
+    finally:
+        await events.close()
+
+
+async def test_a_token_given_some_projects_cant_follow_setup_builds(world: World) -> None:
+    """Setup builds are the organization's compute (ADR 0152)."""
+    from test_api_access import _setup
+
+    admin = world.users["compute_admin"]
+    await sync_to_async(ProjectMembership.objects.create)(
+        project=world.project, user=admin, role=ProjectRole.VIEWER
+    )
+    build = await sync_to_async(_setup)(world)
+    _, tokens = await sync_to_async(signed_in_token)(
+        world, "compute_admin", scope="read admin", projects=[world.project]
+    )
+    response = await AsyncClient().get(
+        f"/api/v1/compute/setups/{build.hrid}/events",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        secure=True,
+    )
+    assert response.status_code == 403
+    assert json.loads(response.content)["code"] == "token_limited_to_projects"
+
+
 async def test_tokens_need_the_read_scope(world: World) -> None:
     _, tokens = await sync_to_async(signed_in_token)(world, scope="write")
     response = await AsyncClient().get(
@@ -247,6 +358,35 @@ async def test_streams_dont_keep_the_session_alive(world: World) -> None:
     await events.close()
     session = await sync_to_async(UserSession.objects.get)(user=viewer)
     assert (await sync_to_async(session.get_decoded)()).get(LAST_SEEN) == before
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/runs/RUN-999999/events",
+        "/api/v1/batches/BATCH-999999/events",
+        "/api/v1/workflow-runs/WF-999999/events",
+        "/api/v1/compute/setups/SETUP-999999/events",
+    ],
+)
+async def test_no_stream_keeps_the_session_alive(world: World, path: str) -> None:
+    """Pages reconnect each of them by themselves (ADR 0153)."""
+    viewer = world.users["viewer"]
+    client = await signed_in(viewer)
+
+    def last_seen(value: float | None = None) -> Any:
+        session = UserSession.objects.get(user=viewer)
+        data = session.get_decoded()
+        if value is not None:
+            data[LAST_SEEN] = value
+            session.session_data = UserSession.get_session_store_class()().encode(data)
+            session.save()
+        return data.get(LAST_SEEN)
+
+    await sync_to_async(last_seen)(0)
+    response = await client.get(path, secure=True)
+    assert response.status_code in (403, 404), response.content
+    assert await sync_to_async(last_seen)() == 0
 
 
 async def test_one_person_can_have_only_so_many_tabs_streaming(

@@ -19,6 +19,9 @@ class DisabledReason(models.TextChoices):
     FAILING = "failing", "Iki turned it off: deliveries kept failing"
     #: An Org Admin turned off a project's webhook. Only an Org Admin turns it back on.
     ORG_ADMIN = "org_admin", "An Org Admin turned it off"
+    #: The app that added it may no longer: its person narrowed or revoked their consent,
+    #: or left (ADR 0152). Iki turned it off and said so.
+    APP = "app", "Iki turned it off: the app that added it no longer may"
 
 
 class Webhook(models.Model):
@@ -53,6 +56,10 @@ class Webhook(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
     )
+    #: The app grant (``Consent.grant``) it was added or last turned on through, when that
+    #: was done with a token: it sends only while that grant would still let the app add
+    #: it (ADR 0152). None when a person did it in the browser: it's theirs.
+    grant = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -60,6 +67,9 @@ class Webhook(models.Model):
         db_table = "iki_webhook"
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["project"], name="iki_webhook_active", condition=Q(active=True)),
+            models.Index(
+                fields=["grant"], name="iki_webhook_grant", condition=Q(grant__isnull=False)
+            ),
         ]
 
     def __str__(self) -> str:

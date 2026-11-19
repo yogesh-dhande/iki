@@ -13,8 +13,14 @@ Who may do what:
   webhook sends (its host, not its address or deliveries, which carry
   project data) and can turn any of them off. A webhook an Org Admin turned
   off stays off until an Org Admin turns it on.
+- **An app's webhooks last as long as its access** (ADR 0152). A webhook
+  added with a token sends only while the app could still add it: its
+  person's consent and roles as they stand. When they no longer allow it,
+  Iki turns it off and tells its managers. Whoever turns it back on answers
+  for it from then on.
 """
 
+import copy
 import json
 import uuid
 from datetime import timedelta
@@ -147,6 +153,7 @@ def create(
             events=chosen,
             secret=crypto.encrypt(secret),
             created_by=by,
+            grant=_grant_now(),
         )
         audit.record(
             "webhook.created",
@@ -200,6 +207,8 @@ def update(
                     raise Refused("Org Admins can only turn on webhooks an Org Admin turned off.")
                 webhook.disabled_reason = DisabledReason.NONE
                 webhook.failing_since = None
+                # Whoever turns it on answers for it: an app, as long as its access lasts.
+                webhook.grant = _grant_now()
             else:
                 governing = webhook.project is not None and not managing
                 webhook.disabled_reason = (
@@ -291,7 +300,7 @@ def emit(event: str, data: dict[str, Any], *, project: Project | None) -> list[D
         wanted |= Q(project__isnull=True)
     if not wanted:
         return []
-    targets = Webhook.objects.filter(wanted, active=True, events__contains=[event])
+    targets = _sending(Webhook.objects.filter(wanted, active=True, events__contains=[event]))
     payload = _payload(event, data)
     return [_queue(webhook, event, payload) for webhook in targets]
 
@@ -307,7 +316,7 @@ def emit_to(event: str, data: dict[str, Any], *, projects: list[Project]) -> lis
         wanted |= Q(project__isnull=True)
     if not wanted:
         return []
-    targets = Webhook.objects.filter(wanted, active=True, events__contains=[event])
+    targets = _sending(Webhook.objects.filter(wanted, active=True, events__contains=[event]))
     payload = _payload(event, data)
     return [_queue(webhook, event, payload) for webhook in targets]
 
@@ -405,15 +414,18 @@ def _managers(webhook: Webhook) -> QuerySet[User]:
     return User.objects.filter(pk__in=admins, is_active=True)
 
 
-def _disable_failing(webhook: Webhook) -> None:
+def _disable(webhook: Webhook, reason: DisabledReason, why: str, data: dict[str, Any]) -> None:
+    """Iki turns the webhook off, and tells whoever manages it why."""
     webhook.active = False
-    webhook.disabled_reason = DisabledReason.FAILING
+    webhook.disabled_reason = reason
     webhook.save(update_fields=["active", "disabled_reason", "updated_at"])
     audit.record(
         "webhook.disabled",
         target=webhook,
         project=webhook.project,
-        data={"host": urlsplit(webhook.url).netloc, "failing_since": str(webhook.failing_since)},
+        data={"host": urlsplit(webhook.url).netloc, **data},
+        # Iki's doing, whatever change it was found in.
+        agent=None,
     )
     where = webhook.project.name if webhook.project else "your organization"
     path = (
@@ -424,11 +436,93 @@ def _disable_failing(webhook: Webhook) -> None:
     notify(
         _managers(webhook),
         notification_kinds.WEBHOOK_DISABLED,
-        title=(
-            f"Iki turned off a webhook in {where}: deliveries to "
-            f"{urlsplit(webhook.url).netloc} failed for {DISABLE_AFTER.days} days"
-        ),
+        title=f"Iki turned off a webhook in {where}: {why}",
         path=path,
         project=webhook.project,
     )
-    logger.warning("webhook_disabled", webhook=str(webhook.pk))
+    logger.warning("webhook_disabled", webhook=str(webhook.pk), reason=str(reason))
+
+
+def _disable_failing(webhook: Webhook) -> None:
+    _disable(
+        webhook,
+        DisabledReason.FAILING,
+        f"deliveries to {urlsplit(webhook.url).netloc} failed for {DISABLE_AFTER.days} days",
+        {"failing_since": str(webhook.failing_since)},
+    )
+
+
+# --- Webhooks apps added (ADR 0152) ------------------------------------------------------
+
+
+def _grant_now() -> uuid.UUID | None:
+    """The app grant the current change is made through: its token's person's consent."""
+    agent = audit.current_agent_info()
+    return agent.grant if agent is not None else None
+
+
+def held(webhook: Webhook) -> bool:
+    """Whether the webhook may still send: one an app added, only while the app could still
+    add it, as its person's consent and roles stand now. One a person added in the browser
+    is theirs, and always may."""
+    if webhook.grant is None:
+        return True
+    from iki_server.oauth import access
+    from iki_server.oauth.models import Consent
+
+    consent = Consent.objects.select_related("client").filter(grant=webhook.grant).first()
+    acting = access.under(consent) if consent is not None else None
+    if acting is None:
+        return False
+    if webhook.project is None:
+        return permissions.can(acting, Action.ORG_WEBHOOKS_MANAGE)
+    # Archived or not: archiving a project leaves its webhooks as they were.
+    project = copy.copy(webhook.project)
+    project.archived_at = None
+    return permissions.can(acting, Action.PROJECT_WEBHOOKS_MANAGE, project)
+
+
+def _disable_lapsed(webhook: Webhook) -> None:
+    _disable(
+        webhook,
+        DisabledReason.APP,
+        "the app that added it no longer has access to it",
+        {"reason": DisabledReason.APP.value},
+    )
+
+
+def _sending(targets: QuerySet[Webhook]) -> list[Webhook]:
+    """The webhooks among `targets` that may still send. Those an app added that it no
+    longer may are turned off, in the change's transaction, and get nothing."""
+    found = []
+    for webhook in targets.select_related("project"):
+        if held(webhook):
+            found.append(webhook)
+        else:
+            _disable_lapsed(webhook)
+    return found
+
+
+def lapse(webhooks: QuerySet[Webhook] | None = None) -> int:
+    """Turns off each of `webhooks` (all by default) an app added that it may no longer:
+    when a consent changes, and from ``iki-server maintain`` for delegations that ran out.
+    Returns how many."""
+    found = (Webhook.objects.all() if webhooks is None else webhooks).filter(
+        active=True, grant__isnull=False
+    )
+    turned_off = 0
+    for webhook in found.select_related("project"):
+        if held(webhook):
+            continue
+        with transaction.atomic():
+            locked = Webhook.objects.select_for_update(of=("self",)).select_related("project")
+            webhook = locked.get(pk=webhook.pk)
+            if webhook.active:
+                _disable_lapsed(webhook)
+                turned_off += 1
+    return turned_off
+
+
+def of_grants(grants: Any) -> QuerySet[Webhook]:  # noqa: ANN401 - grant UUIDs, or a query of them
+    """The webhooks added through these app grants."""
+    return Webhook.objects.filter(grant__in=grants)

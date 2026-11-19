@@ -4,7 +4,9 @@ Callers check permissions; these functions keep the invariants and record
 every change in the audit log, in the same transaction.
 
 Revoking anything deletes the affected access and refresh tokens at once,
-so it takes effect on the next request, not when tokens expire.
+so it takes effect on the next request, not when tokens expire. Webhooks a
+client added stop with its access (ADR 0152): changing what it may do turns
+off those it no longer could add.
 """
 
 from dataclasses import dataclass
@@ -38,10 +40,19 @@ def _revoke(tokens: dict[str, Any]) -> int:
 
 
 def revoke_user_tokens(user: User) -> int:
-    """Ends every OAuth token the person (or service account) holds."""
+    """Ends every OAuth token the person (or service account) holds. Webhooks their apps
+    added stop too if they were deactivated."""
     revoked = _revoke({"user": user})
     revoked += _revoke({"application__service_account": user})
+    _lapse(Consent.objects.filter(Q(user=user) | Q(client__service_account=user)))
     return revoked
+
+
+def _lapse(consents: QuerySet[Consent]) -> None:
+    """Turns off the webhooks these consents' clients added that they may no longer."""
+    from iki_server.webhooks import services as webhooks
+
+    webhooks.lapse(webhooks.of_grants(consents.values("grant")))
 
 
 # --- Approval ------------------------------------------------------------------
@@ -84,6 +95,7 @@ def set_approval(client: Client, approval: Approval, *, by: User) -> None:
         client.approval_changed_by, client.approval_changed_at = by, timezone.now()
         client.save(update_fields=["approval", "approval_changed_by", "approval_changed_at"])
         revoked = 0 if approval == Approval.APPROVED else _revoke({"application": client})
+        _lapse(client.consents.all())
         audit.record(
             "oauth.client_approved" if approval == Approval.APPROVED else "oauth.client_blocked",
             actor=by,
@@ -126,6 +138,9 @@ def grant(user: User, client: Client, choice: Grant) -> Consent:
             defaults={"scopes": " ".join(scopes), "all_projects": choice.all_projects},
         )
         consent.projects.set([] if choice.all_projects else choice.projects)
+        if not created:
+            # A narrower choice: what the client added that it no longer could stops.
+            _lapse(Consent.objects.filter(pk=consent.pk))
         audit.record(
             "oauth.consent_granted",
             actor=user,
@@ -150,9 +165,13 @@ def revoke_consent(consent: Consent, *, by: User) -> int:
             "grant": str(consent.grant),
             "tokens_revoked": revoked,
         }
+        grant = consent.grant
         consent.delete()
         action = "oauth.delegation_revoked" if consent.is_delegation else "oauth.consent_revoked"
         audit.record(action, actor=by, target=consent.client, data=data)
+        from iki_server.webhooks import services as webhooks
+
+        webhooks.lapse(webhooks.of_grants([grant]))
     return revoked
 
 
@@ -215,6 +234,8 @@ def delegate(user: User, client: Client, choice: Grant, expires_at: datetime) ->
             },
         )
         consent.projects.set([] if choice.all_projects else choice.projects)
+        if not created:
+            _lapse(Consent.objects.filter(pk=consent.pk))
         audit.record(
             "oauth.delegation_granted",
             actor=user,
@@ -245,7 +266,11 @@ def set_acts_for_people(client: Client, allowed: bool, *, by: User) -> None:
             _revoke({"application": client, "user__isnull": False})
             delegations = Consent.objects.filter(client=client)
             ended = delegations.count()
+            grants = list(delegations.values_list("grant", flat=True))
             delegations.delete()
+            from iki_server.webhooks import services as webhooks
+
+            webhooks.lapse(webhooks.of_grants(grants))
         Client.objects.filter(pk=client.pk).update(acts_for_people=allowed)
         client.acts_for_people = allowed
         audit.record(
@@ -323,6 +348,8 @@ def revoke_credential(client: Client, *, by: User) -> None:
     with transaction.atomic():
         revoked = _revoke({"application": client})
         client_id = client.client_id
+        # Its delegations go with it, and what agents added through them stops.
+        grants = list(client.consents.values_list("grant", flat=True))
         client.delete()
         audit.record(
             "oauth.credential_revoked",
@@ -330,6 +357,9 @@ def revoke_credential(client: Client, *, by: User) -> None:
             target=account,
             data={"client_id": client_id, "tokens_revoked": revoked},
         )
+        from iki_server.webhooks import services as webhooks
+
+        webhooks.lapse(webhooks.of_grants(grants))
 
 
 def credentials(account: User) -> QuerySet[Client]:
