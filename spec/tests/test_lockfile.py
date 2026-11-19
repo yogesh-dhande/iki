@@ -248,7 +248,7 @@ SECRET = "ghp_EXAMPLE0SECRET"
         ("acme/assays", f"https://github.com/acme/a.git#{SECRET}", "a query or fragment"),
         ("acme/assays", f"ssh://git:{SECRET}@git.acme.example/assays.git", "a password"),
         # Messages for Iki's own plugins and for a missing commit name the URL: none may.
-        ("iki/dna", f"https://bob:{SECRET}@github.com/elsewhere/iki.git", "a password"),
+        ("iki/dna", f"https://bob:{SECRET}@git.acme.example/mirrors/iki.git", "a password"),
         ("iki/dna", f"https://{SECRET}@github.com/yogesh-dhande/iki.git", "a user or token"),
     ],
 )
