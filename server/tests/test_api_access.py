@@ -1057,6 +1057,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # nothing and reads only what the caller could.
     ("GET", "/apps/guide", fixed("/apps/guide"), row(200)),
     ("POST", "/apps/check", fixed("/apps/check", {"spec": {}}), row(200)),
+    ("POST", "/helm/read", fixed("/helm/read", {"helm": ["RNA1{R(A)P}$$$$V2.0"]}), row(200)),
     # A draft: made by the project's Editors, opened only by the person it's for.
     (
         "POST",

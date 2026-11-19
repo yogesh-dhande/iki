@@ -824,8 +824,18 @@ heavy}}`, or `components.part:PRT-000001 components.role:heavy` in the
 web app's search box.
 
 String formats, checked by the database too: `dna_sequence`,
-`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
-`uri` and `hostname` (a DNS name in lower case, such as `lims.example.org`). A `pattern` must work in both Python and PostgreSQL, so it can't use
+`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `helm`,
+`email`, `uri` and `hostname` (a DNS name in lower case, such as
+`lims.example.org`). `helm` is HELM 2, the Pistoia Alliance's notation for
+macromolecules (version 2.04 of its specification), such as
+`RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`: the database checks its shape, Iki
+reads the rest with iki-wasm, as browsers do, and says what's wrong and at
+which character. An identity reads it in its canonical form ([ADR
+0144](../docs/adr/0144-canonical-helm-is-an-identity.md)): monomer IDs in
+brackets only when they're longer than one character, repeats of a fixed
+count written out, the members of a list in order, without annotations, the
+polymers in order and numbered from 1, and the connections in order, each
+from its lesser end. HELM 1 is read too, as HELM 2. A `pattern` must work in both Python and PostgreSQL, so it can't use
 lookarounds, named groups, backreferences, inline flags or possessive
 quantifiers.
 

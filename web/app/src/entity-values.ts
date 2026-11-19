@@ -199,6 +199,7 @@ const FORMAT_HELP: Record<string, string> = {
   dna_sequence: "Use DNA bases only: A, C, G, T, or IUPAC codes such as N.",
   rna_sequence: "Use RNA bases only: A, C, G, U, or IUPAC codes such as N.",
   protein_sequence: "Use one-letter amino acid codes only, such as MKV.",
+  helm: "Enter HELM: its polymers, then four “$”, such as RNA1{R(A)P.R(C)}$$$$V2.0.",
   email: "Enter an email address, such as name@example.com.",
   uri: "Enter an address with its scheme, such as https://example.com.",
   hostname: "Enter a host name in lower case, such as lims.example.com.",

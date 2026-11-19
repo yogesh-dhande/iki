@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod expressions;
+pub mod helm;
 pub mod rules;
 pub mod templates;
 
@@ -555,6 +556,15 @@ pub mod exports {
     pub extern "C" fn iki_evaluate_rules() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::evaluate_rules_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Reads the HELM strings in the input buffer (see [`super::helm::read_json`]), and
+    /// frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_helm() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::helm::read_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

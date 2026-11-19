@@ -28,6 +28,7 @@ from iki_spec import (
     apis,
     components,
     conditions,
+    helm,
     naming,
     notifications,
     releases,
@@ -2885,7 +2886,10 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
             problems.append(f"must be at least {f.min_length} characters long.")
         if f.max_length is not None and len(value) > f.max_length:
             problems.append(f"must be at most {f.max_length} characters long.")
-        if f.format and not matches_format(value, f.format):
+        if f.format == "helm":
+            if (wrong := helm.problem(value)) is not None:
+                problems.append(wrong)
+        elif f.format and not matches_format(value, f.format):
             problems.append(f"isn't a valid {f.format.replace('_', ' ')}.")
         if f.pattern and not pattern_problems(f.pattern) and re.fullmatch(f.pattern, value) is None:
             problems.append(f"doesn't match the pattern `{f.pattern}`.")

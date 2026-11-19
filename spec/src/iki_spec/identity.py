@@ -39,6 +39,8 @@ written:
   of its two strands, each read 5' to 3' (each the least of its rotations, if
   circular), so a duplex entered as its other strand is the same duplex. A single
   strand is only itself (and its rotations): its complement is another molecule.
+- A string with the ``helm`` format is its canonical HELM (ADR 0144), as iki-wasm writes
+  it: the same molecule however it's written, and another molecule if a monomer differs.
 - A list (of references, or rows) is a multiset: its items sorted, duplicates kept, so
   a complex's parts are the same whatever their order. A row is an object of its
   identity fields.
@@ -113,6 +115,8 @@ def kind_of(f: Field, values: Mapping[str, Any]) -> Kind:
                 items=Kind("row", row=tuple((n, kind_of(item.fields[n], {})) for n in names)),
             )
         return Kind("list", items=kind_of(item, {}))
+    if f.format == "helm":
+        return Kind(f.type, format="helm")
     if f.format in SEQUENCE_FORMATS:
         return Kind(
             f.type,
@@ -215,6 +219,10 @@ def canonical(kind: str | Kind, value: Any) -> Encoded:  # noqa: ANN401 - any va
         if kind.format is not None and value is not None:
             if not isinstance(value, str):
                 raise ValueError(f"a sequence identity value must be text, not {value!r}")
+            if kind.format == "helm":
+                from iki_spec import helm  # iki-wasm, loaded only for HELM
+
+                return helm.canonical(value)
             return sequence(kind.format, value, circular=kind.circular, double=kind.double)
         return canonical(kind.type, value)
     field_type = kind

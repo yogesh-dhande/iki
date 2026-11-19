@@ -6605,6 +6605,195 @@
         "title": "GuardOut",
         "type": "object"
       },
+      "HelmIn": {
+        "properties": {
+          "helm": {
+            "description": "HELM strings, HELM 2 (ending V2.0) or HELM 1, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Helm",
+            "type": "array"
+          }
+        },
+        "required": [
+          "helm"
+        ],
+        "title": "HelmIn",
+        "type": "object"
+      },
+      "HelmMonomerOut": {
+        "properties": {
+          "branch": {
+            "description": "It's a branch monomer: a nucleotide's base.",
+            "title": "Branch",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Its monomer ID, without brackets, or its SMILES.",
+            "title": "Id",
+            "type": "string"
+          },
+          "list": {
+            "description": "It's one of several monomers, or a mixture of them.",
+            "title": "List",
+            "type": "boolean"
+          },
+          "position": {
+            "description": "Its position in its polymer, from 1, as connections count.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "smiles": {
+            "description": "It's given in-line, as SMILES.",
+            "title": "Smiles",
+            "type": "boolean"
+          },
+          "unit": {
+            "description": "The unit it's in (its nucleotide, for RNA), from 1.",
+            "title": "Unit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position",
+          "id",
+          "branch",
+          "smiles",
+          "list",
+          "unit"
+        ],
+        "title": "HelmMonomerOut",
+        "type": "object"
+      },
+      "HelmOut": {
+        "properties": {
+          "readings": {
+            "description": "Each string's reading, in order.",
+            "items": {
+              "$ref": "#/components/schemas/HelmReadingOut"
+            },
+            "title": "Readings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "readings"
+        ],
+        "title": "HelmOut",
+        "type": "object"
+      },
+      "HelmPolymerOut": {
+        "properties": {
+          "ambiguous": {
+            "description": "It has monomers that aren't known, or a list of them, or a repeat of a range of counts.",
+            "title": "Ambiguous",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Its canonical ID, such as RNA1.",
+            "title": "Id",
+            "type": "string"
+          },
+          "monomers": {
+            "items": {
+              "$ref": "#/components/schemas/HelmMonomerOut"
+            },
+            "title": "Monomers",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "PEPTIDE",
+              "RNA",
+              "CHEM",
+              "BLOB"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "units": {
+            "description": "Its units: its nucleotides, for RNA.",
+            "title": "Units",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "units",
+          "monomers",
+          "ambiguous"
+        ],
+        "title": "HelmPolymerOut",
+        "type": "object"
+      },
+      "HelmReadingOut": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The character that's wrong, from 0.",
+            "title": "At"
+          },
+          "canonical": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its canonical form, as an identity reads it. Null if it isn't HELM.",
+            "title": "Canonical"
+          },
+          "connections": {
+            "description": "Its connections, canonical.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it isn't HELM. Null if it is.",
+            "title": "Error"
+          },
+          "polymers": {
+            "description": "Its polymers, in canonical order.",
+            "items": {
+              "$ref": "#/components/schemas/HelmPolymerOut"
+            },
+            "title": "Polymers",
+            "type": "array"
+          },
+          "version1": {
+            "default": false,
+            "description": "It was written as HELM 1.",
+            "title": "Version1",
+            "type": "boolean"
+          }
+        },
+        "title": "HelmReadingOut",
+        "type": "object"
+      },
       "HoldOut": {
         "description": "A rule holding the record for review (ADR 0127): a save broke it, and was kept\nwith a reason.",
         "properties": {
@@ -28100,6 +28289,47 @@
         "summary": "A link to read a file",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/helm/read": {
+      "post": {
+        "description": "Each HELM string read as a HELM field's value is: canonical, with its polymers'\nmonomers and its connections, or why it isn't HELM and where. Nothing is saved.",
+        "operationId": "iki_server_api_helm_read_helm",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HelmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelmOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Read HELM",
+        "tags": [
+          "helm"
         ]
       }
     },
