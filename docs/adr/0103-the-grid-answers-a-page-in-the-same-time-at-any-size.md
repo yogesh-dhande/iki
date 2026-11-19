@@ -80,8 +80,12 @@ Narrowed by an indexed condition, the same sort is fine, and runs.
 project gets 100M proteins:
 
 - one is made through Iki and copied in bulk, as a restore loads a
-  database;
+  database: each copy is a registry entry of its own, with the identity
+  hash Iki would give it, and the project's record of it (ADR 0115);
 - its indexes and unique constraints are built afterwards.
+
+A small version, of 1,000 proteins, runs in every check, so the copying
+keeps up with the schema before the nightly run needs it.
 
 A Viewer then opens each kind of page, and each page has a budget of one
 second (the median of five tries):
