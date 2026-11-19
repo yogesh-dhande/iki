@@ -20,7 +20,8 @@ structures.
     different heavy chains (their constant regions differ), and an IgG and a
     Fab differ in how much of the heavy chain there is. Two variable domains
     alone are an Fv, which has no isotype. `assemble` checks the format and
-    isotype against the chains.
+    isotype against the chains, and the type's rules keep what the format says
+    of its chains and isotype at every save.
   - It keeps its format (`registry: derived`), its isotype (a registry fact:
     given once, then changed only by a registrar, so a second assembly that
     claims another is refused) and what it binds (`target`).
@@ -100,9 +101,18 @@ IGHG1's CH1 98) and an IgG heavy chain's constant region 326 to 377 (IGHG2's to
 IGHG3's), so fewer than 90 residues after a variable domain count as no
 constant domain, and 300 or more as an IgG's whole constant region. Which class
 a constant region is isn't read from its sequence: the isotype given is
-checked against the format and that there's a constant region. These checks
-are `assemble`'s: an antibody registered directly, through the API, isn't
-checked. It names the antibody after its chains unless it's given a name.
+checked against the format and that there's a constant region.
+
+What can be told from the antibody's own fields is a rule of its type
+([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),
+kept at every save however it's registered: by `assemble`, through the API, a
+bulk import or a bundle. An IgG, a Fab and an Fv have a light chain, a VHH and
+an scFv none, and the two chains differ; an Fv, scFv or VHH has no isotype; an
+IgG's is one of its subclasses. Whether a chain has the constant region its
+format says is `assemble`'s check alone: it reads where the chain's variable
+domains end, its project's numbering, which a rule can't, as a reference holds
+the chain's registry entry. `assemble` names the antibody after its chains
+unless it's given a name.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image

@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/antibody
-version: 0.5.0
+version: 0.6.0
 title: Antibody
 description: Antibodies, by the proteins that are their chains, what their variable domains say about them, and their predicted structures.
 license: Apache-2.0

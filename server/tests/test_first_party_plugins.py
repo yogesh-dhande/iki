@@ -134,6 +134,26 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             other_isotype = None
         except services.Invalid as invalid:
             other_isotype = sorted(invalid.errors)
+        # What a format says of its chains and isotype holds however an antibody is
+        # registered, not only by assemble: the plugin's rules (ADR 0127).
+        def refusal(**values):
+            try:
+                make("iki/antibody.Antibody", **values)
+            except services.Invalid as invalid:
+                return invalid.errors
+            return None
+        other = make("iki/protein.Protein", sequence="EVQLVESG")
+        format_rules = [
+            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="fv",
+                    isotype="igg1"),
+            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="igg",
+                    isotype="igm"),
+            refusal(heavy_chain=str(other.pk), format="igg", isotype="igg1"),
+            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="scfv"),
+            refusal(heavy_chain=str(other.pk), light_chain=str(other.pk), format="fv"),
+        ]
+        whole_igm = refusal(heavy_chain=str(other.pk), light_chain=str(light.pk),
+                            format="other", isotype="igm")
         entries = {e.pk: e for e in Entity.objects.filter(registry__isnull=False)}
         # Giving the VHH a light chain would make it another antibody: it's refused.
         try:
@@ -159,7 +179,8 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
                       entries[vhh.entry_id].identity_hash, entries[fab.entry_id].identity_hash
                   ],
                   "refused": refused, "numbering": numbering,
-                  "other_isotype": other_isotype}
+                  "other_isotype": other_isotype, "format_rules": format_rules,
+                  "whole_igm": whole_igm}
         """,
     )
     assert result["types"] == [
@@ -194,6 +215,30 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     ]
     assert result["numbering"] == ["kabat", "kabat", "DTYIH", "heavy"]
     assert result["other_isotype"] == ["isotype"]
+    assert result["format_rules"] == [
+        {
+            "isotype": [
+                "An Fv, scFv or VHH has no constant region, so no isotype: leave it out, "
+                "or choose the format its chains are."
+            ]
+        },
+        {
+            "isotype": [
+                "An IgG's isotype is one of its subclasses (igg1 to igg4), not igm: for a "
+                "whole antibody of another class, choose other."
+            ]
+        },
+        {
+            "light_chain": [
+                "An IgG, a Fab and an Fv have a light chain: give one, or choose vhh or "
+                "scfv for an antibody of one chain."
+            ]
+        },
+        {"light_chain": ["A VHH and an scFv have one chain, so no light chain."]},
+        {"light_chain": ["One protein can't be both its heavy and its light chain."]},
+    ]
+    # A whole IgM is `other`, which may take any class.
+    assert result["whole_igm"] is None
     assert result["refused"] == {
         "light_chain": [
             "is part of what makes it this one, so it can't be added later: "

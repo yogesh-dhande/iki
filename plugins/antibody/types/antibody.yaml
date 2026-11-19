@@ -58,5 +58,50 @@ fields:
     max_length: 255
     indexed: true
     description: What it binds, such as HER2 or PD-1.
+# What its format says of its chains and isotype, kept at every save, however it's
+# registered: by `assemble`, through the API, by a bulk import or in a bundle (ADR 0127).
+# Whether a chain has the constant region its format and isotype say is `assemble`'s
+# check: it reads where the chain's variable domains end, which is each project's
+# record's numbering, not the registry entry a reference holds.
+rules:
+  paired_formats_have_a_light_chain:
+    label: An IgG, a Fab and an Fv have a light chain
+    check: record.light_chain != null
+    when: record.format in ["igg", "fab", "fv"]
+    message: >-
+      An IgG, a Fab and an Fv have a light chain: give one, or choose vhh or
+      scfv for an antibody of one chain.
+    fields: [light_chain]
+  single_chain_formats_have_one_chain:
+    label: A VHH and an scFv have one chain
+    check: record.light_chain == null
+    when: record.format in ["vhh", "scfv"]
+    message: A VHH and an scFv have one chain, so no light chain.
+    fields: [light_chain]
+  chains_differ:
+    label: Its heavy and light chains differ
+    check: record.heavy_chain.id != record.light_chain.id
+    when: record.light_chain != null
+    message: One protein can't be both its heavy and its light chain.
+    fields: [light_chain]
+  no_isotype_without_a_constant_region:
+    label: An Fv, scFv or VHH has no isotype
+    description: >-
+      An isotype is a heavy chain constant region's class, and these formats
+      are variable domains alone.
+    check: '!(record.format in ["fv", "scfv", "vhh"])'
+    when: record.isotype != null
+    message: >-
+      An Fv, scFv or VHH has no constant region, so no isotype: leave it out,
+      or choose the format its chains are.
+    fields: [isotype]
+  an_iggs_isotype_is_a_subclass:
+    label: An IgG's isotype is one of its subclasses
+    check: record.isotype in ["igg1", "igg2", "igg3", "igg4"]
+    when: record.format == "igg" && record.isotype != null
+    message: >-
+      An IgG's isotype is one of its subclasses (igg1 to igg4), not
+      {{ record.isotype }}: for a whole antibody of another class, choose other.
+    fields: [isotype]
 display:
   title: "{{ name or hrid }}"
