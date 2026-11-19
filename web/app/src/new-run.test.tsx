@@ -252,7 +252,10 @@ describe("starting a run", () => {
       name: "iki/protein.import_proteins",
       label: "Import proteins",
       inputs: [],
-      creates: [{ type: "iki/protein.Protein", cardinality: "many", derived_from: [] }],
+      creates: [
+        { type: "iki/protein.Protein", cardinality: "many", derived_from: [] },
+        { type: "iki/protein.Protein", cardinality: "one", derived_from: [] },
+      ],
       updates: [],
       network: ["rest.uniprot.org"],
       secrets: [
@@ -319,7 +322,7 @@ describe("starting a run", () => {
       await screen.findByRole("combobox", { name: "Action" }),
       "Import proteins",
     );
-    expect(await screen.findByText("It makes new proteins.")).toBeInTheDocument();
+    expect(await screen.findByText("It makes new proteins and one protein.")).toBeInTheDocument();
     expect(screen.getByText("It can reach rest.uniprot.org on the internet.")).toBeInTheDocument();
     // Only the secrets this deployment has set: the others it runs without.
     expect(screen.getByText(/^It gets/)).toHaveTextContent(
