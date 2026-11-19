@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Until a plugin registers synthetic polymers, a polymer lot names any entity. A polymer
+# plugin narrows `polymer` to its types (ADR 0162).
+apiVersion: iki/v1
+kind: EntityType
+name: PolymerLot
+label: Polymer lot
+label_plural: Polymer lots
+extends: Lot
+schema_version: 1
+description: >-
+  A lot of a synthetic polymer: one synthesis's chains, whose lengths vary, so it has
+  its own molecular weight distribution: its number-average (Mn) and weight-average
+  (Mw) molecular weights, and their ratio, its dispersity (Đ = Mw/Mn, IUPAC 2009),
+  and how they were measured.
+hrid: { prefix: PYLOT }
+amount:
+  unit: mg
+  label: Amount
+  description: How much of it is left.
+fields:
+  polymer:
+    type: ref
+    to: iki/core.Entity
+    label: Lot of
+    required: true
+    immutable: true
+    description: The polymer it's a lot of.
+  mn:
+    type: quantity
+    label: Mn
+    unit: g/mol
+    display_unit: kg/mol
+    min: 0
+    indexed: true
+    description: Its number-average molecular weight.
+  mw:
+    type: quantity
+    label: Mw
+    unit: g/mol
+    display_unit: kg/mol
+    min: 0
+    indexed: true
+    description: Its weight-average molecular weight.
+  mp:
+    type: quantity
+    label: Mp
+    unit: g/mol
+    display_unit: kg/mol
+    min: 0
+    description: The molecular weight at its chromatogram's peak.
+  dispersity:
+    type: float
+    label: Đ
+    computed: true
+    min: 1
+    indexed: true
+    description: >-
+      Its dispersity, Mw/Mn (IUPAC's Đ, formerly the polydispersity index): 1 for
+      chains all of one length, more the more their lengths vary.
+  molecular_weight_method:
+    type: enum
+    label: Molecular weight by
+    values: [sec_conventional, sec_universal, sec_mals, nmr_end_group, maldi_tof]
+    description: >-
+      How Mn and Mw were measured: sec_conventional by SEC (GPC) against a calibration
+      of standards, sec_universal by universal calibration with a viscometer,
+      sec_mals by SEC with multi-angle light scattering, which needs no standards,
+      nmr_end_group by NMR end-group analysis (Mn only), maldi_tof by MALDI-TOF MS.
+  calibration_standard:
+    type: enum
+    values: [polystyrene, poly_methyl_methacrylate, polyethylene_glycol, pullulan]
+    description: >-
+      The standards a conventional SEC was calibrated with: its molecular weights are
+      relative to theirs.
+  eluent:
+    type: string
+    max_length: 200
+    description: The SEC's solvent, such as THF at 1 mL/min, 35 °C.
+rules:
+  mw_is_at_least_mn:
+    label: Mw is at least Mn
+    check: record.mw >= record.mn
+    message: >-
+      Its Mw, {{ record.mw }} g/mol, is below its Mn, {{ record.mn }} g/mol: a
+      weight average is never below the number average of the same chains.
+    fields: [mw]
+display:
+  title: "{{ hrid }}"

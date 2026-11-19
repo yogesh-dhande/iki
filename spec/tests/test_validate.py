@@ -2740,3 +2740,53 @@ def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
     # A state can hold only an amount the type has.
     held = make(tmp_path, TYPE + "fields:" + TUBE.split("---")[0].split("fields:", 1)[1], ROLES)
     assert codes(held) == ["holds-without-amount"]
+
+
+LOT = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Lot
+schema_version: 1
+abstract: true
+fields:
+  disposition:
+    type: state
+    initial: quarantined
+    states:
+      quarantined: { set_by: [qa] }
+      on_hold: { set_by: [qa], holds_amount: true }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: OligoLot
+schema_version: 1
+extends: Lot
+hrid: { prefix: OLOT }
+amount: { unit: nmol }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: ProteinLot
+schema_version: 1
+extends: Lot
+hrid: { prefix: PLOT }
+amount: { unit: mg }
+"""
+
+
+def test_an_abstract_types_state_holds_each_subtypes_own_amount(tmp_path: Path) -> None:
+    """ADR 0162: one disposition for every kind of lot, holding an oligo lot's nmol and a
+    protein lot's mg; a concrete subtype without an amount has nothing for it to hold."""
+    result = make(tmp_path, LOT, ROLES)
+    assert codes(result) == []
+    assert result.plugin is not None
+    assert result.plugin.types["acme/lab.Lot"].amount is None
+    without = LOT.replace(
+        "hrid: { prefix: PLOT }\namount: { unit: mg }\n", "hrid: { prefix: PLOT }\n"
+    )
+    (problem,) = make(tmp_path, without, ROLES).problems
+    assert (problem.code, problem.message) == (
+        "holds-without-amount",
+        "`acme/lab.Lot`'s `on_hold` holds the record's amount, and `ProteinLot`, which "
+        "extends it, has none.",
+    )

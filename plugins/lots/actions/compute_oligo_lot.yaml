@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_oligo_lot
+label: Compute an oligonucleotide lot's mass difference and yield
+description: >-
+  An oligonucleotide lot's expected mass, its oligonucleotide's monoisotopic or average
+  mass as the free acid, and how far its measured mass by ESI-MS is from it, which the
+  lot's tolerance holds it to; and its yield in nmol from its OD260 and ε260 (nmol = OD
+  × 10⁶ / ε260): the lot's own ε260 if it gives one, else its oligonucleotide's.
+inputs:
+  lot: { type: OligoLot, schema: ">=1", include: [oligonucleotide] }
+effects:
+  updates: [{ input: lot, fields: [expected_mass, mass_error, yield_amount] }]
+runs_on: { tier: backend, environment: lot-tools }
+command: [python, ./scripts/lots.py, oligo]
+deterministic: true
+batchable: 100
+timeout: 5m

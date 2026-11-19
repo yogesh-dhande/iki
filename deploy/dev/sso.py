@@ -33,6 +33,7 @@ import sys
 import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from html.parser import HTMLParser
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
@@ -1127,6 +1128,7 @@ def actions() -> None:
     compounds(alice, project)
     oligonucleotides(alice, project)
     plasmids(alice, project)
+    lots(alice, project)
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -2102,6 +2104,118 @@ def constructs(alice: requests.Session, project: dict[str, Any], assembly: dict[
     )
 
 
+#: Inotersen (Tegsedi): a 5-10-5 2′-MOE gapmer, phosphorothioate throughout, every C a
+#: 5-methylcytosine.
+INOTERSEN = (
+    "RNA1{"
+    + "[sP].".join(
+        f"[{'MOE' if i < 5 or i >= 15 else 'dR'}]({'[5meC]' if b == 'C' else b})"
+        for i, b in enumerate("TCTTGGTTACATGAAATCCC")
+    )
+    + "}$$$$V2.0"
+)
+#: Hen egg-white lysozyme's 129 mature residues (UniProt P00698, 19-147).
+LYSOZYME = (
+    "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"
+    "LLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
+)
+
+
+def lots(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The lots plugin, in its environment: an inotersen lot's mass by ESI-MS checked against
+    the one its HELM gives, and its nmol drawn by volume at its concentration; and a
+    lysozyme lot's concentration from its A280 and its sequence's ε280."""
+    run = launch(alice, project, "iki/oligo.register_oligonucleotide", {}, {"helm": INOTERSEN})
+    (oligo,) = [e for e in run["effects"] if e["type"] == "iki/oligo.Oligonucleotide"]
+    weight = record(alice, oligo["entity"])["values"].get("molecular_weight")
+    if not (isinstance(weight, (int, float)) and abs(weight - 7183.08) < 0.01):
+        fail(f"{run['hrid']} registered inotersen at {weight} g/mol, not 7183.08")
+    # Prakash et al. (2014), Table 1: 7182.2 found by ESI-MS (average mass).
+    lot = created(
+        alice,
+        project,
+        "iki/lots.OligoLot",
+        {
+            "oligonucleotide": oligo["entity"],
+            "lot_number": f"TEG-{secrets.token_hex(3)}",
+            "synthesis_scale": 1,
+            "purification": "ie_hplc",
+            "concentration": 100,
+            "measured_mass": 7182.2,
+            "mass_basis": "average",
+            "mass_tolerance": 2,
+        },
+        {"value": 500, "unit": "nmol"},
+    )
+    run = launch(alice, project, "iki/lots.compute_oligo_lot", {"lot": lot["id"]})
+    got = record(alice, lot["id"])["values"]
+    if (got.get("expected_mass"), got.get("mass_error")) != (7183.08, -0.88):
+        fail(f"{run['hrid']} checked {lot['hrid']}'s mass as {got}, not -0.88 Da from 7183.08")
+    # 50 uL of a 100 uM solution is 5 nmol.
+    drawn = api_call(
+        alice,
+        "POST",
+        f"/entities/{lot['id']}/amount/draw",
+        {"amount": {"value": 50, "unit": "uL"}, "reason": "Dosed"},
+    )
+    if drawn.status_code != 200:
+        fail(f"drawing from {lot['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
+    left = api_call(alice, "GET", f"/entities/{lot['id']}/amount").json()
+    if Decimal(left["value"]) != 495:
+        fail(f"{lot['hrid']} has {left} left, not 495 nmol")
+    ok(
+        f"iki/lots.compute_oligo_lot found {lot['hrid']}'s ESI-MS mass 0.88 Da from "
+        f"inotersen's 7183.08, and 50 uL at 100 uM drew 5 nmol ({run['hrid']})"
+    )
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/protein.Protein",
+            "project": project["id"],
+            "values": {"name": "Lysozyme C (hen)", "sequence": LYSOZYME},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering lysozyme answered HTTP {made.status_code}: {made.text[:300]}")
+    protein = made.json()
+    launch(alice, project, "iki/protein.compute_properties", {"protein": protein["id"]})
+    lot = created(
+        alice,
+        project,
+        "iki/lots.ProteinLot",
+        {"protein": protein["id"], "a280": 0.53, "dilution_factor": 10, "path_length": 1},
+        {"value": 20, "unit": "mg"},
+    )
+    run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
+    got = record(alice, lot["id"])["values"]
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.6528, 1.9979):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9979 mg/mL at 2.6528")
+    ok(
+        f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
+        f"1.9979 mg/mL of lysozyme at its sequence's 2.6528 mL/(mg·cm) ({run['hrid']})"
+    )
+
+
+def created(
+    alice: requests.Session,
+    project: dict[str, Any],
+    kind: str,
+    values: dict[str, Any],
+    amount: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A new record of ``kind``, with ``amount`` recorded."""
+    body: dict[str, Any] = {"type": kind, "project": project["id"], "values": values}
+    if amount is not None:
+        body["amount"] = amount
+    made = api_call(alice, "POST", "/entities", body)
+    if made.status_code not in (200, 201):
+        fail(f"recording a {kind} answered HTTP {made.status_code}: {made.text[:300]}")
+    entity: dict[str, Any] = made.json()
+    return entity
+
+
 def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     """Caffeine (PubChem CID 2519), fetched from PubChem by name through the egress proxy,
     and registered by its InChIKey with its CID, name and CAS number, its origin saying
@@ -2647,6 +2761,7 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
     the Fv found by searching iki/core.Complex; and its chains, registered again as a
     protein complex, found to be the antibody already."""
     composed(alice, fv)
+    fv_lot(alice, project, fv)
     found = api_call(
         alice,
         "POST",
@@ -2677,6 +2792,27 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
             f"the Fv's chains as a protein complex answered {again.status_code}: {again.text[:300]}"
         )
     ok(f"the Fv's chains as a protein complex are {fv['hrid']}, registered already as an antibody")
+
+
+def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
+    """A protein lot of the Fv, a complex (ADR 0162): its concentration from its A280 and
+    the Fv's composition, kept with each thiol free, with its two disulfides applied:
+    49,850 + 2 x 125 L/(mol.cm) over 24,860.46 - 4 x 1.00794 g/mol, 2.0156 mL/(mg.cm)."""
+    lot = created(
+        alice,
+        project,
+        "iki/lots.ProteinLot",
+        {"protein": fv["entity"], "a280": 0.85, "dilution_factor": 10, "path_length": 1},
+        {"value": 5, "unit": "mg"},
+    )
+    run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
+    got = record(alice, lot["id"])["values"]
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.0156, 4.2172):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0156")
+    ok(
+        f"iki/lots.compute_protein_lot: {lot['hrid']}, a lot of {fv['hrid']}, is 4.2172 mg/mL "
+        f"at the Fv's 2.0156 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
+    )
 
 
 def composed(alice: requests.Session, fv: dict[str, Any]) -> None:

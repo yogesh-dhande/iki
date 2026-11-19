@@ -1,0 +1,66 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: a_narrow_polystyrene_standard
+description: >-
+  Polystyrene standard PSS120219 (PSS/Agilent certificate PSS-PSSKIT, lot PSSKIT-17):
+  Mw 241,000, Mn 236,000, PDI 1.02: Đ = 1.021.
+action: compute_polymer_lot
+inputs:
+  lot:
+    - values: { mn: 236000, mw: 241000, mp: 242000, molecular_weight_method: sec_conventional }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { dispersity: 1.021 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: nists_polystyrene_by_two_methods
+description: >-
+  NIST SRM 1478, polystyrene: Mn 35,800 g/mol by membrane osmometry, Mw 37,400 g/mol by
+  sedimentation equilibrium (its certificate, 1992): Đ = 1.045.
+action: compute_polymer_lot
+inputs:
+  lot:
+    - values: { mn: 35800, mw: 37400 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { dispersity: 1.045 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_mpeg_plga_lot
+description: >-
+  mPEG-PLGA 50:50, PolySciTech AK026 lot 250221RAI-A (its certificate of analysis): Mn
+  29,184, Mw 38,560 by GPC in THF against polystyrene, PDI 1.32: Đ = 1.321.
+action: compute_polymer_lot
+inputs:
+  lot:
+    - values:
+        mn: 29184
+        mw: 38560
+        molecular_weight_method: sec_conventional
+        calibration_standard: polystyrene
+        eluent: THF
+expect:
+  output:
+    updates:
+      lot:
+        - values: { dispersity: 1.321 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: without_mn_there_is_no_dispersity
+description: A lot whose Mn was taken out has no dispersity any more.
+action: compute_polymer_lot
+inputs:
+  lot:
+    - values: { mw: 38560, dispersity: 1.321 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { dispersity: null }

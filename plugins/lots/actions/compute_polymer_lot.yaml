@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_polymer_lot
+label: Compute a polymer lot's dispersity
+description: >-
+  A polymer lot's dispersity, Đ = Mw/Mn (IUPAC, 2009).
+inputs:
+  lot: { type: PolymerLot, schema: ">=1" }
+effects:
+  updates: [{ input: lot, fields: [dispersity] }]
+runs_on: { tier: backend, environment: lot-tools }
+command: [python, ./scripts/lots.py, polymer]
+deterministic: true
+batchable: 100
+timeout: 5m

@@ -1,0 +1,126 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A prep of a plasmid, whose own record says it's circular (ADR 0163) and what it's for.
+apiVersion: iki/v1
+kind: EntityType
+name: PlasmidPrep
+label: Plasmid prep
+label_plural: Plasmid preps
+extends: Lot
+schema_version: 1
+description: >-
+  A prep of a plasmid from its host: its scale and method, its concentration from its
+  A260 (50 µg/mL of double-stranded DNA for each unit, over 1 cm), its purity by
+  A260/A280 and A260/A230, its supercoiled share and endotoxin, and how its sequence
+  was verified.
+hrid: { prefix: PREP }
+# How much of it is left (ADR 0139): kept by mass, drawn by volume at its
+# concentration, so 2 µg of a 500 ng/µL prep is 4 µL.
+amount:
+  unit: ug
+  label: Amount
+  description: How much DNA is left.
+  concentration: concentration
+fields:
+  plasmid:
+    type: ref
+    to: iki/plasmid.Plasmid
+    label: Prep of
+    required: true
+    immutable: true
+    description: The plasmid it's a prep of.
+  scale:
+    type: enum
+    label: Prep scale
+    values: [miniprep, midiprep, maxiprep, megaprep, gigaprep]
+    indexed: true
+    description: How large a prep it was, from a miniprep's few mL of culture to a gigaprep's litres.
+  method:
+    type: enum
+    label: Prep method
+    values: [silica_column, anion_exchange, endotoxin_free, cesium_chloride, other]
+    description: >-
+      How it was purified: alkaline lysis then a silica spin column, or an anion
+      exchange column, with an endotoxin removal step for endotoxin_free, or by a
+      caesium chloride gradient.
+  kit:
+    type: string
+    max_length: 200
+    description: The kit it was made with, such as its supplier's name for it and its lot.
+  host_strain:
+    type: string
+    label: Host strain
+    max_length: 200
+    description: The strain it was grown in, such as E. coli DH5α.
+  culture_volume:
+    type: quantity
+    unit: mL
+    min: 0
+    description: How much culture it was made from.
+  a260:
+    type: float
+    label: A260
+    min: 0
+    description: >-
+      Its absorbance at 260 nm, as read, of the dilution its dilution factor says,
+      blank subtracted.
+  path_length:
+    type: quantity
+    unit: cm
+    default: 1
+    min: 0
+    description: The cuvette's path length, or the one a microvolume reading is given for.
+  dilution_factor:
+    type: float
+    min: 1
+    default: 1
+    description: How much it was diluted to be read, such as 10 for 1 in 10.
+  concentration:
+    type: quantity
+    unit: ng/uL
+    min: 0
+    indexed: true
+    description: >-
+      Its DNA concentration. Worked out from its A260 when that's recorded, as its
+      concentration method says; otherwise as measured by another assay.
+  concentration_method:
+    type: enum
+    label: Concentration by
+    values: [a260, fluorescence, other]
+    default: a260
+    description: >-
+      How its concentration was measured: a260 from its absorbance at 260 nm, which
+      Iki works out; or by a fluorescent dye's assay (such as Qubit or PicoGreen), or
+      another, entered as measured.
+  a260_a280:
+    type: float
+    label: A260/A280
+    min: 0
+    description: Its absorbance at 260 nm over 280 nm. Pure DNA's is about 1.8; protein lowers it.
+  a260_a230:
+    type: float
+    label: A260/A230
+    min: 0
+    description: >-
+      Its absorbance at 260 nm over 230 nm, usually 2.0 to 2.2 for pure DNA;
+      guanidine, phenol and carbohydrate left from the prep lower it.
+  supercoiled:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    description: Its supercoiled share, by agarose gel or capillary electrophoresis.
+  endotoxin:
+    type: quantity
+    unit: "{EU}/ug"
+    min: 0
+    description: Its endotoxin by LAL, in endotoxin units for each µg of DNA.
+  verified_by:
+    type: enum
+    label: Sequence verified by
+    values: [whole_plasmid, sanger, restriction_digest]
+    description: >-
+      How it was checked to be its plasmid: whole-plasmid sequencing, Sanger
+      sequencing of its insert, or a restriction digest's bands.
+display:
+  title: "{{ hrid }}"

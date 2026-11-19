@@ -1,0 +1,43 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: a_maxiprep_by_its_a260
+description: >-
+  An A260 of 1.0 over 1 cm is 50 µg/mL of double-stranded DNA (QIAGEN; Sambrook &
+  Russell, 2001): a maxiprep read at 0.42 diluted 1 in 20 is 0.42 × 20 × 50 = 420 ng/µL.
+action: compute_plasmid_prep
+inputs:
+  lot:
+    - values: { a260: 0.42, dilution_factor: 20, path_length: 1, concentration_method: a260 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { concentration: 420 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_microvolume_reading_over_its_own_path
+description: >-
+  A microvolume spectrophotometer reads over 0.1 cm: 1.25 there, undiluted, is
+  1.25 × 50 / 0.1 = 625 ng/µL.
+action: compute_plasmid_prep
+inputs:
+  lot:
+    - values: { a260: 1.25, dilution_factor: 1, path_length: 0.1, concentration_method: a260 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { concentration: 625 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_measured_by_fluorescence_keeps_its_own
+description: Measured by a dye's fluorescence, its concentration is as entered, whatever its A260.
+action: compute_plasmid_prep
+inputs:
+  lot:
+    - values: { a260: 1.25, concentration: 580, concentration_method: fluorescence }
+expect:
+  output:
+    updates: { lot: [] }

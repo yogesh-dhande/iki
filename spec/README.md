@@ -64,9 +64,9 @@ with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex` and `iki/example_lims`. No other plugin may use it, or a
-  namespace starting with `iki_` (`reserved-namespace`), and a lockfile takes
-  an `iki/...` plugin only from Iki's repository.
+  `iki/complex`, `iki/lots` and `iki/example_lims`. No other plugin may use
+  it, or a namespace starting with `iki_` (`reserved-namespace`), and a
+  lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
   (`Protein`, or in full, `acme/proteins.Protein`). Anything of another
   plugin's is named in full: `iki/dna.DNASequence`, `iki/protein.translate`,
@@ -698,7 +698,10 @@ fields:
 - `holds_amount: true` on a state stops any of the amount being drawn,
   transferred or split off while the record's in it, as a quarantine does.
   It can still be adjusted. Only a type with an amount has a state that
-  holds it (`holds-without-amount`).
+  holds it (`holds-without-amount`), or an abstract type whose subtypes each
+  keep their own, in their own units, as every kind of lot shares one
+  disposition (ADR 0162); a concrete subtype of it without an amount is
+  refused.
 - `POST /api/v1/entities` takes an `amount`; `/entities/{ref}/amount`
   draws, transfers and adjusts it and lists its ledger, and
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,

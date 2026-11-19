@@ -187,6 +187,7 @@ FIRST_PARTY = Path(__file__).resolve().parents[2] / "plugins"
         ("small_molecule", []),
         ("oligo", []),
         ("complex", ["dna", "protein", "small_molecule", "antibody"]),
+        ("lots", ["dna", "protein", "antibody", "complex", "oligo", "plasmid"]),
         ("../plugin-template", ["dna"]),
     ],
 )

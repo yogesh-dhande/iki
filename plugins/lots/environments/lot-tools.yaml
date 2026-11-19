@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Environment
+name: lot-tools
+label: Lot tools
+description: Python 3.12 alone, as a lot's calculations are arithmetic on what was measured.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.25, memory: 256Mi }
+python: { version: "3.12", requirements: requirements.txt }

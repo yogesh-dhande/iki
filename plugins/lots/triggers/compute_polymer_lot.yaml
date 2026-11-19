@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_polymer_lot_when_recorded
+label: Compute a polymer lot's dispersity when it's recorded
+description: >-
+  Works out what follows from what was measured of a polymer lot as soon as it's recorded,
+  such as from its form.
+on: entity.created
+type: PolymerLot
+run: compute_polymer_lot
+---
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_polymer_lot_when_measured
+label: Compute a polymer lot's dispersity again when it's measured
+description: >-
+  Works out what follows from what was measured of a polymer lot again when what it's worked
+  out from changes.
+on: entity.updated
+type: PolymerLot
+fields: [mn, mw]
+run: compute_polymer_lot

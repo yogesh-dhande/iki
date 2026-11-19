@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Until a plugin registers conjugates, a conjugate lot names any entity: the conjugate
+# if it's registered as something, or the antibody it's made from. A conjugate plugin
+# narrows `conjugate` to its types (ADR 0162).
+apiVersion: iki/v1
+kind: EntityType
+name: ConjugateLot
+label: Conjugate lot
+label_plural: Conjugate lots
+extends: BiologicLot
+schema_version: 1
+description: >-
+  A lot of an antibody–drug conjugate, or another protein conjugate: its average
+  drug-to-antibody ratio (DAR) from the share of each drug load, by HIC or by LC-MS of
+  the intact conjugate or of its reduced chains, its unconjugated antibody and free
+  drug, and its concentration by A280 with its own ε280, which its payload adds to.
+hrid: { prefix: CJLOT }
+fields:
+  conjugate:
+    type: ref
+    to: iki/core.Entity
+    label: Lot of
+    required: true
+    immutable: true
+    description: The conjugate it's a lot of.
+  dar_method:
+    type: enum
+    label: DAR by
+    values: [hic, lc_ms_intact, lc_ms_reduced, rp_hplc_reduced, uv_vis]
+    indexed: true
+    description: >-
+      How its DAR was measured: hic by hydrophobic interaction chromatography,
+      lc_ms_intact by the deconvoluted masses of the intact conjugate, lc_ms_reduced or
+      rp_hplc_reduced by its reduced light and heavy chains, uv_vis from its absorbance
+      at two wavelengths.
+  drug_loads:
+    type: list
+    label: Drug load distribution
+    max_items: 40
+    description: >-
+      Each species' share of the peak area, by its drug load: of the intact conjugate
+      (by HIC or intact LC-MS), or of its light and heavy chains (reduced), such as L0
+      and L1, and H0 to H3, for a cysteine conjugate. Its DAR is worked out from them.
+    items:
+      type: row
+      fields:
+        chain:
+          type: enum
+          values: [intact, light, heavy]
+          default: intact
+          required: true
+          description: Whether it's a species of the intact conjugate, or of one of its chains.
+        drug_load:
+          type: int
+          label: Drugs
+          min: 0
+          max: 20
+          required: true
+          description: How many drugs each molecule of it carries.
+        area:
+          type: float
+          label: Area (%)
+          min: 0
+          max: 100
+          required: true
+          description: Its share of its peaks' area.
+      identity: [chain, drug_load]
+  dar:
+    type: float
+    label: DAR
+    min: 0
+    max: 20
+    indexed: true
+    description: >-
+      Its average number of drugs per antibody: worked out from its drug load
+      distribution when that's recorded, the mean of each load weighted by its share,
+      and for reduced chains twice the light chain's mean and twice the heavy chain's,
+      an IgG having two of each. Otherwise as measured, such as by UV/Vis.
+  unconjugated:
+    type: quantity
+    label: Unconjugated antibody
+    unit: "%"
+    computed: true
+    min: 0
+    max: 100
+    description: The share of its intact species that carry no drug (DAR 0), from its distribution.
+  free_drug:
+    type: quantity
+    label: Free drug
+    unit: "%"
+    min: 0
+    max: 100
+    description: Its unconjugated payload, by RP-HPLC, as a share of all its payload.
+rules:
+  one_kind_of_distribution:
+    label: Its distribution is of the intact conjugate or of its chains
+    check: >-
+      record.drug_loads.all(r, r.chain == "intact") ||
+      record.drug_loads.all(r, r.chain != "intact")
+    message: >-
+      Its drug load distribution is of the intact conjugate or of its reduced chains,
+      not both: record one, as its DAR method measured it.
+    fields: [drug_loads]
+  both_chains_reduced:
+    label: A reduced distribution has both chains
+    check: >-
+      record.drug_loads.all(r, r.chain == "intact") ||
+      (record.drug_loads.exists(r, r.chain == "light") &&
+      record.drug_loads.exists(r, r.chain == "heavy"))
+    message: >-
+      A reduced conjugate's DAR is its light chains' and its heavy chains': record the
+      species of both.
+    fields: [drug_loads]
+display:
+  title: "{{ hrid }}"

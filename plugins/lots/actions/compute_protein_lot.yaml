@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_protein_lot
+label: Compute a protein lot's concentration from its A280
+description: >-
+  A protein lot's concentration from its A280: c = A280 × dilution / (ε × path length),
+  with ε its measured ε280, or the molar ε280 (Pace et al., 1995) over the molecular
+  weight of what it's a lot of: a protein's, with its cysteines as cystines or reduced
+  as the lot says; or a complex's, such as an antibody's, with each disulfide its bonds
+  place applied while its cysteines are cystines. Only while its concentration method
+  is a280; otherwise its concentration is as measured.
+inputs:
+  lot: { type: ProteinLot, schema: ">=1", include: [protein] }
+effects:
+  updates: [{ input: lot, fields: [a280_extinction, concentration] }]
+runs_on: { tier: backend, environment: lot-tools }
+command: [python, ./scripts/lots.py, protein]
+deterministic: true
+batchable: 100
+timeout: 5m

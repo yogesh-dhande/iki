@@ -1,0 +1,108 @@
+# Run with `iki plugin test plugins/lots --with plugins/dna --with plugins/protein
+# --with plugins/antibody --with plugins/oligo` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: inotersens_mass_is_its_own
+description: >-
+  Inotersen (TCTTGGTTACATGAAATCCC, a 5-10-5 2′-MOE gapmer, phosphorothioate throughout,
+  every C 5-methylcytosine): 7183.08 g/mol average as the free acid, as the oligo plugin
+  computes it from its HELM and SCIEX lists it. Prakash et al. (2014, Nucleic Acids Res
+  42:8796, Table 1) measured 7182.2 by ESI-MS (calculated 7183.2): 0.88 Da light, within
+  2 Da. Its MOE sugars have no nearest-neighbour ε260 (ADR 0146), so its OD260 gives no
+  nmol without its supplier's ε260.
+action: compute_oligo_lot
+inputs:
+  lot:
+    - hrid: OLOT-000001
+      values:
+        measured_mass: 7182.2
+        mass_basis: average
+        mass_tolerance: 2
+        yield_od: 120
+      included:
+        oligonucleotide:
+          - values: { molecular_weight: 7183.08, monoisotopic_mass: 7178.056 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { expected_mass: 7183.08, mass_error: -0.88 }
+    messages:
+      - level: warning
+        text: >-
+          OLOT-000001: it has no yield in nmol: its oligonucleotide has no ε260 worked out
+          (ADR 0146), and the lot gives none. Give its supplier's.
+  tolerance: 1.0e-9
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: volanesorsen_in_inotersens_tube
+description: >-
+  A mix-up: volanesorsen's measured mass (7164.3 by ESI-MS, Prakash et al., 2014) on a
+  lot of inotersen is 18.78 Da light of inotersen's 7183.08, outside its 2 Da. The type's
+  rule then holds the lot until QA reviews it. Given its supplier's ε260, its OD260 is
+  nmol.
+action: compute_oligo_lot
+inputs:
+  lot:
+    - values:
+        measured_mass: 7164.3
+        mass_basis: average
+        mass_tolerance: 2
+        yield_od: 100
+        extinction_260: 200000
+      included:
+        oligonucleotide:
+          - values: { molecular_weight: 7183.08, monoisotopic_mass: 7178.056 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { expected_mass: 7183.08, mass_error: -18.78, yield_amount: 500 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_od_of_m13_forward_is_its_nmol
+description: >-
+  M13 forward (GTAAAACGACGGCCAGTG), plain DNA: its ε260 by nearest neighbours is
+  182,800 L/(mol·cm), as the oligo plugin computes it and as Eurogentec's worked
+  example gives it, with 1.0 OD260 = 10⁶ / 182,800 = 5.47 nmol. Compared with its
+  monoisotopic mass, 5554.9825 Da, a measured 5555.0 is 0.0175 Da heavy.
+action: compute_oligo_lot
+inputs:
+  lot:
+    - values: { yield_od: 1.0, measured_mass: 5555.0, mass_basis: monoisotopic, mass_tolerance: 1 }
+      included:
+        oligonucleotide:
+          - values:
+              { molecular_weight: 5557.68, monoisotopic_mass: 5554.9825, extinction_260: 182800 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { expected_mass: 5554.9825, mass_error: 0.0175, yield_amount: 5.47 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: what_was_measured_is_gone
+description: >-
+  A lot whose measured mass and OD260 were taken out loses what was worked out from
+  them, which no longer follows from anything.
+action: compute_oligo_lot
+inputs:
+  lot:
+    - values:
+        {
+          mass_basis: monoisotopic,
+          expected_mass: 5554.9825,
+          mass_error: 0.0175,
+          yield_amount: 5.47,
+        }
+      included:
+        oligonucleotide:
+          - values: { monoisotopic_mass: 5554.9825, extinction_260: 182800 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { mass_error: null, yield_amount: null }

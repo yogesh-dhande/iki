@@ -1,0 +1,201 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A lot is a project's record of material: what was made or bought at one time of a
+# registry entry, the molecule (ADR 0115). Every kind of lot extends this type, so one
+# search finds them all, and each has the same disposition, which QA sets (ADR 0162).
+apiVersion: iki/v1
+kind: EntityType
+name: Lot
+label: Lot
+label_plural: Lots
+abstract: true
+schema_version: 1
+description: >-
+  A lot of a registered entity: what was made or bought of it at one time, which a
+  label and a certificate of analysis name. The entity is the molecule, the same for
+  every project; a lot is the material, each project's own, with how much of it is
+  left, what was measured of it, and whether QA released it for use. Each kind of
+  lot has the measurements its kind needs.
+fields:
+  lot_number:
+    type: string
+    label: Lot number
+    max_length: 100
+    indexed: true
+    description: >-
+      Its number on its label and certificate of analysis: its supplier's, for one
+      bought, or the lab's own.
+  source:
+    type: enum
+    values: [made, bought]
+    indexed: true
+    description: Whether the lab made it, or bought it.
+  supplier:
+    type: string
+    max_length: 200
+    indexed: true
+    description: Who made or sold it, such as a synthesis vendor or a contract manufacturer.
+  catalogue_number:
+    type: string
+    max_length: 100
+    indexed: true
+    description: Its supplier's catalogue number, for one bought.
+  made_by:
+    type: person
+    label: Made by
+    description: Who made it, for a lot made in the lab. QA releases it, not they.
+  made_on:
+    type: date
+    label: Made on
+    description: When it was made, synthesised or prepared.
+  received_on:
+    type: date
+    label: Received on
+    description: When it arrived, for a lot bought.
+  retest_on:
+    type: date
+    label: Retest by
+    description: When it's tested again to see that it still meets its specification.
+  expires_on:
+    type: date
+    label: Expires on
+    description: When it may no longer be used.
+  storage:
+    type: string
+    label: Storage conditions
+    max_length: 200
+    description: How it's kept, such as −80 °C, or 2–8 °C protected from light.
+  certificates:
+    type: list
+    label: Certificates of analysis
+    items:
+      {
+        type: file,
+        media_types: [application/pdf, image/png, image/jpeg, text/csv],
+        max_size: 50MiB,
+      }
+    max_items: 20
+    description: >-
+      Its certificates of analysis, its supplier's or the lab's, and the reports they
+      cite: what QA releases it on.
+  notes:
+    type: text
+    max_length: 10000
+    description: Anything else about how it was made or tested.
+  disposition:
+    type: state
+    label: Disposition
+    initial: quarantined
+    description: >-
+      Whether it may be used: quarantined until QA releases it, as GMP keeps material
+      until it's tested and released (21 CFR 211.84). While it's on hold, rejected or
+      expired, none of it can be drawn, transferred or split off.
+    states:
+      quarantined:
+        label: Quarantined
+        description: >-
+          Made or received, and not yet released. It can be drawn from to be tested.
+        set_by: [qa]
+        reason: required
+        guards:
+          reopened:
+            description: A released lot goes back to quarantine only to correct it, saying why.
+            check: state.from == "released" || state.from == "on_hold"
+            message: A lot goes back to quarantine from Released or On hold.
+      released:
+        label: Released
+        description: QA released it for use. Its values can't change while it's released.
+        set_by: [qa]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: >-
+              I release this lot for use: its records and certificate of analysis meet
+              its specification.
+        guards:
+          from_quarantine:
+            description: A lot is released from quarantine, or once a hold is lifted.
+            check: state.from == "quarantined" || state.from == "on_hold"
+            message: A lot is released from Quarantined or On hold.
+          has_a_certificate:
+            description: QA releases a lot on its certificate of analysis.
+            check: size(record.certificates) > 0
+            message: Attach its certificate of analysis before releasing it.
+          not_its_maker:
+            description: Whoever made a lot doesn't release it; a second person checks it.
+            check: record.made_by == null || record.made_by != actor.person
+            message: You made this lot, so someone else in QA releases it.
+          a_person:
+            check: actor.agent == null
+            message: Release it yourself, in Iki, not through an app or agent.
+      on_hold:
+        label: On hold
+        description: >-
+          Kept from use while something is looked into, such as a deviation or a
+          result out of its specification.
+        set_by: [qa]
+        reason: required
+        holds_amount: true
+        guards:
+          not_rejected:
+            check: state.from != "rejected" && state.from != "expired"
+            message: A rejected or expired lot isn't put on hold.
+      rejected:
+        label: Rejected
+        description: It doesn't meet its specification. It's kept, with its records, but not used.
+        set_by: [qa]
+        locks: true
+        reason: required
+        holds_amount: true
+        signatures:
+          - meaning: responsibility
+            label: QA rejection
+            statement: I reject this lot; it isn't to be used.
+      expired:
+        label: Expired
+        description: Past its expiry or retest date. It's kept, but not used.
+        set_by: [qa]
+        locks: true
+        reason: optional
+        holds_amount: true
+        guards:
+          past_its_date:
+            description: A lot expires once its expiry or retest date has come.
+            check: >-
+              (record.expires_on != null && record.expires_on <= today) ||
+              (record.retest_on != null && record.retest_on <= today)
+            message: Its expiry and retest dates haven't come, so it hasn't expired.
+rules:
+  expires_after_it_was_made:
+    label: It expires after it was made
+    check: record.expires_on > record.made_on
+    message: It expires on {{ record.expires_on }}, before it was made, on {{ record.made_on }}.
+    fields: [expires_on]
+  retested_before_it_expires:
+    label: It's retested by its expiry
+    check: record.retest_on <= record.expires_on
+    message: >-
+      Its retest date, {{ record.retest_on }}, is after it expires, on
+      {{ record.expires_on }}.
+    fields: [retest_on]
+notifications:
+  released:
+    label: Released
+    description: Whoever made a lot hears when QA releases it.
+    when: { field: disposition, to: released }
+    tell: { fields: [made_by], watchers: true }
+    message:
+      title: "{{ hrid }} was released"
+      body: "QA released lot {{ lot_number or hrid }} for use."
+  held:
+    label: On hold or rejected
+    description: >-
+      Whoever made a lot hears when QA puts it on hold or rejects it. It's required:
+      material that can't be used needs following up.
+    when: { field: disposition, to: [on_hold, rejected] }
+    tell: { fields: [made_by], watchers: true }
+    required: true
+    message:
+      title: "{{ hrid }} is {{ disposition }}"
+      body: "Lot {{ lot_number or hrid }} can't be used. Its history says why."
