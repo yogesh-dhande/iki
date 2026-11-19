@@ -448,6 +448,40 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     page.context.close()
 
 
+def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
+    """The button that opens the dialog doesn't move when the list above it is answered.
+    It did, a line down, and a press begun while the list loaded ended on the card instead:
+    in Firefox and WebKit, Playwright's own click did, and no dialog opened."""
+    page = open_as("compute_admin", "/compute/quotas/")
+    held: list[Any] = []
+
+    def listing(url: str) -> bool:
+        return url.endswith("/api/v1/compute/quotas")
+
+    def hold(route: Any) -> None:
+        held.append(route)
+
+    page.route(listing, hold)
+    page.reload()
+    page.get_by_text("Loading quotas…").wait_for()
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert held
+    button = page.get_by_role("button", name="Set a quota")
+    loading = button.bounding_box()
+    for route in held:
+        route.continue_()
+    page.unroute(listing)
+    page.get_by_text("No quotas:").wait_for()
+    page.evaluate(NEXT_FRAMES)
+    assert button.bounding_box() == loading
+    button.click()
+    page.get_by_role("dialog", name="Set a quota").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_quota_goes_on_the_team_chosen_whatever_is_searched_next(
     open_as: Any, world: World
 ) -> None:
