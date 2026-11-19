@@ -21,7 +21,8 @@ give them:
   DD or DT).
 - **Noncanonical cysteines**: a cysteine beyond the pair that makes a variable domain's
   conserved disulphide, at IMGT 23 and 104 or a scheme's equivalents. If one of those two
-  isn't a cysteine, the other has no canonical partner, so it's reported as well. High,
+  isn't a cysteine, the other has no canonical partner, so it's reported as well; a
+  fragment that doesn't reach one of them says nothing of its partner. High,
   anywhere in a variable domain (LAP's `xCys` and `mCys`). Sequence alone can't say
   whether it's free: it may bond another, as a camelid VHH's CDR1 and CDR3 cysteines
   often do (PDB 1MEL's Cys33-Cys109).
@@ -29,8 +30,9 @@ give them:
   `TrpOx`).
 - **Fragmentation** `DP` in a CDR. High (LAP's `FragH`).
 - **Pyroglutamate**: a glutamine or a glutamate at the chain's first residue, which
-  cyclises to pyroglutamate. Low: it makes charge variants rather than changing what the
-  antibody does.
+  cyclises to pyroglutamate, whether or not a variable domain starts there (one after a
+  tag has no number, and its region is `outside`). Low: it makes charge variants rather
+  than changing what the antibody does.
 
 Sources:
 
@@ -106,21 +108,31 @@ def regions(domain: dict[str, Any]) -> list[str]:
 
 def _noncanonical(domain: dict[str, Any], scheme: str) -> set[int]:
     """Which of a domain's residues are cysteines that aren't its conserved disulphide's:
-    every cysteine but the two at the canonical positions, and those two as well if either
-    position holds something else, which leaves the other without its canonical partner."""
+    every cysteine but the two at the canonical positions, and those two as well if the
+    other position holds something else, which leaves it without its canonical partner. A
+    partner position the domain doesn't reach, as a fragment that starts or ends past it
+    doesn't, says nothing either way; one it reaches but has no residue at is a loss."""
     side = "H" if domain["chain"] == "H" else "L"
     canonical = DISULPHIDE[scheme][side]
+    numbering = domain["numbering"]
     at = {
         number: index
-        for index, (number, insertion, _) in enumerate(domain["numbering"])
+        for index, (number, insertion, _) in enumerate(numbering)
         if number in canonical and not insertion
     }
+    first, last = (numbering[0][0], numbering[-1][0]) if numbering else (0, -1)
+
+    def lost(number: int) -> bool:
+        return first <= number <= last and (number not in at or numbering[at[number]][2] != "C")
+
     paired = {
         at[number]
         for number in canonical
-        if all(n in at and domain["numbering"][at[n]][2] == "C" for n in canonical)
+        if number in at
+        and numbering[at[number]][2] == "C"
+        and not any(lost(other) for other in canonical if other != number)
     }
-    return {index for index, (_, _, aa) in enumerate(domain["numbering"]) if aa == "C"} - paired
+    return {index for index, (_, _, aa) in enumerate(numbering) if aa == "C"} - paired
 
 
 def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, Any]]:
@@ -188,7 +200,39 @@ def liabilities(entity: dict[str, Any]) -> list[dict[str, Any]] | None:
     found = [
         liability for domain in domains for liability in found_in(domain, scheme, domain["start"])
     ]
+    # The chain's first residue cyclises whether or not a variable domain starts there: one
+    # after a tag or a linker isn't numbered, so it has no number and no region.
+    first = entity["values"]["sequence"][:1].upper()
+    if first in CYCLISES and not any(int(d["start"]) == 1 for d in domains):
+        found.append(
+            {
+                "kind": "pyroglutamate",
+                "motif": first,
+                "position": 1,
+                "region": "outside",
+                "severity": "low",
+            }
+        )
     return sorted(found, key=lambda f: (f["position"], f["kind"]))
+
+
+def screened(entity: dict[str, Any], found: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
+    """A screened chain's three fields, from its liabilities, and what to say if some
+    weren't kept."""
+    kept = found[:MAX_LIABILITIES]
+    note = ""
+    if len(found) > len(kept):
+        note = (
+            f"{_label(entity)} has {len(found):,} liabilities: the first "
+            f"{MAX_LIABILITIES:,} along the chain were kept."
+        )
+    counts = Counter(f["kind"] for f in kept)
+    values = {
+        "liabilities": kept,
+        "liability_counts": dict(sorted(counts.items())),
+        "liability_count": len(kept),
+    }
+    return values, note
 
 
 def screen(run: dict[str, Any]) -> dict[str, Any]:
@@ -219,22 +263,11 @@ def screen(run: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         else:
-            kept = found[:MAX_LIABILITIES]
-            if len(found) > len(kept):
-                messages.append(
-                    {
-                        "level": "warning",
-                        "text": f"{_label(entity)} has {len(found):,} liabilities: the "
-                        f"first {MAX_LIABILITIES:,} along the chain were kept.",
-                        "entity": entity["id"],
-                    }
-                )
-            counts = Counter(f["kind"] for f in kept)
-            values: dict[str, Any] = {
-                "liabilities": kept,
-                "liability_counts": dict(sorted(counts.items())),
-                "liability_count": len(kept),
-            }
+            values, note = screened(entity, found)
+            if note:
+                messages.append({"level": "warning", "text": note, "entity": entity["id"]})
+            counts = values["liability_counts"]
+            kept = values["liabilities"]
             updates.append({"entity": entity["id"], "values": values})
             shown = ", ".join(f"{kind} {n}" for kind, n in sorted(counts.items())) or "none"
             print(f"{entity['hrid']}: {len(kept)} liabilities ({shown})")

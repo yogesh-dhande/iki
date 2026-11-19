@@ -423,3 +423,133 @@ def test_a_run_keeps_at_most_100_messages(tmp_path: Path) -> None:
     assert output["updates"] == {"protein": []}
     assert len(output["messages"]) == 100
     assert output["messages"][-1] == {"level": "warning", "text": "And 51 more warnings."}
+
+
+def shifted(values: dict[str, Any], by: int) -> None:
+    """Moves a chain's only variable domain `by` residues along it, as residues added
+    before it (`by` > 0) or the domain's first ones cut off (`by` < 0) would."""
+    (domain,) = values["variable_domains"]
+    if by < 0:
+        domain["numbering"] = domain["numbering"][-by:]
+    else:
+        domain["start"] += by
+    domain["end"] += by
+    domain["cdrs"] = [None if c is None else [c[0] + by, c[1] + by] for c in domain["cdrs"]]
+
+
+def test_a_fragment_that_starts_past_imgt_23_keeps_its_cysteine_at_104(tmp_path: Path) -> None:
+    """A VH fragment that starts at IMGT 26 hasn't the cysteine at 23: that says nothing of
+    whether the one at 104 has its partner, so it isn't reported. Nor is the one at 23 in a
+    fragment that ends before 104. One the domain does reach but has another residue at,
+    or none, is a loss (as test_a_chain_without_a_disulphide_has_its_lone_cysteine_reported
+    shows)."""
+    numbered = chains(tmp_path, "vh")
+    values = numbered[0]["values"]
+    (domain,) = values["variable_domains"]
+    cut = next(i for i, (n, _, _) in enumerate(domain["numbering"]) if n >= 26)
+    assert [n for n, _, _ in domain["numbering"][:cut]][-1] == 25
+    values["sequence"] = values["sequence"][cut:]
+    shifted(values, -cut)
+
+    _, output = screen(tmp_path, numbered)
+
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    assert not [f for f in found if f["kind"] == "noncanonical_cysteine"]
+
+    numbered = chains(tmp_path, "vh")
+    values = numbered[0]["values"]
+    (domain,) = values["variable_domains"]
+    end = next(i for i, (n, _, _) in enumerate(domain["numbering"]) if n >= 100)
+    domain["numbering"] = domain["numbering"][:end]
+    domain["end"] = end
+    domain["cdrs"] = domain["cdrs"][:2]
+    values["sequence"] = values["sequence"][:end]
+
+    _, output = screen(tmp_path, numbered)
+
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    assert not [f for f in found if f["kind"] == "noncanonical_cysteine"]
+
+    # A domain that reaches past 23, but without a residue numbered 23, has lost it.
+    numbered = chains(tmp_path, "vh")
+    values = numbered[0]["values"]
+    (domain,) = values["variable_domains"]
+    at = next(i for i, (n, _, _) in enumerate(domain["numbering"]) if n == 23)
+    del domain["numbering"][at]
+    values["sequence"] = values["sequence"][:at] + values["sequence"][at + 1 :]
+    domain["end"] -= 1
+    domain["cdrs"] = [[a - 1, b - 1] for a, b in domain["cdrs"]]
+
+    _, output = screen(tmp_path, numbered)
+
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    assert [(f["kind"], f["number"]) for f in found if f["motif"] == "C"] == [
+        ("noncanonical_cysteine", "104")
+    ]
+
+
+def test_a_chains_first_residue_cyclises_wherever_its_variable_domain_starts(
+    tmp_path: Path,
+) -> None:
+    """QA before trastuzumab's VH, as a tag leaves it: the Q at the chain's N-terminus
+    cyclises, though it's no domain's, so it has no number and its region is `outside`.
+    The VH's own E, now the third residue, doesn't."""
+    numbered = chains(tmp_path, "vh")
+    values = numbered[0]["values"]
+    values["sequence"] = "QA" + values["sequence"]
+    shifted(values, 2)
+
+    _, output = screen(tmp_path, numbered)
+
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    pyroglutamate = [f for f in found if f["kind"] == "pyroglutamate"]
+    assert pyroglutamate == [
+        {
+            "kind": "pyroglutamate",
+            "motif": "Q",
+            "position": 1,
+            "region": "outside",
+            "severity": "low",
+        }
+    ]
+    # The rest are where they were, two residues along.
+    assert [(f["kind"], f["position"], f["number"]) for f in found[1:]] == [
+        ("isomerisation", 33, "36"),
+        ("deamidation", 57, "62"),
+        ("oxidation", 101, "107"),
+        ("isomerisation", 104, "110"),
+        ("oxidation", 109, "115"),
+    ]
+    # One that starts with a methionine, as an unprocessed chain does, has none.
+    values["sequence"] = "MA" + values["sequence"][2:]
+    _, output = screen(tmp_path, numbered)
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    assert not [f for f in found if f["kind"] == "pyroglutamate"]
+
+
+def test_renumbering_a_screened_chain_finds_its_liabilities_again(tmp_path: Path) -> None:
+    """Trastuzumab's VH screened on its IMGT numbering has 6 liabilities, its methionine
+    numbered 115. Numbered again in Kabat's scheme, its liabilities are Kabat's: 7, the
+    methionine at H100C and CDR-H2's DS at H61 (Kabat's CDR-H2 is H50-H65), as screening
+    the Kabat-numbered chain gives them. One that wasn't screened is left unscreened."""
+    (imgt,) = chains(tmp_path, "vh")
+    _, output = screen(tmp_path, [imgt])
+    screened = {**imgt, "values": {**imgt["values"], **output["updates"]["protein"][0]["values"]}}
+    assert screened["values"]["liability_count"] == 6
+
+    _, renumbered = number(
+        tmp_path, [screened, numbered_protein(2, SEQUENCES["vl"], "vl")], "kabat"
+    )
+
+    again, unscreened = (u["values"] for u in renumbered["updates"]["protein"])
+    _, fresh = screen(tmp_path, chains(tmp_path, "vh", scheme="kabat"))
+    expected = fresh["updates"]["protein"][0]["values"]
+    assert {k: again[k] for k in ("liabilities", "liability_counts", "liability_count")} == expected
+    assert again["liability_count"] == 7
+    assert ("oxidation", "100C") in [(f["kind"], f["number"]) for f in again["liabilities"]]
+    assert "liability_count" not in unscreened
+    assert {
+        "level": "info",
+        "text": "vh's liabilities were found again on the new numbering: 7.",
+        "entity": screened["id"],
+    } in renumbered["messages"]

@@ -7,10 +7,12 @@ description: >-
   Registers the antibody that a heavy chain and a light chain make, or that one
   chain is for a VHH or an scFv. An antibody already in Iki with the same chains
   is reused. The chains must have been numbered (number_chains): where their
-  variable domains end says whether they have the constant regions the format
-  and isotype say they do. Where the heavy chain has a constant region, it
-  says the isotype: compared with IMGT's human constant regions, it's the one
-  it matches.
+  variable domains end, and which of IMGT's human constant domains follow,
+  say whether they have the constant regions the format says they do. Where
+  the heavy chain has a constant region, it says the isotype: aligned with
+  IMGT's human constant regions (Biopython's pairwise aligner, BLOSUM62),
+  it's the one it matches. For `other`, a heavy chain without numbered
+  variable domains, such as an Fc fusion's, is compared whole.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -37,6 +39,8 @@ params:
   target: { type: string, max_length: 255, description: What it binds. }
 effects:
   creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: antibody-tools }
 command: [python, ./scripts/antibodies.py, assemble]
 deterministic: true

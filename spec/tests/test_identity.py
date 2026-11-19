@@ -178,7 +178,7 @@ def test_a_list_is_a_multiset_of_its_items() -> None:
 
 
 def test_rows_are_a_multiset_of_their_identity_fields() -> None:
-    """A test vector: a bispecific's components, in any order, by part, copies and role."""
+    """A test vector: rows of parts, by part, copies and role, in any order: a multiset."""
     heavy, light = uuid.UUID(int=1), uuid.UUID(int=2)
     row = Kind("row", row=(("part", Kind("ref")), ("copies", Kind("int")), ("role", Kind("enum"))))
     rows = Kind("list", items=row)

@@ -1,33 +1,39 @@
 apiVersion: iki/v1
 kind: EntityType
 name: Bispecific
-label: Bispecific antibody
+label: Bispecific antibody's chains
 schema_version: 1
 description: >-
-  Two heavy chains, one or two light chains and at most one linker, a row each. It's
-  its parts, how many of each and in which role, whatever their order (ADR 0138).
+  The chains an IgG-like bispecific antibody is made of, a row per chain: its
+  two heavy chains, its two light chains (the same protein twice where they
+  share one, as emicizumab's do) and at most one linker. It's its chains, in
+  which role, whatever their order (ADR 0138), so one set of chains has one
+  record. It's an inventory: it doesn't say which light chain pairs with which
+  heavy chain, so a mispaired assembly of the same four chains is the same
+  record. A type that registers assemblies makes each row an arm, its heavy and
+  its light chain.
 hrid: { prefix: BSP }
 identity: [components]
 fields:
   name: { type: string, required: true, max_length: 200 }
-  # Its parts (ADR 0137): each role says how many rows take it and what they refer to.
+  # Its parts (ADR 0137): each role says how many rows take it and what they refer to, so
+  # it has four or five. A row is one chain, so a chain the antibody has two of is two
+  # rows: with a count on each row as well, one set of chains could be written two ways,
+  # and have two records.
   components:
     type: list
     required: true
     immutable: true
-    min_items: 3
-    max_items: 8
     items:
       type: row
       fields:
         part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
-        copies: { type: int, min: 1, required: true, default: 1 }
         chain: { type: string, max_length: 10 }
         role: { type: enum, values: [heavy, light, linker], required: true }
       # A chain's label doesn't make it another antibody.
-      identity: [part, copies, role]
+      identity: [part, role]
       by: role
       roles:
         heavy: { min: 2, max: 2, to: { part: Protein } }
-        light: { label: Light chain, min: 1, max: 2, to: { part: Protein } }
+        light: { label: Light chain, min: 2, max: 2, to: { part: Protein } }
         linker: { max: 1, to: { part: acme/dna.DNASequence } }

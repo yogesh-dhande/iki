@@ -15,7 +15,15 @@ P01880-1 (IGHD). The same file has two mouse constant regions, P01868 (Ighg1, se
 and P01863 (Ighg2a), which no human reference should claim.
 
 Marketed antibodies' heavy chains are KEGG DRUG's (data/antibody_heavy_chains.fasta),
-each with the subclass its prescribing information gives.
+each with the subclass its prescribing information gives, as are two Fc fusions'
+(etanercept, aflibercept) and two bispecifics' chains (emicizumab, amivantamab:
+data/fc_fusions_and_bispecifics.fasta). Eculizumab's, an IgG2/IgG4 hybrid, is its
+Japanese review report's (PMDA, Soliris, 5 March 2010: data/eculizumab_pmda.fasta),
+which says its heavy chain's "CH1, hinge and a part of CH2 regions" are IgG2's and "the
+rest of CH2 and CH3 regions" IgG4's. The IGHG3 alleles whose hinges are
+shorter than IGHG3*01's are ENA's translations of IMGT's entries for them
+(data/ighg3_alleles.fasta): IGHG3*03 (X16110, hinge exons H1, H3 and H4) and IGHG3*04
+(X99549, H1 and H4), as IMGT's alignment of the IGHG3 alleles has them.
 """
 
 import importlib
@@ -29,6 +37,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+import yaml
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "antibody" / "scripts"
 DATA = Path(__file__).resolve().parent / "data"
@@ -58,6 +67,9 @@ def fasta(name: str) -> dict[str, str]:
     return found
 
 
+FUSIONS = fasta("fc_fusions_and_bispecifics.fasta")
+ECULIZUMAB = fasta("eculizumab_pmda.fasta")
+IGHG3 = fasta("ighg3_alleles.fasta")
 UNIPROT = {
     header.split("|")[1]: sequence for header, sequence in fasta("ighc_uniprot.fasta").items()
 }
@@ -95,7 +107,7 @@ def domain(isotype: str, name: str) -> str:
 
 def constant(heavy: str) -> str:
     """What follows a heavy chain's variable domain: after its J region's WGxG…VTVSS."""
-    end = re.search(r"WG[QK]G[TS]\w{6}", heavy)
+    end = re.search(r"WG[QKE]G[TS]\w{6}", heavy)
     assert end is not None
     return heavy[end.end() :]
 
@@ -149,7 +161,7 @@ def test_marketed_antibodies_are_their_subclasses_whole_and_as_fabs(
 
 
 def test_a_hybrids_domains_are_each_their_own_subclasss() -> None:
-    """As eculizumab's are: CH1 and the hinge IgG2's, CH2 and CH3 IgG4's."""
+    """IgG2's CH1 and hinge on IgG4's CH2 and CH3: each domain is one subclass's."""
     hybrid = "".join(
         [
             domain("igg2", "CH1"),
@@ -191,20 +203,12 @@ def chain(name: str, sequence: str, kind: str, end: int) -> dict[str, Any]:
     }
 
 
-def assemble(tmp_path: Path, heavy_constant: str, **params: str) -> tuple[int, str, dict[str, Any]]:
-    """Runs `assemble` on trastuzumab's VH followed by `heavy_constant`, with its light
-    chain, as a run does."""
-    (tmp_path / "input.json").write_text(
-        json.dumps(
-            {
-                "params": params,
-                "inputs": {
-                    "heavy_chain": [chain("heavy", VH + heavy_constant, "H", len(VH))],
-                    "light_chain": [chain("light", LIGHT, "K", 107)],
-                },
-            }
-        )
-    )
+def run_assemble(
+    tmp_path: Path, heavy: dict[str, Any], light: dict[str, Any] | None, **params: str
+) -> tuple[int, str, dict[str, Any]]:
+    """Runs `assemble` on these chains, as a run does."""
+    inputs = {"heavy_chain": [heavy], **({"light_chain": [light]} if light else {})}
+    (tmp_path / "input.json").write_text(json.dumps({"params": params, "inputs": inputs}))
     output = tmp_path / "output.json"
     output.unlink(missing_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
@@ -225,6 +229,13 @@ def assemble(tmp_path: Path, heavy_constant: str, **params: str) -> tuple[int, s
         result.stdout,
         json.loads(output.read_text()) if output.exists() else {},
     )
+
+
+def assemble(tmp_path: Path, heavy_constant: str, **params: str) -> tuple[int, str, dict[str, Any]]:
+    """Runs `assemble` on trastuzumab's VH followed by `heavy_constant`, with its light
+    chain, as a run does."""
+    heavy = chain("heavy", VH + heavy_constant, "H", len(VH))
+    return run_assemble(tmp_path, heavy, chain("light", LIGHT, "K", 107), **params)
 
 
 def test_assembling_takes_the_isotype_from_the_heavy_chain(tmp_path: Path) -> None:
@@ -280,3 +291,167 @@ def test_a_constant_region_no_human_reference_matches_is_unchecked(tmp_path: Pat
     (said,) = output["messages"]
     assert said["level"] == "warning"
     assert said["text"].endswith("Its isotype, igg1, is as given, unchecked.")
+
+
+# --- alleles, crossovers and Fc fusions -------------------------------------------------
+
+
+def between(sequence: str, before: str, after: str) -> str:
+    """What's between the end of `before` and the start of `after` in `sequence`."""
+    start = sequence.index(before) + len(before)
+    return sequence[start : sequence.index(after, start)]
+
+
+def test_the_other_igg3_hinges_are_their_alleles() -> None:
+    """IGHG3*04's hinge is ENA's translation of X99549's two hinge exons, and IGHG3*03's
+    of X16110's three, between CH1 and CH2, which are IGHG3*01's. IMGT's alignment of the
+    IGHG3 alleles gives them as H1 and H4, and H1, H3 and H4, of IGHG3*01's four exons:
+    H1's 17 residues, then 15 each."""
+    hinges = {
+        gene: (accessions, exons, hinge)
+        for gene, accessions, exons, hinge in constant_regions.HINGES["igg3"]
+    }
+    ch1, ch2 = domain("igg3", "CH1"), domain("igg3", "CH2")
+    four = domain("igg3", "hinge")
+    h1, h2, h3, h4 = four[:17], four[17:32], four[32:47], four[47:]
+    assert h1 + h2 + h3 + h4 == four and len(four) == 62
+    assert hinges["IGHG3*04"] == (("X99549",), 2, h1 + h4)
+    assert hinges["IGHG3*03"] == (("X16110",), 3, h1 + h3 + h4)
+    for accession, gene in (("X99549", "IGHG3*04"), ("X16110", "IGHG3*03")):
+        sequence = IGHG3[accession]
+        assert between(sequence, ch1[1:], ch2) == hinges[gene][2]
+    # IGHG3*03's CH3 has IGHG4's converted region: IMGT's M84>V, K88>R, Q98>E and I101>V.
+    assert "TTPPVLDSDGSFFLYSRLTVDKSRWQEGNVF" in IGHG3["X16110"]
+
+
+@pytest.mark.parametrize(
+    ("accession", "gene", "exons"),
+    [("X03604", None, 4), ("X16110", "IGHG3*03", 3), ("X99549", "IGHG3*04", 2)],
+)
+def test_an_igg3_allele_is_igg3_whatever_its_hinges_length(
+    tmp_path: Path, accession: str, gene: str | None, exons: int
+) -> None:
+    """IgG3's hinge has two, three or four exons (Dard et al., Eur J Hum Genet 9:765, 2001):
+    a short one isn't an IgG1/IgG3 hybrid, nor IgG1's."""
+    found = constant_regions.call(IGHG3[accession])
+    assert found.isotypes == ("igg3",), found.describe()
+    assert not found.hybrid
+    nearest = found.matches[0]
+    assert nearest.hinge == (None if gene is None else (gene, (accession,), exons))
+    assert nearest.differences <= 4  # IGHG3*03's converted region, at most
+    assert found.matches[1].differences - nearest.differences >= 30
+    if gene is not None:
+        assert f"with {gene}'s {exons}-exon hinge ({accession})" in found.describe()
+    code, stdout, _ = assemble(tmp_path, IGHG3[accession], isotype="igg1")
+    assert code == 1 and "It isn't IgG1's" in stdout and "give igg3" in stdout
+    code, _, output = assemble(tmp_path, IGHG3[accession])
+    assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg3"
+
+
+def test_eculizumabs_ch2_is_igg2s_then_igg4s() -> None:
+    """Its CH1, hinge and the start of CH2 are IgG2's, and the rest of CH2 and CH3 IgG4's,
+    as its review report says: CH2's first residues are IgG2's APPVAG (IgG4's are APEFLGG),
+    and its 37th IgG4's Q (VSQED; IgG2's is VSHED). Between them, the two are the same."""
+    region = constant(ECULIZUMAB["PMDA-H"])
+    found = constant_regions.call(region)
+    assert found.hybrid and found.isotypes == ("igg2", "igg4")
+    assert found.parts == {"igg2": ("CH1", "hinge", "CH2"), "igg4": ("CH2", "CH3")}
+    crossover = found.crossovers["CH2"]
+    assert (crossover.first, crossover.then) == ("igg2", "igg4")
+    assert (crossover.last_first, crossover.first_then) == (5, 37)
+    ch2 = region[region.index("APPVAG") :]
+    assert ch2[:5] == "APPVA" and ch2[36] == "Q" and ch2[:37].endswith("VSQ")
+    assert found.describe() == (
+        "is a hybrid: its CH1 and hinge IgG2's; its CH3 IgG4's; its CH2 IgG2's to its "
+        "residue 5 and IgG4's from its residue 37, the two the same between"
+    )
+
+
+def test_eculizumab_may_be_given_as_either_subclass(tmp_path: Path) -> None:
+    heavy = ECULIZUMAB["PMDA-H"]
+    vh = len(heavy) - len(constant(heavy))
+    chains = (chain("heavy", heavy, "H", vh), chain("light", ECULIZUMAB["PMDA-L"], "K", 107))
+    for isotype in ("igg2", "igg4"):
+        code, _, output = run_assemble(tmp_path, *chains, isotype=isotype)
+        assert code == 0 and output["creates"][0]["values"]["isotype"] == isotype
+        assert "its CH2 IgG2's to its residue 5 and IgG4's from" in output["messages"][0]["text"]
+    code, _, output = run_assemble(tmp_path, *chains)
+    assert code == 0 and "isotype" not in output["creates"][0]["values"]
+
+
+@pytest.mark.parametrize(
+    ("name", "isotype"),
+    [("D10821-H1", "igg4"), ("D10821-H2", "igg4"), ("D11894-A", "igg1"), ("D11894-B", "igg1")],
+)
+def test_a_bispecifics_heavy_chains_are_their_subclass(name: str, isotype: str) -> None:
+    """Emicizumab's two heavy chains are IgG4's (S228P, and the charge pairs that make them
+    pair with each other), and amivantamab's IgG1's."""
+    found = constant_regions.call(constant(FUSIONS[name]))
+    assert found.isotypes == (isotype,), found.describe()
+    assert not found.crossovers
+
+
+def unnumbered(name: str, sequence: str) -> dict[str, Any]:
+    """A protein as numbering leaves one it finds no variable domain in: as it was."""
+    return {"id": name, "hrid": name, "values": {"name": name, "sequence": sequence}}
+
+
+@pytest.mark.parametrize("kegg", ["D00742", "D09574"])
+def test_an_fc_fusions_isotype_is_read_off_the_whole_chain(tmp_path: Path, kegg: str) -> None:
+    """Etanercept (TNFR2's extracellular domain on IgG1's hinge, CH2 and CH3) and
+    aflibercept (VEGFR domains on the same) have no variable domain, so numbering leaves
+    them as they were: an `other` with an isotype compares the whole chain."""
+    fusion = unnumbered(kegg, FUSIONS[kegg])
+    found = constant_regions.call(FUSIONS[kegg])
+    assert found.isotypes == ("igg1",) and found.matches[0].identity > 0.97
+    assert not found.has("CH1") and found.has("CH2") and found.has("CH3")
+    code, _, output = run_assemble(tmp_path, fusion, None, format="other", isotype="igg1")
+    assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
+    assert output["messages"][0]["text"].startswith(
+        f"Its isotype is igg1, as given: {kegg}, compared whole as it has no numbered "
+        "variable domain, is IgG1's"
+    )
+    code, _, output = run_assemble(tmp_path, fusion, None, format="other")
+    assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
+    code, stdout, _ = run_assemble(tmp_path, fusion, None, format="other", isotype="igg4")
+    assert code == 1 and "It isn't IgG4's" in stdout
+
+
+def test_a_fabs_heavy_chain_has_no_fc(tmp_path: Path) -> None:
+    """A Fab's heavy chain ends in the hinge: one that goes on through CH2 has an Fc's
+    domain, however few residues it has after its variable domain. IgG1's CH1, hinge and
+    CH2 are 223 residues, fewer than a whole IgG's constant region."""
+    ch1, hinge, ch2 = (domain("igg1", d) for d in ("CH1", "hinge", "CH2"))
+    assert len(ch1 + hinge + ch2) == 223
+    code, stdout, output = assemble(tmp_path, ch1 + hinge + ch2, format="fab")
+    assert code == 1 and output == {}
+    assert (
+        "A Fab's heavy chain has CH1, and perhaps some of the hinge, but no Fc, and heavy's "
+        "constant region has IgG1's CH1, hinge and CH2: choose other."
+    ) in stdout
+    code, stdout, _ = assemble(tmp_path, ch1 + hinge + ch2, format="igg")
+    assert code == 1
+    assert "heavy's constant region has IgG1's CH1, hinge and CH2 but no CH3: choose other." in (
+        stdout
+    )
+    # A Fab' has the whole hinge, and a pepsin F(ab')2 the first few residues of CH2 too.
+    for fab in (ch1, ch1 + hinge, ch1 + hinge + ch2[:5]):
+        code, _, output = assemble(tmp_path, fab, format="fab")
+        assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
+    # A whole IgG's heavy chain without its C-terminal lysine is still a whole one.
+    code, _, output = assemble(tmp_path, constant(HEAVY["D03257"])[:-1], format="igg")
+    assert code == 0
+
+
+def test_assemble_records_the_aligner_it_runs() -> None:
+    """`assemble` aligns with Biopython's PairwiseAligner and BLOSUM62, so what it makes is
+    recorded as made with Biopython, at the version its environment pins (ADR 0106)."""
+    manifest = yaml.safe_load((SCRIPTS.parent / "actions" / "assemble.yaml").read_text())
+    pinned = re.search(
+        r"^biopython==(\S+)", (SCRIPTS.parent / "requirements.txt").read_text(), re.M
+    )
+    assert pinned is not None
+    assert manifest["software"] == [
+        {"name": "Biopython", "version": pinned.group(1), "url": "https://biopython.org"}
+    ]
+    assert "from Bio import Align" in (SCRIPTS / "constant_regions.py").read_text()

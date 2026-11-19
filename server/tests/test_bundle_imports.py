@@ -518,11 +518,13 @@ def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None
 
     def made() -> list[Any]:
         heavy = protein(world, "MKVHEAVY")
+        other = protein(world, "MKVHEAVYTWO")
         light = protein(world, "MKVLIGHT")
         rows = [
             {"part": str(heavy.pk), "role": "heavy", "chain": "H"},
-            {"part": str(heavy.pk), "role": "heavy", "chain": "H2"},
-            {"part": str(light.pk), "role": "light", "copies": 2},
+            {"part": str(other.pk), "role": "heavy", "chain": "H2"},
+            {"part": str(light.pk), "role": "light", "chain": "L"},
+            {"part": str(light.pk), "role": "light"},
         ]
         bispecific = services.create(
             admin, "acme/protein.Bispecific", world.project, {"name": "BS-1", "components": rows}
@@ -536,13 +538,14 @@ def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None
     here = {e["type"]: e for e in entities_of(api, done)}
     found = api.get(f"/entities/{here['acme/protein.Bispecific']['hrid_here']}").json()
     rows = found["values"]["components"]
-    assert [(r["role"], r["chain"], r["copies"]) for r in rows] == [
-        ("heavy", "H", 1),
-        ("heavy", "H2", 1),
-        ("light", None, 2),
+    assert [(r["role"], r["chain"]) for r in rows] == [
+        ("heavy", "H"),
+        ("heavy", "H2"),
+        ("light", "L"),
+        ("light", None),
     ]
     named = [found["refs"][r["part"]]["title"] for r in rows]
-    assert len(set(named)) == 2
+    assert len(set(named)) == 3 and named[2] == named[3]
 
 
 def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(

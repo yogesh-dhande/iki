@@ -10,7 +10,9 @@ description: >-
   how much of the V region is the same: their humanness. An scFv's chain has two
   domains, a heavy and a light one. A protein without one is left as it was, and
   the run says so. What it finds is the project's record of each protein, so
-  numbering it again, in another scheme, replaces it there.
+  numbering it again, in another scheme, replaces it there; a chain whose
+  sequence liabilities were found (find_liabilities) has them found again on
+  the new numbering.
 inputs:
   protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
 params:
@@ -51,6 +53,9 @@ effects:
         - light_germline_identity
         - light_j_gene
         - variable_domains
+        - liabilities
+        - liability_counts
+        - liability_count
 software:
   - { name: ANARCI, version: "2026.2.13.2", url: https://github.com/oxpig/ANARCI }
   - { name: HMMER, version: "3.4", url: https://github.com/EddyRivasLab/hmmer }

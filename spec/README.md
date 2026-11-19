@@ -789,21 +789,27 @@ states. A row's fields can't be named `entity`, `position`, `id` or `pk`.
 ```yaml
 components:
   type: list
-  min_items: 3
-  max_items: 8
   items:
     type: row
     fields:
       part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
-      copies: { type: int, min: 1, required: true, default: 1 }
       chain: { type: string, max_length: 10 }
       role: { type: enum, values: [heavy, light, linker], required: true }
+    identity: [part, role]
     by: role
     roles:
       heavy: { min: 2, max: 2, to: { part: Protein } }
-      light: { label: Light chain, min: 1, max: 2, to: { part: Protein } }
+      light: { label: Light chain, min: 2, max: 2, to: { part: Protein } }
       linker: { max: 1, to: { part: acme/dna.DNASequence } }
 ```
+
+A bispecific antibody's chains, a row per chain: a light chain both arms
+share is two rows of the same protein. Give a row a count of copies as well
+and one set of chains could be written two ways (one row of two copies, or
+two rows of one), which an identity would tell apart. Such a list is an
+inventory of chains: it says which, not which pairs with which, so a type
+that registers assemblies, where mispaired chains are another molecule, makes
+each row the unit that pairs (an arm's heavy and light chain).
 
 `by` names the row's required enum field holding each row's role, and
 `roles` says, per role, how many rows take it (`min`, `max`; `max: 0`

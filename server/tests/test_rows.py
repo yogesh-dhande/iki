@@ -1,14 +1,19 @@
 """Lists of rows (ADR 0137): each row's fields checked as a type's are, each role held to its
-count and what it refers to, stored a column per row field, and every surface showing them."""
+count and what it refers to, stored a column per row field, and every surface showing them.
 
-from typing import Any
+The bispecifics' chains are real ones, KEGG DRUG's (data/fc_fusions_and_bispecifics.fasta):
+emicizumab's two heavy chains and the light chain both share (D10821), and amivantamab's two
+heavy chains and two light chains (D11894), whose disulphides pair A with C and B with D."""
+
+from pathlib import Path
+from typing import Any, NamedTuple
 
 import pytest
 from django.db import DatabaseError, connection, transaction
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_graph import walk
-from test_runs import protein, world
+from test_runs import world
 
 from iki_server.entities import states
 from iki_server.graph.models import Edge
@@ -20,25 +25,58 @@ __all__ = ["world"]  # the fixture, used here too
 BISPECIFIC = "acme/protein.Bispecific"
 
 
+def _fasta(name: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    header = ""
+    for line in (Path(__file__).parent / "data" / name).read_text().splitlines():
+        if line.startswith(">"):
+            header = line[1:].split()[0]
+            found[header] = ""
+        else:
+            found[header] += line.strip()
+    return found
+
+
+KEGG = _fasta("fc_fusions_and_bispecifics.fasta")
+
+
 def dna(world: World, bases: str = "ACGT") -> Any:
     made = create(api_as(world), world.project, {"bases": bases})
     assert made.status_code == 201, made.content
     return made.json()
 
 
-def chains(world: World) -> tuple[Any, Any, Any]:
-    api = api_as(world)
-    return protein(api, world.project, "hc1"), protein(api, world.project, "lc1"), dna(world)
+class Chains(NamedTuple):
+    """Emicizumab's chains, and a DNA linker."""
+
+    heavy: Any
+    other_heavy: Any
+    light: Any
+    linker: Any
 
 
-def components(heavy: Any, light: Any, linker: Any | None = None) -> list[dict[str, Any]]:
+def chain(world: World, name: str) -> Any:
+    made = create(api_as(world), world.project, {"sequence": KEGG[name]}, "acme/protein.Protein")
+    assert made.status_code == 201, made.content
+    return made.json()
+
+
+def chains(world: World) -> Chains:
+    return Chains(
+        chain(world, "D10821-H1"), chain(world, "D10821-H2"), chain(world, "D10821-L"), dna(world)
+    )
+
+
+def components(c: Chains, linker: bool = False) -> list[dict[str, Any]]:
+    """Emicizumab's chains, a row each: its light chain is both arms', so two rows."""
     rows = [
-        {"part": heavy["id"], "role": "heavy", "chain": "H"},
-        {"part": heavy["id"], "role": "heavy", "chain": "H2", "copies": 1},
-        {"part": light["id"], "role": "light"},
+        {"part": c.heavy["id"], "role": "heavy", "chain": "H"},
+        {"part": c.other_heavy["id"], "role": "heavy", "chain": "H2"},
+        {"part": c.light["id"], "role": "light", "chain": "L"},
+        {"part": c.light["id"], "role": "light"},
     ]
-    if linker is not None:
-        rows.append({"part": linker["id"], "role": "linker"})
+    if linker:
+        rows.append({"part": c.linker["id"], "role": "linker"})
     return rows
 
 
@@ -48,22 +86,28 @@ def errors(response: Any) -> dict[str, str]:
 
 
 def test_rows_are_saved_and_read_with_what_they_refer_to(world: World) -> None:
-    heavy, light, linker = chains(world)
+    c = chains(world)
     api = api_as(world)
     made = create(
         api,
         world.project,
-        {"name": "BS-1", "components": components(heavy, light, linker)},
+        {"name": "BS-1", "components": components(c, linker=True)},
         BISPECIFIC,
     )
     assert made.status_code == 201, made.content
     body = made.json()
     rows = body["values"]["components"]
     # A reference to an identity holds its registry entry (ADR 0115), titled by the record.
-    assert rows[0] == {"part": rows[0]["part"], "copies": 1, "chain": "H", "role": "heavy"}
-    assert rows[2] == {"part": rows[2]["part"], "copies": 1, "chain": None, "role": "light"}
+    assert rows[0] == {"part": rows[0]["part"], "chain": "H", "role": "heavy"}
+    assert rows[3] == {"part": rows[3]["part"], "chain": None, "role": "light"}
     named = [body["refs"][r["part"]]["hrid"] for r in rows]
-    assert named == [heavy["hrid"], heavy["hrid"], light["hrid"], linker["hrid"]]
+    assert named == [
+        c.heavy["hrid"],
+        c.other_heavy["hrid"],
+        c.light["hrid"],
+        c.light["hrid"],
+        c.linker["hrid"],
+    ]
     found = api.get(f"/entities/{body['hrid']}").json()
     assert found["values"]["components"] == rows
     # The type says what each row has and what each role takes.
@@ -73,7 +117,7 @@ def test_rows_are_saved_and_read_with_what_they_refer_to(world: World) -> None:
         if f["name"] == "components"
     )
     assert field["items"] == "row"
-    assert [f["name"] for f in field["row"]["fields"]] == ["part", "copies", "chain", "role"]
+    assert [f["name"] for f in field["row"]["fields"]] == ["part", "chain", "role"]
     assert field["row"]["by"] == "role"
     heavy_role = field["row"]["roles"][0]
     assert heavy_role == {
@@ -86,43 +130,86 @@ def test_rows_are_saved_and_read_with_what_they_refer_to(world: World) -> None:
 
 
 def test_each_row_field_is_checked_where_it_is(world: World) -> None:
-    heavy, light, _ = chains(world)
-    rows = components(heavy, light)
-    rows[0] = {"role": "heavy", "copies": 0, "colour": "red"}
+    rows = components(chains(world))
+    rows[0] = {"role": "heavy", "chain": "H" * 11, "colour": "red"}
     found = errors(
         create(api_as(world), world.project, {"name": "BS-1", "components": rows}, BISPECIFIC)
     )
     assert found == {
         "#/values/components/0/part": "is required.",
-        "#/values/components/0/copies": "must be at least 1.",
-        "#/values/components/0/colour": "isn't one of the row's fields: part, copies, chain, role.",
+        "#/values/components/0/chain": "must be at most 10 characters long.",
+        "#/values/components/0/colour": "isn't one of the row's fields: part, chain, role.",
     }
 
 
 def test_each_role_takes_its_count_and_its_types(world: World) -> None:
-    heavy, light, linker = chains(world)
+    c = chains(world)
     api = api_as(world)
-    one_heavy = [
-        {"part": heavy["id"], "role": "heavy"},
-        {"part": light["id"], "role": "light"},
-        {"part": linker["id"], "role": "linker"},
-    ]
+    one_heavy = [row for row in components(c, linker=True) if row.get("chain") != "H2"]
     found = errors(create(api, world.project, {"name": "B", "components": one_heavy}, BISPECIFIC))
     assert found == {"#/values/components": "needs at least 2 heavy rows, and has 1."}
-    wrong = components(heavy, light)
-    wrong[0]["part"] = linker["id"]
+    wrong = components(c)
+    wrong[0]["part"] = c.linker["id"]
     found = errors(create(api, world.project, {"name": "B", "components": wrong}, BISPECIFIC))
     assert found == {
         "#/values/components/0/part": "must refer to a acme/protein.Protein in a heavy row, "
         "not a acme/dna.DNASequence."
     }
-    two_linkers = [*components(heavy, light, linker), {"part": linker["id"], "role": "linker"}]
+    two_linkers = [*components(c, linker=True), {"part": c.linker["id"], "role": "linker"}]
     found = errors(create(api, world.project, {"name": "B", "components": two_linkers}, BISPECIFIC))
     assert found == {"#/values/components": "can have at most 1 linker row, and has 2."}
 
 
+def test_a_chain_the_antibody_has_two_of_is_two_rows(world: World) -> None:
+    """Emicizumab's arms share a light chain: that's two light rows of one protein, the one
+    way to write it, so its chains have one record. A row has no count of copies to write
+    it as one row of two instead, and one light row is one light chain, too few; nor can a
+    heavy chain be given nine copies."""
+    c = chains(world)
+    api = api_as(world)
+    shared = [row for row in components(c) if row.get("chain") != "L"]
+    found = errors(create(api, world.project, {"name": "B", "components": shared}, BISPECIFIC))
+    assert found == {"#/values/components": "needs at least 2 light rows, and has 1."}
+    counted = [{**shared[0], "copies": 9}, *shared[1:2], {**shared[2], "copies": 2}]
+    found = errors(create(api, world.project, {"name": "B", "components": counted}, BISPECIFIC))
+    assert found["#/values/components/0/copies"] == (
+        "isn't one of the row's fields: part, chain, role."
+    )
+    made = create(api, world.project, {"name": "B", "components": components(c)}, BISPECIFIC)
+    assert made.status_code == 201, made.content
+    again = create(
+        api, world.project, {"name": "B again", "components": components(c)[::-1]}, BISPECIFIC
+    )
+    assert again.status_code == 200 and again.json()["hrid"] == made.json()["hrid"]
+
+
+def test_the_chains_say_which_chains_not_which_pairs(world: World) -> None:
+    """Amivantamab's heavy chain A pairs with light chain C and B with D. The type is an
+    inventory of chains, as it says, so A with D and B with C, a mispaired assembly of
+    the same four chains (Schaefer et al., PNAS 108:11187, 2011), is the same record: a
+    type that registers assemblies makes each row an arm."""
+    a, b, c, d = (chain(world, f"D11894-{x}") for x in "ABCD")
+    api = api_as(world)
+    paired = [
+        {"part": a["id"], "role": "heavy", "chain": "A"},
+        {"part": c["id"], "role": "light", "chain": "C"},
+        {"part": b["id"], "role": "heavy", "chain": "B"},
+        {"part": d["id"], "role": "light", "chain": "D"},
+    ]
+    made = create(api, world.project, {"name": "Amivantamab", "components": paired}, BISPECIFIC)
+    assert made.status_code == 201, made.content
+    mispaired = [paired[0], paired[3], paired[2], paired[1]]
+    found = create(api, world.project, {"name": "Mispaired", "components": mispaired}, BISPECIFIC)
+    assert found.status_code == 200 and found.json()["hrid"] == made.json()["hrid"]
+    described = api.get(f"/entity-types/{BISPECIFIC}").json()
+    assert described["label"] == "Bispecific antibody's chains"
+    assert (
+        "doesn't say which light chain pairs with which heavy chain" in (described["description"])
+    )
+
+
 def test_rows_change_as_a_whole_and_each_revision_keeps_them(world: World) -> None:
-    heavy, _, linker = chains(world)
+    heavy, _, _, linker = chains(world)
     api = api_as(world)
     added = [{"material": heavy["id"], "amount": {"value": 5, "unit": "ug"}, "note": "first"}]
     body = create(
@@ -145,39 +232,42 @@ def test_rows_change_as_a_whole_and_each_revision_keeps_them(world: World) -> No
 
 
 def test_a_set_of_parts_is_one_identity_whatever_their_order(world: World) -> None:
-    """ADR 0138: a bispecific is its components, by part, copies and role, as a multiset:
-    registered again in another order, or with other chain labels, it's found."""
-    heavy, light, linker = chains(world)
+    """ADR 0138: a bispecific's chains are its components, by part and role, as a
+    multiset: registered again in another order, or with other chain labels, they're
+    found."""
+    c = chains(world)
     api = api_as(world)
-    rows = components(heavy, light, linker)
+    rows = components(c, linker=True)
     made = create(api, world.project, {"name": "BS-1", "components": rows}, BISPECIFIC)
     assert made.status_code == 201, made.content
-    again = [{**rows[3]}, {**rows[2]}, {**rows[1], "chain": "X"}, {**rows[0]}]
+    again = [rows[4], rows[3], {**rows[2], "chain": "X"}, rows[1], rows[0]]
     found = create(api, world.project, {"name": "BS-1 again", "components": again}, BISPECIFIC)
     assert found.status_code == 200, found.content
     assert found.json()["hrid"] == made.json()["hrid"]
-    # Another count of a part is another antibody.
-    other = [*rows[:2], {**rows[2], "copies": 2}, rows[3]]
-    another = create(api, world.project, {"name": "BS-2", "components": other}, BISPECIFIC)
+    # Two light chains of different proteins are another antibody's.
+    other = create(api, world.project, {"sequence": KEGG["D11894-D"]}, "acme/protein.Protein")
+    two = [*rows[:3], {**rows[3], "part": other.json()["id"]}, rows[4]]
+    another = create(api, world.project, {"name": "BS-2", "components": two}, BISPECIFIC)
     assert another.status_code == 201, another.content
     assert another.json()["hrid"] != made.json()["hrid"]
     # Its components are its identity's, so they don't change.
     edited = patch(
         api,
         made.json()["hrid"],
-        {"values": {"components": other}, "reason": "Two light"},
+        {"values": {"components": two}, "reason": "Two light"},
         api.get(f"/entities/{made.json()['hrid']}").headers["ETag"],
     )
     assert edited.status_code == 422, edited.content
 
 
 def test_search_finds_a_row_with_every_value_given(world: World) -> None:
-    heavy, light, linker = chains(world)
+    c = chains(world)
+    heavy, light = c.heavy, c.light
     api = api_as(world)
     made = create(
         api,
         world.project,
-        {"name": "BS-1", "components": components(heavy, light, linker)},
+        {"name": "BS-1", "components": components(c, linker=True)},
         BISPECIFIC,
     ).json()
 
@@ -200,11 +290,12 @@ def test_search_finds_a_row_with_every_value_given(world: World) -> None:
 
 
 def test_rows_references_are_edges_of_the_graph(world: World) -> None:
-    heavy, light, linker = chains(world)
+    c = chains(world)
+    linker = c.linker
     made = create(
         api_as(world),
         world.project,
-        {"name": "BS-1", "components": components(heavy, light, linker)},
+        {"name": "BS-1", "components": components(c, linker=True)},
         BISPECIFIC,
     ).json()
     # Its components are its identity's, so its registry entry's (ADR 0138).
@@ -214,17 +305,17 @@ def test_rows_references_are_edges_of_the_graph(world: World) -> None:
         ("components.part", 1),
         ("components.part", 2),
         ("components.part", 3),
+        ("components.part", 4),
     ]
     found = walk(world, linker["id"], "downstream")
     assert found["hrids"] == [made["hrid"]]
 
 
 def test_the_database_holds_rows_to_their_types_and_locks(world: World) -> None:
-    heavy, light, _ = chains(world)
     made = create(
         api_as(world),
         world.project,
-        {"name": "BS-1", "components": components(heavy, light)},
+        {"name": "BS-1", "components": components(chains(world))},
         BISPECIFIC,
     ).json()
     other = create(api_as(world), world.project, {"label": "S-1"}, "acme/protein.Sample").json()

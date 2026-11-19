@@ -76,31 +76,43 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 | `find_liabilities`                     | Finds the sequence liabilities a developability screen reports in a chain.   | backend   |
 | `predict_structure_with_immunebuilder` | Predicts an antibody's structure with ImmuneBuilder, and how sure it is.     | container |
 
-`number_chains` and `predict_structure_with_immunebuilder` list the software
-they run, with the versions their images install, so what they make is recorded
-as made with it
+`number_chains`, `assemble` and `predict_structure_with_immunebuilder` list the
+software they run, with the versions their environments install, so what they
+make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
-ANARCI 2026.2.13.2 and HMMER 3.4, and for the structure ImmuneBuilder 1.2,
-OpenMM 8.6.1 and PDBFixer 1.12.0 as well. `assemble` and `find_liabilities` are
-the plugin's own code, in pure Python, so they run none.
+ANARCI 2026.2.13.2 and HMMER 3.4 for the numbering; Biopython 1.88 for
+`assemble`, whose pairwise aligner, with BLOSUM62, compares a heavy chain's
+constant region with IMGT's human ones; and for the structure ImmuneBuilder 1.2,
+OpenMM 8.6.1 and PDBFixer 1.12.0. `find_liabilities` is the plugin's own code,
+in pure Python on the stored numbering, so it runs none.
 
 `assemble` checks that the format and the chains agree, from where their
-variable domains end, so the chains must have been numbered first
-(`number_chains`):
+variable domains end and which constant domains follow, so the chains must have
+been numbered first (`number_chains`):
 
-| Format  | Chains                                                                 | Isotype          |
-| ------- | ---------------------------------------------------------------------- | ---------------- |
-| `igg`   | A heavy chain with CH1, hinge, CH2 and CH3; a light chain with its CL  | `igg1` to `igg4` |
-| `fab`   | A heavy chain with CH1 but no Fc; a light chain with its CL            | Any class        |
-| `fv`    | A heavy and a light variable domain, with no constant domain           | None             |
-| `scfv`  | One chain with a heavy and a light variable domain, no constant domain | None             |
-| `vhh`   | One chain with one heavy variable domain, no constant domain           | None             |
-| `other` | Not checked                                                            | Any, given a CH1 |
+| Format  | Chains                                                                                        | Isotype                      |
+| ------- | --------------------------------------------------------------------------------------------- | ---------------------------- |
+| `igg`   | A heavy chain with CH1, hinge, CH2 and CH3; a light chain with its CL                         | `igg1` to `igg4`             |
+| `fab`   | A heavy chain with CH1, perhaps some hinge, but no Fc (CH2 or CH3); a light chain with its CL | Any class                    |
+| `fv`    | A heavy and a light variable domain, with no constant domain                                  | None                         |
+| `scfv`  | One chain with a heavy and a light variable domain, no constant domain                        | None                         |
+| `vhh`   | One chain with one heavy variable domain, no constant domain                                  | None                         |
+| `other` | Not checked                                                                                   | Any, given a constant region |
 
 An immunoglobulin constant domain is about 100 residues (human IGKC's is 107,
-IGHG1's CH1 98) and an IgG heavy chain's constant region 326 to 377 (IGHG2's to
-IGHG3's), so fewer than 90 residues after a variable domain count as no
-constant domain, and 300 or more as an IgG's whole constant region.
+IGHG1's CH1 98), so fewer than 90 residues after a variable domain count as no
+constant domain. Which constant domains a heavy chain has is read off how its
+residues after the variable domain align with the human reference they match:
+at least 10 residues of a domain are that domain. So a heavy chain through
+CH2 (IgG1's CH1, hinge and CH2 are 223 residues) isn't a Fab's, nor an IgG's
+without CH3; a Fab' with the whole hinge, or a pepsin F(ab')2 with CH2's first
+few residues, is a Fab's. Where no human reference matches (a mouse's), the
+length says it instead: an IgG heavy chain's constant region is 326 to 377
+residues (IGHG2's to IGHG3's), so 300 or more count as a whole one. For
+`other`, a heavy chain without numbered variable domains, such as an Fc
+fusion's (etanercept's, aflibercept's: numbering leaves a protein without
+antibody domains as it was), is compared whole, so its isotype is checked or
+taken from it too.
 
 Where the heavy chain has a constant region, its sequence says the isotype.
 `assemble` aligns the residues after the variable domain with each human heavy
@@ -110,19 +122,31 @@ IGHA1\*01, IGHA2\*01, IGHM\*01, IGHE\*01 and IGHD\*01, from IMGT's
 [protein display of the human IGH C-REGIONs](https://www.imgt.org/IMGTrepertoire/Proteins/protein/human/IGH/IGHC/Hu_IGHCallgenes.html),
 CC BY 4.0), each checked against UniProt's secreted isoform of the gene
 (P01857-1, P01859-1, P01860-1, P01861-1, P01876-1, P01877-1, P01871-1,
-P01854-1, P01880-1) in `server/tests/test_antibody_isotype.py`. The one it's
-nearest is its isotype when it's at least 90% identical to it and the next is
-at least 3 differences further:
+P01854-1, P01880-1) in `server/tests/test_antibody_isotype.py`. Each is
+compared from CH1, as a whole constant region has it, and from the hinge, as an
+Fc or a fusion to one has it. IgG3's hinge has two, three or four exons,
+depending on the allele (Dard et al., _Eur J Hum Genet_ 9:765-772, 2001), so
+IgG3 is compared with each: IGHG3\*01's four (X03604), IGHG3\*03's three
+(X16110) and IGHG3\*04's two (X99549), as IMGT's alignment of the IGHG3 alleles
+gives them; a short-hinge IgG3 isn't IgG1's. The one it's nearest is its
+isotype when it's at least 90% identical to it and the next is at least 3
+differences further:
 
 - an isotype left out is the chain's, and the run says how sure (_"Its isotype
   is igg1, from its heavy chain: … IgG1's, 99.4% identical to IMGT's IGHG1\*01
   (J00228) over 329 residues; the next nearest, IgG2's, is 91.8%"_);
 - one given that isn't the chain's is refused, saying which it is;
 - an IgG whose constant region is another class's is refused: choose `other`;
-- a hybrid, whose domains are different subclasses' (an IgG2/IgG4 such as
-  eculizumab's, CH1 and hinge IgG2's, CH2 and CH3 IgG4's), may be given as
-  either, with a warning, and is left out otherwise, as is one as near two
-  references as each other;
+- a hybrid, whose domains are different subclasses', may be given as any of
+  them, with a warning, and is left out otherwise, as is one as near two
+  references as each other. A domain that's at least 3 differences nearer
+  another subclass's is that one's; one that's one subclass's along its first
+  part and another's along the rest, with at least 3 fewer differences read so
+  than as either's, is a crossover, said with where it is. Eculizumab's CH1,
+  hinge and the start of CH2 are IgG2's and the rest of CH2 and CH3 IgG4's, as
+  its review report says (PMDA, Soliris, 2010), and `assemble` says _"its CH1
+  and hinge IgG2's; its CH3 IgG4's; its CH2 IgG2's to its residue 5 and IgG4's
+  from its residue 37, the two the same between"_;
 - one that matches no human reference (a mouse's IgG1 is about 64% identical
   to the nearest) keeps the isotype given, unchecked, with a warning.
 
@@ -180,7 +204,7 @@ table gives it in; AbM's and Kabat's CDR-H1 read in Chothia's numbering
 Chothia's are the wider set Martin's table gave until 2021, which SAbDab still
 uses; the table now gives a narrower consensus (H26-H32, H52-H56, H96-H101,
 L26-L32, L50-L52, L91-L96), which isn't implemented, because no primary source
-defines it. It's Martin's own reading, from 28 June 2021, of the Chothia
+of the Chothia group's defines it. It's Martin's own reading, from 28 June 2021, of the Chothia
 group's papers, which his table shows disagreeing on every loop: CDR-L1 is
 26-32, 26-33, 25-32 or 25-33, CDR-H2 53-55, 52a-55, 52-56 or 50-58, and CDR-H3
 95-101, 96-101, 95-102 or 92-104, from Chothia et al. 1986 (_Science_
@@ -189,9 +213,12 @@ Al-Lazikani et al. 1997 (_J Mol Biol_ 273:927-948) and Morea et al. 1998
 (_J Mol Biol_ 275:269-294). The consensus's own CDR-H2 is marked "possibly the
 most controversial: it's very clearly H52a-H55 in some of the papers", and its
 CDR-H1 in Kabat's numbering ends at H32, H33 or H34 depending on the loop's
-length. No paper gives the set as such (the earliest, 1986 and 1987, differ
-from it at CDR-H2: 53-55), so a result labelled with it couldn't be traced to
-a definition an auditor could look up. A CDR keeps its endpoints'
+length. Zhu, Olson and Magliery tabulate the set (_Antibodies_ 13(4):99, 2024,
+Table 1, "Consensus Chothia"), citing Martin's table for it, and on
+trastuzumab's light chain it gives CDR-L2 as SAS where the wider set gives
+SASFLYS; but none of the Chothia papers defines it (the earliest, 1986 and
+1987, differ from it at CDR-H2: 53-55), so a CDR labelled with it would be
+traced to Martin's reading of them rather than to a definition of theirs. A CDR keeps its endpoints'
 insertions. Kabat's numbering has room for two at H35 (H35A, H35B), where
 Martin's table ends Kabat's CDR-H1; ANARCI numbers a longer CDR-H1's further
 residues H35C onwards, still before the conserved W36, and these are kept in
@@ -211,8 +238,9 @@ pure Python on the stored numbering, so it runs on the backend tier and lists no
 software. Each liability it reports gives its `kind`, the residues that make it
 (`motif`), where it is (`position`, the index in the sequence from 1, and
 `number`, its number in the scheme the chain was numbered in, insertion code
-included), whether it falls in a CDR (`region`: `cdr_h1` … `cdr_l3`) or in
-`framework`, and its `severity`.
+included, for a residue in a variable domain), whether it falls in a CDR
+(`region`: `cdr_h1` … `cdr_l3`), in `framework` or `outside` the variable
+domains, and its `severity`.
 
 These are the rules it implements, and nothing else. The motifs and severities
 are the ones published developability screens use, chiefly the liability table
@@ -251,15 +279,17 @@ the whole variable fragment) this follows:
   numbering of the same residues, heavy 22 and 92, light 23 and 88; AHo's 23 and
   106). If either of those
   positions isn't a cysteine, the other has no canonical partner, so it's
-  reported too. LAP's `xCys` and `mCys`. Sequence alone can't say whether such
+  reported too; a fragment that doesn't reach one of them (a VH that starts at
+  IMGT 26, say) says nothing of its partner, which isn't reported. LAP's `xCys` and `mCys`. Sequence alone can't say whether such
   a cysteine is free: it may bond another, as a camelid VHH's CDR1 and CDR3
   cysteines often do (PDB 1MEL's Cys33 and Cys109, IMGT 38 and 111F). It's a
   site to check, not an unpaired cysteine.
 - **Oxidation**: methionine and tryptophan in a CDR. LAP's `MetOx` and `TrpOx`.
 - **Fragmentation**: `DP` in a CDR. LAP's `FragH`.
 - **Pyroglutamate**: a glutamine or glutamate at the chain's first residue
-  cyclises, which makes charge variants rather than changing what the antibody
-  does, so it's low ([Liu et al.](https://doi.org/10.1074/jbc.M110.185041),
+  cyclises, whether or not a variable domain starts there: one after a tag or
+  a linker has no `number` and its `region` is `outside`. It makes charge
+  variants rather than changing what the antibody does, so it's low ([Liu et al.](https://doi.org/10.1074/jbc.M110.185041),
   _J Biol Chem_ 286(13):11211-11217, 2011). It isn't in LAP's table.
 
 The [Therapeutic Antibody Profiler](https://doi.org/10.1073/pnas.1810576116)
@@ -271,8 +301,9 @@ action doesn't compute them. LAP's own `Hydro` (`NP`), `FragM` (`TS`), low
 A liability is a site to look at, not a defect: what a screen reports needs
 measuring before it's believed. Which CDR definition a chain's numbering used
 decides where its CDRs are, and which scheme numbered it how a liability is
-numbered, so screening the same chain after renumbering it can report different
-regions and numbers for the same residues.
+numbered, so renumbering a chain changes the regions and numbers of the same
+residues: `number_chains` finds a screened chain's liabilities again on the new
+numbering, so they're never left on the old one's.
 
 `liabilities` and `liability_counts` are JSON, which a chain's page shows as it
 is, under its fields; `liability_count` is an indexed integer, so chains can be
