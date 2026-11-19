@@ -22,6 +22,8 @@ type's history:
   renamed) it records, so signatures made before still read what they signed
   (``RecordRename``, and ``ConvertUnit`` and ``RenameEntityType`` themselves, ADR 0148).
 - A new history table is made append-only for every role (``AppendOnly``).
+- A list's table is made with the entity and position it's keyed by, and dropped
+  with them, however much else the migration changes (ADR 0137).
 - A state field's states (ADR 0125) are kept: a state that disappears is
   refused unless the manifest marks it removed and says where its records
   go, and the migration moves them and keeps which records are locked
@@ -133,6 +135,9 @@ def _autodetector() -> type:
     recording = (ConvertUnit, RecordRename, RenameEntityType)
 
     class PluginAutodetector(MigrationAutodetector):
+        #: Each app's operations, as Django makes them, before it sorts and optimizes them.
+        generated_operations: dict[str, list[Any]]
+
         def __init__(
             self,
             from_state: ProjectState,
@@ -141,6 +146,71 @@ def _autodetector() -> type:
         ) -> None:
             wrapped: Any = _HistoryQuestioner(questioner) if questioner else None
             super().__init__(from_state, to_state, wrapped)
+
+        # Django makes a new model without its relations, adds each after, and leaves its
+        # optimizer to fold them back in; a deleted one loses its relations before it goes.
+        # The optimizer can't fold across an operation that doesn't say which models it
+        # touches, such as a constraint added to another model. A list's table is keyed by
+        # (entity, position) (ADR 0137), and a model without a field its key names can't be
+        # made, in either direction. So each part of a composite primary key stays in its
+        # model's CreateModel and goes with its DeleteModel, as Django keeps a relation that
+        # is the whole primary key.
+
+        def generate_created_models(self) -> None:
+            super().generate_created_models()
+            for app_label, ops in self.generated_operations.items():
+                made: dict[str, Any] = {
+                    op.name_lower: op
+                    for op in ops
+                    if isinstance(op, migrations.CreateModel) and _key(op.fields)
+                }
+                kept = []
+                for op in ops:
+                    is_add = isinstance(op, migrations.AddField)
+                    create = made.get(op.model_name_lower) if is_add else None
+                    if create is None or op.name not in _key(create.fields):
+                        kept.append(op)
+                        continue
+                    order = list(self.to_state.models[app_label, create.name_lower].fields)
+                    create.fields.append((op.name, op.field))
+                    create.fields.sort(key=lambda named: order.index(named[0]))
+                    # What the relation needs, made first; not the model it's being added to.
+                    create._auto_deps += [
+                        d
+                        for d in op._auto_deps
+                        if (d.app_label, d.model_name_lower) != (app_label, create.name_lower)
+                    ]
+                ops[:] = kept
+
+        def generate_deleted_models(self) -> None:
+            super().generate_deleted_models()
+            for app_label, ops in self.generated_operations.items():
+                deleted: dict[str, Any] = {
+                    op.name_lower: op
+                    for op in ops
+                    if isinstance(op, migrations.DeleteModel) and self._deleted_key(app_label, op)
+                }
+                kept = []
+                for op in ops:
+                    is_removal = isinstance(op, migrations.RemoveField)
+                    delete = deleted.get(op.model_name_lower) if is_removal else None
+                    if delete is None or op.name not in self._deleted_key(app_label, delete):
+                        kept.append(op)
+                        continue
+                    # After the constraints on the field go, as its removal would have been.
+                    delete._auto_deps = [
+                        *(
+                            d
+                            for d in delete._auto_deps
+                            if (d.app_label, d.model_name_lower, d.field_name)
+                            != (app_label, op.model_name_lower, op.name)
+                        ),
+                        *op._auto_deps,
+                    ]
+                ops[:] = kept
+
+        def _deleted_key(self, app_label: str, op: Any) -> tuple[str, ...]:  # noqa: ANN401 - a Django operation
+            return _key(self.from_state.models[app_label, op.name_lower].fields.items())
 
         def changes(self, *args: Any, **kwargs: Any) -> dict[str, list[Migration]]:  # noqa: ANN401 - Django's signature
             changes: dict[str, list[Migration]] = super().changes(*args, **kwargs)
@@ -393,6 +463,16 @@ def _type_of(model: Any) -> str:  # noqa: ANN401 - a model reference in a migrat
     """``iki/protein.Protein`` for ``iki__protein.protein``, as migrations' states name models."""
     label, _, name = str(model).partition(".")
     return f"{_plugin(label)}.{name}"
+
+
+def _key(fields: Any) -> tuple[str, ...]:  # noqa: ANN401 - a model's (name, field) pairs
+    """The fields a composite primary key among ``fields`` is made of, or none."""
+    from django.db import models
+
+    for _, field in fields:
+        if isinstance(field, models.CompositePrimaryKey):
+            return tuple(field.field_names)
+    return ()
 
 
 def _is_plugin(app_label: str) -> bool:
