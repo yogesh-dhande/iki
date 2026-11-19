@@ -1,0 +1,490 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: lysozyme_by_its_sequences_e280
+description: >-
+  Hen egg-white lysozyme, its 129 mature residues (UniProt P00698, 19–147): 6 Trp, 3 Tyr
+  and 4 cystines give 37,970 L/(mol·cm) (Pace et al., 1995), over 14,313.0 g/mol, 2.6528
+  mL/(mg·cm), within 0.5% of the 2.64 measured (E1% 26.4 at 281.5 nm; Aune & Tanford,
+  1969). An A280 of 0.53 diluted 1 in 10 is 0.53 × 10 / 2.6528 = 1.9979 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values:
+        {
+          a280: 0.53,
+          dilution_factor: 10,
+          path_length: 1,
+          cysteines: cystines,
+          concentration_method: a280,
+        }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 2.6528, concentration: 1.9979 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: reduced_its_cysteines_dont_absorb
+description: >-
+  Reduced, its cysteines don't absorb as cystines do: 37,470 L/(mol·cm), 2.6179
+  mL/(mg·cm), so the same A280 is 2.0245 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values:
+        {
+          a280: 0.53,
+          dilution_factor: 10,
+          path_length: 1,
+          cysteines: reduced,
+          concentration_method: a280,
+        }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 2.6179, concentration: 2.0245 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_measured_e280_is_used_instead
+description: Lysozyme's measured 2.64 mL/(mg·cm), given, is what its concentration is worked out with.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values:
+        {
+          a280: 0.528,
+          dilution_factor: 10,
+          path_length: 1,
+          extinction_coefficient: 2.64,
+          concentration_method: a280,
+        }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values: { molecular_weight: 14313.0, extinction_coefficient_oxidized: 37970 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 2.64, concentration: 2 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_by_bca_keeps_its_own
+description: >-
+  Measured by BCA, its concentration is as entered; the ε280 its A280 would use is
+  still recorded.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 0.53, concentration: 1.9, concentration_method: bca }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values: { molecular_weight: 14313.0, extinction_coefficient_oxidized: 37970 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 2.6528 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: trastuzumab_at_21_mg_per_ml
+description: >-
+  Trastuzumab (KEGG D03257) as iki/antibody assembles it: two copies each of its heavy
+  and light chains, and the 16 disulfides KEGG lists. Its complex keeps 145,197.41 g/mol
+  and 213,380 L/(mol·cm) with every thiol free, as compute_composition gives them
+  (ADR 0161); its 16 cystines add 2,000 L/(mol·cm) and take 32.25 g/mol off, 215,380
+  over 145,165.16 g/mol, 1.4837 mL/(mg·cm). Herceptin is reconstituted at 21 mg/mL:
+  diluted 1 in 30, it reads 1.039, which is 1.039 × 30 / 1.4837 = 21.0084 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 1.039, dilution_factor: 30, path_length: 1, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/antibody.Antibody
+            values:
+              name: trastuzumab
+              format: igg
+              components:
+                - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: heavy }
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: light }
+              bonds:
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 223,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 214,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 223,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 214,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 229,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 229,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 232,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 232,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 22,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 96,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 147,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 203,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 264,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 324,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 370,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 428,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 22,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 96,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 147,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 203,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 264,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 324,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 370,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 428,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 1,
+                    residue: 23,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 88,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 1,
+                    residue: 134,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 194,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 2,
+                    residue: 23,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 88,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 2,
+                    residue: 134,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 194,
+                  }
+              molecular_weight: 145197.41
+              extinction_coefficient_reduced: 213380
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 1.4837, concentration: 21.0084 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: trastuzumab_reduced
+description: >-
+  Reduced, trastuzumab's thiols are free: 213,380 L/(mol·cm) over 145,197.41 g/mol,
+  1.4696 mL/(mg·cm), so the same A280 is 21.2101 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values:
+        {
+          a280: 1.039,
+          dilution_factor: 30,
+          path_length: 1,
+          cysteines: reduced,
+          concentration_method: a280,
+        }
+      included:
+        protein:
+          - type: iki/antibody.Antibody
+            values:
+              components:
+                - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: heavy }
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: light }
+              bonds:
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 223,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 214,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 223,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 214,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 229,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 229,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 232,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 232,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 22,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 96,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 147,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 203,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 264,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 324,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 1,
+                    residue: 370,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 1,
+                    partner_residue: 428,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 22,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 96,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 147,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 203,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 264,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 324,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000001,
+                    copy: 2,
+                    residue: 370,
+                    partner: 00000000-0000-7000-8003-000000000001,
+                    partner_copy: 2,
+                    partner_residue: 428,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 1,
+                    residue: 23,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 88,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 1,
+                    residue: 134,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 1,
+                    partner_residue: 194,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 2,
+                    residue: 23,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 88,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000002,
+                    copy: 2,
+                    residue: 134,
+                    partner: 00000000-0000-7000-8003-000000000002,
+                    partner_copy: 2,
+                    partner_residue: 194,
+                  }
+              molecular_weight: 145197.41
+              extinction_coefficient_reduced: 213380
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 1.4696, concentration: 21.2101 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_complex_without_an_e280
+description: >-
+  Hemoglobin A's heme isn't a protein, and Pace's values weigh only proteins, so its
+  complex has no ε280 (ADR 0161): without a measured one, its A280 says nothing, and the
+  run says so.
+action: compute_protein_lot
+inputs:
+  lot:
+    - hrid: PLOT-000001
+      values: { a280: 0.84, dilution_factor: 10, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/complex.ProteinComplex
+            values:
+              name: hemoglobin A
+              components:
+                - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: alpha }
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: beta }
+                - { part: 00000000-0000-7000-8003-000000000003, copies: 4, role: heme }
+              molecular_weight: 64452.3
+expect:
+  output:
+    updates: { lot: [] }
+    messages:
+      - level: warning
+        text: >-
+          PLOT-000001: its concentration isn't worked out from its A280: its complex has
+          no ε280 and molecular weight computed, and the lot gives no measured ε280.

@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_conjugate_lot
+label: Compute a conjugate lot's DAR and concentration
+description: >-
+  A conjugate lot's average DAR from its drug load distribution: the mean drug load
+  weighted by each species' share of the area, of the intact conjugate, or of its
+  reduced chains twice the light chain's mean and twice the heavy chain's; its
+  unconjugated share, DAR 0's; and its concentration from its A280 with its own measured
+  ε280, as its payload absorbs too.
+inputs:
+  lot: { type: ConjugateLot, schema: ">=1" }
+effects:
+  updates: [{ input: lot, fields: [dar, unconjugated, a280_extinction, concentration] }]
+runs_on: { tier: backend, environment: lot-tools }
+command: [python, ./scripts/lots.py, conjugate]
+deterministic: true
+batchable: 100
+timeout: 5m

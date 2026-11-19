@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: GenericLot
+label: Generic lot
+label_plural: Generic lots
+extends: Lot
+schema_version: 1
+description: >-
+  A lot of any entity that has no lot type of its own: its amount by mass, its
+  concentration, if it's a solution, and its purity.
+hrid: { prefix: GLOT }
+# How much of it is left (ADR 0139): kept by mass, drawn by volume at its concentration.
+amount:
+  unit: mg
+  label: Amount
+  description: How much of it is left.
+  concentration: concentration
+fields:
+  of:
+    type: ref
+    to: iki/core.Entity
+    label: Lot of
+    required: true
+    immutable: true
+    description: What it's a lot of.
+  concentration:
+    type: quantity
+    unit: mg/mL
+    min: 0
+    description: Its concentration, if it's a solution.
+  purity:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: How pure it is.
+  purity_method:
+    type: string
+    label: Purity by
+    max_length: 200
+    description: How its purity was measured, such as HPLC at 254 nm.
+display:
+  title: "{{ hrid }}"

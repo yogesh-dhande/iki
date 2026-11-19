@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/lots
+version: 0.1.0
+title: Lots
+description: >-
+  Lots of any registered entity: what was made or bought at one time, how much of it is
+  left, what was measured of it, its certificates of analysis, and whether QA released
+  it. Oligonucleotide synthesis lots with their mass by ESI-MS checked against the
+  computed one, plasmid preps, lots of proteins and of complexes such as antibodies with
+  their concentration by A280 from the sequence's ε, conjugate lots with their DAR, and polymer lots with
+  their Mn, Mw and dispersity; and a lot of anything else.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/lots
+dependencies:
+  iki/protein:
+    types:
+      Protein: ">=3"
+  iki/oligo:
+    types:
+      Oligonucleotide: ">=1"
+  iki/plasmid:
+    types:
+      Plasmid: ">=1"
+roles:
+  qa:
+    label: QA
+    description: >-
+      Releases lots for use once their records and certificates of analysis meet their
+      specification, puts them on hold or rejects them, says when they've expired, and
+      returns released ones to quarantine when they need correcting.

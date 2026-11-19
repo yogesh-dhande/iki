@@ -1,0 +1,141 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: OligoLot
+label: Oligonucleotide lot
+label_plural: Oligonucleotide lots
+extends: Lot
+schema_version: 1
+description: >-
+  A synthesis lot of an oligonucleotide: its scale and purification, its yield in OD
+  and in nmol, its purity, and its mass by ESI-MS checked against the one its HELM
+  gives, within its specification's tolerance. A lot whose mass is outside it is held
+  until QA reviews it.
+hrid: { prefix: OLOT }
+# How much of it is left (ADR 0139): kept in nmol, drawn by volume at its
+# concentration, so 5 nmol of a 100 µM solution is 50 µL.
+amount:
+  unit: nmol
+  label: Amount
+  description: How much of it is left.
+  concentration: concentration
+fields:
+  oligonucleotide:
+    type: ref
+    to: iki/oligo.Oligonucleotide
+    label: Lot of
+    required: true
+    immutable: true
+    description: The oligonucleotide it's a lot of, whose HELM says its mass and ε260.
+  synthesis_scale:
+    type: quantity
+    unit: umol
+    min: 0
+    indexed: true
+    description: The scale it was synthesised at, such as 0.2 or 1 µmol, or 10 mmol for a drug's batch.
+  purification:
+    type: enum
+    values: [desalted, cartridge, rp_hplc, ie_hplc, page]
+    indexed: true
+    description: >-
+      How it was purified: desalted only, on a reverse-phase cartridge, by
+      reverse-phase or ion-exchange HPLC, or by PAGE.
+  counterion:
+    type: enum
+    values: [sodium, ammonium, triethylammonium]
+    description: The cation its phosphates carry, such as sodium for a drug's oligonucleotide.
+  yield_od:
+    type: float
+    label: Yield (OD260)
+    min: 0
+    description: >-
+      How much there was, in OD260 units: its absorbance at 260 nm over 1 cm, times
+      its volume in mL.
+  extinction_260:
+    type: quantity
+    label: ε260 (given)
+    unit: L/(mol.cm)
+    min: 0
+    description: >-
+      Its molar extinction coefficient at 260 nm, such as its supplier's, for one
+      whose oligonucleotide has none worked out (modified sugars or bases, ADR 0146).
+      Left empty, its oligonucleotide's is used.
+  yield_amount:
+    type: quantity
+    label: Yield (nmol)
+    unit: nmol
+    computed: true
+    min: 0
+    description: Its yield in nmol, from its OD260 and ε260 (nmol = OD × 10⁶ / ε260).
+  concentration:
+    type: quantity
+    unit: umol/L
+    min: 0
+    description: Its concentration, once it's dissolved.
+  purity:
+    type: quantity
+    label: Purity
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: Its full-length product's share of the peak area, such as by IP-RP HPLC or CE.
+  purity_method:
+    type: enum
+    label: Purity by
+    values: [ip_rp_hplc, ae_hplc, ce, lc_ms]
+    description: >-
+      How its purity was measured: ion-pair reverse-phase or anion-exchange HPLC,
+      capillary electrophoresis, or LC-MS.
+  measured_mass:
+    type: quantity
+    unit: u
+    min: 0
+    description: Its neutral mass by ESI-MS, deconvoluted from its charge states.
+  mass_basis:
+    type: enum
+    label: Compared with
+    values: [monoisotopic, average]
+    default: monoisotopic
+    required: true
+    description: >-
+      Which of its oligonucleotide's masses its measured mass is compared with: the
+      monoisotopic one, for a mass resolved to its isotopes, or the average one, for
+      an unresolved peak's.
+  mass_tolerance:
+    type: quantity
+    unit: u
+    min: 0
+    default: 2
+    required: true
+    description: >-
+      How far its measured mass may be from the expected one, by its specification.
+  expected_mass:
+    type: quantity
+    unit: u
+    computed: true
+    min: 0
+    description: Its oligonucleotide's monoisotopic or average mass, as the free acid.
+  mass_error:
+    type: quantity
+    label: Mass difference
+    unit: u
+    computed: true
+    description: Its measured mass less its expected mass.
+rules:
+  mass_within_tolerance:
+    label: Its mass is its oligonucleotide's
+    description: >-
+      Identity by ESI-MS: its measured mass within its tolerance of its
+      oligonucleotide's. A lot outside it is kept as measured, and held until QA
+      reviews it.
+    check: >-
+      record.mass_error >= -record.mass_tolerance &&
+      record.mass_error <= record.mass_tolerance
+    message: >-
+      Its measured mass is {{ record.mass_error }} Da from its oligonucleotide's,
+      outside its tolerance of ±{{ record.mass_tolerance }} Da.
+    fields: [measured_mass]
+    hold: { reviewed_by: [qa] }
+display:
+  title: "{{ hrid }}"

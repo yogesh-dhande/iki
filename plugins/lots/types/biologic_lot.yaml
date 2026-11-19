@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# What every lot of a protein, a complex such as an antibody, or a protein conjugate has:
+# its concentration by A280, its purity and aggregates by SEC, its endotoxin. Each
+# concrete type names what it's a lot of, which says where its ε280 comes from.
+apiVersion: iki/v1
+kind: EntityType
+name: BiologicLot
+label: Biologic lot
+label_plural: Biologic lots
+extends: Lot
+abstract: true
+schema_version: 1
+description: >-
+  A lot of a protein, a complex such as an antibody, or a protein conjugate, in
+  solution: its concentration, by A280 from its ε280 or by another assay, its purity
+  and aggregates by SEC, and its endotoxin.
+# How much of it is left (ADR 0139): kept by protein mass, drawn by volume at its
+# concentration, so 5 mg of a 2 mg/mL lot is 2.5 mL.
+amount:
+  unit: mg
+  label: Amount
+  description: How much protein is left.
+  concentration: concentration
+fields:
+  concentration:
+    type: quantity
+    unit: mg/mL
+    min: 0
+    indexed: true
+    description: >-
+      Its protein concentration. Worked out from its A280 when that's recorded, as its
+      concentration method says; otherwise as measured by another assay.
+  concentration_method:
+    type: enum
+    label: Concentration by
+    values: [a280, bca, bradford, amino_acid_analysis, other]
+    default: a280
+    description: >-
+      How its concentration was measured: a280 from its absorbance at 280 nm and its
+      ε280, which Iki works out; or by another assay, entered as measured.
+  a280:
+    type: float
+    label: A280
+    min: 0
+    description: >-
+      Its absorbance at 280 nm, as read, of the dilution its dilution factor says,
+      blank subtracted.
+  path_length:
+    type: quantity
+    unit: cm
+    default: 1
+    min: 0
+    description: The cuvette's path length, or the one a microvolume reading is given for.
+  dilution_factor:
+    type: float
+    min: 1
+    default: 1
+    description: How much it was diluted to be read, such as 10 for 1 in 10.
+  extinction_coefficient:
+    type: quantity
+    label: ε280 (measured)
+    unit: mL/(mg.cm)
+    min: 0
+    description: >-
+      Its absorbance at 280 nm of 1 mg/mL over 1 cm, if it's been measured or is known
+      otherwise, as a conjugate's must be: its payload absorbs too. Left empty, its
+      sequence's is used.
+  a280_extinction:
+    type: quantity
+    label: ε280 used
+    unit: mL/(mg.cm)
+    computed: true
+    min: 0
+    description: >-
+      The absorbance of 1 mg/mL over 1 cm its concentration was worked out with: its
+      measured ε280, or its sequence's molar ε280 over its molecular weight.
+  purity:
+    type: quantity
+    label: Purity by SEC
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: Its main peak by size-exclusion chromatography, as a share of every peak's area.
+  aggregates:
+    type: quantity
+    label: High molecular weight species
+    unit: "%"
+    min: 0
+    max: 100
+    description: Its aggregates by SEC, the peaks before its main peak, as a share of the area.
+  endotoxin:
+    type: quantity
+    unit: "{EU}/mg"
+    min: 0
+    description: Its endotoxin by LAL, in endotoxin units for each mg of protein.
+  buffer:
+    type: string
+    label: Formulation
+    max_length: 300
+    description: What it's in, such as 20 mM histidine, 240 mM sucrose, pH 6.0.

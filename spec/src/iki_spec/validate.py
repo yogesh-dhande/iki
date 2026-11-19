@@ -1666,25 +1666,36 @@ class _Semantics:
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
         """A type's amount (ADR 0139): kept in a unit that adds up, on records that are each a
-        thing in the lab, and the states that hold it."""
+        thing in the lab, and the states that hold it. An abstract type's states may hold
+        the amounts its subtypes keep, each in its own unit, as a lot's quarantine holds an
+        oligo lot's nmol and a protein lot's mg (ADR 0162); each concrete type must have
+        one."""
         lineage = [entity_type, *self.ancestors(entity_type)]
         held = [
-            (name, state)
+            (name, state, owner)
             for name, (f, owner) in every.items()
-            if owner is entity_type and f.type == "state"
+            if f.type == "state"
             for state, s in f.states.items()
             if s.holds_amount and not s.removed
         ]
         amount = next((t.amount for t in lineage if t.amount is not None), None)
         if amount is None:
-            for name, state in held:
+            if entity_type.abstract:
+                return
+            for name, state, owner in held:
+                own = owner is entity_type
                 self.add(
                     "holds-without-amount",
-                    f"`{state}` holds the record's amount, and `{entity_type.name}` has none.",
+                    f"`{state}` holds the record's amount, and `{entity_type.name}` has none."
+                    if own
+                    else f"`{owner.qualified_name}`'s `{state}` holds the record's amount, and "
+                    f"`{entity_type.name}`, which extends it, has none.",
                     source,
-                    ("fields", name, "states", state, "holds_amount"),
+                    ("fields", name, "states", state, "holds_amount") if own else ("name",),
                     key=True,
-                    hint="Give the type an `amount`, or leave `holds_amount` off.",
+                    hint="Give the type an `amount`, or leave `holds_amount` off."
+                    if own
+                    else "Give the type an `amount`: its records are things in the lab.",
                 )
             return
         if entity_type.amount is None:

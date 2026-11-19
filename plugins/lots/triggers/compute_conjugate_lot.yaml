@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_conjugate_lot_when_recorded
+label: Compute a conjugate lot's DAR and concentration when it's recorded
+description: >-
+  Works out what follows from what was measured of a conjugate lot as soon as it's recorded,
+  such as from its form.
+on: entity.created
+type: ConjugateLot
+run: compute_conjugate_lot
+---
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_conjugate_lot_when_measured
+label: Compute a conjugate lot's DAR and concentration again when it's measured
+description: >-
+  Works out what follows from what was measured of a conjugate lot again when what it's worked
+  out from changes.
+on: entity.updated
+type: ConjugateLot
+fields:
+  [drug_loads, a280, path_length, dilution_factor, extinction_coefficient, concentration_method]
+run: compute_conjugate_lot

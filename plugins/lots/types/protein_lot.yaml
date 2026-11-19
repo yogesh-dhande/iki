@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ProteinLot
+label: Protein lot
+label_plural: Protein lots
+extends: BiologicLot
+schema_version: 1
+description: >-
+  A lot of a protein, or of a complex of proteins such as an antibody, an Fc fusion
+  or a multispecific, such as a purification's pooled fractions: its concentration
+  from its A280 and its sequence's ε280 (Pace et al., 1995), its purity and
+  aggregates by SEC, and its endotoxin.
+hrid: { prefix: PLOT }
+fields:
+  protein:
+    type: ref
+    to: [iki/protein.Protein, iki/core.Complex]
+    label: Lot of
+    required: true
+    immutable: true
+    description: >-
+      The protein it's a lot of, or the complex of proteins, such as an antibody,
+      whose parts' sequences say its ε280 and molecular weight.
+  cysteines:
+    type: enum
+    values: [cystines, reduced]
+    default: cystines
+    description: >-
+      Whether its cysteines are paired as cystines, as a secreted protein's are, or
+      reduced, as most of a cell's own proteins' are: which ε280 and molecular weight
+      are used. A protein's cystines are its sequence's pairs of cysteines; a
+      complex's are the disulfides its bonds place, each two hydrogens lighter and
+      125 L/(mol·cm) more.
+display:
+  title: "{{ hrid }}"
