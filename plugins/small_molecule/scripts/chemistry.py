@@ -194,11 +194,12 @@ METAL_CHARGE = {"Na": 1, "K": 1, "Li": 1, "Ca": 2, "Mg": 2, "Zn": 2}
 
 
 def _neutral(mol: Chem.Mol) -> str:
-    """A fragment's canonical SMILES, neutralised where it can be (a metal stays an ion)."""
+    """A fragment's canonical SMILES, neutralised where it can be (a metal stays an ion,
+    known by its symbol; one drawn as an isotope, such as lithium-6, is its own)."""
     uncharged = rdMolStandardize.Uncharger().uncharge(mol)
     if uncharged.GetNumAtoms() == 1:
         atom = uncharged.GetAtomWithIdx(0)
-        if atom.GetSymbol() in METAL_CHARGE:
+        if atom.GetSymbol() in METAL_CHARGE and not atom.GetIsotope():
             return atom.GetSymbol()
     return str(Chem.MolToSmiles(uncharged))
 
@@ -208,7 +209,8 @@ def _constitution(mol: Chem.Mol) -> str:
     its stereocentres' configurations taken off. A counterion is the same salt whichever
     enantiomer, or diastereomer, it is: sunitinib's (S)-malate is a malate, and a meso-
     tartrate a tartrate. A double bond's configuration is kept, since it tells salts
-    apart: maleate is cis, fumarate trans. So is an isotope: heavy water isn't water."""
+    apart: maleate is cis, fumarate trans. So is an isotope: heavy water isn't water, nor
+    lithium-6 lithium, whose standard atomic weight is mostly lithium-7's."""
     plain = Chem.RWMol(mol)
     for atom in plain.GetAtoms():
         atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
@@ -304,6 +306,9 @@ class Registered:
     #: which were left out, as SMILES; and how many parents it has.
     left_out: list[str] = field(default_factory=list)
     parents: int = 1
+    #: Whether its salt is one a field gave (an SD file's Salt), not one its structure shows:
+    #: the material is that salt of the structure drawn.
+    salt_from_field: bool = False
 
 
 def identify(mol: Chem.Mol) -> tuple[str, str, list[str]]:
@@ -337,42 +342,75 @@ _GROUP_KINDS = {
         "not which enantiomer it is",
     ),
 }
+#: A single bond's configuration as an atropisomer's axis (RDKit's, from a wedge beside it).
+_AXIAL = (Chem.BondStereo.STEREOATROPCW, Chem.BondStereo.STEREOATROPCCW)
+
+
+def _axis(mol: Chem.Mol, bond: Chem.Bond) -> str:
+    """A stereogenic axis, as the run names it: C11-C12, its atoms numbered from 1."""
+    ends = (bond.GetBeginAtom(), bond.GetEndAtom())
+    return "-".join(f"{a.GetSymbol()}{a.GetIdx() + 1}" for a in ends)
 
 
 def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
     """The structure with its enhanced stereochemistry as a standard InChIKey can hold it,
     and what was changed.
 
-    A V3000 molfile or CXSMILES can mark stereocentres as an AND group (both
-    configurations) or an OR group (one, not known which). A standard InChI can't, so it
-    would give the single stereoisomer drawn, and a racemate would be its enantiomer. A
-    group of one centre says no more than that centre undefined, as a racemate drawn
-    without wedges says, so the centre is registered undefined. A group of several also
-    says how its centres relate (cis, not trans), which nothing in a standard InChIKey
-    holds, so it can't be registered.
+    A V3000 molfile or CXSMILES can mark stereocentres, or an atropisomer's axis, as an AND
+    group (both configurations) or an OR group (one, not known which). A standard InChI
+    can't, so it would give the single stereoisomer drawn, and a racemate would be its
+    enantiomer. A group of one centre or one axis says no more than it undefined, as a
+    racemate drawn without wedges says, so it's registered undefined. A group of several
+    also says how they relate (cis, not trans), which nothing in a standard InChIKey holds,
+    so it can't be registered.
+
+    Nor can an axis drawn with its configuration (by a wedge beside it, as RDKit reads
+    one): a standard InChI has no layer for axial chirality, so (R)- and (S)-BINOL, or
+    sotorasib and its atropisomer, would have one InChIKey, and be one compound.
     """
     groups = list(mol.GetStereoGroups())
     relative = [g for g in groups if g.GetGroupType() in _GROUP_KINDS]
-    if not relative:
-        return mol, []
-    warnings = []
+    warnings: list[str] = []
     changed = Chem.RWMol(mol)
     for group in relative:
         kind, meaning, together = _GROUP_KINDS[group.GetGroupType()]
         atoms = [a.GetIdx() for a in group.GetAtoms()]
-        named = ", ".join(f"{mol.GetAtomWithIdx(i).GetSymbol()}{i + 1}" for i in atoms)
-        if len(atoms) + len(group.GetBonds()) > 1:
+        bonds = [b.GetIdx() for b in group.GetBonds()]
+        named = ", ".join(
+            [f"{mol.GetAtomWithIdx(i).GetSymbol()}{i + 1}" for i in atoms]
+            + [f"the axis {_axis(mol, mol.GetBondWithIdx(i))}" for i in bonds]
+        )
+        if len(atoms) + len(bonds) > 1:
             raise UnreadableError(
                 f"its stereocentres {named} are an {kind} group: how they relate to each "
                 f"other is known, but {together}. A standard InChIKey can't record that: it "
                 "would be the single stereoisomer drawn. Draw them without wedges "
                 "(undefined), and record what's known as the compound's stereochemistry"
             )
-        changed.GetAtomWithIdx(atoms[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        if atoms:
+            changed.GetAtomWithIdx(atoms[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+            what = f"Its stereocentre {named} is"
+        else:
+            changed.GetBondWithIdx(bonds[0]).SetStereo(Chem.BondStereo.STEREONONE)
+            what = f"Its stereogenic axis {named.removeprefix('the axis ')} (an atropisomer's) is"
         warnings.append(
-            f"Its stereocentre {named} is in an {kind} group, {meaning}, which a standard "
-            "InChIKey can't record, so it was registered undefined."
+            f"{what} in an {kind} group, {meaning}, which a standard InChIKey can't record, "
+            "so it was registered undefined."
         )
+    axes = [b for b in changed.GetBonds() if b.GetStereo() in _AXIAL]
+    if axes:
+        named = ", ".join(_axis(mol, b) for b in axes)
+        one = len(axes) == 1
+        raise UnreadableError(
+            f"its bond{'' if one else 's'} {named} {'is a' if one else 'are'} stereogenic "
+            f"ax{'is' if one else 'es'} drawn with {'its' if one else 'their'} configuration "
+            "(an atropisomer). A standard InChI has no layer for axial chirality, so both "
+            "atropisomers would have one InChIKey, and be one compound. Draw the axis without "
+            "a wedge beside it (undefined), say which atropisomer it is in its name, and "
+            "record what's known as the compound's stereochemistry"
+        )
+    if not relative:
+        return mol, warnings
     changed.SetStereoGroups([g for g in groups if g.GetGroupType() not in _GROUP_KINDS])
     Chem.AssignStereochemistry(changed, cleanIt=True, force=True)
     return changed.GetMol(), warnings
@@ -529,9 +567,17 @@ def cut(text: str, limit: int) -> str:
 
 
 def stripped(registered: Registered) -> bool:
-    """Whether the compound registered isn't the structure given, but its parent: salts,
-    solvents or other parts taken off, or neutralised."""
-    return registered.as_drawn != registered.smiles
+    """Whether the compound registered isn't the material given, but its parent: salts,
+    solvents or other parts taken off, or neutralised; or a salt of it its fields give."""
+    return registered.as_drawn != registered.smiles or registered.salt_from_field
+
+
+def given_as(registered: Registered) -> str:
+    """What a name or an ID given with a stripped structure (`stripped`) is of, as the run
+    says it: its structure as drawn, or the salt its fields give."""
+    if registered.salt_from_field:
+        return f"its batch's, a {registered.salt} salt by its salt field"
+    return "its structure's as drawn"
 
 
 def compound_values(registered: Registered, name: str = "") -> dict[str, Any]:
@@ -553,8 +599,9 @@ def name_left_out(registered: Registered, name: str, batches: bool) -> str | Non
     if not name or not stripped(registered):
         return None
     return (
-        f"Its name, {cut(name, LIMITS['name'])}, is its structure's as drawn, not its "
-        "parent's, so its compound wasn't given it" + ("; its batch was." if batches else ".")
+        f"Its name, {cut(name, LIMITS['name'])}, is {given_as(registered)}, not its "
+        f"{'compound' if registered.salt_from_field else 'parent'}'s, so its compound wasn't "
+        "given it" + ("; its batch was." if batches else ".")
     )
 
 

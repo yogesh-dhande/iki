@@ -293,6 +293,68 @@ def test_a_part_iki_doesnt_know_leaves_its_batch_without_a_formula_weight(
     } in output["messages"]
 
 
+#: Imatinib, as PubChem gives it (CID 5291): C29H31N7O, 493.6 g/mol.
+IMATINIB = "CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5"
+
+
+def test_a_counterion_drawn_as_an_isotope_isnt_the_salt_iki_knows(tmp_path: Path) -> None:
+    from rdkit import Chem
+    from rdkit.Chem import Descriptors
+
+    output = registered(
+        tmp_path,
+        # Lithium aspirinate, its lithium drawn as lithium-6 (6.0151228874 u, NIST): with
+        # aspirinate's 179.151 g/mol (aspirin, 180.159, less a hydrogen), 185.166 g/mol,
+        # not the 186.092 of lithium's standard atomic weight, which is mostly lithium-7's.
+        "CC(=O)Oc1ccccc1C(=O)[O-].[6Li+] lithium-6 aspirinate\n"
+        # And with lithium as it is in nature: 186.092 (aspirin's 180.159, less H, plus Li).
+        "CC(=O)Oc1ccccc1C(=O)[O-].[Li+] lithium aspirinate\n"
+        # Imatinib mesylate (CID 123596, 589.7 g/mol), its mesylate's methyl deuterated.
+        f"{IMATINIB}.[2H]C([2H])([2H])S(=O)(=O)O imatinib mesylate-d3\n"
+        # And with methanesulfonic acid as it is in nature.
+        f"{IMATINIB}.CS(=O)(=O)O imatinib mesylate",
+        parent=True,
+        batches=True,
+    )
+    batches = [
+        c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
+    ]
+    assert "formula_weight" not in batches[0]
+    assert "salt" not in batches[0]
+    assert (batches[1]["salt"], batches[1]["formula_weight"]) == ("lithium", 186.092)
+    assert "formula_weight" not in batches[2]
+    assert (batches[3]["salt"], batches[3]["formula_weight"]) == ("mesylate", 589.722)
+    d3 = Descriptors.MolWt(  # type: ignore[attr-defined]
+        Chem.MolFromSmiles(f"{IMATINIB}.[2H]C([2H])([2H])S(=O)(=O)O")
+    )
+    said = [m["text"] for m in output["messages"]]
+    assert (
+        "Line 1: Its batch has no formula weight: [6Li+] is part of the material, but not a "
+        "salt or solvent Iki knows, so what it adds isn't known. Its structure as drawn "
+        "weighs 185.166 g/mol for each parent."
+    ) in said
+    assert (
+        "Line 3: Its batch has no formula weight: [2H]C([2H])([2H])S(=O)(=O)O is part of the "
+        "material, but not a salt or solvent Iki knows, so what it adds isn't known. Its "
+        f"structure as drawn weighs {d3:.3f} g/mol for each parent."
+    ) in said
+    assert not [t for t in said if t.startswith(("Line 2", "Line 4")) and "weight" in t], said
+    # Recomputing a batch registered as lithium-6 aspirinate gives it none either.
+    lithium_6 = {
+        **entity(1, structure_as_drawn="CC(=O)Oc1ccccc1C(=O)[O-].[6Li+]", salt="lithium"),
+        "included": {"compound": [entity(101, smiles=ASPIRIN)]},
+    }
+    lithium_6["values"]["formula_weight"] = 186.092
+    result, recomputed = script(
+        tmp_path, "descriptors.py", {"inputs": {"batch": [lithium_6]}}, "batches"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recomputed is not None
+    assert recomputed["updates"]["batch"] == [
+        {"entity": lithium_6["id"], "values": {"formula_weight": None}}
+    ]
+
+
 def test_a_batch_recomputes_its_weight_only_when_all_its_material_is_known(
     tmp_path: Path,
 ) -> None:
@@ -700,7 +762,9 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
         1.0,
     )
     assert pheniramine["values"]["formula_weight"] == pytest.approx(240.35 + 36.461, abs=0.01)
-    assert base["values"]["name"] == "pheniramine"
+    # The record is a hydrochloride, by its Salt field, so its name is its batch's.
+    assert "name" not in base["values"]
+    assert pheniramine["values"]["name"] == "pheniramine"
 
 
 def v3000(smiles: str, title: str) -> str:
@@ -761,6 +825,134 @@ def test_relative_stereo_in_a_group_cant_be_registered(tmp_path: Path, group: st
     assert output is None
     kind = "AND" if group == "&1" else "OR"
     assert f"Record 1 (rel): its stereocentres C2, C4 are an {kind} group" in last_error(result)
+
+
+#: 1,1'-Bi-2-naphthol (BINOL), as PubChem gives it (CID 11762), whose two atropisomers,
+#: (R) and (S), are one standard InChIKey there, PPTXVXKCQZKFBN-UHFFFAOYSA-N: a standard
+#: InChI has no layer for axial chirality. Its axis is the bond between atoms 9 and 10.
+BINOL = "C1=CC=C2C(=C1)C=CC(=C2C3=C(C=CC4=CC=CC=C43)O)O"
+#: Sotorasib, as PubChem gives it (CID 137278711, NXQKSXLFSAEQCZ-SFHVURJKSA-N, with only
+#: its stereocentre in it): one atropisomer, its axis from its pyrimidinone's N1 (atom 11)
+#: to its pyridine (atom 27).
+SOTORASIB = "C[C@H]1CN(CCN1C2=NC(=O)N(C3=NC(=C(C=C32)F)C4=C(C=CC=C4F)O)C5=C(C=CN=C5C(C)C)C)C(=O)C=C"
+
+
+def atropisomer(smiles: str, axis: tuple[int, int], dash: bool = False) -> Any:
+    """``smiles`` drawn in 2D with a wedge (or a hash) on a bond beside its axis, from the
+    axis's atom, which RDKit reads as the axis's configuration (RDKit Book, "Atropisomeric
+    bonds"). A hash is the other atropisomer."""
+    from rdkit import Chem
+    from rdkit.Chem import rdDepictor
+
+    mol = Chem.MolFromSmiles(smiles)
+    rdDepictor.Compute2DCoords(mol)
+    axial = mol.GetBondBetweenAtoms(*axis).GetIdx()
+    beside = next(
+        b
+        for i in axis
+        for b in mol.GetAtomWithIdx(i).GetBonds()
+        if b.GetIdx() != axial and b.GetBeginAtomIdx() == i
+    )
+    beside.SetBondDir(Chem.BondDir.BEGINDASH if dash else Chem.BondDir.BEGINWEDGE)
+    read = Chem.MolFromMolBlock(Chem.MolToMolBlock(mol))
+    # RDKit reads it as clockwise or anticlockwise about the axis.
+    assert read.GetBondBetweenAtoms(*axis).GetStereo() in (
+        Chem.BondStereo.STEREOATROPCW,
+        Chem.BondStereo.STEREOATROPCCW,
+    )
+    return read
+
+
+def test_an_atropisomer_isnt_registered_as_its_axis_undefined(tmp_path: Path) -> None:
+    from rdkit import Chem
+
+    (r, s), (m, p) = (
+        (atropisomer(BINOL, (9, 10)), atropisomer(BINOL, (9, 10), dash=True)),
+        (atropisomer(SOTORASIB, (11, 27)), atropisomer(SOTORASIB, (11, 27), dash=True)),
+    )
+    assert r.GetBondBetweenAtoms(9, 10).GetStereo() != s.GetBondBetweenAtoms(9, 10).GetStereo()
+    text = "".join(
+        f"{title}\n" + Chem.MolToMolBlock(mol).split("\n", 1)[1] + "$$$$\n"
+        for title, mol in (
+            ("BINOL", r),
+            ("its enantiomer", s),
+            ("ethanol", Chem.MolFromSmiles("CCO")),
+        )
+    )
+    result, output = imported(tmp_path, text, on_error="fail")
+    assert result.returncode == 1
+    assert output is None
+    error = last_error(result)
+    assert "2 of 3 records can't be imported, so none was." in error
+    assert (
+        "Record 1 (BINOL): its bond C10-C11 is a stereogenic axis drawn with its "
+        "configuration (an atropisomer). A standard InChI has no layer for axial chirality, "
+        "so both atropisomers would have one InChIKey, and be one compound."
+    ) in error
+    assert "Record 2 (its enantiomer): its bond C10-C11 is a stereogenic axis" in error
+    # Drawn without the wedge, its axis is undefined: BINOL, whichever it is.
+    plain = registered(tmp_path, f"{BINOL} BINOL")
+    assert plain["creates"][0]["values"]["inchikey"] == "PPTXVXKCQZKFBN-UHFFFAOYSA-N"
+    assert plain["messages"] == []
+    # Sotorasib's CXSMILES, with its axis's wedge, fails its line too; the rest go on.
+    result, output = script(
+        tmp_path,
+        "register.py",
+        {
+            "params": {
+                "smiles": "\n".join(
+                    [f"{Chem.MolToCXSmiles(x)} sotorasib" for x in (m, p)] + ["CCO ethanol"]
+                ),
+                "on_error": "skip",
+            },
+            "inputs": {},
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert [c["values"]["name"] for c in output["creates"]] == ["ethanol"]
+    assert [m["text"][:72] for m in output["messages"]] == [
+        # Its axis named as its CXSMILES numbers its atoms.
+        f"Line {n} was left out: its bond N13-C14 is a stereogenic axis drawn with i"
+        for n in (1, 2)
+    ]
+
+
+@pytest.mark.parametrize(("group", "kind"), [("&1", "AND"), ("o1", "OR")])
+def test_an_axis_in_a_group_of_its_own_is_registered_undefined(
+    tmp_path: Path, group: str, kind: str
+) -> None:
+    from rdkit import Chem
+
+    # One axis in an AND group is racemic BINOL; in an OR group, one of the two, not known
+    # which. Neither says more than the axis undefined, as one centre in a group doesn't.
+    binol = atropisomer(BINOL, (9, 10))
+    kinds = {"&1": Chem.StereoGroupType.STEREO_AND, "o1": Chem.StereoGroupType.STEREO_OR}
+    grouped = Chem.RWMol(binol)
+    axial = binol.GetBondBetweenAtoms(9, 10).GetIdx()
+    grouped.SetStereoGroups([Chem.CreateStereoGroup(kinds[group], binol, [], [axial])])
+    text = "".join(
+        f"{title}\n" + Chem.MolToV3KMolBlock(mol).split("\n", 1)[1] + "$$$$\n"
+        for title, mol in (("BINOL", grouped), ("ethanol", Chem.MolFromSmiles("CCO")))
+    )
+    result, output = imported(tmp_path, text, on_error="skip")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    keys = [c["values"]["inchikey"] for c in output["creates"]]
+    assert keys == ["PPTXVXKCQZKFBN-UHFFFAOYSA-N", "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"]
+    meaning = (
+        "both configurations together (a racemate there)"
+        if kind == "AND"
+        else "one configuration, not known which"
+    )
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": f"Record 1 (BINOL): Its stereogenic axis C10-C11 (an atropisomer's) is in "
+            f"an {kind} group, {meaning}, which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        }
+    ]
 
 
 def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Path) -> None:
@@ -840,6 +1032,120 @@ def test_a_salts_ids_arent_given_to_its_parent(tmp_path: Path) -> None:
             "text": "Record 1 (aspirin sodium): Its CAS number and PubChem CID are its "
             "structure's as drawn, not its parent's, so they were left out.",
         },
+    ]
+
+
+def test_a_salt_field_gives_a_salt_of_an_acid_iki_knows_as_a_counterion(
+    tmp_path: Path,
+) -> None:
+    text = sdf_text(
+        # Benzoic acid (CID 243, 122.12 g/mol), as its sodium salt: sodium benzoate, CID
+        # 517055, 144.10 g/mol. Benzoate is a salt Iki knows, but nothing here is benzoate
+        # of something else: the acid is the parent.
+        ("C1=CC=C(C=C1)C(=O)O", "benzoic acid", {"Salt": "Na"}),
+        # Acetic acid as sodium acetate (CID 31372): 82.03 g/mol.
+        ("CC(=O)O", "acetic acid", {"Salt": "Na"}),
+        # 2-Methylbenzoic acid, which isn't a counterion, as its sodium salt: 158.13 g/mol.
+        ("Cc1ccccc1C(=O)O", "o-toluic acid", {"Salt": "sodium"}),
+        # Drawn as sodium benzoate, whole, its Salt field adds nothing.
+        ("[Na+].[O-]C(=O)c1ccccc1", "sodium benzoate", {"Salt": "Na"}),
+    )
+    for parent in (False, True):
+        result, output = imported(tmp_path, text, parent=parent, batches=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert output is not None
+        batches = [
+            c["values"]
+            for c in output["creates"]
+            if c["type"] == "iki/small_molecule.CompoundBatch"
+        ]
+        assert [(b.get("salt"), b["formula_weight"]) for b in batches] == [
+            ("sodium", 144.105),
+            ("sodium", 82.034),
+            ("sodium", 158.132),
+            (None, 144.105),
+        ]
+
+
+def test_a_salts_names_and_ids_stay_with_its_batch(tmp_path: Path) -> None:
+    text = sdf_text(
+        # Aspirin drawn neutral, its Salt field and its supplier's title, CAS number, CID and
+        # synonym those of its sodium salt (CID 23666729; aspirin is 2244).
+        (
+            ASPIRIN,
+            "aspirin sodium",
+            {
+                "Salt": "Na",
+                "CAS": "493-53-8",
+                "PUBCHEM_COMPOUND_CID": "23666729",
+                "Synonyms": "sodium acetylsalicylate",
+                "Lot": "B-17",
+            },
+        ),
+        # Drawn as the salt, its synonym is the salt's too.
+        (
+            "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]",
+            "aspirin sodium",
+            {"Synonyms": "sodium 2-acetyloxybenzoate", "Description": "White powder"},
+        ),
+    )
+    result, output = imported(tmp_path, text, parent=True, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    neutral, neutral_batch, drawn, drawn_batch = output["creates"]
+    assert neutral["values"] == {
+        "smiles": ASPIRIN,
+        "inchikey": ASPIRIN_KEY,
+        "inchi": "InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)",
+    }
+    assert neutral_batch["values"] == {
+        "compound": {"$create": "record-1"},
+        "name": "aspirin sodium",
+        "structure_as_drawn": ASPIRIN,
+        "salt": "sodium",
+        "salt_equivalents": 1.0,
+        "formula_weight": 202.141,
+        "supplier_lot": "B-17",
+    }
+    assert drawn["values"]["inchikey"] == ASPIRIN_KEY
+    assert "synonyms" not in drawn["values"]
+    assert drawn["values"]["description"] == "White powder"
+    assert drawn_batch["values"]["name"] == "aspirin sodium"
+    said = [m["text"] for m in output["messages"]]
+    assert said == [
+        "Record 1 (aspirin sodium): Its name, aspirin sodium, is its batch's, a sodium salt "
+        "by its salt field, not its compound's, so its compound wasn't given it; its batch "
+        "was.",
+        "Record 1 (aspirin sodium): Its CAS number, PubChem CID and synonyms are its batch's, "
+        "a sodium salt by its salt field, not its compound's, so they were left out.",
+        "Record 2 (aspirin sodium): Its name, aspirin sodium, is its structure's as drawn, "
+        "not its parent's, so its compound wasn't given it; its batch was.",
+        "Record 2 (aspirin sodium): Its synonyms are its structure's as drawn, not its "
+        "parent's, so they were left out.",
+    ]
+
+
+def test_a_mass_without_a_unit_isnt_taken_as_an_amount(tmp_path: Path) -> None:
+    text = sdf_text(
+        # A bare 180.159 in a Mass field is glucose's molecular mass as likely as an amount.
+        ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "glucose", {"Mass": "180.159"}),
+        ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "glucose", {"Amount": "25"}),
+        # With a unit, or in a field whose name gives one, it's the amount.
+        ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "glucose", {"Mass": "1.5 g"}),
+        ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", "glucose", {"Mass_mg": "25"}),
+    )
+    result, output = imported(tmp_path, text, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    batches = [
+        c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
+    ]
+    assert [b.get("amount") for b in batches] == [None, None, 1500.0, 25.0]
+    assert [m["text"] for m in output["messages"]] == [
+        f"Record {n} (glucose): Its {field} field, {value!r}, has no unit, so it wasn't "
+        "taken as its batch's amount: a bare number there could be its molecular mass. Give "
+        "the amount with its unit, such as 25 mg, or in an Amount_mg field."
+        for n, field, value in ((1, "Mass", "180.159"), (2, "Amount", "25"))
     ]
 
 
@@ -1302,6 +1608,9 @@ def test_conformers_that_werent_minimised_say_so(tmp_path: Path) -> None:
     assert values["method"].endswith("; not minimised, ranked by their MMFF94 energies as embedded")
     assert values["energies"] == sorted(values["energies"])
     assert output["messages"] == []
+    # The set's type says so: their energies are single points, not minima.
+    described = (SCRIPTS.parent / "types" / "conformer_set.yaml").read_text()
+    assert "asked for no\n  minimising steps, as embedded, each energy a single point" in described
 
 
 def test_a_salt_has_no_conformers_of_its_own(tmp_path: Path) -> None:

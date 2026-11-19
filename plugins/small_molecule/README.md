@@ -45,7 +45,9 @@ salt form, with RDKit's standardisation and descriptors.
     in Iki's structure viewer.
   - It keeps how they were made, how many there are, each one's energy
     (kcal/mol, in the force field they were minimised in: only differences
-    mean anything) and how far above the lowest the highest is. A compound
+    mean anything) and how far above the lowest the highest is. A run asked for
+    no minimising steps leaves them as embedded, and their energies are single
+    points of each as it is, which its method says. A compound
     MMFF94 has no parameters for (selenium, say) gets conformers as embedded,
     with no energies, in the order they were embedded, and its method says
     they weren't minimised.
@@ -96,10 +98,17 @@ so the identity is Iki's computation, beside the record's origin.
   `PUBCHEM_COMPOUND_CID`, `Catalog_No`, `Lot`, `Purity`…); the run says which
   others it left out. A salt an SD field gives must agree with the structure's,
   and so must its equivalents; one only the field gives (an HCl salt drawn as
-  its free base) is the batch's. Without the parent, a salt drawn whole is the
-  compound itself, so a Salt field naming it adds nothing to its batch, and
-  the run says so. A record's CAS number, PubChem CID and ChEMBL ID are its drawn
-  structure's, so a parent registered from a salt doesn't take them. Each
+  its free base) is the batch's, even when the structure is itself an acid Iki
+  knows as a counterion (benzoic acid with `Salt` Na is sodium benzoate).
+  Without the parent, a salt drawn whole is the compound itself, so a Salt
+  field naming it adds nothing to its batch, and the run says so. A record's
+  name, synonyms, CAS number, PubChem CID and ChEMBL ID are its material's: a
+  salt's, when it's drawn as one, or when its Salt field makes it one. So a
+  compound that isn't that material (its parent, or the free base drawn) takes
+  none of them, and the run says so; its batch takes the name. An amount in a
+  field whose name doesn't give its unit (`Amount`, `Mass`, `Quantity`) needs
+  one, such as `25 mg`: a bare number there could be a molecular mass, so it's
+  left out, saying so; in `Amount_mg` or `Mass_mg` it's in mg. Each
   records the file and record it came from, with the record's SHA-256. A record that can't be imported fails the run, naming each, or with
   `on_error: skip` is left out.
 - **`export_sdf`**: writes compounds (up to 50,000) to an SDF file the run
@@ -111,7 +120,8 @@ so the identity is Iki's computation, beside the record's origin.
   2020), seeded from the run's seed, so a run reproduced exactly makes the same
   ones; drops each whose heavy atoms are within the pruning RMSD of one already
   kept; and minimises the rest in the MMFF94 force field (Halgren, 1996), on
-  one thread, so the result doesn't depend on the machine. A compound MMFF94
+  one thread, so the result doesn't depend on the machine, unless its
+  minimisation steps are 0, when they're ranked by their energies as embedded. A compound MMFF94
   has no parameters for is embedded but not minimised, and the run says so; a
   salt (more than one part) fails it: register its parent. It asks for 1 GiB.
 - **`fetch_from_pubchem`**: fetches compounds from
@@ -188,12 +198,23 @@ is, and the run says so. A group of several centres also says how they relate
 line or record, saying why: draw those centres without wedges and record what's
 known as the compound's stereochemistry.
 
+Nor can a standard InChI hold axial chirality. RDKit reads an atropisomer's
+axis (a hindered biaryl's, as in BINOL or sotorasib) from a wedge beside it,
+but (R)- and (S)-BINOL have one standard InChIKey, as PubChem's one record of
+them shows (CID 11762), and so would be one compound. A structure with an axis
+drawn with its configuration fails its line or record, saying which bond it
+is: draw the axis without the wedge, which is the compound, whichever
+atropisomer it is, and say which in its name. An axis alone in an AND or OR
+group says no more than it undefined, so it's registered undefined, as a single
+centre in one is, and the run says so.
+
 The parent is what registration systems register: fragments that are salts or
 solvents Iki knows are taken off (matched by their structure, neutralised, so
 `[Cl-]` and `Cl` are both hydrochloride, and whatever configuration their
 stereocentres are drawn with, so sunitinib's (S)-malate is a malate and D-, L-
 and meso-tartrate are each a tartrate; a double bond's is kept, which tells
-maleate from fumarate, and so is an isotope, so D₂O isn't water), of what's
+maleate from fumarate, and so is an isotope, so D₂O isn't water, nor ⁶Li⁺
+lithium, whose standard atomic weight is mostly ⁷Li's), of what's
 left the largest is kept (RDKit's LargestFragmentChooser), and it's
 neutralised where it can be (RDKit's Uncharger). So aspirin's sodium salt and aspirin are the same
 compound, and its batch says `sodium`, one equivalent. Equivalents count for

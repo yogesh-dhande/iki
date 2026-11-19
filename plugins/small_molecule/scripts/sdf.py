@@ -6,8 +6,10 @@ as a SMILES line is, and registered; one already in Iki is reused. Its name is t
 field the run names, or the record's title (its first line). SD fields that are a
 compound's fields (or, with batches, a batch's) are kept, matched by name whatever
 their case, spaces and underscores, and by the names suppliers and PubChem give them
-(`FIELDS`); the run says which others it left out. Each records which file and record
-it came from, with the record's SHA-256.
+(`FIELDS`); the run says which others it left out. A record's names and IDs are its
+material's, so a compound that isn't that material (a salt's parent, drawn so or made a
+salt by the record's Salt field) isn't given them. Each records which file and record it
+came from, with the record's SHA-256.
 
 A record that can't be registered fails the import, which names each such record and
 says why, so nothing is half imported; or, with `on_error: skip`, is left out, saying
@@ -44,6 +46,7 @@ from chemistry import (
     drawn_salts,
     fail,
     from_smiles,
+    given_as,
     name_left_out,
     rdkit_messages,
     run_input,
@@ -128,6 +131,9 @@ SALT_NAMES = {
     "nh4": "ammonium",
 }
 AMOUNT = re.compile(r"^([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*(mg|g|ug|µg|μg|kg)?$")
+#: The amount's fields whose names give its unit, so a bare number in them is in mg. In
+#: others (Amount, Mass, Quantity) a bare number could be anything, a molecular mass say.
+IN_MG = {_key("amount_mg"), _key("mass_mg")}
 GRAMS = {"mg": 1.0, "g": 1_000.0, "ug": 0.001, "µg": 0.001, "μg": 0.001, "kg": 1_000_000.0}
 
 
@@ -242,10 +248,13 @@ def _number(text: str, what: str, low: float, high: float) -> float:
     return value
 
 
-def _amount(text: str) -> float:
+def _amount(text: str, *, bare: bool) -> float | None:
+    """A mass, in mg; without a unit, in mg if its field's name says so (`bare`), else None."""
     found = AMOUNT.match(text.strip())
     if found is None:
         raise UnreadableError(f"its amount {text!r} isn't a mass, such as 25 mg")
+    if found[2] is None and not bare:
+        return None
     return float(found[1]) * GRAMS[found[2] or "mg"]
 
 
@@ -298,7 +307,15 @@ def field_values(record: Record, batches: bool) -> tuple[dict[str, Any], dict[st
         elif name == "purity":
             batch["purity"] = _number(text, "purity", 0, 100)
         elif name == "amount":
-            batch["amount"] = _amount(text)
+            amount = _amount(text, bare=_key(sd_name) in IN_MG)
+            if amount is None:
+                record.warnings.append(
+                    f"Its {sd_name} field, {text.strip()!r}, has no unit, so it wasn't taken as "
+                    "its batch's amount: a bare number there could be its molecular mass. Give "
+                    "the amount with its unit, such as 25 mg, or in an Amount_mg field."
+                )
+            else:
+                batch["amount"] = amount
         elif name == "received":
             batch["received"] = _date(text)
         elif name == "salt":
@@ -327,7 +344,10 @@ def _batch(registered: Registered, given: dict[str, Any]) -> dict[str, Any]:
                 f"structure has {each:g} {drawn} for each parent"
             )
     if given.get("salt") and not drawn:
-        whole = drawn_salts(registered.mol)
+        # A salt it's registered as whole is a part of it: a structure of one part (benzoic
+        # acid, say, though benzoate is a salt Iki knows) is the parent its field's salt is of.
+        parts = len(Chem.GetMolFrags(registered.mol))
+        whole = drawn_salts(registered.mol) if parts > 1 else set()
         if whole and given["salt"] not in whole:
             raise UnreadableError(
                 f"its salt field says {given['salt']}, but its structure, registered whole, "
@@ -343,6 +363,7 @@ def _batch(registered: Registered, given: dict[str, Any]) -> dict[str, Any]:
         else:
             registered.salt = given["salt"]
             registered.salt_equivalents = given.get("salt_equivalents", 1.0)
+            registered.salt_from_field = True
     rest = {k: v for k, v in given.items() if k not in ("salt", "salt_equivalents")}
     return {**batch_values(registered), **rest}
 
@@ -365,18 +386,27 @@ def _creates(
     standardised structure; and the SD fields it left out."""
     compound, batch, left = field_values(record, batches)
     registered = standardise(structure(record), parent)
+    # Its batch first: a salt its Salt field gives makes the material that salt, not the
+    # compound, so the record's names and IDs aren't the compound's.
+    lot_values = _batch(registered, batch) if batches else {}
     left_out = name_left_out(registered, name, batches)
     if left_out:
         record.warnings.append(left_out)
     if stripped(registered):
-        # The record's IDs are its structure's, such as a salt's CAS number: the parent
-        # registered isn't that structure, so they aren't its.
+        # The record's names and IDs are its material's, such as a salt's CAS number or
+        # synonyms: the compound registered isn't that material, so they aren't its.
         theirs = [IDS[k] for k in IDS if compound.pop(k, None) is not None]
+        synonyms = compound.pop("synonyms", None)
+        if synonyms:
+            theirs.append("synonyms")
         if theirs:
+            many = len(theirs) > 1 or theirs == ["synonyms"]
+            listed = ", ".join(theirs[:-1]) + " and " + theirs[-1] if len(theirs) > 1 else theirs[0]
             record.warnings.append(
-                f"Its {' and '.join(theirs)} {'are' if len(theirs) > 1 else 'is'} its "
-                "structure's as drawn, not its parent's, so "
-                f"{'they were' if len(theirs) > 1 else 'it was'} left out."
+                f"Its {listed} {'are' if many else 'is'} "
+                f"{given_as(registered)}, not its "
+                f"{'compound' if registered.salt_from_field else 'parent'}'s, so "
+                f"{'they were' if many else 'it was'} left out."
             )
     origin = {
         "source": "SDF file",
@@ -398,7 +428,7 @@ def _creates(
         record.warnings.append(withheld)
     lot = {
         "type": "iki/small_molecule.CompoundBatch",
-        "values": {"compound": {"$create": key}, **named, **_batch(registered, batch)},
+        "values": {"compound": {"$create": key}, **named, **lot_values},
         "origin": origin,
     }
     return [{**made, "key": key}, lot], registered, left

@@ -7,7 +7,7 @@ description: >-
   Two records with their batches: aspirin's sodium salt, registered as its parent,
   aspirin, its salt's name and CAS number left off it (the name is its batch's);
   and pheniramine, drawn as its free base, whose Salt field makes its batch a
-  hydrochloride.
+  hydrochloride, so its name is its batch's too.
 action: import_sdf
 params:
   file: { $file: stockroom }
@@ -31,7 +31,11 @@ expect:
           supplier: Stockroom
           supplier_lot: B-17
       - type: iki/small_molecule.Compound
-        values: { inchikey: IJHNSHDBIRRJRN-UHFFFAOYSA-N, name: pheniramine }
+        values: { inchikey: IJHNSHDBIRRJRN-UHFFFAOYSA-N }
       - type: iki/small_molecule.CompoundBatch
-        values: { salt: hydrochloride, salt_equivalents: 1, formula_weight: 276.811 }
+        values:
+          name: pheniramine
+          salt: hydrochloride
+          salt_equivalents: 1
+          formula_weight: 276.811
     metrics: { records: 2, skipped: 0 }

@@ -8,7 +8,8 @@ description: >-
   standardised as RDKit's MolStandardize does, and identified by its standard
   InChIKey; a compound already in Iki is reused. Its name is the SD field chosen,
   or the record's title, and SD fields that are a compound's fields (synonyms,
-  CAS number, PubChem CID and the like) are kept. With batches, each record is also
+  CAS number, PubChem CID and the like) are kept, unless they're a salt's whose
+  compound is its parent: then they're left off it. With batches, each record is also
   a batch of its compound, with its salt form and the batch fields its SD fields
   give: purity, amount, supplier, catalogue number, lot and received date. Each
   records which file and record it came from.
