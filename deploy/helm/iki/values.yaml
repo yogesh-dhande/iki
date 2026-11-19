@@ -601,31 +601,23 @@ networkPolicy:
   #      matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
   # Egress destinations. DNS is always allowed.
   egress:
-    # Only with backendWorkers: workers reach the server at serverUrl (or
-    # publicUrl). The defaults allow HTTPS to the peers in ingressFrom (an
-    # in-cluster ingress controller) and to public addresses (a cloud load
-    # balancer). Narrow it to your load balancer if you can.
+    # Only with backendWorkers or containerTier: where workers and run pods
+    # reach the server, at serverUrl (or publicUrl). Nothing by default, and
+    # the chart won't render without it: list your load balancer's own
+    # addresses (ipBlock), or your ingress controller's pods (a pod or
+    # namespace selector). The pods and namespaces in ingressFrom are added.
+    # Its address blocks aren't: they're where traffic to web pods comes
+    # from, not where workers connect. No block may be wider than a /8
+    # (IPv4) or a /32 (IPv6) (ADR 0155). With containerTier.serverInCluster,
+    # run pods reach the web pods directly instead.
     server:
       ports: [443]
-      to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-              - 100.64.0.0/10
-              - 169.254.0.0/16
-              - 127.0.0.0/8
-        - ipBlock:
-            cidr: ::/0
-            except:
-              - fc00::/7
-              - fe80::/10
-              - ::1/128
+      to: []
+      #  - ipBlock: { cidr: 203.0.113.10/32 }
     # Only with egressProxy: where the proxy reaches the hosts actions
-    # declare. HTTPS to public addresses by default, as above; with an
-    # upstream proxy, list that proxy instead.
+    # declare. HTTPS to public addresses by default: private ranges,
+    # link-local addresses and loopback stay blocked. With an upstream
+    # proxy, list that proxy instead.
     egressProxy:
       ports: [443]
       to:
@@ -647,7 +639,8 @@ networkPolicy:
     # Only with backendWorkers or containerTier: anything else actions'
     # commands need, such as a licence server or an internal data store.
     # Nothing by default. Each entry is a NetworkPolicy egress rule
-    # ({to: [...], ports: [...]}).
+    # ({to: [...], ports: [...]}). Each must list `to`, and no block in it
+    # may be wider than a /8 (IPv4) or a /32 (IPv6) (ADR 0155).
     workers: []
     # Only with containerTier: the provisioner reaches the Kubernetes API.
     # Its address depends on the cluster (often a control-plane IP on 443 or
@@ -758,7 +751,10 @@ networkPolicy:
     # Only with files.bucket: web pods, task runners and workers reach object storage.
     # HTTPS to public addresses by default, which covers S3 through its
     # public endpoints or a gateway VPC endpoint. For a store inside your
-    # network, list it here instead.
+    # network, list it here instead. With backendWorkers or containerTier,
+    # list the store's own addresses, such as your S3 gateway endpoint's
+    # prefix list: workers and run pods reach them too, so the chart refuses
+    # this default then (ADR 0155).
     objectStorage:
       ports: [443]
       to:

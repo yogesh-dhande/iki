@@ -14,6 +14,16 @@ mock_provider "aws" {
   mock_data "aws_iam_policy_document" {
     defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
   }
+  # S3's ranges in eu-west-1, as its gateway endpoint's prefix list holds them.
+  mock_data "aws_ec2_managed_prefix_list" {
+    defaults = {
+      entries = [
+        { cidr = "52.218.0.0/17", description = "" },
+        { cidr = "3.5.64.0/21", description = "" },
+        { cidr = "52.92.40.0/21", description = "" },
+      ]
+    }
+  }
   mock_resource "aws_kms_key" {
     defaults = { arn = "arn:aws:kms:eu-west-1:123456789012:key/00000000-0000-0000-0000-000000000000" }
   }
@@ -234,6 +244,13 @@ run "an_internal_deployment_named_by_your_own_dns" {
 run "an_internet_facing_deployment_has_no_private_zone" {
   assert {
     condition     = length(aws_route53_zone.internal) == 0 && !contains(keys(yamldecode(output.helm_values).networkPolicy.egress), "server")
-    error_message = "Its workers reach the public ALB as the chart allows by default."
+    error_message = "A public ALB's addresses change: the operator names where workers reach the server."
+  }
+}
+
+run "pods_reach_s3_only_at_its_endpoints_ranges" {
+  assert {
+    condition     = tolist([for r in yamldecode(output.helm_values).networkPolicy.egress.objectStorage.to : r.ipBlock.cidr]) == module.network.s3_cidrs && length(module.network.s3_cidrs) > 0
+    error_message = "Pods should reach object storage at the S3 gateway endpoint's ranges, and nowhere else on the internet."
   }
 }

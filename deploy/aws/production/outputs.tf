@@ -70,9 +70,14 @@ output "helm_values" {
         database = { to = [for c in module.network.database_subnet_cidrs : { ipBlock = { cidr = c } }] }
         # Pods with an AWS role reach the node's Pod Identity agent for its credentials.
         podIdentity = { to = [{ ipBlock = { cidr = "169.254.170.23/32" } }, { ipBlock = { cidr = "fd00:ec2::23/128" } }] }
+        # S3 at its gateway endpoint's ranges alone. Backend workers and run pods reach
+        # it too, and may reach no wider block (ADR 0155).
+        objectStorage = { to = [for c in module.network.s3_cidrs : { ipBlock = { cidr = c } }] }
         }, var.internal ? {
-        # Backend workers reach the server at publicUrl: an internal ALB, whose addresses
-        # are in the private subnets (and change), not the public ones the chart allows.
+        # Backend workers and run pods reach the server at publicUrl: an internal ALB,
+        # whose addresses are in the private subnets (and change). An internet-facing
+        # ALB's change too, and aren't in the VPC: workers on one need the operator's own
+        # networkPolicy.egress.server.to (ADR 0155).
         server = { ports = [443], to = [for c in module.network.private_subnet_cidrs : { ipBlock = { cidr = c } }] }
       } : {})
     }

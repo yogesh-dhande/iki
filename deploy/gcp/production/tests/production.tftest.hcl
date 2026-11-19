@@ -73,6 +73,12 @@ override_resource {
   }
 }
 
+# And the external load balancer's address, which workers reach the server at.
+override_resource {
+  target = google_compute_global_address.web
+  values = { address = "203.0.113.10" }
+}
+
 run "the_chart_gets_exactly_the_values_its_tests_use" {
   # deploy/helm/iki/tests renders the chart with this file and values-production.yaml.
   assert {
@@ -179,10 +185,10 @@ run "an_internal_load_balancer_named_by_your_own_dns" {
   }
 }
 
-run "an_external_load_balancer_leaves_workers_the_charts_default" {
+run "an_external_load_balancer_is_where_workers_reach_the_server" {
   assert {
-    condition     = !contains(keys(yamldecode(output.helm_values).networkPolicy.egress), "server")
-    error_message = "With a public load balancer, the chart's default (public addresses on 443) already reaches it."
+    condition     = yamldecode(output.helm_values).networkPolicy.egress.server == { ports = [443], to = [{ ipBlock = { cidr = "${google_compute_global_address.web[0].address}/32" } }] }
+    error_message = "Backend workers should reach the server at the external load balancer's own address, and only it."
   }
 }
 

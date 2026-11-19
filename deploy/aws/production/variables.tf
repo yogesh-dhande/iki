@@ -164,7 +164,7 @@ variable "certificate_arn" {
 }
 
 variable "internal" {
-  description = "Put the ALB in the private subnets, reachable only from your network (through a VPN, Direct Connect or peering), rather than the internet."
+  description = "Put the ALB in the private subnets, reachable only from your network (through a VPN, Direct Connect or peering), rather than the internet. Backend workers and container-tier runs then reach it in the private subnets. An internet-facing ALB's addresses change, so with one, they need networkPolicy.egress.server.to set in values-production.yaml: addresses that reach the server, such as an ingress controller's in the cluster (ADR 0155)."
   type        = bool
   default     = false
 }

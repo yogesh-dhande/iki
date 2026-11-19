@@ -2,6 +2,7 @@
 the security properties every Iki workload must have.
 """
 
+import ipaddress
 import json
 import re
 import shutil
@@ -71,6 +72,22 @@ def by_kind(docs: list[Manifest], kind: str) -> list[Manifest]:
 def named(docs: list[Manifest], kind: str, name: str) -> Manifest:
     (found,) = [d for d in by_kind(docs, kind) if d["metadata"]["name"] == name]
     return found
+
+
+def merged(*values: dict[str, Any]) -> dict[str, Any]:
+    """Values merged as Helm merges them: maps key by key, the later winning."""
+
+    def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+        out = dict(base)
+        for key, value in over.items():
+            both = isinstance(value, dict) and isinstance(out.get(key), dict)
+            out[key] = merge(out[key], value) if both else value
+        return out
+
+    out: dict[str, Any] = {}
+    for each in values:
+        out = merge(out, each)
+    return out
 
 
 def test_chart_renders_expected_resources() -> None:
@@ -215,7 +232,9 @@ def test_the_config_templates_values_render(deployment: str, workers: bool) -> N
     values = (directory / "values.yaml").read_text()
     if workers:
         # The block its values.yaml says to uncomment once there's a registration token.
-        values = re.sub(r"(?m)^# (backendWorkers:|  )", r"\1", values)
+        block = re.search(r"(?m)^# backendWorkers:\n(?:# (?:networkPolicy:|  ).*\n)+", values)
+        assert block
+        values = values.replace(block[0], re.sub(r"(?m)^# ", "", block[0]))
     helm = shutil.which("helm")
     assert helm
     image = str(directory / "image.yaml")
@@ -742,17 +761,24 @@ def test_register_locations_reach_every_container_and_are_checked() -> None:
 
 
 WORKER_IMAGE = "ghcr.io/acme/iki-prod-worker"
+#: Where workers and run pods reach the server: the load balancer's own address.
+SERVER_PEERS = [{"ipBlock": {"cidr": "203.0.113.10/32"}}]
+TO_SERVER: dict[str, Any] = {"networkPolicy": {"egress": {"server": {"to": SERVER_PEERS}}}}
+#: And object storage: the store's own addresses.
+STORAGE_PEERS = [{"ipBlock": {"cidr": "198.51.100.0/24"}}]
+TO_STORAGE: dict[str, Any] = {"networkPolicy": {"egress": {"objectStorage": {"to": STORAGE_PEERS}}}}
 WORKERS: dict[str, Any] = {
     "backendWorkers": {
         "enabled": True,
         "image": {"repository": WORKER_IMAGE, "digest": "sha256:" + "b" * 64},
         "registrationToken": {"existingSecret": "iki-worker-registration"},
-    }
+    },
+    **TO_SERVER,
 }
 
 
 def with_workers(**overrides: Any) -> dict[str, Any]:
-    return {"backendWorkers": {**WORKERS["backendWorkers"], **overrides}}
+    return {**WORKERS, "backendWorkers": {**WORKERS["backendWorkers"], **overrides}}
 
 
 def worker_pod(docs: list[Manifest]) -> Manifest:
@@ -774,7 +800,7 @@ def test_backend_workers_are_off_unless_turned_on() -> None:
 
 
 def test_workers_hold_only_their_registration_token() -> None:
-    docs = manifests({**WORKERS, **FILES, **EMAIL})
+    docs = manifests(merged(WORKERS, FILES, TO_STORAGE, EMAIL))
     pod = worker_pod(docs)
     assert pod["serviceAccountName"] == "iki-worker"
     assert pod["automountServiceAccountToken"] is False
@@ -867,15 +893,21 @@ def test_an_internal_ca_for_the_server_is_mounted_for_workers() -> None:
 
 
 def test_workers_never_reach_the_database_and_reach_only_dns_and_the_server() -> None:
-    ingress = [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nginx"}}}]
+    ingress = [
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nginx"}}},
+        # A load balancer's front ends reach web pods from here; workers don't go there.
+        {"ipBlock": {"cidr": "10.0.192.0/22"}},
+    ]
     docs = manifests(
-        {
-            **WORKERS,
-            "networkPolicy": {
-                "ingressFrom": ingress,
-                "egress": {"database": {"to": [{"ipBlock": {"cidr": "10.0.0.0/24"}}]}},
+        merged(
+            WORKERS,
+            {
+                "networkPolicy": {
+                    "ingressFrom": ingress,
+                    "egress": {"database": {"to": [{"ipBlock": {"cidr": "10.0.0.0/24"}}]}},
+                }
             },
-        }
+        )
     )
     policies = {p["metadata"]["name"]: p["spec"] for p in by_kind(docs, "NetworkPolicy")}
     selector = {
@@ -889,28 +921,12 @@ def test_workers_never_reach_the_database_and_reach_only_dns_and_the_server() ->
     dns, server = worker["egress"]
     assert [p["port"] for p in dns["ports"]] == [53, 53]
     assert server["ports"] == [{"protocol": "TCP", "port": 443}]
-    assert server["to"][0] == ingress[0]
-    v4 = server["to"][1]["ipBlock"]
-    assert v4["cidr"] == "0.0.0.0/0"
-    assert {"10.0.0.0/8", "169.254.0.0/16"} <= set(v4["except"])
-    # Every policy that selects workers: the default deny, theirs, object storage.
-    for name, spec in policies.items():
-        if "matchLabels" in spec["podSelector"]:
-            labels = spec["podSelector"]["matchLabels"]
-            if labels.get("app.kubernetes.io/component") not in (None, "worker"):
-                continue
-            assert name in ("iki-default-deny", "iki-worker-egress"), name
-        else:
-            components = {e["key"]: e for e in spec["podSelector"]["matchExpressions"]}[
-                "app.kubernetes.io/component"
-            ]
-            if components["operator"] == "In" and "worker" in components["values"]:
-                assert name == "iki-object-storage", name
+    assert server["to"] == [ingress[0], *SERVER_PEERS]
 
 
 def test_workers_get_extra_egress_only_when_listed() -> None:
     rule = {"to": [{"ipBlock": {"cidr": "10.20.0.5/32"}}], "ports": [{"port": 27000}]}
-    docs = manifests({**WORKERS, "networkPolicy": {"egress": {"workers": [rule]}}})
+    docs = manifests(merged(WORKERS, {"networkPolicy": {"egress": {"workers": [rule]}}}))
     (policy,) = [
         p for p in by_kind(docs, "NetworkPolicy") if p["metadata"]["name"] == "iki-worker-egress"
     ]
@@ -1073,7 +1089,14 @@ def test_only_web_pods_and_the_egress_proxy_hold_run_secrets_mounted_read_only()
 
 # --- The container tier (ADR 0061) ---------------------------------------------------------
 
-CONTAINERS: dict[str, Any] = {"containerTier": {"enabled": True, "namespace": "iki-runs"}}
+CONTAINERS: dict[str, Any] = {
+    "containerTier": {"enabled": True, "namespace": "iki-runs"},
+    **TO_SERVER,
+}
+
+
+def with_containers(**overrides: Any) -> dict[str, Any]:
+    return {**CONTAINERS, "containerTier": {**CONTAINERS["containerTier"], **overrides}}
 
 
 def where(doc: Manifest) -> str:
@@ -1131,7 +1154,7 @@ def test_run_pods_go_in_a_namespace_of_their_own_and_reach_the_server_over_https
 
 
 def test_the_provisioner_manages_only_jobs_where_runs_go() -> None:
-    docs = manifests({"containerTier": {**CONTAINERS["containerTier"], "extraNamespaces": ["gpu"]}})
+    docs = manifests(with_containers(extraNamespaces=["gpu"]))
     assert not by_kind(docs, "ClusterRole")
     assert not by_kind(docs, "ClusterRoleBinding")
     roles = by_kind(docs, "Role")
@@ -1196,27 +1219,29 @@ def test_runs_copy_iki_worker_from_iki_s_own_image() -> None:
         f"ghcr.io/yogesh-dhande/iki-worker:{chart['appVersion']}"
     )
     digest = "sha256:" + "c" * 64
-    pinned = {"containerTier": {**CONTAINERS["containerTier"], "workerImage": {"digest": digest}}}
+    pinned = with_containers(workerImage={"digest": digest})
     assert provisioner_env(manifests(pinned))["IKI_RUNS_WORKER_IMAGE"] == (
         f"ghcr.io/yogesh-dhande/iki-worker@{digest}"
     )
 
 
 def test_runs_reach_only_the_server_storage_and_the_egress_proxy() -> None:
-    values = {
-        **CONTAINERS,
-        **FILES,
-        "egressProxy": {"enabled": True},
-        "networkPolicy": {
-            "enabled": True,
-            "egress": {
-                "objectStorage": {
-                    "ports": [8333],
-                    "to": [{"podSelector": {"matchLabels": {"app": "seaweedfs"}}}],
-                }
+    values = merged(
+        CONTAINERS,
+        FILES,
+        {
+            "egressProxy": {"enabled": True},
+            "networkPolicy": {
+                "enabled": True,
+                "egress": {
+                    "objectStorage": {
+                        "ports": [8333],
+                        "to": [{"podSelector": {"matchLabels": {"app": "seaweedfs"}}}],
+                    }
+                },
             },
         },
-    }
+    )
     docs = manifests(values)
     runs = next(
         d for d in by_kind(docs, "NetworkPolicy") if where(d) == "iki-runs/NetworkPolicy/iki-runs"
@@ -1243,6 +1268,7 @@ def test_runs_reach_only_the_server_storage_and_the_egress_proxy() -> None:
     assert not [
         d for d in by_kind(docs, "NetworkPolicy") if d["metadata"]["name"] == "iki-web-from-runs"
     ]
+    # With no server peers: they reach the web pods instead.
     direct = {"containerTier": {**CONTAINERS["containerTier"], "serverInCluster": True}}
     docs = manifests(direct)
     assert named(docs, "NetworkPolicy", "iki-web-from-runs")["spec"]["ingress"][0]["ports"] == [
@@ -1254,6 +1280,216 @@ def test_runs_reach_only_the_server_storage_and_the_egress_proxy() -> None:
     )
 
 
+# --- What workers and run pods reach (ADR 0155) -------------------------------------------------
+
+#: The labels the provisioner gives run pods (iki_server.runs.kubernetes.MANAGED).
+RUN_LABELS = {
+    "app.kubernetes.io/managed-by": "iki-provisioner",
+    "app.kubernetes.io/component": "run",
+}
+Reach = set[tuple[str, str, int | str]]
+
+
+def selects(selector: Manifest, labels: dict[str, str]) -> bool:
+    """Whether a label selector matches these labels, as Kubernetes matches them."""
+    if any(labels.get(k) != v for k, v in selector.get("matchLabels", {}).items()):
+        return False
+    for e in selector.get("matchExpressions", []):
+        key, values = e["key"], e.get("values", [])
+        matched = {
+            "In": key in labels and labels[key] in values,
+            "NotIn": key not in labels or labels[key] not in values,
+            "Exists": key in labels,
+            "DoesNotExist": key not in labels,
+        }[e["operator"]]
+        if not matched:
+            return False
+    return True
+
+
+def egress_of(docs: list[Manifest], namespace: str, labels: dict[str, str]) -> Reach:
+    """Every (peer, protocol, port) a pod may reach: the union over every NetworkPolicy in
+    its namespace that selects it and limits its egress. A rule without peers or ports
+    reaches "*" there."""
+    reach: Reach = set()
+    limited = False
+    for policy in by_kind(docs, "NetworkPolicy"):
+        spec = policy["spec"]
+        types = spec.get("policyTypes") or ["Ingress", *(["Egress"] if "egress" in spec else [])]
+        if policy["metadata"].get("namespace", "iki") != namespace or "Egress" not in types:
+            continue
+        if not selects(spec["podSelector"], labels):
+            continue
+        limited = True
+        for rule in spec.get("egress", []):
+            peers = [json.dumps(p, sort_keys=True) for p in rule.get("to", [])] or ["*"]
+            ports = [(p.get("protocol", "TCP"), p.get("port", "*")) for p in rule.get("ports", [])]
+            reach |= {(peer, *port) for peer in peers for port in ports or [("*", "*")]}
+    assert limited, f"no policy limits the egress of {labels} in {namespace}"
+    return reach
+
+
+def reach(peers: list[Manifest], *ports: tuple[str, int]) -> Reach:
+    return {(json.dumps(p, sort_keys=True), *port) for p in peers for port in ports}
+
+
+def worker_labels(docs: list[Manifest]) -> dict[str, str]:
+    labels: dict[str, str] = named(docs, "Deployment", "iki-worker")["spec"]["template"][
+        "metadata"
+    ]["labels"]
+    return labels
+
+
+def test_workers_and_runs_reach_only_the_server_storage_and_the_proxy() -> None:
+    nginx = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "ingress-nginx"}}}
+    values = merged(
+        WORKERS,
+        CONTAINERS,
+        FILES,
+        TO_STORAGE,
+        EMAIL,
+        {
+            "egressProxy": {"enabled": True},
+            "otel": {"endpoint": "http://collector:4318"},
+            "oauth": {"clientMetadataDocuments": True},
+            "networkPolicy": {
+                # An ingress controller in the cluster, and a load balancer's front ends.
+                "ingressFrom": [nginx, {"ipBlock": {"cidr": "10.0.192.0/22"}}],
+                "egress": {
+                    "database": {"to": [{"ipBlock": {"cidr": "10.0.208.0/22"}}]},
+                    "otel": {"to": [{"podSelector": {"matchLabels": {"app": "collector"}}}]},
+                    "podIdentity": {"to": [{"ipBlock": {"cidr": "169.254.170.23/32"}}]},
+                },
+            },
+        },
+    )
+    docs = manifests(values)
+    dns = [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+        }
+    ]
+    proxy = {
+        "podSelector": {
+            "matchLabels": named(docs, "Deployment", "iki-egress-proxy")["spec"]["selector"][
+                "matchLabels"
+            ]
+        }
+    }
+    https = ("TCP", 443)
+    common = (
+        reach(dns, ("UDP", 53), ("TCP", 53))
+        | reach([nginx, *SERVER_PEERS], https)
+        | reach(STORAGE_PEERS, https)
+    )
+
+    assert egress_of(docs, "iki", worker_labels(docs)) == common | reach([proxy], ("TCP", 3128))
+    in_iki = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "iki"}}}
+    assert egress_of(docs, "iki-runs", RUN_LABELS) == common | reach(
+        [{**in_iki, **proxy}], ("TCP", 3128)
+    )
+
+
+BROAD_V4 = {
+    "cidr": "0.0.0.0/0",
+    "except": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+    ],
+}
+BROAD_V6 = {"cidr": "::/0", "except": ["fc00::/7", "fe80::/10", "::1/128"]}
+
+
+def egress(**values: Any) -> dict[str, Any]:
+    return {"networkPolicy": {"egress": values}}
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        # Public addresses: everywhere but private ranges.
+        (
+            egress(server={"to": [{"ipBlock": BROAD_V4}, {"ipBlock": BROAD_V6}]}),
+            "networkPolicy.egress.server.to: 0.0.0.0/0 is wider",
+        ),
+        (
+            egress(server={"to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["10.0.0.0/8"]}}]}),
+            "networkPolicy.egress.server.to: 0.0.0.0/0 is wider",
+        ),
+        (
+            egress(server={"to": [*SERVER_PEERS, {"ipBlock": {"cidr": "::/0"}}]}),
+            "networkPolicy.egress.server.to: ::/0 is wider",
+        ),
+        (
+            egress(server={"to": [{"ipBlock": {"cidr": "2001:db8::/31"}}]}),
+            "networkPolicy.egress.server.to: 2001:db8::/31 is wider",
+        ),
+        (
+            egress(server={"to": [{"ipBlock": {"cidr": "10.0.0.0/7"}}]}),
+            "networkPolicy.egress.server.to: 10.0.0.0/7 is wider",
+        ),
+        # Every IPv4 address, written as IPv6.
+        (
+            egress(server={"to": [{"ipBlock": {"cidr": "::ffff:0:0/96"}}]}),
+            "networkPolicy.egress.server.to: ::ffff:0:0/96 is in ::/16",
+        ),
+        # The chart's own default for object storage, which web pods may keep.
+        (FILES, "networkPolicy.egress.objectStorage.to: 0.0.0.0/0 is wider"),
+        (
+            egress(
+                workers=[{"to": [{"ipBlock": {"cidr": "0.0.0.0/1"}}], "ports": [{"port": 443}]}]
+            ),
+            "networkPolicy.egress.workers[0].to: 0.0.0.0/1 is wider",
+        ),
+        (
+            egress(workers=[{"to": SERVER_PEERS}, {"ports": [{"port": 27000}]}]),
+            "networkPolicy.egress.workers[1].to: list where workers and run pods may go",
+        ),
+        (egress(server={"to": []}), "networkPolicy.egress.server.to: workers and run pods reach"),
+    ],
+)
+@pytest.mark.parametrize("tier", ["workers", "containers"])
+def test_workers_and_runs_reach_nothing_wider_than_the_bound(
+    tier: str, values: dict[str, Any], message: str
+) -> None:
+    error = render(merged(WORKERS if tier == "workers" else CONTAINERS, values), ok=False)
+    assert isinstance(error, str)
+    assert message in error
+    assert "ADR 0155" in error
+
+
+def test_run_pods_reach_the_web_pods_directly_with_no_server_peers() -> None:
+    docs = manifests(merged(with_containers(serverInCluster=True), egress(server={"to": []})))
+    in_iki = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "iki"}}}
+    web = {
+        **in_iki,
+        "podSelector": {
+            "matchLabels": {
+                "app.kubernetes.io/name": "iki",
+                "app.kubernetes.io/instance": "iki",
+                "app.kubernetes.io/component": "web",
+            }
+        },
+    }
+    assert reach([web], ("TCP", 8000)) <= egress_of(docs, "iki-runs", RUN_LABELS)
+    # Backend workers still need them.
+    error = render(
+        merged(WORKERS, with_containers(serverInCluster=True), egress(server={"to": []})), ok=False
+    )
+    assert "networkPolicy.egress.server.to: workers and run pods reach" in str(error)
+
+
+def test_blocks_as_wide_as_the_bound_are_allowed() -> None:
+    edge = [{"ipBlock": {"cidr": "10.0.0.0/8"}}, {"ipBlock": {"cidr": "2001:db8::/32"}}]
+    docs = manifests(merged(WORKERS, egress(server={"to": edge})))
+    assert reach(edge, ("TCP", 443)) <= egress_of(docs, "iki", worker_labels(docs))
+
+
 POLICY_API = "policy.sigstore.dev/v1beta1/ClusterImagePolicy"
 APPROVED = {
     "repository": "ghcr.io/acme/iki-production-approvals",
@@ -1262,12 +1498,7 @@ APPROVED = {
 
 
 def with_policy(**policy: Any) -> dict[str, Any]:
-    return {
-        "containerTier": {
-            **CONTAINERS["containerTier"],
-            "imagePolicy": {"enabled": True, "approvals": APPROVED, **policy},
-        }
-    }
+    return with_containers(imagePolicy={"enabled": True, "approvals": APPROVED, **policy})
 
 
 def test_run_pods_admit_only_images_iki_signed_or_the_build_approved() -> None:
@@ -1500,19 +1731,8 @@ AWS = CHART.parents[1] / "aws" / "production"
 
 
 def _merged(*files: Path) -> dict[str, Any]:
-    """Values files merged as Helm merges them: maps key by key, the later winning."""
-
-    def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
-        out = dict(base)
-        for key, value in over.items():
-            both = isinstance(value, dict) and isinstance(out.get(key), dict)
-            out[key] = merge(out[key], value) if both else value
-        return out
-
-    merged: dict[str, Any] = {}
-    for file in files:
-        merged = merge(merged, yaml.safe_load(file.read_text()))
-    return merged
+    """Values files merged as Helm merges them."""
+    return merged(*(yaml.safe_load(file.read_text()) for file in files))
 
 
 def _secrets_read(node: Any) -> Iterator[str]:
@@ -1660,6 +1880,58 @@ def test_the_gcp_production_values_render_a_locked_down_deployment() -> None:
 
     assert named(docs, "HorizontalPodAutoscaler", "iki-web")["spec"]["minReplicas"] == 3
     assert named(docs, "PodDisruptionBudget", "iki-web")["spec"]["minAvailable"] == 2
+
+
+def _narrow(docs: list[Manifest], namespace: str, labels: dict[str, str]) -> None:
+    for peer, _, _ in egress_of(docs, namespace, labels):
+        assert peer != "*", (namespace, labels)
+        if block := json.loads(peer).get("ipBlock"):
+            network = ipaddress.ip_network(block["cidr"])
+            assert network.prefixlen >= (8 if network.version == 4 else 32), (labels, block)
+
+
+DEV = CHART.parents[1] / "dev" / "values-dev.yaml"
+#: An operator's own: the internet-facing ALB's addresses aren't known to OpenTofu.
+AWS_SERVER = egress(server={"to": [{"ipBlock": {"cidr": "198.51.100.20/32"}}]})
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(lambda: _merged(DEV), id="dev"),
+        pytest.param(
+            lambda: _merged(GCP / "values-production.yaml", GCP / "tests" / "helm-values.yaml"),
+            id="gcp",
+        ),
+        pytest.param(
+            lambda: merged(
+                _merged(AWS / "values-production.yaml", AWS / "tests" / "helm-values.yaml"),
+                AWS_SERVER,
+            ),
+            id="aws",
+        ),
+    ],
+)
+def test_the_reference_values_keep_workers_and_runs_to_narrow_blocks(
+    values: Any,
+) -> None:
+    on = {
+        "backendWorkers": {
+            "enabled": True,
+            "image": {"repository": WORKER_IMAGE},
+            "registrationToken": {"existingSecret": "iki-worker-registration"},
+        },
+        "containerTier": {"enabled": True, "namespace": "iki-runs"},
+    }
+    docs = manifests(merged(values(), on))
+    _narrow(docs, "iki", worker_labels(docs))
+    _narrow(docs, "iki-runs", RUN_LABELS)
+
+
+def test_workers_on_a_public_alb_need_the_operator_to_say_where_it_is() -> None:
+    values = _merged(AWS / "values-production.yaml", AWS / "tests" / "helm-values.yaml")
+    error = render(merged(values, {"backendWorkers": WORKERS["backendWorkers"]}), ok=False)
+    assert "networkPolicy.egress.server.to: workers and run pods reach" in str(error)
 
 
 def _images(node: Any) -> Iterator[str]:

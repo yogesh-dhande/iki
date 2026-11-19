@@ -115,8 +115,15 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   (key `token`, ideally through your secrets manager) and turn on
   `backendWorkers` in `values.yaml`. The worker pods hold only that token:
   no database credentials, no cloud role, and a network policy that lets
-  them reach just the server and object storage. Allow more destinations
-  that actions need in `networkPolicy.egress.workers`.
+  them reach just the server and object storage. Say where those are: your
+  load balancer's own addresses (or your ingress controller's pods) in
+  `networkPolicy.egress.server.to`, and your object storage's in
+  `networkPolicy.egress.objectStorage.to`. The chart won't render workers
+  or container-tier runs without them, or with any address block wider
+  than a /8 (a /32 for IPv6)
+  ([ADR 0155](../../docs/adr/0155-workers-and-runs-reach-only-the-server-storage-and-the-proxy.md)).
+  Allow more destinations that actions need in
+  `networkPolicy.egress.workers`.
 - Bundles move validated entities, with their history, from staging to
   production ([ADR 0096](../../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md)).
   In each deployment, run `iki-server bundle_key` in a web pod, store what it

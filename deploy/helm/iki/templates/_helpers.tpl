@@ -372,6 +372,74 @@ namespace means pods in this release's.
 {{- end -}}
 
 {{/*
+Where workers and run pods reach the server: the pods and namespaces in
+networkPolicy.ingressFrom (an ingress controller in the cluster), then
+networkPolicy.egress.server.to. ingressFrom's address blocks aren't added: they're
+where traffic to web pods comes from, not where workers connect. As JSON.
+*/}}
+{{- define "iki.serverPeers" -}}
+{{- $out := list -}}
+{{- range .Values.networkPolicy.ingressFrom | default list -}}
+{{- if not (hasKey . "ipBlock") -}}
+{{- $out = append $out . -}}
+{{- end -}}
+{{- end -}}
+{{- toJson (concat $out (.Values.networkPolicy.egress.server.to | default list)) -}}
+{{- end -}}
+
+{{/*
+Fails unless every address block in .peers is a /8 (IPv4) or a /32 (IPv6) or
+narrower. IPv6 blocks in ::/16 are refused too: IPv4 addresses written as IPv6
+(::ffff:0:0/96) are there, and some network plugins match them as IPv4. .path
+names the value they came from.
+*/}}
+{{- define "iki.checkNarrowPeers" -}}
+{{- range .peers -}}
+{{- with .ipBlock -}}
+{{- $cidr := .cidr | default "" | toString -}}
+{{- $parts := splitList "/" $cidr -}}
+{{- $bound := ternary 32 8 (contains ":" $cidr) -}}
+{{- if or (ne (len $parts) 2) (lt (atoi (last $parts)) $bound) -}}
+{{- fail (printf "%s: %s is wider than workers and run pods may reach, a /%d at most: list the server's and object storage's own addresses (ADR 0155)" $.path $cidr $bound) -}}
+{{- end -}}
+{{- if regexMatch "^(::|0{1,4}:)" $cidr -}}
+{{- fail (printf "%s: %s is in ::/16, where IPv6 writes IPv4 addresses: list the server's and object storage's own addresses (ADR 0155)" $.path $cidr) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Workers and run pods run plugins' commands, so they reach only the server, object
+storage, the egress proxy and what networkPolicy.egress.workers adds (ADR 0155).
+Fails unless each of those names somewhere specific.
+*/}}
+{{- define "iki.checkWorkerEgress" -}}
+{{- $np := .Values.networkPolicy -}}
+{{- $workers := .Values.backendWorkers.enabled -}}
+{{- $runs := .Values.containerTier.enabled -}}
+{{- if and $np.enabled (or $workers $runs) -}}
+{{- $egress := $np.egress -}}
+{{- if or $workers (not .Values.containerTier.serverInCluster) -}}
+{{- if not (include "iki.serverPeers" . | fromJsonArray) -}}
+{{- fail "networkPolicy.egress.server.to: workers and run pods reach the server only where it says: list your load balancer's addresses, or an ingress controller in the cluster (ADR 0155)" -}}
+{{- end -}}
+{{- include "iki.checkNarrowPeers" (dict "path" "networkPolicy.egress.server.to" "peers" ($egress.server.to | default list)) -}}
+{{- end -}}
+{{- if .Values.files.bucket -}}
+{{- include "iki.checkNarrowPeers" (dict "path" "networkPolicy.egress.objectStorage.to" "peers" ($egress.objectStorage.to | default list)) -}}
+{{- end -}}
+{{- range $i, $rule := $egress.workers | default list -}}
+{{- $path := printf "networkPolicy.egress.workers[%d].to" $i -}}
+{{- if not $rule.to -}}
+{{- fail (printf "%s: list where workers and run pods may go; a rule without it lets them reach anywhere (ADR 0155)" $path) -}}
+{{- end -}}
+{{- include "iki.checkNarrowPeers" (dict "path" $path "peers" $rule.to) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The iki-worker image run pods copy the binary from.
 */}}
 {{- define "iki.runsWorkerImage" -}}

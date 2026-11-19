@@ -236,10 +236,12 @@ metadata:
 # Run pods never talk to the Kubernetes API.
 automountServiceAccountToken: false
 {{- if $.Values.networkPolicy.enabled }}
+{{- include "iki.checkWorkerEgress" $ }}
 {{- $egress := $.Values.networkPolicy.egress }}
 ---
 # Runs: nothing reaches them, and they reach DNS, the server, object storage
-# (through the URLs it signs), the egress proxy, and what egress.workers adds.
+# (through the URLs it signs), the egress proxy, and what egress.workers adds
+# (ADR 0155).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -269,8 +271,7 @@ spec:
       ports:
         - { protocol: TCP, port: 8000 }
     {{- else }}
-    {{- $server := concat ($.Values.networkPolicy.ingressFrom | default list) ($egress.server.to | default list) }}
-    {{- with $server }}
+    {{- with include "iki.serverPeers" $ | fromJsonArray }}
     - to:
         {{- include "iki.peersFromElsewhere" (dict "peers" . "namespace" $.Release.Namespace) | nindent 8 }}
       ports:

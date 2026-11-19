@@ -51,6 +51,14 @@
             "cidr": "10.40.212.0/22"
         - "ipBlock":
             "cidr": "10.40.216.0/22"
+    "objectStorage":
+      "to":
+        - "ipBlock":
+            "cidr": "3.5.64.0/21"
+        - "ipBlock":
+            "cidr": "52.218.0.0/17"
+        - "ipBlock":
+            "cidr": "52.92.40.0/21"
     "podIdentity":
       "to":
         - "ipBlock":
