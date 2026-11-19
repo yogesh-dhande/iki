@@ -123,6 +123,31 @@ def test_an_artifact_iki_deleted_isnt_missing(world: World) -> None:
     assert by_name(report)["Files in storage"]["checked"] == 0
 
 
+def test_files_recorded_without_storage_to_check_them_in_fail_it(
+    world: World, settings: Any
+) -> None:
+    """A restore whose files bucket isn't set holds no file anyone can read: it doesn't pass
+    by checking none."""
+    stored(world)
+    pod, _run, job = aligning(world)
+    kept(pod, job, "alignment.txt")
+    done(pod, job, output(metrics={"score": 1.0}))
+    settings.IKI_FILES_BUCKET = ""
+    ok, report = checked()
+    assert not ok
+    found = by_name(report)["Files in storage"]
+    assert found["checked"] == 0
+    assert found["shown"] == ["2 stored files are recorded, and file storage isn't configured"]
+    assert "IKI_FILES_BUCKET" in found["note"]
+
+
+def test_a_deployment_without_files_or_storage_passes(world: World, settings: Any) -> None:
+    settings.IKI_FILES_BUCKET = ""
+    ok, report = checked()
+    assert ok, report
+    assert by_name(report)["Files in storage"]["checked"] == 0
+
+
 def test_the_wrong_encryption_keys_fail_it(world: World, settings: Any) -> None:
     Webhook.objects.create(
         url="https://lims.example.com/hook", events=["run.finished"], secret=crypto.encrypt("s")
