@@ -670,13 +670,14 @@ class GoogleGce:
         )
 
     def console(self, project: str, zone: str, name: str) -> str:
+        from google.cloud import compute_v1
+
         found = self._call(
             "InstancesClient",
             "get_serial_port_output",
-            project=project,
-            zone=zone,
-            instance=name,
-            port=1,
+            request=compute_v1.GetSerialPortOutputInstanceRequest(
+                project=project, zone=zone, instance=name, port=1
+            ),
         )
         return str(found.contents or "")
 

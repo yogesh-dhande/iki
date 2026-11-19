@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
 from google.api_core import exceptions
@@ -332,8 +333,10 @@ def test_it_lists_the_deployments_instances_in_every_zone() -> None:
 
 
 def test_it_reads_the_serial_port_operations_templates_and_images() -> None:
+    serial = create_autospec(compute_v1.InstancesClient, instance=True).get_serial_port_output
+    serial.return_value = compute_v1.SerialPortOutput(contents="IKI-HOST-ERROR x: y\n")
     instances = _Client(
-        get_serial_port_output=compute_v1.SerialPortOutput(contents="IKI-HOST-ERROR x: y\n"),
+        get_serial_port_output=serial,
         delete=exceptions.NotFound(  # type: ignore[no-untyped-call]
             "gone", errors=[{"reason": "notFound"}]
         ),
@@ -358,7 +361,11 @@ def test_it_reads_the_serial_port_operations_templates_and_images() -> None:
         ImagesClient=images,
     )
     assert client.console("p", "z", "n") == "IKI-HOST-ERROR x: y\n"
-    assert instances.calls[0][1]["port"] == 1
+    serial.assert_called_once_with(
+        request=compute_v1.GetSerialPortOutputInstanceRequest(
+            project="p", zone="z", instance="n", port=1
+        )
+    )
     client.delete("p", "z", "n")  # already gone: nothing
     assert client.history("p", "us-central1-a", "n") == ["compute.instances.preempted"]
     properties = client.template("p", SOURCE)
