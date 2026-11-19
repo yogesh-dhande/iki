@@ -23,6 +23,14 @@ disulfide makes a cystine of two cysteines and takes two hydrogens off, which th
 says for its bonds. So amivantamab's chains (KEGG DRUG D11894), C6472H10046N1730O2023S46,
 with its 16 disulfides are C6472H10014N1730O2023S46, as KEGG gives them, 145,900.13 u
 average and 145,810.1054 u monoisotopic (KEGG's 145,900.22 and 145,810.1055).
+
+Its molar absorbance at 280 nm in water is Pace's (Pace et al., Protein Sci 4:2411-2423,
+1995), as the protein plugin's is: 5,500 L/(mol.cm) for each tryptophan and 1,490 for each
+tyrosine in its parts, each times its copies, with each cysteine's thiol free, as its
+masses are; each disulfide makes a cystine, 125 more, which the run says with its bonds,
+counting the disulfides it has, not every pair of cysteines. A part that's another
+complex gives its own; one that's neither (a heme, an oligonucleotide) absorbs in ways
+Pace's values don't weigh, so the complex has none, and the run says why.
 """
 
 from __future__ import annotations
@@ -61,6 +69,9 @@ RESIDUES: dict[str, dict[str, int]] = {
     "O": {"C": 12, "H": 19, "N": 3, "O": 2},
 }
 WATER = {"H": 2, "O": 1}
+#: Pace's molar absorbances at 280 nm in water, L/(mol.cm): a tryptophan's, a tyrosine's,
+#: and a cystine's (two cysteines' disulfide).
+TRYPTOPHAN, TYROSINE, CYSTINE = 5500, 1490, 125
 #: Standard atomic weights, as Biopython has them (Bio.Data.IUPACData.atom_weights).
 AVERAGE = {
     "C": 12.0107, "H": 1.00794, "N": 14.0067, "O": 15.9994, "S": 32.065, "P": 30.973761,
@@ -91,6 +102,10 @@ class RefusedError(Exception):
 
 def _label(entity: dict[str, Any]) -> str:
     return str(entity["values"].get("name") or entity.get("hrid") or entity["id"])
+
+
+def _listed(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def protein_formula(sequence: str) -> Counter[str]:
@@ -125,17 +140,21 @@ def mass(formula: Counter[str], table: dict[str, float]) -> float:
     return sum(table[e] * n for e, n in formula.items())
 
 
-def _part(part: dict[str, Any]) -> tuple[Counter[str], int]:
-    """A part's formula and how many chains it is. Raises :class:`RefusedError`."""
+def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None]:
+    """A part's formula, how many chains it is, and its molar absorbance at 280 nm with
+    each cysteine's thiol free, or None if Pace's values don't give it. Raises
+    :class:`RefusedError`."""
     values = part["values"]
     if part.get("type") == "iki/protein.Protein":
+        sequence = str(values["sequence"]).removesuffix("*").upper()
         try:
-            return protein_formula(str(values["sequence"])), 1
+            formula = protein_formula(sequence)
         except KeyError as residue:
             raise RefusedError(
                 f"{_label(part)} has {residue.args[0]!r}, an ambiguous or unknown residue, "
                 "which has no one formula."
             ) from None
+        return formula, 1, TRYPTOPHAN * sequence.count("W") + TYROSINE * sequence.count("Y")
     given = values.get("molecular_formula")
     if not given:
         raise RefusedError(
@@ -154,7 +173,27 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int]:
         chains = 2
     else:
         chains = int(any(values.get(k) for k in ONE_CHAIN))
-    return formula, chains
+    # Another complex's own, which this action computed; none for anything else.
+    absorbance = values.get("extinction_coefficient_reduced") if "components" in values else None
+    return formula, chains, int(absorbance) if absorbance is not None else None
+
+
+def _disulfides(entity: dict[str, Any]) -> int:
+    return sum(1 for b in entity["values"].get("bonds") or [] if b.get("kind") == "disulfide")
+
+
+def _with(formula: Counter[str], absorbance: int | None, disulfides: int) -> str:
+    """Its formula, masses and absorbance with ``disulfides`` disulfides: two hydrogens off
+    and a cystine's absorbance on for each."""
+    bonded = formula.copy()
+    bonded["H"] -= 2 * disulfides
+    text = (
+        f"{hill(bonded)}, {mass(bonded, AVERAGE):,.2f} u average and "
+        f"{mass(bonded, MONOISOTOPIC):,.4f} u monoisotopic"
+    )
+    if absorbance is not None:
+        text += f", and {absorbance + CYSTINE * disulfides:,} L/(mol.cm) at 280 nm"
+    return text
 
 
 def composition(complex_: dict[str, Any]) -> dict[str, Any]:
@@ -165,33 +204,62 @@ def composition(complex_: dict[str, Any]) -> dict[str, Any]:
         raise RefusedError("Its parts weren't given to the run.")
     formula: Counter[str] = Counter()
     chains = 0
+    absorbance: int | None = 0
+    unweighed: list[str] = []
+    # A part complex's own disulfides, each times its copies: they're its bonds, not these.
+    inner: list[tuple[str, int]] = []
     for row, part in zip(rows, parts, strict=True):
-        each, count = _part(part)
+        each, count, absorbs = _part(part)
         copies = int(row.get("copies") or 1)
         for element, n in each.items():
             formula[element] += n * copies
         chains += count * copies
-    values = {
+        own = _disulfides(part)
+        if own and part.get("type") != "iki/protein.Protein":
+            inner.append((_label(part), own * copies))
+        if absorbs is None:
+            unweighed.append(
+                f"{_label(part)} has none of its own"
+                if "components" in part["values"]
+                else f"{_label(part)} isn't a protein, and Pace's values weigh only proteins' "
+                "tryptophans, tyrosines and cystines"
+            )
+        elif absorbance is not None:
+            absorbance += absorbs * copies
+    if unweighed:
+        absorbance = None
+    values: dict[str, Any] = {
         "molecular_formula": hill(formula),
         "molecular_weight": round(mass(formula, AVERAGE), 2),
         "monoisotopic_mass": round(mass(formula, MONOISOTOPIC), 4),
         "chain_count": chains,
     }
+    if absorbance is not None:
+        values["extinction_coefficient_reduced"] = absorbance
     messages = []
-    disulfides = sum(
-        1 for b in complex_["values"].get("bonds") or [] if b.get("kind") == "disulfide"
-    )
-    if disulfides:
-        bonded = formula.copy()
-        bonded["H"] -= 2 * disulfides
+    if unweighed:
         messages.append(
             {
                 "level": "info",
-                "text": (
-                    f"With its {disulfides} disulfide{'s' if disulfides != 1 else ''}: "
-                    f"{hill(bonded)}, {mass(bonded, AVERAGE):,.2f} u average and "
-                    f"{mass(bonded, MONOISOTOPIC):,.4f} u monoisotopic."
-                ),
+                "text": f"Its molar absorbance at 280 nm isn't computed: {'; '.join(unweighed)}.",
+            }
+        )
+    disulfides = _disulfides(complex_)
+    if disulfides:
+        with_them = _with(formula, absorbance, disulfides)
+        plural = "s" if disulfides != 1 else ""
+        messages.append(
+            {"level": "info", "text": f"With its {disulfides} disulfide{plural}: {with_them}."}
+        )
+    if inner:
+        count = sum(n for _, n in inner)
+        listed = _listed([f"{name}'s {n}" for name, n in inner])
+        messages.append(
+            {
+                "level": "info",
+                "text": f"Its parts have {count} disulfide{'s' if count != 1 else ''} of their "
+                f"own ({listed}), which are their bonds, shown on them. With those as well as "
+                f"its own: {_with(formula, absorbance, disulfides + count)}.",
             }
         )
     others = [

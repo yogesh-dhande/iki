@@ -59,6 +59,8 @@ SINGLE = {"vhh": "A VHH", "scfv": "An scFv"}
 #: Formats with no constant region, so no isotype.
 VARIABLE_ONLY = {"fv", "scfv", "vhh"}
 #: The isotypes each format with a constant region may have.
+#: IgG's subclasses, whose constant domains' own disulfides EU numbering places.
+IGG = ("igg1", "igg2", "igg3", "igg4")
 ISOTYPES = {
     "igg": {"igg1", "igg2", "igg3", "igg4"},
     "fab": {"igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"},
@@ -270,14 +272,6 @@ def assembled(
     # that one subclass's: not a hybrid's, nor one no human reference matches.
     read = region is not None and len(region[0].isotypes) == 1
     bonds, said = _bonds(form, heavy, light, isotype if read else None, copies)
-    if isotype and not read and form in ("igg", "fab"):
-        said = [
-            {
-                "level": "info",
-                "text": "Its chains' disulfides aren't given: its heavy chain's constant region "
-                "isn't one human subclass's, so give them yourself if they're known.",
-            }
-        ]
     messages += said
     values: dict[str, Any] = {
         "components": components,
@@ -325,45 +319,74 @@ def _bonds(
     isotype: str | None,
     copies: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """The disulfides between its chains (interchain.py), as an IgG's subclass places them:
-    each light chain to its heavy chain, and, with two heavy chains, those to each other.
-    None for a format without a constant region, for `other`, whose chains may be joined
-    any way (an Fc fusion's are assemble_fc_fusion's), and for a subclass whose aren't
-    known."""
-    if form not in ("igg", "fab"):
-        return [], []
-    sequence = heavy["values"]["sequence"].removesuffix("*").upper()
+    """Its disulfides (interchain.py): those between its chains, as an IgG's subclass places
+    them (each light chain to its heavy chain, and, with two heavy chains, those to each
+    other), then each domain's own, in each copy. ``isotype`` is the subclass its heavy
+    chain's constant region was read as, or None: then only its variable domains' and its
+    light chain's constant domain's are given. Between its chains, none for a format
+    without a constant region, nor for `other`, whose chains may be joined any way (an Fc
+    fusion's are assemble_fc_fusion's)."""
+    sequence = _sequence_of(heavy)
     domains = _domains(heavy) or []
     offset = max((int(d["end"]) for d in domains), default=0)
-    found = interchain.heavy_cysteines(sequence, offset, isotype)
-    if found is None:
-        if isotype is None:
-            return [], []
-        return [], [
-            {
-                "level": "info",
-                "text": "Its chains' disulfides aren't given: an "
-                f"{constant_regions.NAMES[isotype]}'s take more than one arrangement, or more "
-                "than an IgG1's or IgG4's, so give them yourself if they're known.",
-            }
-        ]
-    to_light, to_heavy = found
-    bonds: list[interchain.Bond] = []
-    if light is not None and to_light is not None:
-        partner = interchain.last_cysteine(light["values"]["sequence"].removesuffix("*").upper())
-        if partner is not None:
-            bonds += [
-                interchain.Bond(heavy["id"], n, to_light, light["id"], n, partner)
-                for n in range(1, copies + 1)
-            ]
-    if copies == 2:
-        bonds += [interchain.Bond(heavy["id"], 1, c, heavy["id"], 2, c) for c in to_heavy]
-    if not bonds:
-        return [], []
-    listed = ", ".join(_bond_text(b, heavy, light) for b in bonds)
-    return [b.row() for b in bonds], [
-        {"level": "info", "text": f"Its chains' disulfides, as its subclass places them: {listed}."}
-    ]
+    between: list[interchain.Bond] = []
+    unknown = False
+    if form in ("igg", "fab"):
+        found = interchain.heavy_cysteines(sequence, offset, isotype)
+        if found is None:
+            unknown = True
+        else:
+            to_light, to_heavy = found
+            if light is not None and to_light is not None:
+                partner = interchain.last_cysteine(_sequence_of(light))
+                if partner is not None:
+                    between += [
+                        interchain.Bond(heavy["id"], n, to_light, light["id"], n, partner)
+                        for n in range(1, copies + 1)
+                    ]
+            if copies == 2:
+                between += [interchain.Bond(heavy["id"], 1, c, heavy["id"], 2, c) for c in to_heavy]
+    pairs = interchain.variable_within(sequence, domains, heavy["values"].get("numbering_scheme"))
+    if isotype in IGG:
+        # A chain without a variable domain (an Fc fusion's) has an Fc's alone.
+        pairs += interchain.heavy_within(sequence, offset, fc_only=not domains)
+    own = interchain.within(heavy["id"], pairs, copies)
+    if light is not None:
+        light_domains = _domains(light) or []
+        light_sequence = _sequence_of(light)
+        light_pairs = interchain.variable_within(
+            light_sequence, light_domains, light["values"].get("numbering_scheme")
+        )
+        light_end = max((int(d["end"]) for d in light_domains), default=0)
+        light_pairs += interchain.light_within(light_sequence, light_end)
+        own += interchain.within(light["id"], light_pairs, copies)
+    said = []
+    if between:
+        listed = ", ".join(_bond_text(b, heavy, light) for b in between)
+        text = f"Its chains' disulfides, as its subclass places them: {listed}"
+    elif unknown:
+        why = (
+            f"an {constant_regions.NAMES[isotype]}'s take more than one arrangement, or more "
+            "than an IgG1's or IgG4's"
+            if isotype
+            else "its heavy chain's constant region isn't one human subclass's"
+        )
+        text = (
+            f"The disulfides between its chains aren't given: {why}, so give them yourself "
+            "if they're known"
+        )
+    else:
+        text = ""
+    if own:
+        within = f"{len(own)} within its domains, each domain's own"
+        text = f"{text}; and {within}" if text else f"Its chains' disulfides: {within}"
+    if text:
+        said.append({"level": "info", "text": f"{text}."})
+    return [b.row() for b in [*between, *own]], said
+
+
+def _sequence_of(chain: dict[str, Any]) -> str:
+    return str(chain["values"]["sequence"]).removesuffix("*").upper()
 
 
 def _bond_text(bond: interchain.Bond, heavy: dict[str, Any], light: dict[str, Any] | None) -> str:

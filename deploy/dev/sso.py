@@ -2079,10 +2079,17 @@ ETANERCEPT = (
     "DGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK"
 )
 #: Emicizumab and etanercept as the complex plugin computes them from their chains (each
-#: cysteine's thiol free): formula, average and monoisotopic masses, chain count.
+#: cysteine's thiol free): formula, average and monoisotopic masses, chain count, and
+#: molar absorbance at 280 nm (Pace's, as Biopython's ProtParam gives their chains).
 COMPOSITIONS = {
-    "iki/antibody.MultispecificAntibody": ("C6434H9972N1724O2047S45", 145669.27, 145579.6642, 4),
-    "iki/antibody.FcFusion": ("C4448H6944N1236O1402S72", 102474.85, 102408.9959, 2),
+    "iki/antibody.MultispecificAntibody": (
+        "C6434H9972N1724O2047S45",
+        145669.27,
+        145579.6642,
+        4,
+        209370,
+    ),
+    "iki/antibody.FcFusion": ("C4448H6944N1236O1402S72", 102474.85, 102408.9959, 2, 118720),
 }
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
@@ -2355,12 +2362,18 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
         fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
     antibody = record(alice, effects[0]["entity"])["values"]
-    # Its chains are its parts, one copy of each for an Fv (ADR 0161).
+    # Its chains are its parts, one copy of each for an Fv (ADR 0161), and its bonds each
+    # variable domain's own disulfide, C22-C96 and C23-C88 (KEGG DRUG D03257's).
     wanted = [
         {"part": entry_of(heavy), "copies": 1, "role": "heavy"},
         {"part": entry_of(light), "copies": 1, "role": "light"},
     ]
-    if (antibody["components"], antibody["format"], antibody.get("bonds")) != (wanted, "fv", []):
+    own = [(b["part"], b["residue"], b["partner_residue"]) for b in antibody.get("bonds") or []]
+    if (antibody["components"], antibody["format"], own) != (
+        wanted,
+        "fv",
+        [(entry_of(heavy), 22, 96), (entry_of(light), 23, 88)],
+    ):
         fail(f"{effects[0]['hrid']} is {antibody}")
     ok(
         f"iki/antibody.assemble made {effects[0]['hrid']} of {heavy['hrid']} and {light['hrid']} "
@@ -2405,9 +2418,16 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
         != sorted([(a, 1, "heavy"), (b, 1, "heavy"), (light, 2, "light")])
         or sites != [(a, light, "F9"), (b, light, "F10")]
         or (got.get("isotype"), got.get("fc_pairing")) != ("igg4", "charge_pairs")
-        # KEGG DRUG's: H137-L214, h133-L'214, H229-h225, H232-h228.
-        or bonds
+        # KEGG DRUG's 16: H137-L214, h133-L'214, H229-h225 and H232-h228 between its
+        # chains, then each domain's own.
+        or bonds[:4]
         != [(a, 1, 137, 1, 214), (b, 1, 133, 2, 214), (a, 1, 229, 1, 225), (a, 1, 232, 1, 228)]
+        or bonds[4:]
+        != [
+            *((a, 1, x, 1, y) for x, y in ((22, 96), (150, 206), (264, 324), (370, 428))),
+            *((b, 1, x, 1, y) for x, y in ((22, 96), (146, 202), (260, 320), (366, 424))),
+            *((light, n, x, n, y) for n in (1, 2) for x, y in ((23, 88), (134, 194))),
+        ]
     ):
         fail(f"{run['hrid']} made {emicizumab['hrid']} as {got}")
     ok(
@@ -2430,7 +2450,8 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
     if (
         [c["copies"] for c in got["components"]] != [2]
         or (got.get("isotype"), got.get("fc_pairing")) != ("igg1", "none")
-        or hinge != [(240, 240), (246, 246), (249, 249)]
+        # Its hinge's three, then its CH2's and CH3's own in each copy.
+        or hinge != [(240, 240), (246, 246), (249, 249), *[(281, 341), (387, 445)] * 2]
     ):
         fail(f"{run['hrid']} made {etanercept['hrid']} as {got}")
     ok(
@@ -2497,7 +2518,7 @@ def registered(
 def composed(alice: requests.Session, made: dict[str, Any]) -> None:
     """A complex's composition, which iki/complex.compute_composition's trigger computes
     when it's registered (ADR 0161)."""
-    formula, weight, monoisotopic, chains = COMPOSITIONS[made["type"]]
+    formula, weight, monoisotopic, chains, absorbance = COMPOSITIONS[made["type"]]
     deadline = time.monotonic() + 180
     got: dict[str, Any] = {}
     while time.monotonic() < deadline:
@@ -2510,11 +2531,16 @@ def composed(alice: requests.Session, made: dict[str, Any]) -> None:
         got.get("molecular_weight"),
         got.get("monoisotopic_mass"),
         got.get("chain_count"),
-    ) != (formula, weight, monoisotopic, chains):
-        fail(f"{made['hrid']}'s composition is {got}, not {formula}, {weight} u, {chains} chains")
+        got.get("extinction_coefficient_reduced"),
+    ) != (formula, weight, monoisotopic, chains, absorbance):
+        fail(
+            f"{made['hrid']}'s composition is {got}, not {formula}, {weight} u, {chains} chains, "
+            f"{absorbance} L/(mol.cm)"
+        )
     ok(
         f"iki/complex.compute_composition's trigger computed {made['hrid']}: {formula}, "
-        f"{weight:,} u average, {monoisotopic:,} u monoisotopic, {chains} chains"
+        f"{weight:,} u average, {monoisotopic:,} u monoisotopic, {chains} chains, "
+        f"{absorbance:,} L/(mol.cm) at 280 nm"
     )
 
 

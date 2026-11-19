@@ -7,7 +7,9 @@ description: >-
   235) on IgG1's hinge, CH2 and CH3, twice. Without a light chain, its hinge's
   first cysteine (C240, EU C220) bonds the other chain's too, so it has three
   inter-chain disulfides, as Lamanna et al. (Sci Rep 7:3951, 2017) found:
-  C240, C246 and C249 to their twins.
+  C240, C246 and C249 to their twins. Its Fc's domains have one each, C281-C341
+  (EU C261-C321, CH2) and C387-C445 (EU C367-C425, CH3); TNFR2's are its own,
+  not an IgG's, so they aren't given.
 action: assemble_fc_fusion
 inputs:
   fusion_chain:
@@ -51,6 +53,42 @@ expect:
                 partner_copy: 2,
                 partner_residue: 249,
               }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 281,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 341,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 387,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 445,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 2,
+                residue: 281,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 341,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 2,
+                residue: 387,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 445,
+              }
           isotype: igg1
           fc_pairing: none
           target: TNF
@@ -59,7 +97,7 @@ expect:
       - level: info
         text: "Its isotype is igg1, from its Fc: etanercept, compared whole, is IgG1's, 99.1% identical to IMGT's IGHG1*01 (J00228) over 232 residues; the next nearest, IgG2's, is 92.2%."
       - level: info
-        text: "Its chains' disulfides, as its subclass places them: A240-A′240, A246-A′246, A249-A′249."
+        text: "Its chains' disulfides, as its subclass places them: A240-A′240, A246-A′246, A249-A′249; and 4 within its domains, each domain's own."
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -68,7 +106,9 @@ description: >-
   Aflibercept (KEGG DRUG D09574): VEGFR1's second immunoglobulin domain and
   VEGFR2's third on IgG1's Fc from its hinge's DKTHT, after the cysteine that
   bonds a light chain, twice. So its chains are joined at C211 and C214, as
-  KEGG lists them (211-211', 214-214').
+  KEGG lists them (211-211', 214-214'), and its Fc's domains at 246-306 and
+  352-410, as KEGG's are; VEGFR's domains' own (30-79, 124-185) aren't an
+  IgG's, so they aren't given.
 action: assemble_fc_fusion
 inputs:
   fusion_chain:
@@ -100,6 +140,42 @@ expect:
                 partner: 00000000-0000-7000-8003-000000000001,
                 partner_copy: 2,
                 partner_residue: 214,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 246,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 306,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 352,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 410,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 2,
+                residue: 246,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 306,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 2,
+                residue: 352,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 2,
+                partner_residue: 410,
               }
           isotype: igg1
 ---
@@ -146,6 +222,42 @@ expect:
                 partner: 00000000-0000-7000-8003-000000000002,
                 partner_copy: 1,
                 partner_residue: 9,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 246,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 306,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 352,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 410,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 41,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 101,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 147,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 205,
               }
           isotype: igg1
 ---

@@ -1,8 +1,8 @@
 // The complex plugin's Composition tab: a complex's parts, each with its role and copies;
-// its formula and masses as compute_composition computed them from its parts (each
-// cysteine's thiol free), and with its disulfides, each of which takes two hydrogens off;
-// and its bonds. Its bonds are a registry fact that may be corrected, so what they take
-// off is worked out here, from them as they are now, not stored (ADR 0161). Iki sets
+// its formula, masses and absorbance at 280 nm as compute_composition computed them from
+// its parts (each cysteine's thiol free), and with its disulfides, each of which takes two
+// hydrogens off and adds a cystine's absorbance; and its bonds. Its bonds are a registry
+// fact that may be corrected, so what they change is worked out here, from them as they are now, not stored (ADR 0161). Iki sets
 // `entity` to the complex, as the person viewing it may read it (ADR 0084).
 
 const STYLE = `
@@ -21,6 +21,10 @@ const STYLE = `
   summary { cursor: pointer; }
   summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
 `;
+
+// A cystine's molar absorbance at 280 nm in water, L/(mol.cm), as compute_composition
+// weighs it (Pace et al., Protein Sci 4:2411, 1995): each disulfide adds one.
+const CYSTINE = 125;
 
 // Hydrogen's standard atomic weight, as compute_composition weighs it (Biopython's), and
 // its most abundant isotope's mass (AME2020).
@@ -125,6 +129,7 @@ function massesTable(values, disulfides) {
     formula: values.molecular_formula,
     average: values.molecular_weight,
     monoisotopic: values.monoisotopic_mass,
+    absorbance: values.extinction_coefficient_reduced,
   };
   const columns = [free];
   if (disulfides > 0) {
@@ -139,12 +144,17 @@ function massesTable(values, disulfides) {
       formula: adjusted(free.formula, "H", -2 * disulfides),
       average: free.average - 2 * HYDROGEN.average * disulfides,
       monoisotopic: free.monoisotopic - 2 * HYDROGEN.monoisotopic * disulfides,
+      absorbance:
+        free.absorbance === null || free.absorbance === undefined
+          ? null
+          : free.absorbance + CYSTINE * disulfides,
     });
   }
   const rows = [
     ["Formula", "formula", formulaNode, ""],
     ["Average mass", "average", (v) => massText(v, 2), "number"],
     ["Monoisotopic mass", "monoisotopic", (v) => massText(v, 4), "number"],
+    ["Absorbance at 280 nm", "absorbance", (v) => `${grouped(v, 0)} L/(mol·cm)`, "number"],
   ];
   const body = element("tbody");
   for (const [label, key, shown, className] of rows) {
@@ -160,7 +170,7 @@ function massesTable(values, disulfides) {
   return element(
     "table",
     {},
-    element("caption", {}, "Formula and masses"),
+    element("caption", {}, "Formula, masses and absorbance"),
     element("thead", {}, head),
     body,
   );
@@ -247,7 +257,7 @@ class Composition extends HTMLElement {
         element(
           "p",
           { className: "muted" },
-          "Its parts as they are have each cysteine's thiol free; each disulfide takes two hydrogens off." +
+          "Its parts as they are have each cysteine's thiol free; each disulfide takes two hydrogens off and, as a cystine, adds 125 L/(mol·cm) at 280 nm (Pace's values, which weigh only proteins: a complex with another kind of part, such as a heme, has none)." +
             (others > 0
               ? ` Its ${others} other bond${others === 1 ? "" : "s"} aren't weighed: what each takes off depends on its chemistry.`
               : ""),

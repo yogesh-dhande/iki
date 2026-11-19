@@ -238,17 +238,42 @@ def _check_numbered(heavies: list[dict[str, Any]], lights: list[dict[str, Any]])
             )
 
 
-def _messages_for(bonds: list[interchain.Bond], names: dict[str, str]) -> list[dict[str, str]]:
-    if not bonds:
-        return []
+def _own(
+    chain: dict[str, Any],
+    copies: int,
+    isotype: str | None,
+    *,
+    light: bool = False,
+    fusion: bool = False,
+) -> list[interchain.Bond]:
+    """The disulfides within each of a chain's domains, in each copy (interchain.py): its
+    variable domains', and its constant domains', an IgG heavy chain's where its subclass
+    is known, or a light chain's CL."""
+    sequence = _sequence(chain)
+    domains = _domains(chain) or []
+    pairs = interchain.variable_within(sequence, domains, chain["values"].get("numbering_scheme"))
+    if light:
+        pairs += interchain.light_within(sequence, max((int(d["end"]) for d in domains), default=0))
+    elif isotype in IGG:
+        pairs += interchain.heavy_within(sequence, _constant_span(chain)[0], fc_only=fusion)
+    return interchain.within(chain["id"], pairs, copies)
+
+
+def _messages_for(
+    between: list[interchain.Bond], own: list[interchain.Bond], names: dict[str, str]
+) -> list[dict[str, str]]:
+    """What the run says of its disulfides: those between its chains, named as KEGG DRUG
+    names them, and how many within its domains."""
     listed = ", ".join(
         f"{names[b.part]}{chr(0x2032) * (b.copy - 1)}{b.residue}-"
         f"{names[b.partner]}{chr(0x2032) * (b.partner_copy - 1)}{b.partner_residue}"
-        for b in bonds
+        for b in between
     )
-    return [
-        {"level": "info", "text": f"Its chains' disulfides, as its subclass places them: {listed}."}
-    ]
+    text = f"Its chains' disulfides, as its subclass places them: {listed}" if between else ""
+    if own:
+        within = f"{len(own)} within its domains, each domain's own"
+        text = f"{text}; and {within}" if text else f"Its chains' disulfides: {within}"
+    return [{"level": "info", "text": f"{text}."}] if text else []
 
 
 def assembled_multispecific(
@@ -325,7 +350,10 @@ def assembled_multispecific(
     # As KEGG DRUG writes them: H and L, and h and l for the second heavy and light chains.
     names = dict(zip([c["id"] for c in heavies], "Hh", strict=False))
     names |= dict(zip([c["id"] for c in lights], "Ll", strict=False))
-    messages += _messages_for(bonds, names)
+    own = [b for h in heavies for b in _own(h, heavy_copies, isotype)]
+    own += [b for lc in lights for b in _own(lc, light_copies, isotype, light=True)]
+    messages += _messages_for(bonds, own, names)
+    bonds += own
     name = params.get("name") or " / ".join(_label(c) for c in [*heavies, *lights])
     values: dict[str, Any] = {
         "components": components,
@@ -412,7 +440,14 @@ def assembled_fc_fusion(
             {"part": second["id"], "copies": 1, "role": role},
         ]
         bonds = _hinge(first, 1, second, 1, isotype, unpaired=True)
-    messages += _messages_for(bonds, {first["id"]: "A", **({second["id"]: "B"} if second else {})})
+    # Only its Fc's: what's fused to it has disulfides of its own, which aren't an IgG's.
+    own = _own(first, 2 if second is None else 1, isotype, fusion=True)
+    if second is not None:
+        own += _own(second, 1, isotype, fusion=True)
+    messages += _messages_for(
+        bonds, own, {first["id"]: "A", **({second["id"]: "B"} if second else {})}
+    )
+    bonds += own
     name = params.get("name") or " / ".join(_label(c) for c in chains)
     values: dict[str, Any] = {"components": components, "name": name[:MAX_NAME]}
     if bonds:

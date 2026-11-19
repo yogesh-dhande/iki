@@ -247,10 +247,13 @@ def test_assembling_takes_the_isotype_from_the_heavy_chain(tmp_path: Path) -> No
     # An IgG4's light chains bond its heavy chains' C131 (EU), in CH1, and its heavy chains
     # each other at C226 and C229: pembrolizumab's H134, H226 and H229 (KEGG DRUG D10574)
     # behind trastuzumab's VH, which is as long as pembrolizumab's.
+    # And each domain's own in each copy: its VH's, CH1's, CH2's and CH3's, and its light
+    # chain's VL's and CL's.
     assert bonds["text"] == (
         "Its chains' disulfides, as its subclass places them: H134-L214, H′134-L′214, "
-        "H226-H′226, H229-H′229."
+        "H226-H′226, H229-H′229; and 12 within its domains, each domain's own."
     )
+    assert len(made["values"]["bonds"]) == 16
     assert said["level"] == "info"
     assert said["text"].startswith(
         "Its isotype is igg4, from its heavy chain: heavy's constant region is IgG4's, 99.7% "
@@ -298,9 +301,16 @@ def test_a_constant_region_no_human_reference_matches_is_unchecked(tmp_path: Pat
     said, bonds = output["messages"]
     assert said["level"] == "warning"
     assert said["text"].endswith("Its isotype, igg1, is as given, unchecked.")
-    # A human subclass's disulfides aren't placed on a mouse's chain.
-    assert "bonds" not in output["creates"][0]["values"]
-    assert bonds["text"].startswith("Its chains' disulfides aren't given: its heavy chain's")
+    # A human subclass's disulfides aren't placed on a mouse's chain: only its variable
+    # domains' own and its human light chain's CL's, in each copy.
+    placed = output["creates"][0]["values"]["bonds"]
+    assert len(placed) == 6
+    assert all((b["part"], b["copy"]) == (b["partner"], b["partner_copy"]) for b in placed)
+    assert bonds["text"] == (
+        "The disulfides between its chains aren't given: its heavy chain's constant region "
+        "isn't one human subclass's, so give them yourself if they're known; and 6 within "
+        "its domains, each domain's own."
+    )
 
 
 # --- alleles, crossovers and Fc fusions -------------------------------------------------

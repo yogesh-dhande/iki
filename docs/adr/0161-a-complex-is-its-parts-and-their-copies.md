@@ -99,13 +99,19 @@ give them as each subclass places them (an IgG1's light chain to C220 and
 heavy chains at C226 and C229, EU numbering), checked against KEGG DRUG's.
 
 **What its parts make it is derived from its identity.** Its molecular
-formula, average and monoisotopic masses and chain count are its parts', each
-times its copies, computed by the complex plugin for every complex type
-(`registry: derived` on `iki/core.Complex`). They're its parts as they are,
-each cysteine's thiol free: its bonds are a fact that may be corrected, so
-what they take off (2.016 u for each disulfide) is worked out where they're
-shown, by its Composition tab and the run's message, never stored to go
-stale.
+formula, average and monoisotopic masses, chain count and molar absorbance at
+280 nm are its parts', each times its copies, computed by the complex plugin
+for every complex type (`registry: derived` on `iki/core.Complex`), so a lot
+or anything else can read them from any complex. They're its parts as they
+are, each cysteine's thiol free: its bonds are a fact that may be corrected,
+so what they change (2.016 u off for each disulfide, and a cystine's 125
+L/(mol.cm) on at 280 nm, Pace's) is worked out where they're shown, by its
+Composition tab and the run's message, and by whatever else reads them,
+never stored to go stale. Cystines are counted from its disulfides, not from
+every pair of cysteines, as one protein's oxidized absorbance is: an
+antibody's light chain has an odd number of cysteines, one of them bonding
+the heavy chain. A complex with a part that isn't a protein (a heme) has no
+absorbance, as Pace's values weigh only proteins.
 
 **An action can include a list of rows' references**: `include:
 [components.part]` gives a run each row's part, in the rows' order, at the

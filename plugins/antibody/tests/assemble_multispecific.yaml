@@ -12,7 +12,9 @@ description: >-
   gives them, share one kappa light chain: two copies of it, one for each arm.
   Its heavy chains are made to pair by charge pairs, E356K in the anti-FIXa
   chain and K439E in the anti-FX chain (EU numbering), and its disulfides are
-  KEGG's: H137-L214, h133-L'214, H229-h225 and H232-h228.
+  KEGG's: H137-L214, h133-L'214, H229-h225 and H232-h228 between its chains,
+  and each domain's own, H22-H96, H150-H206, H264-H324, H370-H428, h22-h96,
+  h146-h202, h260-h320, h366-h424, and L23-L88 and L134-L194 in each copy.
 action: assemble_multispecific
 inputs:
   heavy_chain:
@@ -94,6 +96,114 @@ expect:
                 partner_copy: 1,
                 partner_residue: 228,
               }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 150,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 206,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 264,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 324,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 370,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 428,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 146,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 202,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 260,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 320,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 366,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 424,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 88,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 134,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 194,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 2,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 2,
+                partner_residue: 88,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 2,
+                residue: 134,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 2,
+                partner_residue: 194,
+              }
           isotype: igg4
           fc_pairing: charge_pairs
         derived_from:
@@ -111,7 +221,9 @@ description: >-
   DuoBody): its anti-EGFR arm, whose variable domains are zalutumumab's (KEGG
   D10031) residue for residue, carries F405L, and its anti-MET arm K409R.
   Each heavy chain has its own light chain, and its disulfides are KEGG's:
-  A228-C214, B222-D214, A234-B228 and A237-B231.
+  A228-C214, B222-D214, A234-B228 and A237-B231 between its chains, and each
+  domain's own: A22-A96, A152-A208, A269-A329, A375-A433, B22-B96,
+  B146-B202, B263-B323, B369-B427, C23-C88, C134-C194, D23-D88 and D134-D194.
 action: assemble_multispecific
 inputs:
   heavy_chain:
@@ -198,6 +310,114 @@ expect:
                 partner_copy: 1,
                 partner_residue: 231,
               }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 152,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 208,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 269,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 329,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 375,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 433,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 146,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 202,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 263,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 323,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 369,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 427,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 88,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 134,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 194,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000004,
+                copy: 1,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 88,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000004,
+                copy: 1,
+                residue: 134,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 194,
+              }
           isotype: igg1
           fc_pairing: fab_arm_exchange
 ---
@@ -208,7 +428,11 @@ description: >-
   Mosunetuzumab (KEGG DRUG D11463), an IgG1 made by knobs into holes: its
   anti-CD20 heavy chain is the knob (T366W) and its anti-CD3 heavy chain the
   hole (T366S, L368A and Y407V), as US patent 11,958,906 says. Its disulfides
-  are KEGG's: A222-B219, C225-E213, A228-C231 and A231-C234.
+  are KEGG's, its chains lettered as KEGG's (A the anti-CD3 heavy chain, B its
+  light chain, C the anti-CD20 heavy chain, D its light chain): A222-B219,
+  C225-D213, A228-C231 and A231-C234 between them, and each domain's own,
+  A22-A96, A146-A202, A263-A323, A369-A427, B23-B94, B139-B199, C22-C96,
+  C149-C205, C266-C326, C372-C430, D23-D87 and D133-D193.
 action: assemble_multispecific
 inputs:
   heavy_chain:
@@ -291,6 +515,114 @@ expect:
                 partner_copy: 1,
                 partner_residue: 234,
               }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 146,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 202,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 263,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 323,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000001,
+                copy: 1,
+                residue: 369,
+                partner: 00000000-0000-7000-8003-000000000001,
+                partner_copy: 1,
+                partner_residue: 427,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 22,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 96,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 149,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 205,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 266,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 326,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000002,
+                copy: 1,
+                residue: 372,
+                partner: 00000000-0000-7000-8003-000000000002,
+                partner_copy: 1,
+                partner_residue: 430,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 94,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000003,
+                copy: 1,
+                residue: 139,
+                partner: 00000000-0000-7000-8003-000000000003,
+                partner_copy: 1,
+                partner_residue: 199,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000004,
+                copy: 1,
+                residue: 23,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 87,
+              }
+            - {
+                kind: disulfide,
+                part: 00000000-0000-7000-8003-000000000004,
+                copy: 1,
+                residue: 133,
+                partner: 00000000-0000-7000-8003-000000000004,
+                partner_copy: 1,
+                partner_residue: 193,
+              }
           isotype: igg1
           fc_pairing: knobs_into_holes
     messages:
@@ -299,7 +631,7 @@ expect:
       - level: info
         text: "Its Fc chains pair by knobs into holes: T366W in one heavy chain and T366S, L368A and Y407V in the other."
       - level: info
-        text: "Its chains' disulfides, as its subclass places them: H222-L219, h225-l213, H228-h231, H231-h234."
+        text: "Its chains' disulfides, as its subclass places them: H222-L219, h225-l213, H228-h231, H231-h234; and 12 within its domains, each domain's own."
 ---
 apiVersion: iki/v1
 kind: ActionTest

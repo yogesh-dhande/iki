@@ -364,6 +364,7 @@ class Complex_Entry(Entity):
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)
     chain_count = models.BigIntegerField(null=True)
+    extinction_coefficient_reduced = QuantityField(unit='L/(mol.cm)', null=True)
 
     class Meta:
         db_table = 'iki__core_complex__entry'
@@ -403,6 +404,17 @@ class Complex_Entry(Entity):
                 condition=Q(chain_count__gte=0),
                 name='iki__core_complex__entry__chain_count__min',
             ),
+            models.CheckConstraint(
+                condition=Q(
+                    extinction_coefficient_reduced__gt=float('-inf'),
+                    extinction_coefficient_reduced__lt=float('inf'),
+                ),
+                name='iki__core_complex__entry__extinction_coefficient_re__fc1285cfc8',
+            ),
+            models.CheckConstraint(
+                condition=Q(extinction_coefficient_reduced__gte=0),
+                name='iki__core_complex__entry__extinction_coefficient_reduced__min',
+            ),
         ]
 
 
@@ -421,6 +433,7 @@ class Complex_Entry_History(models.Model):
     molecular_weight = QuantityField(unit='u', null=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)
     chain_count = models.BigIntegerField(null=True)
+    extinction_coefficient_reduced = QuantityField(unit='L/(mol.cm)', null=True)
 
     class Meta:
         db_table = 'iki__core_complex__entry__history'

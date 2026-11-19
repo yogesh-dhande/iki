@@ -13,8 +13,8 @@ every one, beside other plugins' and a lab's own complexes; the graph finds
 every complex a chain is part of; and the complex plugin computes each one's
 formula and masses. Each type says which roles its chains take, how many and of
 what ([ADR 0164](../../docs/adr/0164-a-subtype-says-which-roles-its-rows-take.md)),
-and its `bonds`, a registry fact, are its inter-chain disulfides, each from a
-copy's cysteine to another's.
+and its `bonds`, a registry fact, are its disulfides, between its chains and
+within each domain, each from a copy's cysteine to another's.
 
 - **`iki/antibody.Antibody`** (`ABY-000001`): an antibody of one specificity,
   by its chains: a `heavy` chain and, unless it's a VHH or an scFv, a `light`
@@ -219,6 +219,26 @@ isoforms), and IgG3's hinge has 11 between its heavy chains, so neither's are
 given; nor are those of `fv`, `scfv`, `vhh` and `other`. Trastuzumab's are
 KEGG DRUG's (D03257): H223-L214, H229-H′229 and H232-H′232.
 
+It gives each domain's own disulfide too, between its two sheets, in each copy
+of its chain, which KEGG DRUG lists with the others:
+
+- a variable domain's, IMGT's C23 and C104 (Lefranc et al., _Dev Comp Immunol_
+  27:55-77, 2003), Kabat's and Chothia's H22 and H92 or L23 and L88. A domain
+  whose only cysteines are those two has them; in one with more (a VHH's
+  CDR1–CDR3 disulfide, a CDR's unpaired cysteine) they're where its numbering
+  puts them, and the rest are left out;
+- an IgG heavy chain's CH1's, CH2's and CH3's, EU C144–C200, C261–C321 and
+  C367–C425, which every subclass has, where its constant region was read as
+  one human subclass's; an Fc fusion's CH2's and CH3's alone, as what's fused
+  to its hinge has disulfides of its own that aren't an IgG's;
+- a light chain's CL's, its two cysteines before its last.
+
+So trastuzumab has 16 (KEGG's H22-H96, H147-H203, H264-H324, H370-H428,
+L23-L88 and L134-L194 in each copy, as well as those between its chains),
+emicizumab, amivantamab and mosunetuzumab 16 each, and etanercept 7.
+Its cystines, counted from these, are what the complex plugin's absorbance at
+280 nm adds.
+
 What can be told from the antibody's own fields is a rule of its type
 ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),
 kept at every save however it's registered: by `assemble`, through the API, a
@@ -254,8 +274,9 @@ domains at EU numbers:
   _PLoS ONE_ 8:e57479, 2013).
 
 Its disulfides are each heavy chain's to its light chain and the two heavy
-chains' to each other, as for an IgG. These match KEGG DRUG's for each, and
-its targets the review reports':
+chains' to each other, as for an IgG, and each domain's own. These match KEGG
+DRUG's for each, all 16, and its targets the review reports'; between its
+chains:
 
 | Antibody             | KEGG DRUG | Sites                                       | Pairing          | Disulfides                                  |
 | -------------------- | --------- | ------------------------------------------- | ---------------- | ------------------------------------------- |
@@ -281,7 +302,8 @@ isotype is its Fc's, compared whole. Without a light chain, an IgG1 hinge's
 first cysteine (EU C220) bonds the other chain's: etanercept (KEGG D00742) has
 three inter-chain disulfides, C240, C246 and C249 to their twins, as Lamanna et
 al. found (_Sci Rep_ 7:3951, 2017), and aflibercept (D09574), fused after that
-cysteine, two, C211 and C214, as KEGG lists them.
+cysteine, two, C211 and C214, as KEGG lists them; and its Fc's CH2 and CH3
+have one each, aflibercept's at KEGG's 246-306 and 352-410.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image

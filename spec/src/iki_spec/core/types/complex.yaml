@@ -156,5 +156,18 @@ fields:
     computed: true
     min: 0
     description: How many polymer chains it has, counting each copy, its parts' own included.
+  extinction_coefficient_reduced:
+    type: quantity
+    registry: derived
+    label: Extinction coefficient (reduced)
+    unit: L/(mol.cm)
+    computed: true
+    min: 0
+    description: >-
+      Its molar absorbance at 280 nm in water, each cysteine's thiol free (Pace
+      et al., 1995): 5,500 for each tryptophan in its parts and 1,490 for each
+      tyrosine, each times its copies, or a part complex's own. Each disulfide
+      makes a cystine, 125 more. None if a part isn't a protein or a complex
+      with one, as Pace's values weigh only those.
 display:
   title: "{{ name or hrid }}"

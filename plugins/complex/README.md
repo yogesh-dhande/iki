@@ -29,17 +29,21 @@ cysteines.
 
 - **Every complex's composition**, on `iki/core.Complex`, so every type has
   it: its `molecular_formula` (Hill order), `molecular_weight` (average, in u,
-  shown in ku), `monoisotopic_mass` and `chain_count`. They're derived from its
-  parts and copies (`registry: derived`): its parts as they are, each
-  cysteine's thiol free. Its bonds are a fact that a registrar may correct, so
-  what they take off (two hydrogens, 2.016 u, for each disulfide) is worked out
-  where they're shown: the Composition tab and the run's message.
+  shown in ku), `monoisotopic_mass`, `chain_count` and
+  `extinction_coefficient_reduced` (its molar absorbance at 280 nm, in
+  L/(mol.cm)). They're derived from its parts and copies (`registry:
+derived`): its parts as they are, each cysteine's thiol free. Its bonds are a
+  fact that a registrar may correct, so what they change (two hydrogens, 2.016
+  u, off for each disulfide, and a cystine's 125 L/(mol.cm) on at 280 nm) is
+  worked out where they're shown: the Composition tab and the run's message.
+  Anything else that reads them, such as a lot's concentration from its
+  absorbance, works it out the same way from the complex's bonds.
 
 ## Actions
 
-| Action                | What it does                                                    | Tier    |
-| --------------------- | --------------------------------------------------------------- | ------- |
-| `compute_composition` | Computes a complex's formula, masses and chain count, any type. | backend |
+| Action                | What it does                                                                          | Tier    |
+| --------------------- | ------------------------------------------------------------------------------------- | ------- |
+| `compute_composition` | Computes a complex's formula, masses, chain count and absorbance at 280 nm, any type. | backend |
 
 The trigger `compute_new_complex_composition` runs it on each complex
 registered, of any type, batching up to 100 a run. A complex's run reads its
@@ -60,27 +64,43 @@ weights are, and its monoisotopic mass with each element's most abundant
 isotope's mass (AME2020: Wang et al., _Chin Phys C_ 45:030003, 2021). Its chain
 count is each part's chains times its copies: a protein, nucleic acid or
 oligonucleotide is one, a duplex two, a complex its own count, a compound none.
+Its molar absorbance at 280 nm in water is Pace's (Pace et al., _Protein Sci_
+4:2411–2423, 1995), as the protein plugin's is: 5,500 L/(mol.cm) for each
+tryptophan and 1,490 for each tyrosine in its parts, each times its copies,
+with each cysteine's thiol free, as its masses are; a part that's another
+complex gives its own. Each disulfide makes a cystine, 125 more, counted from
+the disulfides it has, not from every pair of cysteines: amivantamab's chains,
+one by one, have 14 pairs, and it has 16 disulfides, two of them joining a
+chain with an odd number of cysteines to another. A part that's neither a
+protein nor a complex (a heme, an oligonucleotide) absorbs in ways Pace's
+values don't weigh, so the complex has none, and the run says why.
+
 The run says what its disulfides make it: _"With its 16 disulfides:
 C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u
-monoisotopic"_. Its other bonds (isopeptides, thioethers) aren't weighed:
-what each takes off depends on its chemistry.
+monoisotopic, and 216,410 L/(mol.cm) at 280 nm"_. A part that's a complex has
+bonds of its own, shown on it, and the run says what the complex is with those
+as well. Its other bonds (isopeptides, thioethers) aren't weighed: what each
+takes off depends on its chemistry.
 
 What it computes, checked against published values:
 
-| Complex                         | Its parts as they are                                          | Published                                                                                                                                                                                                 |
-| ------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hemoglobin A (CPX-2158)         | C2954H4508Fe4N780O806S12, 64,452.3 u                           | Complex Portal: 64 kD. Its α chain alone, 15,126.16 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_) |
-| Amivantamab (KEGG D11894)       | With its 16 disulfides, C6472H10014N1730O2023S46, 145,900.13 u | KEGG DRUG: C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054                                                                                                        |
-| Trastuzumab Fab–HER2 (PDB 1N8Z) | C4980H7745N1389O1538S65, 113,766.39 u, 3 chains                | Its chains as Biopython weighs them; RCSB's entity weights are 0.1% higher                                                                                                                                |
+| Complex                         | Its parts as they are                                                                                                                       | Published                                                                                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hemoglobin A (CPX-2158)         | C2954H4508Fe4N780O806S12, 64,452.3 u; no absorbance, as its hemes aren't weighed                                                            | Complex Portal: 64 kD. Its α chain alone, 15,126.16 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_) |
+| Amivantamab (KEGG D11894)       | With its 16 disulfides, C6472H10014N1730O2023S46, 145,900.13 u; 214,410 L/(mol.cm), 216,410 with them                                       | KEGG DRUG: C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054                                                                                                        |
+| Trastuzumab Fab–HER2 (PDB 1N8Z) | C4980H7745N1389O1538S65, 113,766.39 u, 3 chains; 133,620 L/(mol.cm), 136,495 with HER2's 23 disulfides and 136,995 with the Fab's 4 as well | Its chains as Biopython weighs them, and its disulfides 1N8Z's SSBOND records; RCSB's entity weights are 0.1% higher                                                                                      |
 
 Formulas from KEGG DRUG's chains (amivantamab's, mosunetuzumab's,
 aflibercept's) are KEGG's exactly; average masses differ in their last
-figures, as KEGG's atomic weights differ from Biopython's.
+figures, as KEGG's atomic weights differ from Biopython's. Absorbances are
+Biopython ProtParam's for each chain with its thiols free
+(`molar_extinction_coefficient`), summed over copies.
 
 ## Components
 
 **Composition**, a tab on every complex's page: its parts with their roles and
-copies; its formula and masses as computed, and with its disulfides; and its
+copies; its formula, masses and absorbance at 280 nm as computed, and with its
+disulfides; and its
 bonds, each from a copy's residue to another's. It's named for screen readers
 as it's drawn for the eye.
 

@@ -9,14 +9,24 @@ description: >-
   water, a nucleic acid's or an oligonucleotide's, a small molecule's or
   another complex's from its entry's molecular formula. A part with neither (a
   sequence with an ambiguous residue, or a molecule whose formula isn't known
-  yet) is named, and nothing is computed. The run also says its formula and
-  masses with its disulfides, two hydrogens off for each.
+  yet) is named, and nothing is computed. And its molar absorbance at 280 nm,
+  Pace's, from its parts' tryptophans and tyrosines with each cysteine's thiol
+  free, if its parts are all proteins or complexes with one. The run also says
+  its formula, masses and absorbance with its disulfides: two hydrogens off and
+  a cystine's 125 L/(mol.cm) on for each.
 inputs:
   complex: { type: iki/core.Complex, schema: ">=1", include: [components.part] }
 effects:
   updates:
     - input: complex
-      fields: [molecular_formula, molecular_weight, monoisotopic_mass, chain_count]
+      fields:
+        [
+          molecular_formula,
+          molecular_weight,
+          monoisotopic_mass,
+          chain_count,
+          extinction_coefficient_reduced,
+        ]
 runs_on: { tier: backend, environment: complex-tools }
 command: [python, ./scripts/composition.py]
 deterministic: true

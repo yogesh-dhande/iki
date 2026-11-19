@@ -1,5 +1,6 @@
-"""What joins an IgG's chains: the disulfides between them, and how two heavy chains are
-made to pair, read off where a chain's residues fall in EU numbering.
+"""What joins an IgG's chains: the disulfides between them and within each of its domains,
+and how two heavy chains are made to pair, read off where a chain's residues fall in EU
+numbering.
 
 EU numbering (Edelman et al., PNAS 63:78-85, 1969) numbers a heavy chain's constant
 region as the Eu myeloma protein's, an IgG1: CH1 from A118 to 215, the hinge 216 to 230,
@@ -24,6 +25,21 @@ So trastuzumab, an IgG1, has H223-L214, H229-H'229 and H232-H'232, and emicizuma
 IgG4, H137-L214 and h133-L'214, H229-h225 and H232-h228, as KEGG DRUG's entries D03257
 and D10821 list them.
 
+Each immunoglobulin domain has a disulfide of its own, between its two sheets (Liu and May,
+2012): an IgG has 12, as KEGG DRUG's entries list them.
+
+- A variable domain's joins IMGT's C23 and C104 (Lefranc et al., Dev Comp Immunol
+  27:55-77, 2003), Kabat's H22 and H92, or L23 and L88. A domain whose only cysteines
+  are those two has them; one with more (a VHH's CDR1-CDR3 disulfide, an unpaired
+  cysteine in a CDR) has them where its numbering puts them, read from the scheme it was
+  numbered in, and the rest are left out.
+- An IgG heavy chain's constant domains' join EU C144 and C200 (CH1), C261 and C321
+  (CH2), and C367 and C425 (CH3), which every subclass has.
+- A light chain's constant domain's are its two cysteines before its last.
+
+So trastuzumab's are KEGG's H22-H96, H147-H203, H264-H324, H370-H428, L23-L88 and
+L134-L194.
+
 Two different heavy chains are made to pair with each other, rather than each with
 itself, by mutations in CH3, where the heavy chains meet (EU numbering):
 
@@ -42,6 +58,7 @@ itself, by mutations in CH3, where the heavy chains meet (EU numbering):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import constant_regions
 
@@ -52,6 +69,16 @@ EU_FIRST = 118
 #: chain, by subclass.
 TO_LIGHT = {"igg1": 220, "igg4": 131}
 TO_HEAVY = {"igg1": (226, 229), "igg4": (226, 229)}
+#: The cysteines each IgG heavy chain constant domain's own disulfide joins (EU): CH1's,
+#: CH2's and CH3's.
+WITHIN_HEAVY = ((144, 200), (261, 321), (367, 425))
+#: The cysteines a variable domain's own disulfide joins, by numbering scheme and chain.
+WITHIN_VARIABLE = {
+    "imgt": {"H": (23, 104), "K": (23, 104), "L": (23, 104)},
+    "kabat": {"H": (22, 92), "K": (23, 88), "L": (23, 88)},
+    "chothia": {"H": (22, 92), "K": (23, 88), "L": (23, 88)},
+    "martin": {"H": (22, 92), "K": (23, 88), "L": (23, 88)},
+}
 #: CH3's residues where two heavy chains are made to pair.
 KNOB, HOLE = {366: "W"}, {366: "S", 368: "A", 407: "V"}
 EXCHANGE = ({405: "L"}, {409: "R"})
@@ -166,3 +193,65 @@ def fc_pairing(
     if len(swaps) >= 2:
         return "charge_pairs", "charges swapped between them at " + ", ".join(swaps)
     return None, "no knobs into holes, Fab-arm exchange or charge pairs in their CH3 domains"
+
+
+def _cysteines(sequence: str, start: int, end: int) -> list[int]:
+    """The cysteines from residue ``start`` to ``end`` (from 1, both included)."""
+    return [i + 1 for i in range(start - 1, min(end, len(sequence))) if sequence[i] == "C"]
+
+
+def _numbered(domain: dict[str, Any], number: int) -> int | None:
+    """The residue (from 1) a domain's numbering numbers ``number``, without an insertion."""
+    start = int(domain["start"])
+    numbering: list[list[Any]] = domain.get("numbering") or []
+    for index, (n, insertion, _) in enumerate(numbering):
+        if int(n) == number and not insertion:
+            return start + index
+    return None
+
+
+def variable_within(
+    sequence: str, domains: list[dict[str, Any]], scheme: str | None
+) -> list[tuple[int, int]]:
+    """Each variable domain's own disulfide, as residues from 1 (see the module's
+    docstring); none for a domain where it can't be told."""
+    out: list[tuple[int, int]] = []
+    for domain in domains:
+        start, end = int(domain["start"]), int(domain["end"])
+        found = _cysteines(sequence, start, end)
+        if len(found) == 2:
+            out.append((found[0], found[1]))
+            continue
+        pair = WITHIN_VARIABLE.get(scheme or "", {}).get(str(domain["chain"]))
+        if pair is None:
+            continue
+        a, b = (_numbered(domain, n) for n in pair)
+        if a is not None and b is not None and sequence[a - 1] == sequence[b - 1] == "C":
+            out.append((a, b))
+    return out
+
+
+def heavy_within(sequence: str, offset: int, *, fc_only: bool = False) -> list[tuple[int, int]]:
+    """An IgG heavy chain's constant domains' own disulfides, as residues from 1, read from
+    its residues from ``offset`` on: those of its domains it has (a Fab's CH1 alone). With
+    ``fc_only``, an Fc fusion's: CH2's and CH3's, as what's fused to its hinge may align
+    with CH1 without being one."""
+    eu = eu_numbers(sequence[offset:])
+    out = []
+    for first, second in WITHIN_HEAVY[1:] if fc_only else WITHIN_HEAVY:
+        a, b = cysteine(sequence, offset, eu, first), cysteine(sequence, offset, eu, second)
+        if a is not None and b is not None:
+            out.append((a, b))
+    return out
+
+
+def light_within(sequence: str, offset: int) -> list[tuple[int, int]]:
+    """A light chain's constant domain's own disulfide: its two cysteines after ``offset``
+    (its VL's end) and before its last, which bonds the heavy chain."""
+    found = _cysteines(sequence, offset + 1, len(sequence))[:-1]
+    return [(found[0], found[1])] if len(found) == 2 else []
+
+
+def within(chain: str, pairs: list[tuple[int, int]], copies: int) -> list[Bond]:
+    """Disulfides within ``chain``, in each of its copies."""
+    return [Bond(chain, n, a, chain, n, b) for n in range(1, copies + 1) for a, b in pairs]
