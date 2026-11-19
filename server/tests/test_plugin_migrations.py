@@ -1326,6 +1326,240 @@ def test_two_namespaces_plugins_of_one_name_install_side_by_side(lab: Path, data
     assert applied(database, "globex__lab") == ["0001_initial"]
 
 
+# --- Lists of rows, changed by an upgrade (ADR 0137) -------------------------------------------
+
+#: A list of rows, each a reference and an amount, both checked.
+ADDITIONS = (
+    "  temperature: { type: quantity, unit: Cel }\n",
+    "  temperature: { type: quantity, unit: Cel }\n"
+    "  additions:\n"
+    "    type: list\n"
+    "    items:\n"
+    "      type: row\n"
+    "      fields:\n"
+    "        part: { type: ref, to: Sample, required: true }\n"
+    "        amount: { type: quantity, unit: mg, min: 0 }\n",
+)
+#: A field added with the list, whose CHECK constraints the migration also adds.
+NOTES = ("  count: { type: int }", "  count: { type: int }\n  notes: { type: string }")
+
+
+def samples(out: Path, database: str) -> list[str]:
+    """Makes two samples, and gives their IDs."""
+    ids: list[str] = orm(
+        out,
+        database,
+        """
+        from iki_plugin_acme__lab.models import Sample
+        result = [
+            str(Sample.objects.create(
+                type="acme/lab.Sample", hrid=f"SMP-00000{n}", owner_project=project,
+                name=f"S{n}", mass=1.5, count=3, old="x", temperature=20.0,
+            ).pk)
+            for n in (1, 2)
+        ]
+        """,
+    )
+    return ids
+
+
+def add_rows(database: str, table: str, first: str, second: str) -> None:
+    """Gives the first sample two rows, each of the second at an amount."""
+    for position, amount in enumerate((5.0, 7.5)):
+        query(
+            database,
+            f"INSERT INTO {table} (entity_id, position, part_id, amount) "  # noqa: S608 - the test's own table
+            "VALUES (%s, %s, %s, %s)",
+            first,
+            position,
+            second,
+            amount,
+        )
+
+
+def rows(database: str, table: str, *columns: str) -> list[tuple[Any, ...]]:
+    names = ", ".join(("position", "part_id::text", *columns))
+    return query(database, f"SELECT {names} FROM {table} ORDER BY entity_id, position")  # noqa: S608 - the test's own table
+
+
+def keyed_by_entity_and_position(database: str, table: str) -> bool:
+    """Whether the table's primary key is its entity and position, its entity a foreign key."""
+    found = dict(
+        query(
+            database,
+            "SELECT contype, string_agg(pg_get_constraintdef(oid), '; ') FROM pg_constraint "
+            "WHERE conrelid = %s::regclass AND contype IN ('p', 'f') GROUP BY contype",
+            table,
+        )
+    )
+    return found.get("p") == 'PRIMARY KEY (entity_id, "position")' and (
+        "FOREIGN KEY (entity_id) REFERENCES acme__lab_sample(entity_id)" in found.get("f", "")
+    )
+
+
+def created_whole(migration: str, model: str) -> bool:
+    """Whether a migration creates a list's model with the entity it's keyed by, rather than
+    adding it afterwards: a model whose key names a field it lacks can't be made."""
+    create = re.search(
+        rf"migrations\.CreateModel\(\n\s+name='{model}',\n\s+fields=\[\n(.*?)\n\s+\],",
+        migration,
+        re.DOTALL,
+    )
+    return (
+        create is not None
+        and "('entity', models.ForeignKey(" in create.group(1)
+        and f"model_name='{model.lower()}',\n            name='entity'," not in migration
+    )
+
+
+def test_an_upgrade_adds_a_list_of_rows(lab: Path, database: str) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    first, second = samples(out, database)
+
+    write_sample(lab, NOTES, ADDITIONS)
+    made("lab", "--name", "additions", "--no-input", cwd=lab.parent)
+    migration = (lab / "migrations" / "0002_additions.py").read_text()
+    assert created_whole(migration, "Sample_additions"), migration
+    out = build(lab.parent, "lab")
+    table = "acme__lab_sample__additions"
+    for _ in range(2):  # forwards, back, and forwards again
+        migrate(out, database)
+        assert keyed_by_entity_and_position(database, table)
+        add_rows(database, table, first, second)
+        assert rows(database, table, "amount") == [(0, second, 5.0), (1, second, 7.5)]
+        assert "additions" in columns(database, "acme__lab_sample__history")
+        migrate(out, database, "acme__lab", "0001")
+        assert query(database, "SELECT to_regclass(%s)", table) == [(None,)]
+        assert "additions" not in columns(database, "acme__lab_sample__history")
+        assert query(database, "SELECT name FROM acme__lab_sample ORDER BY name") == [
+            ("S1",),
+            ("S2",),
+        ]
+
+
+def test_an_upgrade_adds_a_field_to_a_list_of_rows(lab: Path, database: str) -> None:
+    write_sample(lab, ADDITIONS)
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    first, second = samples(out, database)
+    table = "acme__lab_sample__additions"
+    add_rows(database, table, first, second)
+
+    write_sample(
+        lab,
+        ADDITIONS,
+        NOTES,
+        (
+            "        amount: { type: quantity, unit: mg, min: 0 }\n",
+            "        amount: { type: quantity, unit: mg, min: 0 }\n"
+            "        lot: { type: string, max_length: 20 }\n",
+        ),
+    )
+    made("lab", "--name", "lots", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    for _ in range(2):
+        migrate(out, database)
+        assert keyed_by_entity_and_position(database, table)
+        assert rows(database, table, "amount", "lot") == [
+            (0, second, 5.0, None),
+            (1, second, 7.5, None),
+        ]
+        query(database, f"UPDATE {table} SET lot = 'L-17' WHERE position = 0")  # noqa: S608 - the test's own table
+        with pytest.raises(psycopg.errors.CheckViolation):
+            query(database, f"UPDATE {table} SET lot = '' WHERE position = 1")  # noqa: S608 - the test's own table
+        migrate(out, database, "acme__lab", "0001")
+        assert keyed_by_entity_and_position(database, table)
+        assert rows(database, table, "amount") == [(0, second, 5.0), (1, second, 7.5)]
+        assert "lot" not in columns(database, table)
+
+
+ALIQUOT = "INSERT INTO acme__lab_sample__aliquots (entity_id, position, item_id) VALUES (%s, 0, %s)"
+
+
+def test_an_upgrade_removes_lists_of_rows_and_references(lab: Path, database: str) -> None:
+    aliquots = (
+        "  count: { type: int }\n",
+        "  count: { type: int }\n  aliquots: { type: list, items: { type: ref, to: Sample } }\n",
+    )
+    write_sample(lab, ADDITIONS, aliquots)
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    first, second = samples(out, database)
+    table, refs = "acme__lab_sample__additions", "acme__lab_sample__aliquots"
+    add_rows(database, table, first, second)
+    query(database, ALIQUOT, first, second)
+    kept = [{"part": second, "amount": 5.0}, {"part": second, "amount": 7.5}]
+    query(
+        database,
+        "INSERT INTO acme__lab_sample__history (entity_id, revision, additions, aliquots) "
+        "VALUES (%s, 1, %s, %s::uuid[])",
+        first,
+        json.dumps(kept),
+        [second],
+    )
+
+    # Both at once: neither table loses its key before it goes.
+    write_sample(
+        lab,
+        ADDITIONS,
+        aliquots,
+        ("  additions:\n    type: list\n", "  additions:\n    type: list\n    removed: true\n"),
+        ("aliquots: { type: list,", "aliquots: { type: list, removed: true,"),
+    )
+    made("lab", "--name", "no_lists", "--no-input", cwd=lab.parent)
+    migration = (lab / "migrations" / "0002_no_lists.py").read_text()
+    assert "name='entity'" not in migration, migration
+    out = build(lab.parent, "lab")
+    for _ in range(2):
+        migrate(out, database)
+        assert query(database, "SELECT to_regclass(%s), to_regclass(%s)", table, refs) == [
+            (None, None)
+        ]
+        # Their history stays.
+        assert query(
+            database, "SELECT additions, aliquots::text[] FROM acme__lab_sample__history"
+        ) == [(kept, [second])]
+        # Back, the tables are made again, empty, as a removed column comes back empty.
+        migrate(out, database, "acme__lab", "0001")
+        assert keyed_by_entity_and_position(database, table)
+        assert keyed_by_entity_and_position(database, refs)
+        assert rows(database, table) == []
+        add_rows(database, table, first, second)
+        assert rows(database, table, "amount") == [(0, second, 5.0), (1, second, 7.5)]
+        query(database, ALIQUOT, first, second)
+
+
+def test_an_upgrade_renames_a_list_of_rows(lab: Path, database: str) -> None:
+    write_sample(lab, ADDITIONS)
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    first, second = samples(out, database)
+    old, new = "acme__lab_sample__additions", "acme__lab_sample__ingredients"
+    add_rows(database, old, first, second)
+
+    write_sample(lab, NOTES, ADDITIONS, ("  additions:\n", "  ingredients:\n"))
+    # Renamed: the list's table, then its history column.
+    made("lab", "--name", "ingredients", cwd=lab.parent, answers="y\ny\n")
+    migration = (lab / "migrations" / "0002_ingredients.py").read_text()
+    assert "RecordRename(" in migration
+    out = build(lab.parent, "lab")
+    for _ in range(2):
+        migrate(out, database)
+        assert query(database, "SELECT to_regclass(%s)", old) == [(None,)]
+        assert rows(database, new, "amount") == [(0, second, 5.0), (1, second, 7.5)]
+        assert "ingredients" in columns(database, "acme__lab_sample__history")
+        migrate(out, database, "acme__lab", "0001")
+        assert query(database, "SELECT to_regclass(%s)", new) == [(None,)]
+        assert keyed_by_entity_and_position(database, old)
+        assert rows(database, old, "amount") == [(0, second, 5.0), (1, second, 7.5)]
+        assert "additions" in columns(database, "acme__lab_sample__history")
+
+
 # --- Deploying and rolling back -------------------------------------------------------------------
 
 
