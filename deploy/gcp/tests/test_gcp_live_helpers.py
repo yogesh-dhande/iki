@@ -139,6 +139,79 @@ def test_what_comes_and_goes_in_a_shared_project_isnt_counted_as_gone() -> None:
     assert live.leftovers(before, after, SETTINGS) == []
 
 
+REGION_URL = (
+    f"https://www.googleapis.com/compute/v1/projects/{SETTINGS.project}/regions/{SETTINGS.region}"
+)
+SHARED_ROUTER = REGION_URL + "/routers/other-router"
+AUTO_ADDRESS = {
+    "name": "provider-address",
+    "region": REGION_URL,
+    "purpose": "NAT_AUTO",
+    "users": [SHARED_ROUTER],
+}
+
+
+def address_inventory(*addresses: dict[str, Any]) -> live.Inventory:
+    routers = ["other-router", SETTINGS.name, SETTINGS.name + "-nat"]
+    gcp = FakeGcp(
+        {
+            ("compute", "routers", "list"): [
+                (0, "\n".join(f"{router}\t{SETTINGS.region}" for router in routers), "")
+            ],
+            ("compute", "addresses", "list"): [(0, json.dumps(addresses), "")],
+        }
+    )
+    return live.inventory(gcp, SETTINGS)  # type: ignore[arg-type]
+
+
+def test_automatic_addresses_of_another_router_can_rotate(tmp_path: Path) -> None:
+    before = address_inventory(AUTO_ADDRESS)
+    after = address_inventory({**AUTO_ADDRESS, "name": "replacement"})
+    assert live.leftovers(before, after, SETTINGS) == []
+    before.write(tmp_path / "before.txt")
+    assert json.dumps(AUTO_ADDRESS, sort_keys=True) in (tmp_path / "before.txt").read_text()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"name": SETTINGS.name + "-address"},
+        {"labels": {"iki-test": "true"}},
+        {"labels": {"iki-deployment": SETTINGS.name}},
+        {"users": [REGION_URL + "/routers/" + SETTINGS.name]},
+        {"users": [REGION_URL + "/routers/" + SETTINGS.name + "-nat"]},
+        {"users": []},
+        {"users": [SHARED_ROUTER, REGION_URL + "/routers/second"]},
+        {"users": [REGION_URL + "/routers/unlisted"]},
+        {"users": [SHARED_ROUTER.replace(SETTINGS.region, "us-east1")]},
+        {"users": [SHARED_ROUTER.replace(SETTINGS.project, "another-project")]},
+        {"users": [SHARED_ROUTER.replace("www.googleapis.com", "unrelated.example")]},
+        {"users": [SHARED_ROUTER.replace("/routers/", "/subnetworks/")]},
+    ],
+)
+def test_run_marked_or_ambiguous_auto_nat_addresses_stay_strict(change: dict[str, Any]) -> None:
+    row = {**AUTO_ADDRESS, **change}
+    listing = address_inventory(row)
+    empty = address_inventory()
+    line = f"addresses: {row['name']}\t{SETTINGS.region}"
+    assert live.leftovers(listing, empty, SETTINGS) == [line + " is gone, which was there before"]
+    assert live.leftovers(empty, listing, SETTINGS) == [line]
+
+
+def test_a_provider_looking_name_cannot_exempt_a_manual_address() -> None:
+    row = {**AUTO_ADDRESS, "name": "nat-auto-ip-123", "purpose": "GCE_ENDPOINT"}
+    assert live.leftovers(address_inventory(row), address_inventory(), SETTINGS) == [
+        f"addresses: nat-auto-ip-123\t{SETTINGS.region} is gone, which was there before"
+    ]
+
+
+def test_a_shared_address_that_acquired_the_run_label_is_reported() -> None:
+    after = address_inventory({**AUTO_ADDRESS, "labels": {"iki-deployment": SETTINGS.name}})
+    assert live.leftovers(address_inventory(AUTO_ADDRESS), after, SETTINGS) == [
+        f"addresses: provider-address\t{SETTINGS.region}"
+    ]
+
+
 def test_a_resource_of_before_being_deleted_is_gone_too() -> None:
     before = project(
         custom_roles={"projects/shared-lab/roles/labViewer\t"},

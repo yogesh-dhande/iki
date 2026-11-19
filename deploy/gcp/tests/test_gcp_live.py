@@ -83,7 +83,7 @@ from iki_live import REPO, Iki, until
 pytestmark = pytest.mark.gcp_live
 
 #: Bumped when what the suite checks changes: recorded with each passing run.
-SUITE_VERSION = "4"
+SUITE_VERSION = "5"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -330,7 +330,12 @@ LISTINGS: dict[str, tuple[str, ...]] = {
     "subnets": ("compute", "networks", "subnets", "list", "--format=value(name,region.basename())"),
     "firewalls": ("compute", "firewall-rules", "list", "--format=value(name,network.basename())"),
     "routers": ("compute", "routers", "list", "--format=value(name,region.basename())"),
-    "addresses": ("compute", "addresses", "list", "--format=value(name,region.basename())"),
+    "addresses": (
+        "compute",
+        "addresses",
+        "list",
+        "--format=json(name,region,purpose,users,labels)",
+    ),
     "ssl certificates": ("compute", "ssl-certificates", "list", "--format=value(name)"),
     "ssl policies": ("compute", "ssl-policies", "list", "--format=value(name)"),
     "security policies": ("compute", "security-policies", "list", "--format=value(name)"),
@@ -367,12 +372,16 @@ class Inventory:
     bindings: set[tuple[str, str]]
     audit_configs: list[Any]
     binauthz: Any
+    addresses: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def write(self, path: Path) -> None:
         sections = dict(self.listings)
         for key, versions in sorted(self.key_versions.items()):
             sections[f"kms key versions of {key}"] = versions
         sections["project IAM (role member)"] = {" ".join(b) for b in self.bindings}
+        sections["address ownership"] = {
+            json.dumps(row, sort_keys=True) for row in self.addresses.values()
+        }
         tail = ["=== audit configs", json.dumps(self.audit_configs, indent=1, sort_keys=True)]
         tail += ["", "=== binary authorization policy", json.dumps(self.binauthz, sort_keys=True)]
         iki_live.write_sections(path, sections, tail)
@@ -429,7 +438,15 @@ def inventory(gcp: Gcp, s: Settings) -> Inventory:
     listings = {
         section: apis if section == "apis" else set(listed(gcp, section, args, apis))
         for section, args in LISTINGS.items()
+        if section != "addresses"
     }
+    addresses = {
+        row["name"] + "\t" + row.get("region", "").rsplit("/", 1)[-1]: row
+        for row in json.loads(
+            "\n".join(listed(gcp, "addresses", LISTINGS["addresses"], apis)) or "[]"
+        )
+    }
+    listings["addresses"] = set(addresses)
     key_versions = {}
     for ring in key_rings(gcp, s, apis):
         keys = listed(
@@ -460,6 +477,7 @@ def inventory(gcp: Gcp, s: Settings) -> Inventory:
         bindings=bindings,
         audit_configs=policy.get("auditConfigs", []),
         binauthz=json.loads("\n".join(binauthz)) if binauthz else None,
+        addresses=addresses,
     )
 
 
@@ -503,7 +521,39 @@ def _name_and_state(line: str) -> tuple[str, str]:
     return (name, state) if name else (line, "")
 
 
-def taken_away(before: Inventory, after: Inventory) -> list[str]:
+def run_marked_address(row: dict[str, Any], s: Settings) -> bool:
+    name = row.get("name", "")
+    labels = row.get("labels") or {}
+    return (
+        name.startswith(s.name)
+        or labels.get("iki-test") == "true"
+        or labels.get("iki-deployment") == s.name
+    )
+
+
+def external_auto_nat(inv: Inventory, line: str, s: Settings) -> bool:
+    """Only a provider-allocated address attached to one known, unrelated regional router."""
+    row = inv.addresses.get(line, {})
+    users = row.get("users") or []
+    if row.get("purpose") != "NAT_AUTO" or run_marked_address(row, s) or len(users) != 1:
+        return False
+    region = row.get("region", "").rsplit("/", 1)[-1]
+    parent = f"/compute/v1/projects/{s.project}/regions/{region}/routers/"
+    owner = urlsplit(users[0])
+    if (
+        owner.scheme != "https"
+        or owner.netloc not in {"www.googleapis.com", "compute.googleapis.com"}
+        or owner.query
+        or owner.fragment
+        or not region
+        or not owner.path.startswith(parent)
+    ):
+        return False
+    router = owner.path.removeprefix(parent)
+    return not router.startswith(s.name) and f"{router}\t{region}" in inv.listings["routers"]
+
+
+def taken_away(before: Inventory, after: Inventory, s: Settings) -> list[str]:
     """What was in the project before the run and isn't now, or is being deleted: a shared
     project's, and never the deployment's to remove. What GKE makes for any cluster's
     Services and Gateways comes and goes with them, so isn't counted."""
@@ -512,6 +562,13 @@ def taken_away(before: Inventory, after: Inventory) -> list[str]:
         if section == "apis" or section in VOLATILE:
             continue
         now = after.listings.get(section, set())
+        if section == "addresses":
+            problems += [
+                f"addresses: {line} is gone, which was there before"
+                for line in sorted(found - now)
+                if not external_auto_nat(before, line, s)
+            ]
+            continue
         deleting = DELETING.get(section)
         if deleting is None:
             problems += [
@@ -539,6 +596,13 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
     problems = []
     for section, found in after.listings.items():
         new = found - before.listings.get(section, set())
+        if section == "addresses":
+            # A shared identity can be relabelled or attached to a different router.
+            new |= {
+                line
+                for line in found & before.listings[section]
+                if before.addresses.get(line) != after.addresses.get(line)
+            }
         if section == "apis":
             gone = before.listings[section] - found
             problems += [f"API turned off: {api}" for api in sorted(gone)]
@@ -548,6 +612,13 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             # the deployment's instance and named for nothing of it.
             psa = section == "dns zones" and line.startswith("cloud-sql-psa-dns-")
             mine = any(o in line for o in ours) or bool(GKE_MADE.match(line)) or psa
+            if section == "addresses":
+                row = after.addresses.get(line, {})
+                mine = (
+                    mine
+                    or run_marked_address(row, s)
+                    or (row.get("purpose") == "NAT_AUTO" and not external_auto_nat(after, line, s))
+                )
             if not mine:
                 continue
             # Deleted, and waiting out the period Google keeps their names for.
@@ -556,7 +627,7 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             if section == "log buckets" and "DELETE_REQUESTED" in line:
                 continue
             problems.append(f"{section}: {line}")
-    problems += taken_away(before, after)
+    problems += taken_away(before, after, s)
     if f"{s.project}_cloudbuild" in after.listings["buckets"] - before.listings["buckets"]:
         problems.append(f"buckets: {s.project}_cloudbuild, which Cloud Build made for this test")
     for key, versions in after.key_versions.items():
