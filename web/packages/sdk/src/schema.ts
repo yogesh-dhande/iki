@@ -8850,7 +8850,7 @@ export interface components {
             read_at: string | null;
             /**
              * Records
-             * @description The records it's about that you can read now, the first 20.
+             * @description The records it's about that you can read now, the first 20, with those whose change it tells of, such as each released result of a request.
              */
             records: components["schemas"]["NotificationRecordOut"][];
             /** Title */

@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from api_client import Api
 from org_world import World
-from test_bundle_imports import PUBLIC, applied, bundle_of, entities_of, upload
+from test_bundle_imports import PUBLIC, applied, bundle_of, entities_of, protein, upload
 from test_bundle_imports import world as world  # a fixture
 from test_signatures import lot, ready, signed, standing
 from test_states import ANALYST, QA, REVIEWER, roles
@@ -19,7 +19,7 @@ from test_states import ANALYST, QA, REVIEWER, roles
 from iki_cli import bundle as cli
 from iki_server.bundles import reading
 from iki_server.entities.models import Entity, Revision
-from iki_server.signatures import offline
+from iki_server.signatures import offline, proof
 from iki_server.signatures.models import ForeignSigningKey, Signature, SigningKey
 
 pytestmark = pytest.mark.django_db
@@ -71,6 +71,45 @@ def test_a_bundle_carries_its_records_signatures(world: World, tmp_path: Path) -
     assert "key: It's signed by a key this deployment doesn't trust" in said
     code, said = verify(path, "--key", key["key"])
     assert code == 0, said
+    assert "you don't trust test's key" in said  # only its signatures were checked
+
+
+def test_a_bundle_with_no_signatures_checks_out_only_by_its_trusted_key(
+    world: World, tmp_path: Path
+) -> None:
+    """An auditor's pipeline gates on the exit status and `valid`: a bundle signed by
+    another key, under the same deployment's name, doesn't pass for being self-consistent,
+    and one with nothing to check by the keys given doesn't either."""
+    path = bundle_of(world, tmp_path, lambda: [protein(world, "MKTAYIAK", name="ABL1")])
+    other = "ed25519:" + "A" * 43
+    code, said = verify(path, "--trust", f"test={PUBLIC}")
+    assert code == 0, said
+    assert "It carries no electronic signatures." in said
+    code, said = verify(path, "--trust", f"test={other}")
+    assert code == 1
+    assert f"It doesn't check out: it's signed by {PUBLIC}, which isn't a key you gave" in said
+    code, said = verify(path)
+    assert code == 1
+    assert "nothing it holds is trusted: give test's key with --trust." in said
+    # With only signing keys, there's nothing they check.
+    code, said = verify(path, "--key", other)
+    assert code == 1
+    assert "only its signatures can be checked by the keys given with --key" in said
+
+    def as_json(*args: str) -> tuple[int, dict[str, Any]]:
+        out = io.StringIO()
+        parsed = argparse.Namespace(bundle=path, trust=[], key=[], json=True)
+        for flag, value in zip(args[::2], args[1::2], strict=True):
+            getattr(parsed, flag.removeprefix("--")).append(value)
+        code = cli.run_verify(parsed, out, io.StringIO())
+        return code, json.loads(out.getvalue())
+
+    code, body = as_json("--trust", f"test={other}")
+    assert (code, body["valid"], body["bundle"]["trusted"]) == (1, False, False)
+    assert body["checked"] == "bundle" and "isn't a key you gave" in body["why"]
+    code, body = as_json("--trust", f"test={PUBLIC}")
+    assert (code, body["valid"], body["checked"]) == (0, True, "bundle")
+    assert "why" not in body
 
 
 def test_offline_verification_finds_changed_history(world: World, tmp_path: Path) -> None:
@@ -125,6 +164,11 @@ def test_offline_verification_reads_history_through_the_migrations_since(
     found = offline._one({**line, "since": [converted]}, keys, record, {})
     [check] = [c for c in found.checks if not c.ok]
     assert "`label` was signed in no unit, but a migration converted it from g" in check.detail
+    # An empty quantity converts to an empty one.
+    empty = {"values": {"mass": None, "masses": [1.5, None]}, "units": {"mass": "g", "masses": "g"}}
+    grams = {**converted, "from_unit": "g", "to_unit": "mg"}
+    changes = [{**grams, "field": "mass"}, {**grams, "field": "masses"}]
+    assert proof.migrated(empty, changes)["values"] == {"mass": None, "masses": [1500.0, None]}
 
 
 def test_the_bundle_command_reports_json(world: World, tmp_path: Path) -> None:

@@ -8,7 +8,9 @@ import base64
 import hashlib
 import hmac
 import json
+import socket
 import ssl
+import struct
 import threading
 import time
 import uuid
@@ -379,6 +381,9 @@ class StandIn:
         (tmp_path / "standin.key").write_bytes(key)
         self.requests: list[tuple[str, str, dict[str, str], bytes]] = []
         self.status = "running"
+        #: Cleared, a prediction waits to be answered until it's set again.
+        self.answering = threading.Event()
+        self.answering.set()
         stand_in = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -404,6 +409,7 @@ class StandIn:
                 if api_key and self.headers.get("Authorization") != f"Bearer {api_key}":
                     self._answer(401, {"error": "bad key"})
                 elif self.path.partition("?")[0] == "/v1/predictions":
+                    stand_in.answering.wait(10)
                     self._answer(201, {"id": "job-1", "model": "fold-2"}, x_model_version="2.1")
                 elif self.path == "/v1/predictions/job-1/cancel":
                     self._answer(200, {"status": "canceled"})
@@ -632,6 +638,50 @@ def test_a_run_calls_the_api_through_the_proxy_parks_and_resumes(
         (a["attempt"], a["state"])
         for a in api_as(world).get(f"/runs/{made.json()['hrid']}/attempts").json()
     ] == [(1, "parked"), (2, "succeeded")]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_call_whose_command_disconnects_is_recorded_with_what_it_cost(
+    world: World, deployment: Path, stand_in: StandIn, serving: Callable[..., int], s3: Any
+) -> None:
+    """The API answers, and charges, after the command has gone, say at a timeout of its
+    own: the call is still recorded, with its cost, as every call is (ADR 0130)."""
+    approve(world)
+    assert hosted(world, consent=[API]).status_code == 201
+    job = worker(world).lease().json()
+    gateway = api_gateway.Gateway(str(deployment), client_tls=stand_in.trust())
+    port = serving(networks=LOOPBACK, resolve=stand_in.resolve(), gateway=gateway)
+    stand_in.answering.clear()
+    conversation, answer = connect(
+        port,
+        f"CONNECT {HOST}:443 HTTP/1.1\r\nHost: {HOST}:443\r\n"
+        f"Proxy-Authorization: {authorization(job)}\r\n\r\n",
+    )
+    assert answer.startswith(b"HTTP/1.1 200 "), answer
+    context = ssl.create_default_context(cadata=job["job"]["apis"]["ca"])
+    tls = context.wrap_socket(conversation, server_hostname=HOST)
+    sent = json.dumps({"sequence": "MKV", "recycles": 3}).encode()
+    tls.sendall(
+        (
+            f"POST /v1/predictions HTTP/1.1\r\nHost: {HOST}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(sent)}\r\n\r\n"
+        ).encode()
+        + sent
+    )
+    until(lambda: bool(stand_in.requests))  # it reached the API
+    # The command goes, resetting its connection, before the API answers.
+    tls.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    tls.close()
+    time.sleep(0.5)  # the proxy sees it go
+    stand_in.answering.set()
+
+    until(lambda: ApiCall.objects.filter(kind="call").exists())
+    call = ApiCall.objects.get(kind="call")
+    assert (call.status, call.model, call.cost) == (201, "fold-2", Decimal("0.020000"))
+    assert call.request_sha256 == hashlib.sha256(sent).hexdigest()
+    assert call.error.startswith("The command disconnected before the answer reached it in full")
+    record = CostRecord.objects.get(kind=CostKind.API)
+    assert (record.api, record.amount) == (API, Decimal("0.0200"))
 
 
 @pytest.mark.django_db

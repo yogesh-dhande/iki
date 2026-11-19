@@ -185,11 +185,10 @@ def migrated(signed: Mapping[str, Any], changes: Sequence[Mapping[str, Any]]) ->
                 )
             scale, offset = float(change["scale"]), float(change["offset"])
             value = values[name]
-            values[name] = (
-                [None if v is None else v * scale + offset for v in value]
-                if isinstance(value, list)
-                else value * scale + offset
-            )
+            if isinstance(value, list):
+                values[name] = [None if v is None else v * scale + offset for v in value]
+            elif value is not None:  # an empty value converts to an empty one
+                values[name] = value * scale + offset
             units[name] = change["to_unit"]
         elif kind == "retype" and out.get("type") == change["from"]:
             out["type"] = change["to"]

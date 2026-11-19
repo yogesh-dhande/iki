@@ -665,8 +665,10 @@ class Call:
     charged: bool = False
 
 
+@transaction.atomic
 def record(call: Call) -> ApiCall:
-    """Keeps a call with its run, and what it cost against the run's project and team."""
+    """Keeps a call with its run, and what it cost against the run's project and team: both
+    or neither, so no call is ever seen without its cost."""
     job = Job.objects.select_related("run__project").get(pk=call.job_id)
     run = job.run
     price = catalog.compute().prices.get(call.api)

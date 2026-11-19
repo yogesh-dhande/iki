@@ -323,6 +323,7 @@ class Batch_History(models.Model):
     revision = models.PositiveIntegerField()
     name = models.TextField(null=True)
     protein = models.UUIDField(db_column='protein_id', null=True)
+    proteins = ArrayField(models.UUIDField(), null=True)
     purity = models.FloatField(null=True)
     result = models.TextField(null=True)
     analyst = models.UUIDField(db_column='analyst_id', null=True)
@@ -339,6 +340,26 @@ class Batch_History(models.Model):
 
     class Meta:
         db_table = 'acme__protein_batch__history'
+
+
+class Batch_proteins(models.Model):
+    """The items of acme/protein.Batch.proteins, in order."""
+
+    IKI_LIST_OF = ('Batch', 'proteins')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Batch', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_batch__proteins'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=1000),
+                name='acme__protein_batch__proteins__position__max_items',
+            ),
+        ]
 
 
 class Bispecific(Entity):

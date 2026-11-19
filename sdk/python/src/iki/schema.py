@@ -2222,7 +2222,7 @@ class NotificationOut(TypedDict):
     path: str
     project: NotificationProject | None
     read_at: str | None
-    #: The records it's about that you can read now, the first 20.
+    #: The records it's about that you can read now, the first 20, with those whose change it tells of, such as each released result of a request.
     records: list[NotificationRecordOut]
     title: str
 

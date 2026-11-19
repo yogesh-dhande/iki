@@ -141,6 +141,47 @@ def test_what_an_action_may_not_change_fails_it(
     )
 
 
+FETCHED = """\
+apiVersion: iki/v1
+kind: ActionTest
+name: fetched
+action: fetch_proteins
+params: { accession: P69905 }
+"""
+
+
+def test_an_output_the_server_would_refuse_fails_it(
+    plugin: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Checked as the server checks a run's output, so a test fails where a real run would:
+    here, `fills` names a value the create doesn't give."""
+    fixture(plugin, FETCHED)
+    given = {"sequence": "MVLSPADKTNV"}
+    protein = {"type": "acme/protein.Protein", "values": given}
+    filled = {**protein, "values": {**given, "hazard": "bsl1"}}
+    answer(plugin, P69905={"output": {**OUTPUT, "creates": [{**filled, "fills": ["hazard"]}]}})
+    assert run(plugin) == 0, capsys.readouterr().out
+    capsys.readouterr()
+    answer(
+        plugin,
+        P69905={
+            "output": {
+                **OUTPUT,
+                "creates": [{**protein, "fills": ["hazard", "sequence"]}, protein],
+            }
+        },
+    )
+    assert run(plugin) == 1
+    out = capsys.readouterr().out
+    assert "  FAILED  fetched  (" in out
+    assert "output.json at #/creates/0/fills/0: It gives no value for `hazard`." in out
+    assert (
+        "output.json at #/creates/0/fills/1: `sequence` is its identity, which an entry "
+        "registered already has." in out
+    )
+    assert "output.json at #/creates/1: The action creates at most one acme/protein.Protein" in out
+
+
 def test_a_broken_fixture_runs_nothing(plugin: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fixture(plugin, PROPERTIES.replace("action: fetch_proteins", "action: fold"))
     assert run(plugin) == 1

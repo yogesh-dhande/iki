@@ -327,7 +327,7 @@ def _fire(d: Declared, record: Entity, change: Change, *, project: Project | Non
             untold.append(_person(c.user, "turned it off"))
             continue
         title, body = shown.message(c.user)
-        services.deliver(
+        found = services.told(
             c.user,
             kind,
             delivery,
@@ -338,6 +338,8 @@ def _fire(d: Declared, record: Entity, change: Change, *, project: Project | Non
             actor=change.actor,
             agent=change.agent,
             about=[record],
+            # The record that changed, when it isn't the one it's about: a released result.
+            naming=[other] if other is not None else [],
             fold=services.Fold(partial(_many, d, project)),
         )
         told.append(
@@ -345,6 +347,9 @@ def _fire(d: Declared, record: Entity, change: Change, *, project: Project | Non
                 **_person(c.user),
                 "as": c.why,
                 "email": delivery == Delivery.EMAIL and services.email_enabled(),
+                # Whether it's a new notification, their open one updated, or one that told
+                # them of it already.
+                "notice": found.how,
             }
         )
     if not told and not untold:

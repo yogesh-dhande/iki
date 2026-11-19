@@ -144,6 +144,26 @@ def _send(connection: h11.Connection, writer: asyncio.StreamWriter, event: Any) 
         writer.write(data)
 
 
+class _Delivery:
+    """An answer on its way to the command, which may disconnect partway: then ``lost`` says
+    how, and nothing more is sent to it."""
+
+    def __init__(self, client: h11.Connection, writer: asyncio.StreamWriter) -> None:
+        self.client = client
+        self.writer = writer
+        self.lost: str | None = None
+
+    async def send(self, event: Any, *, drain: bool = True) -> None:  # noqa: ANN401 - h11's events
+        if self.lost is not None:
+            return
+        try:
+            _send(self.client, self.writer, event)
+            if drain:
+                await self.writer.drain()
+        except (OSError, h11.ProtocolError) as error:  # ConnectionError is an OSError
+            self.lost = f"{type(error).__name__}: {error}"
+
+
 def _close(writer: asyncio.StreamWriter | None) -> None:
     if writer is not None:
         with contextlib.suppress(Exception):
@@ -374,33 +394,39 @@ class Gateway:
             for k, v in answer_headers
         )
         got = _Reading(events=streamed)
-        _send(
-            client,
-            writer,
+        # The API has answered, so it may have charged for the call: whatever happens from
+        # here, it's recorded. If the command has gone, the answer is still read to its end,
+        # as the API sends it, for its status, its usage and what it cost.
+        delivered = _Delivery(client, writer)
+        await delivered.send(
             h11.Response(
                 status_code=answer.status_code,
                 headers=[(k, v) for k, v in answer_headers if k not in HOP_BY_HOP],
                 reason=answer.reason,
-            ),
+            )
         )
-        await writer.drain()
         try:
             while True:
                 event = await _next(upstream.connection, upstream.reader)
                 if isinstance(event, h11.Data):
                     got.add(bytes(event.data))
                     tunnel.received += len(event.data)
-                    _send(client, writer, h11.Data(data=event.data))
-                    await writer.drain()
+                    await delivered.send(h11.Data(data=event.data))
                 elif isinstance(event, h11.EndOfMessage):
-                    _send(client, writer, h11.EndOfMessage())
+                    await delivered.send(h11.EndOfMessage(), drain=False)
                     break
                 else:
                     raise ConnectionError("The API closed the connection mid-answer.")
-        except (OSError, TimeoutError, h11.ProtocolError, ConnectionError) as error:
+        except (OSError, TimeoutError, h11.ProtocolError) as error:
             call.error = f"The answer was cut short: {error}"[:500]
             _close(upstream.writer)
             upstream = None
+        if delivered.lost is not None:
+            gone = (
+                f"The command disconnected before the answer reached it in full ({delivered.lost})."
+            )
+            call.error = (f"{call.error} " if call.error else "") + gone
+            call.error = call.error[:500]
         tunnel.active_at = time.monotonic()
         lowered = dict(answer_headers)
         call.status = answer.status_code
@@ -426,6 +452,10 @@ class Gateway:
             else:
                 _close(upstream.writer)
                 upstream = None
+        if delivered.lost is not None:
+            if upstream is not None:
+                _close(upstream.writer)
+            raise ConnectionResetError("The command disconnected.")
         return upstream
 
     async def _open(self, proxy: Proxy, host: str) -> _Upstream:

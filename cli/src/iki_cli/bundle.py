@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -32,7 +33,10 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
             "Check a bundle: each member's SHA-256, and its signature by its deployment's "
             "key. Then check each electronic signature (21 CFR Part 11) it carries: signed "
             "by a key you trust, for its record and revision, and that the bundle's history "
-            "of that revision holds what was signed. Exits 0 only if everything checks out."
+            "of that revision holds what was signed. Exits 0 only if everything checks out: "
+            "the bundle is signed by a key given with --trust, and each signature is valid. "
+            "With --key and no --trust, only its signatures are checked, so it exits 0 only "
+            "if it carries some, and each is valid."
         ),
     )
     verify.add_argument("bundle", type=Path, help="The bundle: a .tar.gz exported from Iki.")
@@ -101,15 +105,15 @@ def run_verify(args: argparse.Namespace, out: TextIO = sys.stdout, err: TextIO =
     except (reading.BundleError, OSError) as error:
         print(f"iki: {args.bundle} doesn't check out: {error}", file=err)
         return 1
-    valid = all(v.valid for v in verified)
+    verdict = _verdict(bundle, verified, trusting=bool(trusts), keys=bool(keys))
     if args.json:
-        json.dump(_as_json(bundle, verified), out, indent=2, ensure_ascii=False)
+        json.dump(_as_json(bundle, verified, verdict), out, indent=2, ensure_ascii=False)
         out.write("\n")
-        return 0 if valid else 1
+        return 0 if verdict.valid else 1
     source = bundle.source
     if bundle.trusted_as is None:
         print(
-            f"The bundle checks out, but you don't trust {source}'s key "
+            f"The bundle's own bytes check out, but you don't trust {source}'s key "
             f"{bundle.manifest['source']['key']}: give it with --trust {source}=KEY, or give "
             "the keys that signed its signatures with --key.",
             file=out,
@@ -130,10 +134,52 @@ def run_verify(args: argparse.Namespace, out: TextIO = sys.stdout, err: TextIO =
         + (f"{failed} failed." if failed else "all valid."),
         file=out,
     )
-    return 0 if valid else 1
+    if verdict.why:
+        print(f"It doesn't check out: {verdict.why}", file=out)
+    return 0 if verdict.valid else 1
 
 
-def _as_json(bundle: Any, verified: list[Any]) -> dict[str, Any]:  # noqa: ANN401
+@dataclass(frozen=True)
+class Verdict:
+    """Whether a bundle checks out, as far as what was given to trust says it can."""
+
+    valid: bool
+    #: What was checked: "bundle", the bundle as its deployment's, or "signatures", only
+    #: its signatures, by the keys given with --key.
+    scope: str
+    #: Why it doesn't check out, beside any signature that failed.
+    why: str = ""
+
+
+def _verdict(bundle: Any, verified: list[Any], *, trusting: bool, keys: bool) -> Verdict:  # noqa: ANN401
+    """A bundle checks out when its key is one given with --trust and each signature is
+    valid. With only --key, its signatures are all that's checked: then it needs some."""
+    signatures = all(v.valid for v in verified)
+    if bundle.trusted_as is not None:
+        return Verdict(signatures, "bundle")
+    source = bundle.source
+    if trusting:
+        return Verdict(
+            False,
+            "bundle",
+            f"it's signed by {bundle.manifest['source']['key']}, which isn't a key you gave "
+            f"for {source} with --trust.",
+        )
+    if not keys:
+        return Verdict(
+            False, "bundle", f"nothing it holds is trusted: give {source}'s key with --trust."
+        )
+    if not verified:
+        return Verdict(
+            False,
+            "signatures",
+            "only its signatures can be checked by the keys given with --key, and it carries "
+            f"none: give {source}'s key with --trust to check the rest.",
+        )
+    return Verdict(signatures, "signatures")
+
+
+def _as_json(bundle: Any, verified: list[Any], verdict: Verdict) -> dict[str, Any]:  # noqa: ANN401
     return {
         "bundle": {
             "id": bundle.manifest["id"],
@@ -141,7 +187,9 @@ def _as_json(bundle: Any, verified: list[Any]) -> dict[str, Any]:  # noqa: ANN40
             "source": bundle.source,
             "trusted": bundle.trusted_as is not None,
         },
-        "valid": all(v.valid for v in verified),
+        "valid": verdict.valid,
+        "checked": verdict.scope,
+        **({"why": verdict.why} if verdict.why else {}),
         "signatures": [
             {
                 "id": v.id,

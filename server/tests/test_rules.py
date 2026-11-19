@@ -1,6 +1,7 @@
 """Plugins' rules, checked at every save (ADR 0127): CEL checks, which refuse a save or hold
 the record for review, and the database's own `unique` and `no_overlap` rules."""
 
+import uuid
 from typing import Any
 
 import pytest
@@ -108,6 +109,78 @@ def test_a_rule_reads_what_a_reference_refers_to(world: World) -> None:
     body = problem(batch(world, {"protein": prt["id"]}), 422, "validation_failed")
     assert errors(body) == [("#/values/protein", "protein_not_bsl3", False)]
     assert body["errors"][0]["detail"] == f"{prt['hrid']} is BSL-3: batches aren't made of it here."
+
+
+def _proteins(world: World, count: int, bsl3: int | None = None) -> list[str]:
+    """``count`` proteins, the one at ``bsl3`` of them BSL-3."""
+    out = []
+    for n in range(count):
+        made = Entity.objects.get(
+            pk=entity_services.create(
+                world.users["editor"],
+                "acme/protein.Protein",
+                world.project,
+                {"sequence": "MKV" + "".join("ACDEFGHIKL"[int(d)] for d in f"{n:04d}")},
+            ).entity.pk
+        )
+        if n == bsl3:
+            _bsl3(world, made)
+        out.append(str(made.pk))
+    return out
+
+
+def _bsl3(world: World, made: Entity) -> None:
+    entity_services.fill_entry(
+        world.users["editor"],
+        shape("acme/protein.Protein"),
+        Entity.objects.get(pk=str(made.entry_id)),
+        {"hazard": "bsl3"},
+        project=world.project,
+    )
+
+
+def test_a_rule_over_a_list_reads_every_member(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """However long the list: a rule worked out on part of one could keep it, or break it,
+    wrongly. The BSL-3 protein is the 200th, then the 201st."""
+    listed = _proteins(world, 201, bsl3=200)
+    safe, bsl3 = listed[:200], listed[200]
+    assert made(world, {"proteins": safe})["breaches"] == []
+    for proteins in ([*safe[1:], bsl3], [*safe, bsl3]):
+        body = problem(batch(world, {"proteins": proteins}), 422, "validation_failed")
+        assert errors(body) == [("#/values/proteins", "proteins_not_bsl3", False)]
+    # Checked together, as a bulk import checks its records, each reads its own list whole.
+    ids = [uuid.UUID(i) for i in listed]  # as the database stores them
+    savings = [
+        checking.Saving({"name": "L-1", "proteins": ids}.get),
+        checking.Saving({"name": "L-2", "proteins": ids[:10]}.get),
+    ]
+    found = checking.broken(BATCH, savings)
+    assert [[b.rule.key for b in one] for one in found] == [["proteins_not_bsl3"], []]
+    # Past what one lookup loads, they're checked in groups, each record's list still whole.
+    monkeypatch.setattr(checking, "MAX_LOOKUP", 50)
+    found = checking.broken(BATCH, [*savings, checking.Saving({"proteins": ids[150:]}.get)])
+    assert [[b.rule.key for b in one] for one in found] == [
+        ["proteins_not_bsl3"],
+        [],
+        ["proteins_not_bsl3"],
+    ]
+
+
+def test_a_rule_over_a_list_it_cant_read_all_of_isnt_worked_out(world: World) -> None:
+    """A member it can't read (say, of a type no longer installed) isn't left out: the rule
+    can't be checked, rather than worked out on the rest."""
+    safe = [uuid.UUID(i) for i in _proteins(world, 2)]
+    gone = uuid.UUID("019a0000-0000-7000-8000-000000000000")
+    [[broken]] = checking.broken(
+        BATCH, [checking.Saving({"name": "L-1", "proteins": [*safe, gone]}.get)]
+    )
+    assert broken.rule.key == "proteins_not_bsl3"
+    assert broken.message == (
+        "“None of its proteins is BSL-3” couldn’t be checked: proteins refers to 1 record it "
+        "can’t read, so it isn’t worked out on the rest."
+    )
 
 
 def test_an_extensions_rule_is_named_by_its_plugin(world: World) -> None:
@@ -446,7 +519,8 @@ def test_a_search_by_rule_names_one_of_its_types(world: World) -> None:
         (
             "#/where/value/1",
             "isn't a rule they can break once saved: Batches have `pass_in_specification`, "
-            "`reviewer_isnt_analyst`, `expires_after_made` or `protein_not_bsl3`.",
+            "`reviewer_isnt_analyst`, `expires_after_made`, `protein_not_bsl3` or "
+            "`proteins_not_bsl3`.",
         )
     ]
     assert refused({"field": "held", "op": "is_set", "value": "yes"}) == [

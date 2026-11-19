@@ -10,6 +10,8 @@ hrid: { prefix: BAT }
 fields:
   name: { type: string, required: true, max_length: 100 }
   protein: { type: ref, to: Protein }
+  # What else went into it: rules and guards read every one, however many.
+  proteins: { type: list, items: { type: ref, to: Protein }, max_items: 1000 }
   purity: { type: float, min: 0, max: 100 }
   result: { type: enum, values: [pass, fail] }
   analyst: { type: person, role: analyst }
@@ -52,6 +54,9 @@ fields:
             check: record.result == "pass"
             when: record.purity != null
             message: Only a batch that passed is released.
+          proteins_not_bsl3:
+            check: record.proteins.all(p, p.hazard != "bsl3")
+            message: A batch of a BSL-3 protein isn't released.
       # A state set by signing for it (ADR 0126), whose guards are checked at each signature.
       certified:
         label: Certified
@@ -100,6 +105,11 @@ rules:
     check: record.protein.hazard != "bsl3"
     message: "{{ record.protein.hrid }} is BSL-3: batches aren't made of it here."
     fields: [protein]
+  proteins_not_bsl3:
+    label: None of its proteins is BSL-3
+    check: '!record.proteins.exists(p, p.hazard == "bsl3")'
+    message: "One of its proteins is BSL-3: batches aren't made of it here."
+    fields: [proteins]
   one_per_well:
     label: One batch per well
     unique: [plate, well]

@@ -178,6 +178,22 @@ def test_quantities_can_come_in_any_convertible_unit(world: World) -> None:
         "validation_failed",
     )
     assert body["errors"][0]["pointer"] == "#/values/temperature_optimum"
+    # A unit raised past any real one's power is refused before it's worked out.
+    body = problem(
+        create(
+            api,
+            world.project,
+            {"sequence": "MKW", "temperature_optimum": {"value": 1, "unit": "10*1000000000.K"}},
+            type_name="acme/protein.Protein",
+        ),
+        422,
+        "validation_failed",
+    )
+    assert body["errors"][0] == {
+        "pointer": "#/values/temperature_optimum",
+        "detail": "has a unit Iki can't use here: `1000000000` is too large an exponent: a "
+        "unit's are at most 99.",
+    }
 
 
 # --- Reading -----------------------------------------------------------------------------------
