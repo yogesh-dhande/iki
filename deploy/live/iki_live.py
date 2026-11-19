@@ -443,9 +443,15 @@ def make_certificate(root: Path, host: str) -> tuple[Path, Path, Path]:
 # --- What the images are built from --------------------------------------------------------
 
 
-def build_plugins(root: Path) -> Path:
+def build_plugins(
+    root: Path,
+    more: Mapping[str, Path] | None = None,
+    compute: list[dict[str, Any]] | None = None,
+) -> Path:
     """The server's and the worker's plugins: iki/dna and iki/protein, their tools bound
-    to the backend workers (as deploy/dev builds them), in root/plugins-build."""
+    to the backend workers (as deploy/dev builds them), in root/plugins-build. A cloud's
+    run may add plugins (more: each name's directory) and compute documents of its own
+    (compute), such as the VM tier's templates."""
     out = root / "plugins-build"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
@@ -455,8 +461,14 @@ def build_plugins(root: Path) -> Path:
                 "apiVersion": "iki/v1",
                 "kind": "PluginLock",
                 "plugins": [
-                    {"name": f"iki/{n}", "local": str(REPO / "plugins" / n), "state": "active"}
-                    for n in PLUGINS
+                    *(
+                        {"name": f"iki/{n}", "local": str(REPO / "plugins" / n), "state": "active"}
+                        for n in PLUGINS
+                    ),
+                    *(
+                        {"name": name, "local": str(path), "state": "active"}
+                        for name, path in (more or {}).items()
+                    ),
                 ],
             }
         )
@@ -478,6 +490,7 @@ def build_plugins(root: Path) -> Path:
             }
             for e in ("iki/dna.sequence-tools", "iki/protein.protein-tools")
         ),
+        *(compute or []),
     ]
     (out / "compute.yaml").write_text(yaml.safe_dump_all(documents))
     subprocess.run(  # noqa: S603 - argv built here

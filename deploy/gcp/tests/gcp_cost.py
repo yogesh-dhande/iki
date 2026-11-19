@@ -4,7 +4,8 @@ Each billable resource's lifetime comes from the project's Admin Activity audit 
 when it was created and deleted. That times the list price of its SKU, fetched from
 the Cloud Billing Catalog API, in the deployment's region. Cloud Build's minutes come
 from its builds, log volume from Cloud Monitoring, and Artifact Registry's storage from
-the image sizes the test noted before tearing down. If the project exports billing to
+the image sizes the test noted before tearing down, as Compute Engine's images' (the VM
+tier's setup builds' versions). If the project exports billing to
 BigQuery, the export's rows labelled ``iki-deployment=<name>`` are queried too, though they lag
 by up to a day.
 
@@ -116,6 +117,8 @@ SKUS: dict[str, tuple[str, str]] = {
     "build_e2_cpu": ("Cloud Build", r"^E2 cpu utilization per minute in "),
     "build_e2_ram": ("Cloud Build", r"^E2 ram utilization per minute in "),
     "artifact_storage": ("Artifact Registry", r"(?i)^Artifact Registry Storage$"),
+    # A setup build's version of a volume on the VM tier: an image, by its archive's size.
+    "image": ("Compute Engine", r"^Storage Image( in .*)?$"),
     "kms_software": (
         "Cloud Key Management Service (KMS)",
         r"(?i)^Active software symmetric key versions$",
@@ -214,7 +217,7 @@ class Catalog:
 
 METHODS = (
     r"(ClusterManager\.(Create|Delete)Cluster"
-    r"|compute\.(instances|disks|forwardingRules|routers|addresses)\.(insert|delete)"
+    r"|compute\.(instances|disks|images|forwardingRules|routers|addresses)\.(insert|delete)"
     r"|cloudsql\.instances\.(create|delete)"
     r"|ArtifactRegistry\.(Create|Delete)Repository"
     r"|CreateCryptoKey|DestroyCryptoKeyVersion"
@@ -263,6 +266,7 @@ def _kind(method: str) -> str:
         (r"ClusterManager", "cluster"),
         (r"compute\.instances", "instance"),
         (r"compute\.disks", "disk"),
+        (r"compute\.images", "image"),
         (r"compute\.forwardingRules", "forwarding rule"),
         (r"compute\.routers", "router"),
         (r"compute\.addresses", "address"),
@@ -280,13 +284,32 @@ def _kind(method: str) -> str:
 # --- The report -------------------------------------------------------------------------------
 
 
+#: The shared-core E2 machines (the VM tier's light stand-ins): the fraction of a vCPU
+#: each is billed for, and its GiB of memory.
+SHARED_CORE = {"e2-micro": (0.25, 1.0), "e2-small": (0.5, 2.0), "e2-medium": (1.0, 4.0)}
+
+
 def _machine(machine: str) -> tuple[float, float] | None:
     """An E2 machine type's vCPUs and GiB of memory."""
+    if machine in SHARED_CORE:
+        return SHARED_CORE[machine]
     match = re.fullmatch(r"e2-(standard|highcpu|highmem)-(\d+)", machine)
     if not match:
         return None
     cpus = int(match.group(2))
     return cpus, cpus * {"standard": 4, "highcpu": 1, "highmem": 8}[match.group(1)]
+
+
+def _disk_sizes(request: Any) -> list[float]:
+    """The GiB of each disk an instances.insert request makes with its instance: none
+    when the request doesn't say (a node's, which its pool gives)."""
+    disks = request.get("disks") if isinstance(request, dict) else None
+    return [
+        float(d["initializeParams"]["diskSizeGb"])
+        for d in disks or []
+        if isinstance(d, dict)
+        and str(d.get("initializeParams", {}).get("diskSizeGb", "")).isdigit()
+    ]
 
 
 def _sql_tier(tier: str) -> tuple[float, float] | None:
@@ -361,6 +384,18 @@ def report(
                 continue
             add(f"VM {life.name} ({machine}) cores", "e2_core", hours, shape[0], "h", open_note)
             add(f"VM {life.name} ({machine}) memory", "e2_ram", hours, shape[1], "GiBy.h")
+            # A VM-tier machine's request gives its disks' sizes; a node's, its pool's.
+            sizes = _disk_sizes(life.request)
+            if sizes:
+                add(
+                    f"VM {life.name} disks",
+                    "pd_balanced",
+                    hours,
+                    sum(sizes),
+                    "GiBy.h",
+                    f"pd-balanced, {len(sizes)} as its request made them",
+                )
+                continue
             disk = float(config.get("disk_size_gib", 100))
             add(
                 f"VM {life.name} boot disk",
@@ -379,6 +414,16 @@ def report(
                 size,
                 "GiBy.h",
                 open_note or "assumed pd-balanced",
+            )
+        elif life.kind == "image":
+            size = float(facts.get("image_bytes", {}).get(life.name, 0)) / GIB
+            add(
+                f"image {life.name}",
+                "image",
+                hours,
+                size,
+                "GiBy.h",
+                open_note or "its archive's size, billed per month; prorated here",
             )
         elif life.kind == "sql":
             body = life.request.get("body", life.request)

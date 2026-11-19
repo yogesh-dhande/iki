@@ -78,6 +78,17 @@ RELEVANT: dict[str, tuple[str, ...]] = {
         "server/src/iki_server/runs/gce.py",
         "server/src/iki_server/runs/gce_fleet.py",
         "server/src/iki_server/runs/gce_volumes.py",
+        # Its VM-tier run (48h): the live check plugin it installs and runs on Compute
+        # Engine, EC2's boot script and host config its machines share, the provisioner
+        # that starts them, setup builds and the volumes they make, and the artifacts a
+        # run keeps.
+        "deploy/live/plugins/live_check/",
+        "server/src/iki_server/runs/ec2.py",
+        "server/src/iki_server/runs/ec2_fleet.py",
+        "server/src/iki_server/runs/provisioner.py",
+        "server/src/iki_server/runs/setups.py",
+        "server/src/iki_server/runs/volumes.py",
+        "server/src/iki_server/runs/artifacts.py",
     ),
     "aws": (
         *SHARED,

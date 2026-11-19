@@ -744,13 +744,6 @@ pub(crate) fn environment(
 /// What programs read their trusted roots from, as a single file.
 const BUNDLE_VARIABLES: [&str; 3] = ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"];
 
-/// Where the system keeps its roots, on Debian and Alpine, on Red Hat, and on macOS.
-const SYSTEM_ROOTS: [&str; 3] = [
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/etc/pki/tls/certs/ca-bundle.crt",
-    "/etc/ssl/cert.pem",
-];
-
 /// The system's roots: the worker's own `SSL_CERT_FILE`, or the first of the usual
 /// places that can be read. The command runs beside the worker, in the same image on the
 /// container tier and a cloud machine, so these are the roots it would trust anyway.
@@ -758,7 +751,7 @@ fn system_roots() -> Option<Vec<u8>> {
     std::env::var_os("SSL_CERT_FILE")
         .map(PathBuf::from)
         .into_iter()
-        .chain(SYSTEM_ROOTS.iter().map(PathBuf::from))
+        .chain(crate::host::SYSTEM_ROOTS.iter().map(PathBuf::from))
         .find_map(|path| std::fs::read(path).ok())
 }
 

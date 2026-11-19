@@ -67,6 +67,7 @@ def catalog(tmp_path: Path) -> Path:
             sku("CORE", "E2 Instance Core running in Americas", "h", 0.02),
             sku("RAM", "E2 Instance Ram running in Americas", "GiBy.h", 0.003),
             sku("PD", "Balanced PD Capacity", "GiBy.mo", 0.1),
+            sku("IMG", "Storage Image", "GiBy.mo", 0.05),
         ],
         "Cloud SQL": [
             sku(
@@ -145,6 +146,46 @@ def test_each_resource_is_priced_for_its_life_in_the_audit_log(
     assert lines["logs ingested (cluster and database)"].cost == pytest.approx(1.0)
     assert result.total == pytest.approx(sum(line.cost for line in result.lines))
     assert "total" in result.text()
+
+
+def test_the_vm_tiers_machines_and_images_are_priced_as_their_requests_made_them(
+    catalog: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run's e2-small, with the disks its request made (a boot disk and one from a setup
+    build's image), and the image, by the archive size noted before tearing down."""
+    monkeypatch.setattr(gcp_cost, "_log_bytes", lambda cloud, window: 0.0)
+    monkeypatch.setattr(gcp_cost, "billing_export", lambda cloud, window: "none")
+    machine = "projects/p/zones/us-central1-a/instances/iki-test-run-0a1b"
+    image = "projects/p/global/images/iki-test-setup-000001-v1"
+    request = {
+        "machineType": "zones/us-central1-a/machineTypes/e2-small",
+        "disks": [
+            {"boot": True, "initializeParams": {"diskSizeGb": "20"}},
+            {"initializeParams": {"diskSizeGb": "1", "sourceImage": image}},
+        ],
+    }
+    project = FakeProject(
+        [
+            entry(20, "v1.compute.images.insert", image),
+            entry(60, "v1.compute.instances.insert", machine, request),
+            entry(90, "v1.compute.instances.delete", machine),
+            entry(140, "v1.compute.images.delete", image),
+        ]
+    )
+    window = gcp_cost.Window("p", "iki-test", "us-central1", START, END)
+    facts = {"image_bytes": {"iki-test-setup-000001-v1": 2 * gcp_cost.GIB}}
+    result = gcp_cost.report(project, window, {}, facts, catalog)
+    lines = {line.resource: line for line in result.lines}
+    # Half an hour of half a core, 2 GiB, and 21 GiB of disks.
+    vm = [line for name, line in lines.items() if name.startswith("VM iki-test-run-0a1b")]
+    assert sum(line.cost for line in vm) == pytest.approx(
+        0.5 * 0.5 * 0.02 + 0.5 * 2 * 0.003 + 0.5 * 21 * 0.1 / 730
+    )
+    assert "2 as its request made them" in lines["VM iki-test-run-0a1b disks"].note
+    # Two hours of a 2 GiB image.
+    assert lines["image iki-test-setup-000001-v1"].cost == pytest.approx(2 * 2 * 0.05 / 730)
+    # And the NAT gateway's per-VM charge for its half hour.
+    assert lines["Cloud NAT gateway (per VM)"].lifetime_hours == pytest.approx(0.5)
 
 
 def test_a_resource_without_a_price_is_shown_not_dropped(catalog: Path) -> None:

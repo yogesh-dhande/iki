@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# What the live tests (deploy/live) run on the VM tier: a light stand-in for a heavy
+# action, such as a structure prediction on a GPU machine reading terabytes of reference
+# data. Its setup fills a small volume on a machine of its own, and its action reads it on
+# another, from the version the setup made. Only the live tests install it, as a lab
+# would its own plugin (acme stands for a lab).
+apiVersion: iki/v1
+kind: Plugin
+name: acme/live_check
+version: 0.1.0
+title: Live check
+description: A VM-tier action and the reference data its setup makes, for Iki's live cloud tests.
+license: Apache-2.0
+iki: ">=0.1"

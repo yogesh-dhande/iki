@@ -1670,6 +1670,58 @@ def test_the_vm_tier_on_compute_engine() -> None:
     assert "IKI_RUNS_VM_CLOUD" not in provisioner_env(manifests(VMS))
 
 
+def test_every_server_pod_knows_whose_machines_the_vm_tier_starts_and_where() -> None:
+    """The API and tasks say where an environment's setup builds go, and which version of
+    its volumes machines there get, by the VM tier's owner and cloud: without them, every
+    VM-tier setup build was refused as having nowhere to go. How machines start (their
+    template, key, server address and CA) stays the provisioner's alone."""
+    docs = manifests(GCE)
+    for name in ("iki-web", "iki-tasks", "iki-provisioner"):
+        pod = named(docs, "Deployment", name)["spec"]["template"]["spec"]
+        env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+        assert (
+            env["IKI_RUNS_VM_OWNER"],
+            env["IKI_RUNS_VM_CLOUD"],
+            env["IKI_RUNS_VM_GCP_PROJECT"],
+        ) == ("iki-production", "gcp", "iki-prod"), name
+        names = [e["name"] for e in pod["containers"][0]["env"]]
+        assert len(names) == len(set(names)), name
+        if name != "iki-provisioner":
+            assert not {
+                "IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE",
+                "IKI_RUNS_VM_GCP_KMS_KEY",
+                "IKI_RUNS_VM_SERVER_URL",
+            } & set(env), name
+    # On EC2 the cloud is the default; without the VM tier, none of it.
+    assert web_env(VMS)["IKI_RUNS_VM_OWNER"] == "iki-production"
+    assert "IKI_RUNS_VM_CLOUD" not in web_env(VMS)
+    assert "IKI_RUNS_VM_OWNER" not in web_env()
+
+
+def test_machines_trust_the_ca_the_vm_tier_names() -> None:
+    """vmTier.caSecret: mounted read-only in the provisioner alone, which hands its
+    certificates to each machine it starts."""
+    docs = manifests(
+        {"vmTier": {**GCE["vmTier"], "caSecret": {"name": "corp-ca", "key": "ca.pem"}}}
+    )
+    assert provisioner_env(docs)["IKI_RUNS_VM_CA_FILE"] == "/etc/iki/vm-ca/ca.pem"
+    pod = named(docs, "Deployment", "iki-provisioner")["spec"]["template"]["spec"]
+    (mount,) = [m for m in pod["containers"][0]["volumeMounts"] if m["name"] == "vm-ca"]
+    assert (mount["mountPath"], mount["readOnly"]) == ("/etc/iki/vm-ca", True)
+    (volume,) = [v for v in pod["volumes"] if v["name"] == "vm-ca"]
+    assert volume["secret"] == {
+        "secretName": "corp-ca",
+        "items": [{"key": "ca.pem", "path": "ca.pem"}],
+    }
+    web = named(docs, "Deployment", "iki-web")["spec"]["template"]["spec"]
+    assert not [v for v in web["volumes"] if v["name"] == "vm-ca"]
+    # Without one, machines trust their own roots alone.
+    plain = manifests(GCE)
+    assert "IKI_RUNS_VM_CA_FILE" not in provisioner_env(plain)
+    pod = named(plain, "Deployment", "iki-provisioner")["spec"]["template"]["spec"]
+    assert not [v for v in pod["volumes"] if v["name"] == "vm-ca"]
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

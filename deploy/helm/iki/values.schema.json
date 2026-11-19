@@ -860,6 +860,19 @@
           "type": "string",
           "pattern": "^(https://.+)?$"
         },
+        "caSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
         "egressProxyUrl": {
           "type": "string",
           "pattern": "^(https?://[^/@]+/?)?$"

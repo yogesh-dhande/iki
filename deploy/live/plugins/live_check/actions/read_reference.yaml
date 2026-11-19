@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Reads the reference data on a machine of its own, and keeps what it read, with how its
+# volume is mounted, as artifacts. Its runs wait until a setup build has made a version.
+apiVersion: iki/v1
+kind: Action
+name: read_reference
+label: Read the reference data
+description: Copies the reference data on its machine's volume, and keeps how the volume is mounted.
+runs_on: { tier: vm, environment: machine }
+command: [sh, ./scripts/read.sh]
+# Each live run must run it, never reuse an earlier run's results.
+deterministic: false
+artifacts: { keep: [reference.txt, mount.txt] }
+timeout: 15m

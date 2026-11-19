@@ -155,6 +155,21 @@ which version of an environment's volumes machines there get (ADR 0075). */}}
 - name: IKI_RUNS_NAMESPACES
   value: {{ rest $namespaces | join "," | quote }}
 {{- end }}
+{{- with $ctx.Values.vmTier }}
+{{- if .enabled }}
+{{- /* Whose machines the VM tier starts, and on which cloud: the provisioner starts them,
+and the API and tasks say where an environment's setup builds go and which version of its
+volumes machines there get (ADR 0075). The rest is the provisioner's alone. */}}
+- name: IKI_RUNS_VM_OWNER
+  value: {{ .owner | quote }}
+{{- if eq (.cloud | default "aws") "gcp" }}
+- name: IKI_RUNS_VM_CLOUD
+  value: gcp
+- name: IKI_RUNS_VM_GCP_PROJECT
+  value: {{ .gcp.project | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- with $ctx.Values.selfHostedWorkers.version }}
 - name: IKI_WORKER_VERSION
   value: {{ . | quote }}

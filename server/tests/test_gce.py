@@ -2,6 +2,7 @@
 google-cloud-compute's own types (which refuse a field Compute Engine doesn't have), how
 Compute Engine's errors are read, and the script each machine boots with."""
 
+import dataclasses
 import json
 import shutil
 import subprocess
@@ -141,13 +142,44 @@ def test_each_try_has_its_own_request_id() -> None:
     assert request(attempt=1)["requestId"] != request()["requestId"]
 
 
-def test_a_standard_machine_is_stopped_for_maintenance_never_migrated() -> None:
+def test_a_standard_machine_with_gpus_is_stopped_for_maintenance_never_migrated() -> None:
     scheduling = request(spot=False)["instance"]["scheduling"]
     assert scheduling == {
         "provisioningModel": "STANDARD",
         "onHostMaintenance": "TERMINATE",
         "automaticRestart": False,
     }
+
+
+def test_a_standard_machine_without_gpus_is_migrated_through_maintenance() -> None:
+    """E2 machines refuse to be stopped for host maintenance unless Spot, so they're migrated
+    live: the run goes on (found by the live test, on an e2-small)."""
+    made = instance_request(
+        launch_id=LAUNCH,
+        name="iki-run-1",
+        machine="iki-prod-run-1",
+        template=dataclasses.replace(
+            template(machine_type="e2-small", spot=False),
+            capacity=Resources(cpu=0.5, memory=GI, scratch_disk=2 * GI),
+        ),
+        environment="acme/prediction.alphafold-gpu",
+        image=IMAGE,
+        machines=MACHINES,
+        once=True,
+        token="iki_wlch_secret",
+        zone="us-central1-a",
+        spot=False,
+        attempt=0,
+        source=SOURCE,
+        boot_image=COS,
+        kms_key=KEY,
+    )
+    assert made["instance"]["scheduling"] == {
+        "provisioningModel": "STANDARD",
+        "onHostMaintenance": "MIGRATE",
+        "automaticRestart": False,
+    }
+    assert "guestAccelerators" not in made["instance"]
 
 
 def test_gpus_are_attached_on_machine_types_without_their_own() -> None:
@@ -458,6 +490,76 @@ def test_the_script_is_valid_shell_and_signs_in_to_artifact_registry(tmp_path: P
     assert (config["cloud"], config["spot"]) == ("gcp", True)
     assert config["worker"] == "/var/lib/iki/host/bin/iki-worker"
     assert config["scratch"] == "/var/lib/iki/scratch"
+
+
+def test_a_runs_container_may_ask_compute_engines_dns_and_nothing_else_there() -> None:
+    lines = startup_script(request()["instance"]).splitlines()
+    drop = lines.index(
+        "iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true"
+    )
+    allowed = [
+        line for line in lines if "169.254.169.254/32" in line and "--dport 53 -j ACCEPT" in line
+    ]
+    assert [line.split(" -p ")[1].split()[0] for line in allowed] == ["udp", "tcp"]
+    # Each is inserted at the top of DOCKER-USER after the drop, so each comes before it.
+    assert all(lines.index(line) > drop for line in allowed)
+    assert not [
+        line
+        for line in lines
+        if "169.254.169.254" in line and "ACCEPT" in line and "53" not in line
+    ]
+
+
+def test_ec2s_machines_need_no_such_exception() -> None:
+    from iki_server.runs import ec2
+
+    made = ec2.user_data(
+        name="iki-run-1",
+        template=template(),
+        environment="acme/prediction.alphafold-gpu",
+        image=IMAGE,
+        machines=MACHINES,
+        once=True,
+        spot=False,
+        token="iki_wlch_secret",
+    )
+    assert "--dport 53" not in made
+
+
+def test_the_deployments_ca_reaches_the_host_when_it_has_one() -> None:
+    def config(machines: VmMachines) -> dict[str, Any]:
+        made = instance_request(
+            launch_id=LAUNCH,
+            name="iki-run-1",
+            machine="iki-prod-run-1",
+            template=template(),
+            environment="acme/prediction.alphafold-gpu",
+            image=IMAGE,
+            machines=machines,
+            once=True,
+            token="iki_wlch_secret",
+            zone="us-central1-a",
+            spot=False,
+            attempt=0,
+            source=SOURCE,
+            boot_image=COS,
+            kms_key=KEY,
+        )
+        text = startup_script(made["instance"])
+        found: dict[str, Any] = json.loads(
+            text.split("IKI_HOST_JSON'\n")[1].split("\nIKI_HOST_JSON")[0]
+        )
+        return found
+
+    assert "ca_certificates" not in config(MACHINES)
+    pem = "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n"
+    trusting = VmMachines(
+        server_url=MACHINES.server_url,
+        worker_image=WORKER,
+        owner="iki-prod",
+        ca_certificates=pem,
+    )
+    assert config(trusting)["ca_certificates"] == pem
 
 
 def test_a_public_registry_needs_no_sign_in() -> None:

@@ -165,3 +165,101 @@ def test_what_google_cloud_keeps_of_the_deployment_is_still_allowed() -> None:
     assert (
         live.leftovers(project(), project(custom_roles={role}, log_buckets={logs}), SETTINGS) == []
     )
+
+
+# --- The VM tier's light stand-ins (48h) -------------------------------------------------
+
+REPOSITORY = "us-central1-docker.pkg.dev/shared-lab/iki-test-11190800-plugins"
+DIGEST = "sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca"
+
+
+def test_docker_hubs_images_are_copied_from_googles_mirror_and_named_by_their_digest() -> None:
+    copy = live.mirrored(f"docker.io/library/python:3.13-alpine@{DIGEST}", REPOSITORY)
+    assert copy.source == f"mirror.gcr.io/library/python@{DIGEST}"
+    assert copy.destination == f"{REPOSITORY}/python:3.13-alpine"
+    assert copy.pinned == f"{REPOSITORY}/python@{DIGEST}"
+    other = live.mirrored(f"ghcr.io/acme/tools@{DIGEST}", REPOSITORY)
+    assert (other.source, other.destination) == (
+        f"ghcr.io/acme/tools@{DIGEST}",
+        f"{REPOSITORY}/tools:live",
+    )
+    with pytest.raises(AssertionError, match="pinned by its digest"):
+        live.mirrored("docker.io/library/python:3.13-alpine", REPOSITORY)
+
+
+def test_the_live_check_runs_its_image_from_the_deployments_registry(tmp_path: Path) -> None:
+    plugin, copy = live.live_check_plugin(tmp_path, REPOSITORY)
+    environment = (plugin / "environments" / "machine.yaml").read_text()
+    assert f"image: {REPOSITORY}/python@{DIGEST}\n" in environment
+    assert "docker.io" not in environment.split("\nimage:")[1].splitlines()[0]
+    # The repository's own copy is left as it is.
+    assert (
+        "image: docker.io/library/python:3.13-alpine@"
+        in (live.LIVE_CHECK_DIR / "environments" / "machine.yaml").read_text()
+    )
+    assert copy.pinned == f"{REPOSITORY}/python@{DIGEST}"
+
+
+def test_the_vm_tiers_template_is_a_small_machine_bound_to_the_live_check() -> None:
+    template, binding = live.vm_compute(SETTINGS)
+    assert template["provisioner"] == "gcp_gce"
+    assert template["gcp"] == {
+        "machine_type": "e2-small",
+        "image": "projects/cos-cloud/global/images/family/cos-stable",
+        "region": "us-central1",
+        "zones": ["us-central1-b", "us-central1-c"],
+    }
+    assert template["volumes"] == {"reference": {"strategy": "clone_from_snapshot"}}
+    assert binding["environment"] == live.VM_ENVIRONMENT
+    assert binding["templates"] == [{"template": live.VM_TEMPLATE}]
+
+
+def test_the_live_check_and_its_template_pass_validation(tmp_path: Path) -> None:
+    """As the deployment's plugins are built: the plugin with its image moved, its
+    environment bound to the template, which suits its volume and resources."""
+    import iki_live
+
+    plugin, _ = live.live_check_plugin(tmp_path, REPOSITORY)
+    out = iki_live.build_plugins(tmp_path, {live.LIVE_CHECK: plugin}, live.vm_compute(SETTINGS))
+    assert (out / "server" / "plugins" / "iki_plugin_acme__live_check").is_dir()
+
+
+def test_waiting_on_the_vm_tier_asks_again_when_a_request_stalls_and_keeps_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long wait goes through the port-forward, which can stall for a moment: that's asked
+    again, not a failure. Each time, what the VM tier's machines are is written down."""
+    import time
+
+    import requests
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    settings = live.Settings(**{**SETTINGS.__dict__, "workdir": tmp_path})
+
+    class Machines:
+        def gcloud(self, *args: str) -> str:
+            assert args[:3] == ("compute", "instances", "list")
+            return '[{"name": "iki-test-11190800-run-1", "zone": "us-central1-b"}]'
+
+        def run(self, *argv: str, check: bool = True) -> Any:
+            assert not check
+            return SimpleNamespace(returncode=1, stdout="", stderr="")
+
+    answers: list[Any] = [
+        requests.ReadTimeout("read timed out"),
+        {"status": "running"},
+        {"status": "succeeded"},
+    ]
+
+    def look() -> dict[str, Any]:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        found: dict[str, Any] = answer
+        return found
+
+    d: Any = SimpleNamespace(gcp=Machines(), settings=settings)
+    assert live.followed(d, "the run", look, {"succeeded", "failed"}, 60) == {"status": "succeeded"}
+    written = (tmp_path / "logs" / "machines.log").read_text()
+    assert "asking for the run failed: read timed out" in written
+    assert written.count("iki-test-11190800-run-1") == 4

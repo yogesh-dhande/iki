@@ -160,6 +160,9 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   tagged with `vmTier.owner`. The machines' subnets need a way to the
   server (`vmTier.serverUrl`), object storage and the egress proxy
   (`vmTier.egressProxyUrl`), and nothing else.
+  If the server's certificate there is your own CA's, put the CA's
+  certificates in a Secret and name it in `vmTier.caSecret`
+  ([ADR 0160](../../docs/adr/0160-vm-tier-machines-trust-the-deployments-ca-and-keep-to-what-compute-engine-allows.md)).
 - Environments with reference data (AlphaFold's databases, say) fill it
   with a setup build, which a Compute admin asks for under Compute →
   Volumes, and another approves if the environment asks for that

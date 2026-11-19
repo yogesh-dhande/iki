@@ -111,8 +111,14 @@ class Listing:
         return self._disks
 
     def images(self) -> list[dict[str, Any]]:
+        """The deployment's setup builds' images: labelled with a build, not only with the
+        deployment, as anything else of the deployment's may be."""
         if self._images is None:
-            self._images = list(self.gce.images(self.project, self.fleet.machines.owner))
+            self._images = [
+                i
+                for i in self.gce.images(self.project, self.fleet.machines.owner)
+                if _label(i, SETUP_LABEL) is not None
+            ]
         return self._images
 
     def image_of(self, build: SetupBuild, volume: str) -> dict[str, Any] | None:

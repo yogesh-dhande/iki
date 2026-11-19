@@ -371,11 +371,20 @@ class GceFleet(Fleet):
     # --- Reconciling -------------------------------------------------------------------------
 
     def listed(self) -> list[dict[str, Any]] | None:
+        """The machines the provisioner started: labelled with the deployment, and also with
+        a launch, and named for the deployment. The deployment's other instances (its
+        cluster's nodes, which deploy/gcp labels with it too) are never Iki's to delete."""
         try:
-            return self.gce.instances(self.project, self.machines.owner)
+            found = self.gce.instances(self.project, self.machines.owner)
         except GceError as error:
             logger.warning("reconcile_list_failed", project=self.project, error=str(error))
             return None
+        prefix = f"{self.machines.owner}-"
+        return [
+            each
+            for each in found
+            if _label(each, LAUNCH_LABEL) and str(each.get("name", "")).startswith(prefix)
+        ]
 
     def reconcile(self, now: datetime) -> int:
         instances = self.listed()

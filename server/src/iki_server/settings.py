@@ -171,6 +171,27 @@ if IKI_RUNS_VM_SERVER_URL and not (
     raise environ.ImproperlyConfigured(
         "IKI_RUNS_VM_SERVER_URL must be an https:// address: machines send their token to it."
     )
+# The CA certificates machines' workers trust besides their own roots, in PEM, when the
+# server's certificate is the deployment's own CA's (an internal load balancer's, say).
+# Each machine's boot script carries them, so they're a few certificates, not a bundle:
+# EC2 allows 16 KiB of user data.
+IKI_RUNS_VM_CA_FILE: str = env.str("IKI_RUNS_VM_CA_FILE", default="")
+#: The most IKI_RUNS_VM_CA_FILE may hold.
+VM_CA_LIMIT = 8 * 1024
+if IKI_RUNS_VM_CA_FILE:
+    _vm_ca = Path(IKI_RUNS_VM_CA_FILE)
+    if not _vm_ca.is_file():
+        raise environ.ImproperlyConfigured(f"IKI_RUNS_VM_CA_FILE: no file at {_vm_ca}")
+    if _vm_ca.stat().st_size > VM_CA_LIMIT:
+        raise environ.ImproperlyConfigured(
+            f"IKI_RUNS_VM_CA_FILE holds more than {VM_CA_LIMIT // 1024} KiB: give the "
+            "deployment's own CA certificates, not a bundle of public ones (machines trust "
+            "those already)."
+        )
+    if b"-----BEGIN CERTIFICATE-----" not in _vm_ca.read_bytes():
+        raise environ.ImproperlyConfigured(
+            f"IKI_RUNS_VM_CA_FILE: {_vm_ca} holds no PEM certificate."
+        )
 # Where the vm tier's machines start: EC2 (`aws`, ADR 0074), or Compute Engine (`gcp`,
 # ADR 0107), in IKI_RUNS_VM_GCP_PROJECT, from IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE (the
 # vm-tier module's, unless a compute template names its own), with disks encrypted by

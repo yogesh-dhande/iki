@@ -288,3 +288,32 @@ def test_file_storage_settings_are_checked(env: dict[str, str], message: str) ->
     result = _files_settings({"IKI_FILES_BUCKET": "iki", **env})
     assert result.returncode != 0
     assert message in result.stderr
+
+
+CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        (None, "IKI_RUNS_VM_CA_FILE: no file at"),
+        ("not a certificate", "holds no PEM certificate"),
+        (CA_PEM * 200, "holds more than 8 KiB: give the deployment's own CA certificates"),
+    ],
+)
+def test_the_vm_tiers_ca_is_a_few_pem_certificates(
+    tmp_path: Path, text: str | None, message: str
+) -> None:
+    ca = tmp_path / "ca.crt"
+    if text is not None:
+        ca.write_text(text)
+    result = run_manage("check", env={**PROD_ENV, "IKI_RUNS_VM_CA_FILE": str(ca)})
+    assert result.returncode != 0
+    assert message in result.stderr
+
+
+def test_the_vm_tiers_ca_is_taken(tmp_path: Path) -> None:
+    ca = tmp_path / "ca.crt"
+    ca.write_text(CA_PEM)
+    result = run_manage("check", env={**PROD_ENV, "IKI_RUNS_VM_CA_FILE": str(ca)})
+    assert result.returncode == 0, result.stderr

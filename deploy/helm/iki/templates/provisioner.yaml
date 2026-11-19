@@ -99,19 +99,17 @@ spec:
             {{- end }}
             {{- end }}
             {{- if $v.enabled }}
-            - name: IKI_RUNS_VM_OWNER
-              value: {{ $v.owner | quote }}
             - name: IKI_RUNS_VM_SERVER_URL
               value: {{ $vmUrl | quote }}
             {{- with $v.egressProxyUrl }}
             - name: IKI_RUNS_VM_EGRESS_PROXY_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if $v.caSecret.name }}
+            - name: IKI_RUNS_VM_CA_FILE
+              value: /etc/iki/vm-ca/{{ $v.caSecret.key }}
+            {{- end }}
             {{- if eq ($v.cloud | default "aws") "gcp" }}
-            - name: IKI_RUNS_VM_CLOUD
-              value: gcp
-            - name: IKI_RUNS_VM_GCP_PROJECT
-              value: {{ $v.gcp.project | quote }}
             - name: IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE
               value: {{ $v.gcp.instanceTemplate | quote }}
             {{- with $v.gcp.kmsKey }}
@@ -151,8 +149,22 @@ spec:
             {{- include "iki.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
+            {{- if and $v.enabled $v.caSecret.name }}
+            - name: vm-ca
+              mountPath: /etc/iki/vm-ca
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "iki.volumes" . | nindent 8 }}
+        {{- if and $v.enabled $v.caSecret.name }}
+        # The CA certificates machines' workers trust (vmTier.caSecret).
+        - name: vm-ca
+          secret:
+            secretName: {{ $v.caSecret.name }}
+            items:
+              - key: {{ $v.caSecret.key }}
+                path: {{ $v.caSecret.key }}
+        {{- end }}
       {{- with $c.provisioner.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -36,6 +36,11 @@
 //! A machine whose config says what to `remove` only mounts those file systems, removes
 //! the versions as runs' user (`iki-worker remove`), says `IKI-REMOVED` on its console,
 //! and shuts down.
+//!
+//! A server behind a private certificate authority, such as an internal load balancer's,
+//! is trusted with the CA certificates the config names: the machine's own roots and
+//! them, in one file mounted read-only into the container, which the worker reads as
+//! `SSL_CERT_FILE`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -57,6 +62,15 @@ const CONTAINER: &str = "iki-run";
 const PULLS: u32 = 5;
 /// How often to look for a spot interruption notice: it comes two minutes ahead.
 const SPOT_EVERY: Duration = Duration::from_secs(5);
+/// Where the container sees the roots it trusts, with the deployment's CA certificates.
+pub const CA_BUNDLE: &str = "/etc/iki/ca-certificates.crt";
+/// Where a system keeps its trusted roots: Debian's, Alpine's and Container-Optimized OS's;
+/// Red Hat's and Amazon Linux's; then macOS's and others'.
+pub const SYSTEM_ROOTS: [&str; 3] = [
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+];
 
 /// What the machine's boot script wrote (`ec2.host_config` on the server).
 #[derive(Debug, Deserialize)]
@@ -93,6 +107,10 @@ pub struct Config {
     /// once the server has taken the build as succeeded, on the machine.
     #[serde(default)]
     pub succeeded_file: Option<PathBuf>,
+    /// CA certificates, in PEM, that the worker trusts besides the machine's own roots:
+    /// the deployment's, when the server's certificate is its own CA's.
+    #[serde(default)]
+    pub ca_certificates: Option<String>,
 }
 
 /// The cloud a machine is in: EC2 unless its config says.
@@ -187,6 +205,8 @@ pub struct Machine {
     pub tools: PathBuf,
     /// How long a volume's disk may take to be attached.
     pub attach_within: Duration,
+    /// Where its trusted roots may be, the first that can be read.
+    pub roots: Vec<PathBuf>,
 }
 
 impl Default for Machine {
@@ -198,6 +218,7 @@ impl Default for Machine {
             pause: Duration::from_secs(10),
             tools: PathBuf::new(),
             attach_within: Duration::from_secs(300),
+            roots: SYSTEM_ROOTS.iter().map(PathBuf::from).collect(),
         }
     }
 }
@@ -504,8 +525,10 @@ pub fn run(
     if interrupted.load(Ordering::SeqCst) {
         return Ok(Ended::Stopped);
     }
+    let bundle = trust(config, config_file, machine)?;
     let env_file = config_file.with_file_name("run.env");
-    let created = write_env(config, &env_file).and_then(|()| create(config, machine, &env_file));
+    let created = write_env(config, &env_file, bundle.is_some())
+        .and_then(|()| create(config, machine, &env_file, bundle.as_deref()));
     // The token is in Docker's hands now, or isn't needed: it stays on disk no longer.
     let _ = std::fs::remove_file(&env_file);
     created?;
@@ -750,13 +773,74 @@ fn pause(wait: Duration, interrupted: &AtomicBool) -> bool {
     interrupted.load(Ordering::SeqCst)
 }
 
+/// The roots the worker trusts, if the config names CA certificates of the deployment's
+/// own: the machine's (the first of `machine.roots` that can be read), then those, in a
+/// file beside the config that anyone may read, since the container's user must.
+fn trust(
+    config: &Config,
+    config_file: &Path,
+    machine: &Machine,
+) -> Result<Option<PathBuf>, Trouble> {
+    let Some(certificates) = config
+        .ca_certificates
+        .as_deref()
+        .filter(|c| !c.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    if !certificates.contains("-----BEGIN CERTIFICATE-----") {
+        return Err(Trouble::new(
+            "bad_config",
+            "Its CA certificates aren't PEM certificates.",
+        ));
+    }
+    let mut bundle = machine
+        .roots
+        .iter()
+        .find_map(|path| std::fs::read(path).ok())
+        .unwrap_or_default();
+    if !bundle.is_empty() && !bundle.ends_with(b"\n") {
+        bundle.push(b'\n');
+    }
+    bundle.extend_from_slice(certificates.trim_end().as_bytes());
+    bundle.push(b'\n');
+    let path = config_file.with_file_name("ca-certificates.crt");
+    let written = write_public(&path, &bundle);
+    written.map_err(|e| {
+        Trouble::new(
+            "bad_config",
+            format!("Couldn't write {}: {e}", path.display()),
+        )
+    })?;
+    Ok(Some(path))
+}
+
+/// Writes `bytes` to `path`, readable by anyone: beside it first, then renamed over it.
+fn write_public(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let fresh = path.with_extension("new");
+    let _ = std::fs::remove_file(&fresh);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o644);
+    }
+    options.open(&fresh)?.write_all(bytes)?;
+    std::fs::rename(&fresh, path)
+}
+
 /// The worker's environment, for `docker create --env-file`: readable by root only, and
-/// deleted as soon as the container's made.
-fn write_env(config: &Config, path: &Path) -> Result<(), Trouble> {
+/// deleted as soon as the container's made. With the deployment's CA certificates
+/// (`trusted`), it reads its roots from their bundle.
+fn write_env(config: &Config, path: &Path, trusted: bool) -> Result<(), Trouble> {
     let token = std::fs::read_to_string(&config.token_file)
         .map_err(|e| Trouble::new("bad_config", format!("Couldn't read the token: {e}")))?;
     let mut env = config.env.clone();
     env.insert("IKI_REGISTRATION_TOKEN".into(), token.trim().to_owned());
+    if trusted {
+        env.insert("SSL_CERT_FILE".into(), CA_BUNDLE.to_owned());
+    }
     let mut text = String::new();
     for (name, value) in &env {
         // An env file has one variable a line, unquoted.
@@ -787,8 +871,9 @@ fn write_env(config: &Config, path: &Path) -> Result<(), Trouble> {
         })
 }
 
-/// `docker create`'s arguments: the container tier's pod, as a container.
-pub fn create_args(config: &Config, env_file: &Path) -> Vec<String> {
+/// `docker create`'s arguments: the container tier's pod, as a container. `bundle` is the
+/// roots it trusts, with the deployment's CA certificates, if it has any.
+pub fn create_args(config: &Config, env_file: &Path, bundle: Option<&Path>) -> Vec<String> {
     let mut args: Vec<String> = [
         "create",
         "--name",
@@ -827,6 +912,15 @@ pub fn create_args(config: &Config, env_file: &Path) -> Vec<String> {
     ]
     .map(str::to_owned)
     .to_vec();
+    if let Some(bundle) = bundle {
+        args.extend([
+            "--mount".into(),
+            format!(
+                "type=bind,src={},dst={CA_BUNDLE},readonly",
+                bundle.display()
+            ),
+        ]);
+    }
     for volume in &config.volumes {
         let mut mount = format!(
             "type=bind,src={},dst={}",
@@ -857,10 +951,15 @@ pub fn create_args(config: &Config, env_file: &Path) -> Vec<String> {
     args
 }
 
-fn create(config: &Config, machine: &Machine, env_file: &Path) -> Result<(), Trouble> {
+fn create(
+    config: &Config,
+    machine: &Machine,
+    env_file: &Path,
+    bundle: Option<&Path>,
+) -> Result<(), Trouble> {
     // One left by an earlier start of this service is replaced.
     let _ = docker(machine, &["rm", "--force", CONTAINER]);
-    let args = create_args(config, env_file);
+    let args = create_args(config, env_file, bundle);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     docker(machine, &args).map_err(|e| {
         Trouble::new(
@@ -1191,6 +1290,7 @@ esac
             pause: Duration::ZERO,
             tools: fake_tools(dir),
             attach_within: Duration::from_secs(5),
+            roots: vec![dir.join("roots.pem")],
         };
         (config, config_file, machine)
     }
@@ -1318,6 +1418,96 @@ esac
         // Neither the token nor the env file is left on the machine.
         assert!(!config.token_file.exists());
         assert!(!file.with_file_name("run.env").exists());
+    }
+
+    /// The config of `setup`, naming the deployment's CA certificates.
+    fn with_ca(dir: &Path, certificates: &str) -> (Config, PathBuf, Machine) {
+        let (_, file, machine) = setup(dir, false);
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        json["ca_certificates"] = certificates.into();
+        std::fs::write(&file, json.to_string()).unwrap();
+        (read(&file).unwrap(), file, machine)
+    }
+
+    const CA: &str = "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n";
+
+    #[test]
+    fn the_deployments_ca_is_trusted_besides_the_machines_roots() {
+        let dir = Dir::new("ca");
+        let (config, file, machine) = with_ca(&dir.0, CA);
+        std::fs::write(
+            dir.0.join("roots.pem"),
+            "-----BEGIN CERTIFICATE-----\nMIIBpublic\n-----END CERTIFICATE-----",
+        )
+        .unwrap();
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        let bundle = file.with_file_name("ca-certificates.crt");
+        let text = std::fs::read_to_string(&bundle).unwrap();
+        assert_eq!(
+            text,
+            "-----BEGIN CERTIFICATE-----\nMIIBpublic\n-----END CERTIFICATE-----\n\
+             -----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&bundle).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o644, "the container's user reads it");
+        }
+        let calls = calls(&dir.0);
+        let create = calls.iter().find(|c| c.starts_with("create")).unwrap();
+        let mount = format!(
+            "--mount type=bind,src={},dst=/etc/iki/ca-certificates.crt,readonly",
+            bundle.display()
+        );
+        assert!(create.contains(&mount), "{create}");
+        let seen = std::fs::read_to_string(dir.0.join("seen.env")).unwrap();
+        assert!(
+            seen.contains("SSL_CERT_FILE=/etc/iki/ca-certificates.crt\n"),
+            "{seen}"
+        );
+    }
+
+    #[test]
+    fn without_the_machines_roots_the_ca_alone_is_trusted() {
+        let dir = Dir::new("ca-alone");
+        let (config, file, machine) = with_ca(&dir.0, CA);
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        assert_eq!(
+            run(&config, &file, &machine, &AtomicBool::new(false)),
+            Ok(Ended::Exited(0))
+        );
+        let bundle = std::fs::read_to_string(file.with_file_name("ca-certificates.crt")).unwrap();
+        assert_eq!(bundle, CA);
+    }
+
+    #[test]
+    fn with_no_ca_the_container_trusts_its_own_roots() {
+        let dir = Dir::new("no-ca");
+        let (config, file, machine) = setup(&dir.0, false);
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        assert_eq!(
+            run(&config, &file, &machine, &AtomicBool::new(false)),
+            Ok(Ended::Exited(0))
+        );
+        assert!(!file.with_file_name("ca-certificates.crt").exists());
+        let calls = calls(&dir.0);
+        let create = calls.iter().find(|c| c.starts_with("create")).unwrap();
+        assert!(!create.contains("ca-certificates"), "{create}");
+        let seen = std::fs::read_to_string(dir.0.join("seen.env")).unwrap();
+        assert!(!seen.contains("SSL_CERT_FILE"), "{seen}");
+    }
+
+    #[test]
+    fn a_ca_that_isnt_pem_starts_nothing() {
+        let dir = Dir::new("bad-ca");
+        let (config, file, machine) = with_ca(&dir.0, "not a certificate");
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended.map_err(|t| t.reason), Err("bad_config"));
+        assert!(!calls(&dir.0).iter().any(|c| c.starts_with("create")));
     }
 
     #[test]
