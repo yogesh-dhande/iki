@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -25,12 +25,13 @@ from iki_server.accounts.models import Kind, User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import keys
+from iki_server.core.snapshots import snapshot
 from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Part, Shape, shape
 from iki_server.files import storage
-from iki_server.files.models import File
+from iki_server.files.models import Blob, File
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
 from iki_server.runs.models import (
@@ -53,6 +54,9 @@ from iki_server.signatures import proof, signing_keys
 from iki_server.signatures.models import Signature, Withdrawal
 from iki_spec import releases
 from iki_spec.model import Field, names_people
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 #: How much of a blob is read at a time.
 CHUNK = 1024 * 1024
@@ -131,114 +135,17 @@ def write(
         )
     if not can(by, Action.PROJECT_MANAGE, project):
         raise ExportError(f"Exporting from {project.name} needs its Admin role.")
-    found = _find(project, list(picked), by)
-    if not found.entities:
-        raise ExportError("There's nothing to export: pick at least one entity.")
     signing = keys.private_key(settings.IKI_BUNDLE_SIGNING_KEY)
     bundle_id = uuid.uuid4()
     with tempfile.TemporaryDirectory(prefix="iki-bundle-") as tmp:
         work = Path(tmp)
-        members: list[dict[str, Any]] = []
-        revisions = list(
-            Revision.objects.filter(entity_id__in=found.entities).order_by("entity_id", "number")
-        )
-        files = list(File.objects.filter(id__in=found.files).select_related("blob"))
-        signed = list(
-            Signature.objects.filter(entity_id__in=found.entities)
-            .select_related("withdrawal")
-            .order_by("entity_id", "signed_at", "pk")
-        )
-        withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
-        runs = _run_lines(found)
-        people = (
-            {by.pk}
-            | _run_people(runs)
-            | {
-                u
-                for u in [
-                    *(e.created_by_id for e in found.entities.values()),
-                    *(r.user_id for r in revisions),
-                    *(f.created_by_id for f in files),
-                    *(s.signer_id for s in signed),
-                    *(w.by_id for w in withdrawals),
-                ]
-                if u is not None
-            }
-            | found.named
-        )
-        agents = {
-            a for a in [*(r.agent_id for r in revisions), *(f.agent_id for f in files)] if a
-        } | _run_agents(runs)
-        by_entity: dict[uuid.UUID, list[Revision]] = {}
-        for r in revisions:
-            by_entity.setdefault(r.entity_id, []).append(r)
-        lines = {
-            "people.ndjson": (
-                _person(u) for u in User.objects.filter(pk__in=people).order_by("pk")
-            ),
-            "agents.ndjson": (
-                _agent(a) for a in Agent.objects.filter(pk__in=agents).order_by("pk")
-            ),
-            "files.ndjson": (_file(f) for f in sorted(files, key=lambda f: f.pk)),
-            "entries.ndjson": (
-                _entry(e) for e in sorted(found.entries.values(), key=lambda e: e.pk)
-            ),
-            "entities.ndjson": (
-                _entity(e, by_entity.get(e.pk, []), found.history[e.pk])
-                for e in sorted(found.entities.values(), key=lambda e: e.pk)
-            ),
-            "outside.ndjson": (
-                _outside(i, why, by) for i, why in sorted(found.outside.items(), key=str)
-            ),
-            "runs.ndjson": iter(runs),
-            "signatures.ndjson": (_signature(s) for s in signed),
-        }
-        paths = {}
-        for name, rows in lines.items():
-            paths[name] = work / name
-            members.append(_write_lines(paths[name], name, rows))
-        blobs = sorted(
-            {f.blob for f in files if not f.blob.registered_external}, key=lambda b: b.sha256
-        )
-        manifest: dict[str, Any] = {
-            "apiVersion": "iki/v1",
-            "kind": "Bundle",
-            "id": str(bundle_id),
-            "created_at": dt.datetime.now(dt.UTC).isoformat(),
-            "source": {
-                "deployment": settings.IKI_ENVIRONMENT,
-                "url": settings.IKI_PUBLIC_URL,
-                "iki": releases.iki(),
-                "key": keys.public_text(signing),
-            },
-            "exported_by": _person(by),
-            "reason": reason,
-            "project": {
-                "id": str(project.pk),
-                "team": project.team.name,
-                "name": project.name,
-                "slug": project.slug,
-            },
-            "selection": selection[:2000],
-            "plugins": _plugins(found),
-            "signing_keys": _signing_keys(signed),
-            "counts": {
-                "entities": len(found.entities),
-                "entries": len(found.entries),
-                "revisions": len(revisions),
-                "files": len(files),
-                "outside": len(found.outside),
-                "runs": len(runs),
-                "signatures": len(signed),
-            },
-            "members": [
-                *members,
-                *(
-                    {"path": _blob_path(b.sha256), "sha256": b.sha256, "size": b.size}
-                    for b in blobs
-                ),
-            ],
-        }
+        # Everything the bundle says is read at one moment, and spooled to its members'
+        # files before the files' contents are, which take longer: a change committed
+        # meanwhile can't put one revision's metadata beside another's values.
+        with snapshot():
+            paths, blobs, manifest = _collect(
+                project, list(picked), by, reason, selection, signing, bundle_id, work
+            )
         document = json.dumps(manifest, indent=2, ensure_ascii=False).encode() + b"\n"
         try:
             with tarfile.open(out, "w:gz") as tar:
@@ -271,6 +178,116 @@ def write(
         },
     )
     return exported
+
+
+def _collect(
+    project: Project,
+    picked: list[Entity],
+    by: User,
+    reason: str,
+    selection: str,
+    signing: Ed25519PrivateKey,
+    bundle_id: uuid.UUID,
+    work: Path,
+) -> tuple[dict[str, Path], list[Blob], dict[str, Any]]:
+    """What goes, read and written to the members' files in `work`: their paths, the
+    blobs whose contents go, and the manifest."""
+    found = _find(project, picked, by)
+    if not found.entities:
+        raise ExportError("There's nothing to export: pick at least one entity.")
+    members: list[dict[str, Any]] = []
+    revisions = list(
+        Revision.objects.filter(entity_id__in=found.entities).order_by("entity_id", "number")
+    )
+    files = list(File.objects.filter(id__in=found.files).select_related("blob"))
+    signed = list(
+        Signature.objects.filter(entity_id__in=found.entities)
+        .select_related("withdrawal")
+        .order_by("entity_id", "signed_at", "pk")
+    )
+    withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
+    runs = _run_lines(found)
+    people = (
+        {by.pk}
+        | _run_people(runs)
+        | {
+            u
+            for u in [
+                *(e.created_by_id for e in found.entities.values()),
+                *(r.user_id for r in revisions),
+                *(f.created_by_id for f in files),
+                *(s.signer_id for s in signed),
+                *(w.by_id for w in withdrawals),
+            ]
+            if u is not None
+        }
+        | found.named
+    )
+    agents = {
+        a for a in [*(r.agent_id for r in revisions), *(f.agent_id for f in files)] if a
+    } | _run_agents(runs)
+    by_entity: dict[uuid.UUID, list[Revision]] = {}
+    for r in revisions:
+        by_entity.setdefault(r.entity_id, []).append(r)
+    lines = {
+        "people.ndjson": (_person(u) for u in User.objects.filter(pk__in=people).order_by("pk")),
+        "agents.ndjson": (_agent(a) for a in Agent.objects.filter(pk__in=agents).order_by("pk")),
+        "files.ndjson": (_file(f) for f in sorted(files, key=lambda f: f.pk)),
+        "entries.ndjson": (_entry(e) for e in sorted(found.entries.values(), key=lambda e: e.pk)),
+        "entities.ndjson": (
+            _entity(e, by_entity.get(e.pk, []), found.history[e.pk])
+            for e in sorted(found.entities.values(), key=lambda e: e.pk)
+        ),
+        "outside.ndjson": (
+            _outside(i, why, by) for i, why in sorted(found.outside.items(), key=str)
+        ),
+        "runs.ndjson": iter(runs),
+        "signatures.ndjson": (_signature(s) for s in signed),
+    }
+    paths = {}
+    for name, rows in lines.items():
+        paths[name] = work / name
+        members.append(_write_lines(paths[name], name, rows))
+    blobs = sorted(
+        {f.blob for f in files if not f.blob.registered_external}, key=lambda b: b.sha256
+    )
+    manifest: dict[str, Any] = {
+        "apiVersion": "iki/v1",
+        "kind": "Bundle",
+        "id": str(bundle_id),
+        "created_at": dt.datetime.now(dt.UTC).isoformat(),
+        "source": {
+            "deployment": settings.IKI_ENVIRONMENT,
+            "url": settings.IKI_PUBLIC_URL,
+            "iki": releases.iki(),
+            "key": keys.public_text(signing),
+        },
+        "exported_by": _person(by),
+        "reason": reason,
+        "project": {
+            "id": str(project.pk),
+            "team": project.team.name,
+            "name": project.name,
+            "slug": project.slug,
+        },
+        "selection": selection[:2000],
+        "plugins": _plugins(found),
+        "signing_keys": _signing_keys(signed),
+        "counts": {
+            "entities": len(found.entities),
+            "entries": len(found.entries),
+            "revisions": len(revisions),
+            "files": len(files),
+            "outside": len(found.outside),
+            "runs": len(runs),
+            "signatures": len(signed),
+        },
+        "members": [
+            *members,
+            *({"path": _blob_path(b.sha256), "sha256": b.sha256, "size": b.size} for b in blobs),
+        ],
+    }
+    return paths, blobs, manifest
 
 
 # --- What goes ----------------------------------------------------------------------------------
@@ -970,7 +987,7 @@ class _Checked(io.RawIOBase):
         return chunk
 
 
-def _add_blob(tar: tarfile.TarFile, blob: Any) -> None:  # noqa: ANN401 - a Blob
+def _add_blob(tar: tarfile.TarFile, blob: Blob) -> None:
     body = storage.open_object(blob.storage_uri, blob.object_version)
     checked = _Checked(body)
     tar.addfile(_info(_blob_path(blob.sha256), blob.size), checked)
