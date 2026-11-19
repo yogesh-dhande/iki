@@ -770,8 +770,8 @@ class RunInput(models.Model):
 
 class RunInclusion(models.Model):
     """An entity a run reads because one of its inputs' references names it, at the
-    revision it read (ADR 0105): an antibody's heavy chain, say, when the action's input
-    includes ``heavy_chain``."""
+    revision it read (ADR 0105): an antibody's chains, say, when the action's input
+    includes ``components.part`` (ADR 0161)."""
 
     APPEND_ONLY = True
 

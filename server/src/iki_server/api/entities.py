@@ -211,7 +211,7 @@ class StateOut(Schema):
 
 
 class RowRoleOut(Schema):
-    name: str = Field(description="The role: one of the row's `by` field's values.")
+    name: str = Field(description="The role: a value of the row's `by` field.")
     label: str
     min: int | None = Field(description="The fewest rows with this role, or null for none.")
     max: int | None = Field(description="The most rows with this role, or null for any.")
@@ -227,7 +227,14 @@ class RowOut(Schema):
         description="For a list in its type's identity (ADR 0138): the row fields that tell "
         "two rows apart. Empty: all of them."
     )
-    by: str | None = Field(description="The row field, an enum, that holds each row's role.")
+    by: str | None = Field(
+        description="The row field, an enum or a string, that holds each row's role."
+    )
+    closed: bool = Field(
+        description="Whether each row's role must be one of `roles`: a subtype's, which "
+        "refines its parent's rows (ADR 0164), or one held by a string field. Otherwise a "
+        "role `roles` doesn't name takes any count."
+    )
     roles: list[RowRoleOut] = Field(description="What each role's rows take, in order.")
 
 
@@ -1064,6 +1071,9 @@ def _row_out(row: SpecField, plugin: str) -> dict[str, Any]:
         "fields": [field_out(n, cell, plugin) for n, cell in row.fields.items()],
         "identity": list(row.identity),
         "by": row.by,
+        # Whether a row's role is one of `roles` and nothing else: a subtype's (ADR 0164),
+        # or one given by a string field. Otherwise roles only count what they name.
+        "closed": row.closed,
         "roles": [
             {
                 "name": r.name,

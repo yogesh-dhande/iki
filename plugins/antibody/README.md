@@ -1,20 +1,36 @@
 # antibody
 
 Iki's antibody plugin: antibodies, assembled from the proteins that are their
-chains, what their variable domains say about them, and their predicted
-structures.
+chains, what their variable domains say about
+them, and their predicted structures.
 
-- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody, by its chains.
-  - A whole IgG (`igg`), a Fab (`fab`) or an Fv (`fv`, the two variable
-    domains alone) has a heavy chain and a light chain. A single domain
-    (`vhh`, a camelid's or a nanobody) or both variable domains on one chain
-    (`scfv`) has one chain, its `heavy_chain`.
-  - Its identity is its heavy chain and its light chain, if it has one: each
-    antibody is registered once in a registry (ADR 0115), with one ID, and
-    assembling the same chains again, in any project, finds that entry. A VHH
-    and an antibody with the same heavy chain and a light chain are different
-    antibodies
-    ([ADR 0104](../../docs/adr/0104-an-identity-can-name-an-optional-field.md)).
+An antibody is a complex
+([ADR 0161](../../docs/adr/0161-a-complex-is-its-parts-and-their-copies.md)):
+it extends `iki/core.Complex`, so its `components` are its chains, each a
+protein with its `copies` and its `role`, and its identity is its chains and
+their copies, whatever their roles or order. Searching `iki/core.Complex` finds
+every one, beside other plugins' and a lab's own complexes; the graph finds
+every complex a chain is part of; and the complex plugin computes each one's
+formula, masses and absorbance at 280 nm. Its type says which roles its chains
+take, how many and of what
+([ADR 0164](../../docs/adr/0164-a-subtype-says-which-roles-its-rows-take.md)),
+and its `bonds`, a registry fact, are its disulfides, between its chains and
+within each domain, each from a copy's cysteine to another's.
+
+- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody of one specificity,
+  by its chains: a `heavy` chain and, unless it's a VHH or an scFv, a `light`
+  chain.
+  - A whole IgG (`igg`) is two copies of each; a Fab (`fab`), an Fv (`fv`, the
+    two variable domains alone), a single domain (`vhh`, a camelid's or a
+    nanobody) or both variable domains on one chain (`scfv`) one of each.
+  - Its identity is its chains and their copies: each antibody is registered
+    once in a registry (ADR 0115), with one ID, and assembling the same chains
+    again, in any project, finds that entry. A VHH and an antibody with the
+    same heavy chain and a light chain are different antibodies, and so are a
+    whole IgG and a half-antibody of the same two chains, one copy of each.
+    The same chains and copies registered as another complex type, such as a
+    protein complex, are this antibody: that registration is refused, saying
+    so.
   - Its format and isotype are what its chains are, so they don't need to be
     in its identity: an IgG1 and an IgG4 of the same variable domains have
     different heavy chains (their constant regions differ), and an IgG and a
@@ -22,7 +38,7 @@ structures.
     alone are an Fv, which has no isotype. `assemble` checks the format and
     isotype against the chains, reading the isotype off the heavy chain's
     constant region, and the type's rules keep what the format says of its
-    chains and isotype at every save.
+    chains, their copies and its isotype at every save.
   - It keeps its format (`registry: derived`), its isotype (a registry fact:
     given once, then changed only by a registrar, so a second assembly that
     claims another is refused) and what it binds (`target`).
@@ -159,12 +175,48 @@ regions (S228P, LALA, YTE) by a few; subclasses differ by 20 or more over a
 whole constant region, and by 4 or more over CH1 alone, so a Fab's CH1 says its
 subclass too.
 
+`assemble` gives an IgG and a Fab its inter-chain disulfides, where its
+subclass places them in EU numbering (Edelman et al., _PNAS_ 63:78-85, 1969),
+read off how its heavy chain's constant region aligns with IGHG1\*01, which is
+EU numbering's residue for residue (Liu and May, _mAbs_ 4:17-23, 2012):
+
+| Subclass | Light chain's last cysteine to | Heavy chain to heavy chain |
+| -------- | ------------------------------ | -------------------------- |
+| IgG1     | C220, the hinge's first        | C226 and C229              |
+| IgG4     | C131, in CH1                   | C226 and C229              |
+
+IgG2's light-chain disulfides take more than one arrangement (its A, B and A/B
+isoforms), and IgG3's hinge has 11 between its heavy chains, so neither's are
+given; nor are those of `fv`, `scfv`, `vhh` and `other`. Trastuzumab's are
+KEGG DRUG's (D03257): H223-L214, H229-H′229 and H232-H′232.
+
+It gives each domain's own disulfide too, between its two sheets, in each copy
+of its chain, which KEGG DRUG lists with the others:
+
+- a variable domain's, IMGT's C23 and C104 (Lefranc et al., _Dev Comp Immunol_
+  27:55-77, 2003), Kabat's and Chothia's H22 and H92 or L23 and L88. A domain
+  whose only cysteines are those two has them; in one with more (a VHH's
+  CDR1–CDR3 disulfide, a CDR's unpaired cysteine) they're where its numbering
+  puts them, and the rest are left out;
+- an IgG heavy chain's CH1's, CH2's and CH3's, EU C144–C200, C261–C321 and
+  C367–C425, which every subclass has, where its constant region was read as
+  one human subclass's; an `other` chain without a variable domain (an Fc
+  fusion's) CH2's and CH3's alone, as what's fused to its hinge has disulfides
+  of its own that aren't an IgG's;
+- a light chain's CL's, its two cysteines before its last.
+
+So trastuzumab has 16 (KEGG's H22-H96, H147-H203, H264-H324, H370-H428,
+L23-L88 and L134-L194 in each copy, as well as those between its chains).
+Its cystines, counted from these, are what the complex plugin's absorbance at
+280 nm adds.
+
 What can be told from the antibody's own fields is a rule of its type
 ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)),
 kept at every save however it's registered: by `assemble`, through the API, a
 bulk import or a bundle. An IgG, a Fab and an Fv have a light chain, a VHH and
-an scFv none, and the two chains differ; an Fv, scFv or VHH has no isotype; an
-IgG's is one of its subclasses. Whether a chain has the constant region its
+an scFv none; an IgG has two copies of each chain, the others one; an Fv, scFv
+or VHH has no isotype; an IgG's is one of its subclasses. The two chains
+differ, as every complex's parts do: a part is given once, with its copies. Whether a chain has the constant region its
 format says is `assemble`'s check alone: it reads where the chain's variable
 domains end, its project's numbering, which a rule can't, as a reference holds
 the chain's registry entry. `assemble` names the antibody after its chains
@@ -346,6 +398,11 @@ the OpenCL platform its wheel carries, which these runs don't use, LGPL-3.0.
 ```console
 iki plugin test plugins/antibody --with plugins/dna --with plugins/protein
 ```
+
+`tests/assemble.yaml` assembles trastuzumab as an IgG, a Fab and an Fv, each
+checked against KEGG DRUG's disulfides (D03257). The dev cluster's end-to-end
+check assembles trastuzumab's Fv, waits for the complex plugin to compute its
+composition, and finds it by searching `iki/core.Complex`.
 
 `server/tests/test_antibody_numbering.py` runs `number_chains`' script with a
 stand-in ANARCI that answers what the real one said in the image

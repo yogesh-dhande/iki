@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: composition
+label: Composition
+description: >-
+  A complex's parts with their roles and copies; its formula and masses from
+  them, as they are and with its disulfides; and its bonds, each from a copy's
+  residue to another's.
+module: ./components/composition.js
+element: complex-composition
+slots: [{ slot: entity.tab, type: iki/core.Complex }]

@@ -37,8 +37,37 @@ const COMPONENTS = {
     fields: [part, copies, role],
     identity: [],
     by: "role",
+    closed: false,
     roles: [
       { name: "heavy", label: "Heavy", min: 2, max: 2, to: { part: ["iki/protein.Protein"] } },
+    ],
+  },
+};
+
+// A lab's own complex (ADR 0161): its role is a string, and its type's roles are all it
+// may be (ADR 0164), so the form offers them.
+const PARTS = {
+  ...COMPONENTS,
+  label: "Parts",
+  row: {
+    ...COMPONENTS.row,
+    fields: [part, copies, field({ name: "role", label: "Role", type: "string", required: true })],
+    closed: true,
+    roles: [
+      {
+        name: "heavy",
+        label: "Heavy chain",
+        min: 1,
+        max: 2,
+        to: { part: ["iki/protein.Protein"] },
+      },
+      {
+        name: "light",
+        label: "Light chain",
+        min: 1,
+        max: 2,
+        to: { part: ["iki/protein.Protein"] },
+      },
     ],
   },
 };
@@ -69,6 +98,31 @@ const BISPECIFIC: Schemas["EntityTypeOut"] = {
     },
   },
   fields: [field({ name: "name", label: "Name", type: "string", required: true }), COMPONENTS],
+};
+
+const COMPLEX: Schemas["EntityTypeOut"] = {
+  ...BISPECIFIC,
+  name: "lab.Diabody",
+  label: "Diabody",
+  label_plural: "Diabodies",
+  hrid_prefix: "DIA",
+  values_schema: {
+    properties: {
+      name: { type: "string", minLength: 1, title: "Name" },
+      components: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            part: { type: "string", format: "uuid" },
+            copies: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }], default: 1 },
+            role: { type: "string", pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$" },
+          },
+        },
+      },
+    },
+  },
+  fields: [field({ name: "name", label: "Name", type: "string", required: true }), PARTS],
 };
 
 const ENTITY = { refs: {}, files: {}, people: {} };
@@ -202,6 +256,46 @@ describe("typing rows in", () => {
     const [sent] = calls("POST", "/api/v1/entities");
     expect((sent?.body as { values: unknown }).values).toEqual({
       name: "BS-1",
+      components: [{ part: HEAVY, copies: 1, role: "light" }],
+    });
+  });
+});
+
+describe("a complex's parts", () => {
+  it("offers its type's roles, by their labels, where they're all a part may have", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, COMPLEX]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(
+      "GET /api/v1/entities",
+      page([entity({ id: HEAVY, hrid: "PRT-000001", values: { name: "Heavy" } })]),
+    );
+    answer("POST /api/v1/entities", entity({ hrid: "DIA-000001", type: "lab.Diabody" }));
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Diabody");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "DB-1");
+    await user.click(screen.getByRole("button", { name: "Add a row to Parts" }));
+    const picker = await screen.findByRole("combobox", { expanded: true });
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(picker).toHaveAttribute("aria-expanded", "false");
+    });
+    const row = screen.getByRole("group", { name: "Parts, row 1" });
+    await user.type(within(row).getByRole("combobox", { name: /Part/ }), "hea");
+    await user.click(await screen.findByRole("option", { name: /Heavy/ }));
+    const chosen = within(row).getByRole("combobox", { name: /Role/ });
+    expect(
+      within(chosen)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Choose one", "Heavy chain", "Light chain"]);
+    await user.selectOptions(chosen, "Light chain");
+    await user.click(screen.getByRole("button", { name: "Create diabody" }));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/entities")).toHaveLength(1);
+    });
+    const [sent] = calls("POST", "/api/v1/entities");
+    expect((sent?.body as { values: unknown }).values).toEqual({
+      name: "DB-1",
       components: [{ part: HEAVY, copies: 1, role: "light" }],
     });
   });

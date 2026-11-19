@@ -94,15 +94,18 @@ def antibody(form: str, heavy: dict[str, Any], light: dict[str, Any] | None) -> 
         "id": "00000000-0000-0000-0000-000000000100",
         "hrid": "ABY-000001",
         "type": "iki/antibody.Antibody",
-        "schema_version": 1,
+        "schema_version": 2,
         "revision": 1,
+        # Its chains are its parts (ADR 0161), included in the rows' order.
         "values": {
             "name": "Trastuzumab",
             "format": form,
-            "heavy_chain": heavy["id"],
-            "light_chain": light["id"] if light else None,
+            "components": [
+                {"part": heavy["id"], "copies": 1, "role": "heavy"},
+                *([{"part": light["id"], "copies": 1, "role": "light"}] if light else []),
+            ],
         },
-        "included": {"heavy_chain": [heavy], "light_chain": [light] if light else []},
+        "included": {"components.part": [heavy, *([light] if light else [])]},
     }
 
 

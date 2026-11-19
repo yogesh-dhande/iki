@@ -46,11 +46,15 @@ class Table:
         return tuple(x for pair in self.columns for x in pair)
 
 
-def allowed(f: Field) -> list[str] | None:
+def allowed(f: Field, *, entry: bool = False) -> list[str] | None:
     """The types a reference may name, if the database must be told: None when its foreign
-    key holds it to its type already, or it may name any entity."""
+    key holds it to its type already, or it may name any entity. One of a registry entry's
+    (``entry``) to any entity names any entry (ADR 0161): an entity of a type with an
+    identity."""
     from iki_server.entities.values import referable
 
+    if entry and f.to and naming.ENTITY in f.to:
+        return sorted(t for t in registry.types() if registry.has_entries(t))
     if not f.to or naming.ENTITY in f.to:
         return None
     if len(f.to) == 1:
@@ -79,14 +83,15 @@ def tables(
 
     out: dict[str, list[tuple[str, str]]] = {}
     for plugin, model, fields in parts:
+        entry = bool(getattr(model, "IKI_ENTRY", False))
         for f in fields.values():
             if f.removed:
                 continue
-            if f.type == "ref" and (types := allowed(f)) is not None:
+            if f.type == "ref" and (types := allowed(f, entry=entry)) is not None:
                 column = str(model._meta.get_field(f.name).column)  # type: ignore[union-attr]
                 out.setdefault(model._meta.db_table, []).append((column, _literal(types)))
             elif is_list_table(f) and f.items is not None and f.items.type == "ref":
-                types = allowed(f.items)
+                types = allowed(f.items, entry=entry)
                 if types is not None:
                     table = list_model(plugin, model, f.name)._meta.db_table
                     out.setdefault(table, []).append(("item_id", _literal(types)))
@@ -94,7 +99,7 @@ def tables(
                 # A list of rows' references (ADR 0137), each in its own column.
                 table = list_model(plugin, model, f.name)._meta.db_table
                 for name, cell in f.items.fields.items():
-                    if cell.type == "ref" and (types := allowed(cell)) is not None:
+                    if cell.type == "ref" and (types := allowed(cell, entry=entry)) is not None:
                         out.setdefault(table, []).append((f"{name}_id", _literal(types)))
     return [Table(name, tuple(columns)) for name, columns in sorted(out.items())]
 

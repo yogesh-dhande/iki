@@ -108,8 +108,8 @@ class WalkStepOut(Schema):
         "project's record of the same registry entry (ADR 0115)."
     )
     field: str = Field(
-        description="A reference's field; a run's input (`antibody.heavy_chain` for what it "
-        "included); a file param; empty for a record."
+        description="A reference's field; a run's input (`antibody.components.part` for what "
+        "it included); a file param; empty for a record."
     )
     run: RunRefOut | None = Field(description="The run, if you can read its project.")
     hidden_run: bool = Field(

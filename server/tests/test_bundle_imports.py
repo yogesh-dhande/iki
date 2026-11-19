@@ -619,7 +619,8 @@ def test_the_people_a_record_names_come_with_it(world: World, tmp_path: Path) ->
 
 
 def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None:
-    """ADR 0137: a list of rows travels with each row's fields, and what they refer to."""
+    """ADR 0137: a list of rows travels with each row's fields, and what they refer to: a
+    complex's parts (ADR 0161) and a fact's rows of its entry."""
     admin = world.users["admin"]
 
     def made() -> list[Any]:
@@ -627,13 +628,19 @@ def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None
         other = protein(world, "MKVHEAVYTWO")
         light = protein(world, "MKVLIGHT")
         rows = [
-            {"part": str(heavy.pk), "role": "heavy", "chain": "H"},
-            {"part": str(other.pk), "role": "heavy", "chain": "H2"},
-            {"part": str(light.pk), "role": "light", "chain": "L"},
-            {"part": str(light.pk), "role": "light"},
+            {"part": str(heavy.pk), "copies": 1, "role": "heavy"},
+            {"part": str(other.pk), "copies": 1, "role": "heavy"},
+            {"part": str(light.pk), "copies": 2, "role": "light"},
+        ]
+        arms = [
+            {"heavy": str(heavy.pk), "light": str(light.pk), "target": "F9"},
+            {"heavy": str(other.pk), "light": str(light.pk), "target": "F10"},
         ]
         bispecific = services.create(
-            admin, "acme/protein.Bispecific", world.project, {"name": "BS-1", "components": rows}
+            admin,
+            "acme/protein.Bispecific",
+            world.project,
+            {"name": "BS-1", "components": rows, "arms": arms},
         ).entity
         return [Entity.objects.get(pk=bispecific.pk)]
 
@@ -644,14 +651,16 @@ def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None
     here = {e["type"]: e for e in entities_of(api, done)}
     found = api.get(f"/entities/{here['acme/protein.Bispecific']['hrid_here']}").json()
     rows = found["values"]["components"]
-    assert [(r["role"], r["chain"]) for r in rows] == [
-        ("heavy", "H"),
-        ("heavy", "H2"),
-        ("light", "L"),
-        ("light", None),
-    ]
+    assert [(r["role"], r["copies"]) for r in rows] == [("heavy", 1), ("heavy", 1), ("light", 2)]
     named = [found["refs"][r["part"]]["title"] for r in rows]
-    assert len(set(named)) == 3 and named[2] == named[3]
+    assert len(set(named)) == 3
+    # Its arms, a registry fact, refer to the same chains here.
+    arms = found["values"]["arms"]
+    assert [a["target"] for a in arms] == ["F9", "F10"]
+    assert [(a["heavy"], a["light"]) for a in arms] == [
+        (rows[0]["part"], rows[2]["part"]),
+        (rows[1]["part"], rows[2]["part"]),
+    ]
 
 
 def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(

@@ -78,6 +78,34 @@
         "$ref": "https://ikisci.org/schemas/field/v1"
       }
     },
+    "refines": {
+      "description": "For each list of rows this type inherits whose rows have roles by one of their fields (`by`): every role its rows may have, each with how many rows take it and what their references may refer to, within what its parent's say (ADR 0164). A specific complex says what its parts are this way.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 20,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["roles"],
+        "additionalProperties": false,
+        "properties": {
+          "roles": {
+            "description": "Per role: how many rows take it, and what their references may refer to. A row may have only these.",
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 100,
+            "propertyNames": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+            },
+            "additionalProperties": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/rowRole"
+            }
+          }
+        }
+      }
+    },
     "rules": {
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
     },

@@ -10945,9 +10945,14 @@ export interface components {
         RowOut: {
             /**
              * By
-             * @description The row field, an enum, that holds each row's role.
+             * @description The row field, an enum or a string, that holds each row's role.
              */
             by: string | null;
+            /**
+             * Closed
+             * @description Whether each row's role must be one of `roles`: a subtype's, which refines its parent's rows (ADR 0164), or one held by a string field. Otherwise a role `roles` doesn't name takes any count.
+             */
+            closed: boolean;
             /**
              * Fields
              * @description Each row's fields, in order.
@@ -10980,7 +10985,7 @@ export interface components {
             min: number | null;
             /**
              * Name
-             * @description The role: one of the row's `by` field's values.
+             * @description The role: a value of the row's `by` field.
              */
             name: string;
             /**
@@ -13852,7 +13857,7 @@ export interface components {
             entity: components["schemas"]["GraphEntityOut"];
             /**
              * Field
-             * @description A reference's field; a run's input (`antibody.heavy_chain` for what it included); a file param; empty for a record.
+             * @description A reference's field; a run's input (`antibody.components.part` for what it included); a file param; empty for a record.
              */
             field: string;
             /** @description For a file edge, the file, if you can read it. */

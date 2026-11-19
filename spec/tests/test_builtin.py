@@ -16,6 +16,7 @@ def test_its_types_are_the_builtin_ones() -> None:
         "iki/core.Alignment",
         "iki/core.App",
         "iki/core.Collection",
+        "iki/core.Complex",
         "iki/core.Entity",
         "iki/core.Organism",
         "iki/core.Sequence",

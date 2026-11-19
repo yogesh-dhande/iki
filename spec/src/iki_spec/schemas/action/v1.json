@@ -294,9 +294,9 @@
         },
         "optional": { "type": "boolean" },
         "include": {
-          "description": "Its type's references whose entities the run reads too, such as an antibody's `heavy_chain` and `light_chain`: each one or list of them, at the revision it had when the run was launched, under each input entity's `included`. Whoever launches the run must be able to read them.",
+          "description": "Its type's references whose entities the run reads too, such as a structure's `chains`, or a list of rows' (ADR 0161), such as a complex's `components.part`: each one or list of them, at the revision it had when the run was launched, under each input entity's `included`. Whoever launches the run must be able to read them.",
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$" },
           "uniqueItems": true,
           "minItems": 1,
           "maxItems": 16

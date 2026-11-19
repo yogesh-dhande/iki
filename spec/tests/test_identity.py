@@ -28,18 +28,18 @@ def test_a_known_hash() -> None:
 
 
 def test_an_optional_field_without_a_value_is_null() -> None:
-    """A test vector: an antibody without a light chain (a single-domain one)."""
-    heavy = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8057")
-    values = {"heavy_chain": ("ref", heavy), "light_chain": ("ref", None)}
-    assert encode("iki/antibody.Antibody", values) == (
-        b'{"type":"iki/antibody.Antibody","v":2,"values":'
-        b'{"heavy_chain":"01890a5d-ac96-774b-bcce-b302099a8057","light_chain":null}}'
+    """A test vector: a construct without an insert (an empty vector)."""
+    backbone = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8057")
+    values = {"backbone": ("ref", backbone), "insert": ("ref", None)}
+    assert encode("acme/lab.Construct", values) == (
+        b'{"type":"acme/lab.Construct","v":2,"values":'
+        b'{"backbone":"01890a5d-ac96-774b-bcce-b302099a8057","insert":null}}'
     )
     # Without one isn't with one.
-    light = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8058")
-    paired = {**values, "light_chain": ("ref", light)}
-    assert identity_hash("iki/antibody.Antibody", values) != identity_hash(
-        "iki/antibody.Antibody", paired
+    insert = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8058")
+    with_insert = {**values, "insert": ("ref", insert)}
+    assert identity_hash("acme/lab.Construct", values) != identity_hash(
+        "acme/lab.Construct", with_insert
     )
     with pytest.raises(ValueError, match="float fields can't be part of an identity"):
         canonical("float", None)

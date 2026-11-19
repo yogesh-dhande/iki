@@ -12,7 +12,11 @@ description: >-
   the heavy chain has a constant region, it says the isotype: aligned with
   IMGT's human constant regions (Biopython's pairwise aligner, BLOSUM62),
   it's the one it matches. For `other`, a heavy chain without numbered
-  variable domains, such as an Fc fusion's, is compared whole.
+  variable domains, such as an Fc fusion's, is compared whole. Its parts are
+  its chains, two copies of each for an IgG and one for a Fab, an Fv, an scFv
+  or a VHH, and for an IgG1 or an IgG4 its chains' disulfides are given as the
+  subclass places them: each light chain to its heavy chain, and the heavy
+  chains to each other at the hinge.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -37,6 +41,13 @@ params:
       IgG; none for an Fv, scFv or VHH. Left out, it's the heavy chain's
       constant region's, where it has one; given, it must be that.
   target: { type: string, max_length: 255, description: What it binds. }
+  copies:
+    type: int
+    min: 1
+    max: 2
+    description: >-
+      How many copies of each chain, for `other` only: two for a chain with an
+      Fc, which pairs, and one without, if left out.
 effects:
   creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]
 software:

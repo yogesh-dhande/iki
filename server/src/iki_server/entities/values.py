@@ -28,7 +28,7 @@ from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_spec import naming, units
-from iki_spec.model import EntityType, Field, split_entry
+from iki_spec.model import EntityType, Field, refined, refinement, split_entry
 from iki_spec.validate import value_problems
 
 
@@ -138,11 +138,19 @@ class Shape:
 @cache
 def shape(qualified: str) -> Shape:
     entity_type = registry.types()[qualified]
-    chain = [*reversed(registry.ancestors(entity_type)), entity_type]
+    lineage = [entity_type, *registry.ancestors(entity_type)]
+    chain = list(reversed(lineage))
     parts = []
     entries = []
+    registered = False
     for t in chain:
-        record, entry = split_entry(t.fields, t.identity)
+        # A list of rows a type below refines has the roles it gives (ADR 0164).
+        fields = {
+            n: refined(f, roles) if (roles := refinement(lineage, n)) is not None else f
+            for n, f in t.fields.items()
+        }
+        record, entry = split_entry(fields, t.identity)
+        registered = registered or bool(t.identity)
         label = naming.app_label(t.plugin)
         parts.append(
             Part(
@@ -154,7 +162,8 @@ def shape(qualified: str) -> Shape:
                 name=t.qualified_name,
             )
         )
-        if t.identity:
+        if registered:
+            # Each type under an identity has a table of its entries (ADR 0165).
             model = apps.get_model(label, naming.entry_model(t.name))
             entries.append(
                 Part(
@@ -511,6 +520,11 @@ def _roles(
     for index, stored in enumerate(rows):
         taken = row.roles.get(stored[row.by])
         if taken is None:
+            if row.closed:
+                # Its roles are every role it may have (ADR 0164).
+                errors[f"{index}/{row.by}"] = [
+                    f"isn't one of its roles: {', '.join(row.roles) or 'it has none'}."
+                ]
             continue
         for cell, types in taken.to.items():
             named = given[index].get(cell)

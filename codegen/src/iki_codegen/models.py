@@ -96,6 +96,8 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
         out.extend(_type(entity_type, plugin, every))
         if entity_type.identity:
             out.extend(_entry(entity_type, plugin, every))
+        elif entity_type.extends and identity_owner(entity_type.extends, every) is not None:
+            out.extend(_subtype_entry(entity_type, plugin, every))
     for extension in sorted(plugin.extensions, key=lambda e: e.extends_type):
         out.extend(_extension(extension, every))
     return "".join(out).rstrip() + "\n"
@@ -242,6 +244,44 @@ def _entry(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> li
     )
     _, entry = split_entry(t.fields, t.identity)
     return _with_fields(model, t.qualified_name, entry, plugin.name, types)
+
+
+def _subtype_entry(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:
+    """The table of a subtype's registry entries (ADR 0165), under its parent's as its
+    records' table is under theirs: the registry fields it adds. Every type under an
+    identity has one, so an entry's tables follow its type's ancestry."""
+    assert t.extends is not None  # noqa: S101 - only subtypes are under an identity
+    base = _class_ref(_entry_name(t.extends), plugin.name)
+    model = _Model(
+        name=naming.entry_model(t.name),
+        base=base,
+        doc=f"Registry entries of {t.label} ({t.qualified_name}), ADR 0115: the registry "
+        "fields it adds to its parent's (ADR 0165).",
+        table=naming.entry_table(t.table),
+        attributes=[f"IKI_TYPE = {t.qualified_name!r}", "IKI_ENTRY = True"],
+    )
+    model.fields.append(
+        (
+            naming.entry_parent_link(t.extends),
+            _call(
+                "models.OneToOneField",
+                _raw(base),
+                _raw("models.PROTECT"),
+                parent_link=True,
+                primary_key=True,
+                db_column="entity_id",
+                related_name="+",
+            ),
+        )
+    )
+    _, entry = split_entry(t.fields)
+    return _with_fields(model, t.qualified_name, entry, plugin.name, types)
+
+
+def _entry_name(qualified: str) -> str:
+    """``iki/core.Complex``'s entries' model, qualified as a type is: ``iki/core.Complex_Entry``."""
+    owner, name = qualified.split(".")
+    return f"{owner}.{naming.entry_model(name)}"
 
 
 def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
@@ -497,19 +537,19 @@ def _state_column(f: Field, fields: Mapping[str, Field]) -> str:
 
 def _ref_target(to: tuple[str, ...], plugin: str, types: Mapping[str, EntityType]) -> str:
     """What a reference to ``to`` is a foreign key to: the entries of a type with an
-    identity, ``iki_entity`` for an abstract type (whose subtypes may have entries or
-    records), ``iki/core.Entity`` or several types (ADR 0136), else the type's own table of
-    records. Where it's ``iki_entity``, ``sync_plugins`` puts a trigger on the table that
-    holds the reference to its types."""
+    identity, its own or a parent's (ADR 0165), ``iki_entity`` for an abstract type (whose
+    subtypes may have entries or records), ``iki/core.Entity`` or several types (ADR 0136),
+    else the type's own table of records. Where it's ``iki_entity``, ``sync_plugins`` puts a
+    trigger on the table that holds the reference to its types."""
     if len(to) != 1:
         return _raw("Entity")
     target = types.get(to[0])
     if to[0] == naming.ENTITY or target is None or target.abstract:
         return _raw("Entity")
-    owner = identity_owner(to[0], types)
-    if owner is not None:
-        name = naming.entry_model(owner.name)
-        return name if owner.plugin == plugin else _entry_label(owner.qualified_name)
+    if identity_owner(to[0], types) is not None:
+        # Its own entries' table, which a subtype under an identity has too (ADR 0165).
+        name = naming.entry_model(target.name)
+        return name if target.plugin == plugin else _entry_label(target.qualified_name)
     return _model_ref(to[0], plugin)
 
 

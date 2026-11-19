@@ -5,12 +5,13 @@ against the plugins it depends on, with migrations that match its manifests,
 and migrating a database forwards and back.
 """
 
+import uuid
 from pathlib import Path
 
 import pytest
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
-from iki_spec.identity import identity_hash
+from iki_spec.identity import Kind, identity_hash
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "plugins"
@@ -23,6 +24,7 @@ FIRST_PARTY = {
     PLUGINS / "small_molecule": (),
     PLUGINS / "oligo": (),
     PLUGINS / "plasmid": (PLUGINS / "dna",),
+    PLUGINS / "complex": (PLUGINS / "dna", PLUGINS / "protein"),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
@@ -56,6 +58,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "small_molecule",
         PLUGINS / "oligo",
         PLUGINS / "plasmid",
+        PLUGINS / "complex",
         TEMPLATE,
         "--output",
         out,
@@ -114,7 +117,13 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             numbered.numbering_scheme, numbered.cdr_definition, numbered.cdr_h1,
             Ext_iki_protein_Protein_Entry.objects.get(entity_id=bla.entry_id).chain_type,
         ]
-        vhh = make("iki/antibody.Antibody", heavy_chain=str(bla.pk), format="vhh", name="anti-bla")
+        # An antibody is a complex of its chains (ADR 0161): its parts, with their copies.
+        def parts(heavy, light=None, copies=1):
+            rows = [{"part": str(heavy.pk), "copies": copies, "role": "heavy"}]
+            if light is not None:
+                rows.append({"part": str(light.pk), "copies": copies, "role": "light"})
+            return rows
+        vhh = make("iki/antibody.Antibody", components=parts(bla), format="vhh", name="anti-bla")
         light = make("iki/protein.Protein", sequence="DIQMTQSP")
         aspirin = make(
             "iki/small_molecule.Compound", smiles="CC(=O)Oc1ccccc1C(=O)O",
@@ -125,15 +134,14 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             salt_equivalents=1.0,
         )
         fab = make(
-            "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
-            format="fab", isotype="igg1",
+            "iki/antibody.Antibody", components=parts(bla, light), format="fab", isotype="igg1",
         )
         # Its isotype is a registry fact: the same chains claimed as another isotype are
         # refused, not dropped, even where the project holds the antibody already.
         try:
             make(
-                "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
-                format="fab", isotype="igg4",
+                "iki/antibody.Antibody", components=parts(bla, light), format="fab",
+                isotype="igg4",
             )
             other_isotype = None
         except services.Invalid as invalid:
@@ -148,21 +156,44 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             return None
         other = make("iki/protein.Protein", sequence="EVQLVESG")
         format_rules = [
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="fv",
-                    isotype="igg1"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="igg",
-                    isotype="igm"),
-            refusal(heavy_chain=str(other.pk), format="igg", isotype="igg1"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(light.pk), format="scfv"),
-            refusal(heavy_chain=str(other.pk), light_chain=str(other.pk), format="fv"),
+            refusal(components=parts(other, light), format="fv", isotype="igg1"),
+            refusal(components=parts(other, light, 2), format="igg", isotype="igm"),
+            refusal(components=parts(other, copies=2), format="igg", isotype="igg1"),
+            refusal(components=parts(other, light), format="scfv"),
+            refusal(components=parts(other, other), format="fv"),
+            refusal(components=parts(other, light), format="igg"),
+            refusal(components=[*parts(other), {"part": str(light.pk), "role": "linker"}],
+                    format="other"),
         ]
-        whole_igm = refusal(heavy_chain=str(other.pk), light_chain=str(light.pk),
-                            format="other", isotype="igm")
+        whole_igm = refusal(components=parts(other, light, 2), format="other", isotype="igm")
+        # Every complex type is a complex (ADR 0161): one molecule is one entry whichever
+        # type registers it, and searching iki/core.Complex finds every kind.
+        try:
+            make("iki/complex.ProteinComplex", components=[
+                {"part": str(bla.pk), "copies": 1, "role": "alpha"},
+                {"part": str(light.pk), "copies": 1, "role": "beta"},
+            ])
+            as_another = None
+        except services.Invalid as invalid:
+            as_another = invalid.errors
+        dimer = make(
+            "iki/complex.ProteinComplex", name="a dimer", complex_portal_id="CPX-1",
+            components=[{"part": str(other.pk), "copies": 2, "role": "subunit"}],
+        )
+        from iki_server.entities.search import Search, queryset
+        complexes = sorted(
+            e.type for e in queryset(alice, Search(type="iki/core.Complex", project=project.pk))
+        )
+        from iki_server.graph.models import Edge
+        part_of = sorted(
+            Edge.objects.filter(on_id=other.entry_id, field="components.part")
+            .values_list("node__type", flat=True)
+        )
         entries = {e.pk: e for e in Entity.objects.filter(registry__isnull=False)}
         # Giving the VHH a light chain would make it another antibody: it's refused.
         try:
             services.update(
-                alice, vhh, {"light_chain": str(light.pk)}, expected_revision=vhh.revision,
+                alice, vhh, {"components": parts(bla, light)}, expected_revision=vhh.revision,
             )
             refused = None
         except services.Invalid as invalid:
@@ -184,7 +215,9 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
                   ],
                   "refused": refused, "numbering": numbering,
                   "other_isotype": other_isotype, "format_rules": format_rules,
-                  "whole_igm": whole_igm}
+                  "whole_igm": whole_igm, "as_another": as_another,
+                  "dimer": [dimer.type, dimer.hrid.split("-")[0]],
+                  "complexes": complexes, "part_of": part_of, "fab": fab.hrid}
         """,
     )
     assert result["types"] == [
@@ -210,12 +243,16 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["aspirin"] == identity_hash(
         "iki/small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
     )
-    # An antibody is its chains, its light chain if it has one (a VHH hasn't).
-    chains = {"heavy_chain": ("ref", result["heavy"]), "light_chain": ("ref", None)}
-    paired = {**chains, "light_chain": ("ref", result["light"])}
+    # An antibody is a complex (ADR 0161): its parts and their copies, whatever their roles,
+    # as iki/core.Complex declares the identity.
+    rows = Kind("list", items=Kind("row", row=(("part", Kind("ref")), ("copies", Kind("int")))))
+    heavy, light = uuid.UUID(result["heavy"]), uuid.UUID(result["light"])
     assert result["identities"] == [
-        identity_hash("iki/antibody.Antibody", chains),
-        identity_hash("iki/antibody.Antibody", paired),
+        identity_hash("iki/core.Complex", {"components": (rows, [{"part": heavy, "copies": 1}])}),
+        identity_hash(
+            "iki/core.Complex",
+            {"components": (rows, [{"part": heavy, "copies": 1}, {"part": light, "copies": 1}])},
+        ),
     ]
     assert result["numbering"] == ["kabat", "kabat", "DTYIH", "heavy"]
     assert result["other_isotype"] == ["isotype"]
@@ -233,24 +270,52 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             ]
         },
         {
-            "light_chain": [
+            "components": [
                 "An IgG, a Fab and an Fv have a light chain: give one, or choose vhh or "
                 "scfv for an antibody of one chain."
             ]
         },
-        {"light_chain": ["A VHH and an scFv have one chain, so no light chain."]},
-        {"light_chain": ["One protein can't be both its heavy and its light chain."]},
+        {"components": ["A VHH and an scFv have one chain, so no light chain."]},
+        # One part twice is one part with two copies (ADR 0161).
+        {
+            "components/1/part": [
+                "lists PRT-000003 again: give each part once, with how many copies of it there are."
+            ]
+        },
+        {
+            "components": [
+                "A whole IgG has two copies of its heavy chain and two of its light chain: "
+                "give copies 2 for each."
+            ]
+        },
+        # An antibody's roles are all its parts may have (ADR 0164).
+        {"components/1/role": ["isn't one of its roles: heavy, light."]},
     ]
     # A whole IgM is `other`, which may take any class.
     assert result["whole_igm"] is None
-    assert result["refused"] == {
-        "light_chain": [
-            "is part of what makes it this one, so it can't be added later: "
-            "register another with it instead."
+    # The Fab's parts and copies, registered as a protein complex, are the Fab.
+    assert result["as_another"] == {
+        "type": [
+            f"This is registered already, as a iki/antibody.Antibody ({result['fab']}): "
+            "register it as one."
         ]
     }
+    assert result["dimer"] == ["iki/complex.ProteinComplex", "PCX"]
+    # The VHH, the Fab and the whole IgM; the dimer.
+    assert result["complexes"] == [
+        "iki/antibody.Antibody",
+        "iki/antibody.Antibody",
+        "iki/antibody.Antibody",
+        "iki/complex.ProteinComplex",
+    ]
+    # The graph finds what a chain is part of, whatever type of complex (ADR 0161): its
+    # other heavy chain is the whole IgM's and the dimer's.
+    assert result["part_of"] == ["iki/antibody.Antibody", "iki/complex.ProteinComplex"]
+    # Its parts are its identity: another chain is another antibody.
+    assert result["refused"] == {"components": ["can't change once it's set."]}
     for app in (
         "iki__plasmid",
+        "iki__complex",
         "iki__oligo",
         "iki__small_molecule",
         "iki__antibody",
@@ -264,7 +329,8 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
         "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
-        "OR tablename LIKE 'oligo%%' OR tablename LIKE 'plasmid%%')",
+        "OR tablename LIKE 'oligo%%' OR tablename LIKE 'plasmid%%' "
+        "OR tablename LIKE 'complex%%')",
     )
     assert left == [(0,)]
 

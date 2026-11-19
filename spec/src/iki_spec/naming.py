@@ -99,6 +99,7 @@ FIRST_PARTY = frozenset(
         "iki/small_molecule",
         "iki/oligo",
         "iki/plasmid",
+        "iki/complex",
         "iki/example_lims",
         "iki/example_models",
     }
@@ -193,6 +194,12 @@ def entry_model(model: str) -> str:
     """The model of a type's (or an extension's) registry entry fields: ``Protein_Entry``.
     Type names have no underscore, so it can't be another type's name."""
     return f"{model}_Entry"
+
+
+def entry_parent_link(parent: str) -> str:
+    """The field linking a subtype's registry entry row to its parent type's (ADR 0165):
+    ``complex_entry_ptr``. Its column is ``entity_id``, as every entity table's is."""
+    return f"{entry_model(parent.split('.')[1]).lower()}_ptr"
 
 
 def entry_related_name(plugin: str) -> str:

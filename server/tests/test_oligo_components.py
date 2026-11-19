@@ -3,24 +3,14 @@
 have (ADR 0084): the Chemistry tab draws an oligonucleotide's nucleotides from the
 positions its actions computed, and the Pairing tab a duplex's strands antiparallel. Each
 is named for screen readers as it's drawn for the eye, and passes axe's WCAG 2.2 AA
-checks in light and dark.
+checks in light and dark. The frame is served as Iki's is (component_frames)."""
 
-The frame is served here, not by Iki, so it needs no plugin installed: its policy is the
-component frame's (iki_server.components.views.frame), and it runs Iki's hardening script
-first and the module by its integrity, as Iki's frame does."""
-
-import base64
-import hashlib
-import json
-import threading
-import urllib.parse
 from collections.abc import Iterator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any
 
 import pytest
-from playwright.sync_api import Browser, Page
+from component_frames import ERRORS, PLUGINS, open_frame, serving
+from playwright.sync_api import Browser
 from test_browser import (  # noqa: F401 - fixtures
     AXE,
     RUN_AXE,
@@ -28,91 +18,17 @@ from test_browser import (  # noqa: F401 - fixtures
     browser,
     browser_name,
     playwright,
-    watch,
 )
-
-from iki_server.web import frames
 
 # Browser tests: CI runs them once, where it installs the browsers (see ci.yml's matrix).
 pytestmark = pytest.mark.built_web_app
 
-COMPONENTS = Path(__file__).resolve().parents[2] / "plugins" / "oligo" / "components"
-ELEMENTS = {"chemistry.js": "oligo-chemistry", "duplex.js": "oligo-duplex"}
-#: What the frame's policy allows (iki_server.components.views.frame), with the test's
-#: own driver in place of Iki's bridge.
-POLICY = (
-    "default-src 'none'; script-src " + frames.HARDEN_SOURCE + " {origin}/{module} "
-    "{origin}/driver.js; style-src 'unsafe-inline'; img-src data: blob:; "
-    "font-src data:; media-src data: blob:; worker-src blob:; connect-src 'none'; "
-    "form-action 'none'; base-uri 'none'; object-src 'none'; sandbox allow-scripts"
-)
-PAGE = (
-    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
-    # As Iki's frame has it (iki_server.components.views), so dark mode is dark.
-    '<meta name="color-scheme" content="light dark"><title>Oligo</title>\n'
-    + frames.HARDEN_TAG
-    + '<script type="module" src="/{module}" integrity="{integrity}" '
-    'crossorigin="anonymous"></script>\n'
-    '<script type="module" src="/driver.js?{module}" crossorigin="anonymous"></script>\n'
-    "</head><body></body></html>\n"
-)
-#: Sets the element's entity as the bridge does, and notes any request the policy refused.
-DRIVER = b"""
-window.refused = [];
-document.addEventListener("securitypolicyviolation", (e) => {
-  window.refused.push(`${e.violatedDirective} ${e.blockedURI}`);
-});
-const name = {"chemistry.js": "oligo-chemistry", "duplex.js": "oligo-duplex"}[
-  new URL(import.meta.url).search.slice(1)
-];
-await customElements.whenDefined(name);
-const element = document.createElement(name);
-element.entity = JSON.parse(decodeURIComponent(location.hash.slice(1)));
-document.body.append(element);
-"""
-
 
 @pytest.fixture(scope="module")
 def frame_server() -> Iterator[str]:
-    modules = {name: (COMPONENTS / name).read_bytes() for name in ELEMENTS}
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            origin = f"http://{self.headers['Host']}"
-            path, _, query = self.path.split("#")[0].partition("?")
-            name = path.removeprefix("/frame/")
-            if path.startswith("/frame/") and name in modules:
-                digest = hashlib.sha256(modules[name]).digest()
-                integrity = "sha256-" + base64.b64encode(digest).decode()
-                body = PAGE.replace("{module}", name).replace("{integrity}", integrity).encode()
-                kind = "text/html; charset=utf-8"
-            elif path.removeprefix("/") in modules:
-                body, kind = modules[path.removeprefix("/")], "text/javascript"
-            elif path == "/driver.js" and query in modules:
-                body, kind = DRIVER, "text/javascript"
-            else:
-                self.send_error(404)
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", kind)
-            self.send_header("Content-Length", str(len(body)))
-            # A sandboxed frame is no one's origin: its modules come to it cross-origin.
-            self.send_header("Access-Control-Allow-Origin", "*")
-            if kind.startswith("text/html"):
-                policy = POLICY.replace("{origin}", origin).replace("{module}", name)
-                self.send_header("Content-Security-Policy", policy)
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *_: Any) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield f"http://127.0.0.1:{server.server_port}"
-    server.shutdown()
-    server.server_close()
+    elements = {"chemistry.js": "oligo-chemistry", "duplex.js": "oligo-duplex"}
+    with serving(PLUGINS / "oligo" / "components", elements) as origin:
+        yield origin
 
 
 def _brief(symbol: str, name: str, *, modified: bool) -> dict[str, Any]:
@@ -184,22 +100,8 @@ PATISIRAN = {
 }
 
 
-#: Each page's uncaught errors. Not its console's: Firefox logs its own favicon request,
-#: which the frame's policy blocks, as an error.
-ERRORS: dict[Page, list[str]] = {}
-
-
-def _open(browser: Browser, frame_server: str, module: str, entity: object, **options: Any) -> Page:
-    context = browser.new_context(**options)
-    page = watch(context.new_page())
-    ERRORS[page] = []
-    page.on("pageerror", lambda error: ERRORS[page].append(str(error)))
-    page.goto(f"{frame_server}/frame/{module}#{urllib.parse.quote(json.dumps(entity))}")
-    return page
-
-
 def test_the_chemistry_tab_names_each_nucleotide(browser: Browser, frame_server: str) -> None:
-    page = _open(browser, frame_server, "chemistry.js", GAPMER)
+    page = open_frame(browser, frame_server, "chemistry.js", GAPMER)
     strand = page.get_by_role("list", name="Nucleotides, 5′ to 3′")
     strand.wait_for(timeout=30_000)
     items = strand.get_by_role("listitem")
@@ -222,7 +124,7 @@ def test_the_chemistry_tab_names_each_nucleotide(browser: Browser, frame_server:
 
 
 def test_the_pairing_tab_says_what_it_draws(browser: Browser, frame_server: str) -> None:
-    page = _open(browser, frame_server, "duplex.js", PATISIRAN)
+    page = open_frame(browser, frame_server, "duplex.js", PATISIRAN)
     heading = page.get_by_role("heading", name="Pairing")
     heading.wait_for(timeout=30_000)
     assert page.get_by_text(
@@ -237,7 +139,7 @@ def test_the_pairing_tab_says_what_it_draws(browser: Browser, frame_server: str)
 
 def test_a_duplex_whose_strands_dont_pair_says_so(browser: Browser, frame_server: str) -> None:
     entity = {"hrid": "DUP-000002", "values": {"pairing": {"length": 0, "pairs": []}}}
-    page = _open(browser, frame_server, "duplex.js", entity)
+    page = open_frame(browser, frame_server, "duplex.js", entity)
     status = page.get_by_role("status")
     status.wait_for(timeout=30_000)
     assert "don't pair" in (status.text_content() or "")
@@ -251,7 +153,7 @@ def test_they_pass_wcag_22_aa(
 ) -> None:
     # axe is run as a script, which the frame's policy refuses to a page's own: here the
     # context sets the policy aside, which changes nothing axe checks.
-    page = _open(browser, frame_server, module, entity, color_scheme=scheme, bypass_csp=True)
+    page = open_frame(browser, frame_server, module, entity, color_scheme=scheme, bypass_csp=True)
     page.get_by_role("heading").first.wait_for(timeout=30_000)
     page.evaluate(AXE.read_text())
     assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
