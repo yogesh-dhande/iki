@@ -115,7 +115,8 @@ newer ones.
   advisories fixed only in 6.4, and the plugin works on 6, as `make video-check` proves.
   pnpm warns about the peer range.
 - **playwright-core** 1.65.0: Apache-2.0. It drives headless Chromium, and has no
-  dependencies.
+  dependencies. Keep it at the same version as the Python `playwright` in `uv.lock`, so
+  the browsers `make setup` installs serve both.
 - **yaml** 2.9.1 (ISC) reads the scripts. **zod** 4.6.7 (MIT) checks them.
 - **esbuild's install script** is refused in `pnpm-workspace.yaml`. It only checks the
   platform binary, which arrives as an optional dependency.
