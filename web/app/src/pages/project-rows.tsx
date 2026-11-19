@@ -41,13 +41,3 @@ export function ProjectRows({ projects }: { projects: Project[] }) {
     </ul>
   );
 }
-
-/** Archived last, then by team and name, as the server-rendered list was. */
-export function sortProjects(projects: Project[]): Project[] {
-  return [...projects].sort(
-    (a, b) =>
-      Number(a.archived) - Number(b.archived) ||
-      a.team.name.localeCompare(b.team.name) ||
-      a.name.localeCompare(b.name),
-  );
-}

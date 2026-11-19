@@ -3,6 +3,9 @@ planned before anything changes (ADR 0096)."""
 
 import contextlib
 import hashlib
+import io
+import random
+import tarfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -378,6 +381,109 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     assert event.data["created"] == 2 and event.data["placeholders"] == 1
     assert event.data["files"] == 1 and event.data["reason"] == "Moving the kinase work here"
     problem(api.delete(f"/imports/{made['id']}"), 409, "refused")
+
+
+def structure_file(rng: random.Random, number: int) -> bytes:
+    """A C-alpha trace's PDB file of its own, each the same size (4,164 bytes)."""
+    atoms = [
+        f"ATOM  {atom:5d}  CA  ALA A{atom:4d}    "
+        + "".join(f"{rng.uniform(-99, 99):8.3f}" for _ in range(3))
+        + "  1.00 20.00           C  "
+        for atom in range(1, 52)
+    ]
+    return "\n".join([f"HEADER    TRANSFERASE {number:06d}", *atoms, "END", ""]).encode()
+
+
+class _Counted(io.FileIO):
+    """An archive's file, counting the compressed bytes read from it."""
+
+    def __init__(self, name: Any, read: list[int]) -> None:
+        super().__init__(name, "rb")
+        self.counted = read
+
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        self.counted[0] += len(data or b"")
+        return data or b""
+
+    def readinto(self, buffer: Any) -> int | None:
+        n = super().readinto(buffer)
+        self.counted[0] += n or 0
+        return n
+
+
+def imported_reading(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int
+) -> tuple[int, int]:
+    """How large a bundle of ``count`` structures, each with a file of its own, is; and how
+    many of its compressed bytes uploading and applying it read."""
+    rng = random.Random(count)  # noqa: S311 - made-up test data, not secrets
+    data = [structure_file(rng, n) for n in range(count)]
+    assert len({len(d) for d in data}) == 1
+    assert len({hashlib.sha256(d).digest() for d in data}) == count
+    keys = [storage.blob_key(hashlib.sha256(d).hexdigest()) for d in data]
+
+    def structures() -> list[Any]:
+        made = []
+        for n, (pdb, key) in enumerate(zip(data, keys, strict=True)):
+            storage.client().put_object(Bucket=storage.bucket(), Key=key, Body=pdb)
+            blob = Blob.objects.create(
+                sha256=key.rsplit("/", 1)[1], size=len(pdb), storage_uri=storage.uri(key)
+            )
+            file = File.objects.create(
+                blob=blob, name=f"{n}.pdb", media_type="chemical/x-pdb", project=world.project
+            )
+            made.append(
+                services.create(
+                    world.users["admin"],
+                    "acme/protein.ProteinStructure",
+                    world.project,
+                    {"structure": str(file.pk), "method": "xray"},
+                ).entity
+            )
+        return made
+
+    path = bundle_of(world, tmp_path, structures)
+    for key in keys:
+        storage.client().delete_object(Bucket=storage.bucket(), Key=key)
+    read = [0]
+    handles: list[_Counted] = []
+    real: Any = tarfile.open
+
+    def counted(name: Any = None, mode: str = "r", fileobj: Any = None, **kw: Any) -> Any:
+        if fileobj is None and name is not None and mode.startswith("r"):
+            handles.append(fileobj := _Counted(name, read))
+        return real(name, mode, fileobj=fileobj, **kw)
+
+    api = Api(world.browser("admin"))
+    with monkeypatch.context() as patched:
+        patched.setattr(tarfile, "open", counted)
+        try:
+            done = applied(api, upload(api, world.project, path))
+        finally:
+            for handle in handles:
+                handle.close()
+    assert done["state"] == "applied", done
+    event = AuditEvent.objects.get(action="bundle.imported", data__import=done["id"])
+    assert event.data["files"] == count
+    for pdb, key in zip(data, keys, strict=True):
+        assert storage.client().get_object(Bucket=storage.bucket(), Key=key)["Body"].read() == pdb
+    return path.stat().st_size, read[0]
+
+
+def test_importing_reads_its_archive_in_proportion_to_its_size(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its files' bytes come in one pass over the archive, and each of its other members in
+    a pass that stops there, so what planning and applying it read grows with the archive,
+    not with the square of how many files it holds."""
+    small = imported_reading(world, tmp_path, monkeypatch, 8)
+    large = imported_reading(world, tmp_path, monkeypatch, 32)
+    assert large[0] > 3 * small[0]
+    # Two dozen passes, each through the archive at most once, however many files it holds.
+    for size, read in (small, large):
+        assert read <= 40 * size, (small, large)
+    assert large[1] <= 4 * small[1], (small, large)
 
 
 def test_applying_renumbers_taken_hrids_and_adds_later_revisions(

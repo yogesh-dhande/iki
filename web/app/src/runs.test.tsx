@@ -32,6 +32,7 @@ function withLog(text: () => string, ended: () => boolean = () => false): void {
 function onRun(found: () => Schemas["RunOut"], attempts: () => Schemas["RunAttemptOut"][]): void {
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
+  answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
   answer("GET /api/v1/actions", [ACTION]);
   answer("GET /api/v1/runs/RUN-000001", () => found());
   answer("GET /api/v1/runs/RUN-000001/attempts", () => attempts());
@@ -74,6 +75,7 @@ describe("a project's runs", () => {
   it("lists them newest first, by action, with their status", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
     answer(
       "GET /api/v1/runs",
@@ -105,6 +107,7 @@ describe("a project's runs", () => {
   it("says when there are none", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
     answer("GET /api/v1/runs", page([]));
     await renderApp("/projects/kinase-atlas/runs/");
@@ -200,6 +203,7 @@ describe("a run's page", () => {
     };
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [IMPORT]);
     const imported = run({
       action: IMPORT.name,

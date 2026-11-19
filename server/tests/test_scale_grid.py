@@ -2,9 +2,12 @@
 
 A project holds ``IKI_SCALE_GRID_ROWS`` proteins (100,000,000 by default): one made
 through Iki, then copied in bulk, as a restore loads a database, its indexes and unique
-constraints built afterwards. Then a viewer opens the grid's pages: the first, the next,
-one deep into the table, newest first, sorted and filtered by indexed fields, and
-searched. Each must answer within the grid's budget. ``make check-scale`` runs it.
+constraints built afterwards. Each copy is an identity of its own (ADR 0115): a registry
+entry, with its sequence and identity hash, and the project's record of it, linked to the
+project. Then a viewer opens the grid's pages: the first, the next, one deep into the
+table, newest first, sorted and filtered by indexed fields, and searched. Each must answer
+within the grid's budget. ``make check-scale`` runs it; a thousand rows run with every
+check, so the copies are known to load before the nightly run copies millions.
 """
 
 import os
@@ -15,16 +18,20 @@ from typing import Any
 
 import pytest
 from api_client import Api
-from django.db import connection, models
+from django.db import connection, models, transaction
 from org_world import World, build_world
 
-from iki_server.entities import search
+from iki_server.entities import identity, registry, search
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.org.models import registry_of
+from iki_spec.identity import encode
 
-pytestmark = [pytest.mark.scale, pytest.mark.django_db(transaction=True)]
+pytestmark = pytest.mark.django_db(transaction=True)
 
 ROWS = int(os.environ.get("IKI_SCALE_GRID_ROWS", "100000000"))
+#: Enough for every page the test opens, few enough for every check.
+SMALL = 1_000
 CHUNK = 5_000_000
 TYPE = "acme/protein.Protein"
 #: The grid's page, as the web app asks for it.
@@ -34,11 +41,17 @@ BUDGET = 1.0
 #: The copies' IDs are UUIDv7s from 2020 on, one a millisecond: older than the one made
 #: through Iki, so in ID order they come first.
 BASE_MS = 1_577_836_800_000
+RESIDUES = str.maketrans("0123456789", "ACDEFGHIKL")
 
 
 def entity_id(n: int) -> uuid.UUID:
-    """The n-th copy's ID: a UUIDv7, its time, then n."""
+    """The n-th copy's ID, its record's: a UUIDv7, its time, then n."""
     return uuid.UUID(f"{BASE_MS + n:012x}70008000{n:012x}")
+
+
+def sequence(n: int) -> str:
+    """The n-th copy's sequence, as ``SEQUENCE`` writes it."""
+    return "M" + f"{n:09d}".translate(RESIDUES)
 
 
 def _uuid(variant: str) -> str:
@@ -47,13 +60,42 @@ def _uuid(variant: str) -> str:
     )
 
 
-ID, LINK_ID = _uuid("70008000"), _uuid("70018000")
+#: Each copy's three rows of its own: its record, its registry entry, and the record's link
+#: to the project. Their IDs differ in the variant's digits.
+ID, ENTRY_ID, LINK_ID = _uuid("70008000"), _uuid("70028000"), _uuid("70018000")
+HRID = "'PRT-' || lpad(n::text, 9, '0')"
+SEQUENCE = "'M' || translate(lpad(n::text, 9, '0'), '0123456789', 'ACDEFGHIKL')"
 
-#: What each copy has of its own, by column; the rest is the template's.
-OWN = {
-    "hrid": "'PRT-' || lpad(n::text, 9, '0')",
-    "identity_hash": "encode(sha256(n::text::bytea), 'hex')",
-    "sequence": "'M' || translate(lpad(n::text, 9, '0'), '0123456789', 'ACDEFGHIKL')",
+
+def _literal(text: str) -> str:
+    """``text`` as an SQL string, among the copies' statements' parameters."""
+    return "'" + text.replace("'", "''").replace("%", "%%") + "'"
+
+
+def _identity_hash() -> str:
+    """Each copy's identity hash, as Iki would compute it from its sequence: the SHA-256
+    of the identity's canonical encoding, which the sequence is spelled in already."""
+    owner = registry.identity_owner(registry.types()[TYPE])
+    assert owner is not None
+    assert owner.identity == ("sequence",), owner.identity
+    marker = "MARKER"
+    before, after = (
+        encode(owner.qualified_name, {"sequence": ("string", marker)}).decode().split(marker)
+    )
+    return (
+        f"encode(sha256(convert_to({_literal(before)} || {SEQUENCE} || {_literal(after)}, "
+        "'UTF8')), 'hex')"
+    )
+
+
+#: What each copy's entry has of its own, by column, with its identity hash; the rest is the
+#: template's entry's.
+ENTRY_OWN = {"hrid": HRID, "sequence": SEQUENCE}
+#: What each copy's record has of its own; the rest is the template's. Its HRID is its
+#: entry's, and its identity hash stays the template's, which a record hasn't got.
+RECORD_OWN = {
+    "hrid": HRID,
+    "entry_id": ENTRY_ID,
     "name": "'P' || n",
     "molecular_weight": "1100 + (n * 7919) %% 100000",
     "lims_id": "'LIMS-' || n",
@@ -61,15 +103,27 @@ OWN = {
 }
 
 
-def _columns(model: type[models.Model], key: str) -> dict[str, str]:
-    """Each of the model's own columns, and what a copy puts in it."""
+def weight(n: int) -> int:
+    """The n-th copy's molecular weight, as ``RECORD_OWN`` writes it."""
+    return 1100 + (n * 7919) % 100000
+
+
+def _columns(model: type[models.Model], key: str, own: dict[str, str]) -> dict[str, str]:
+    """Each of the model's own columns, and what a copy puts in it: ``key`` for its primary
+    key, what ``own`` says, or the template's."""
     found: dict[str, str] = {}
+    pk = str(model._meta.pk.column)
     for field in model._meta.local_concrete_fields:
         if getattr(field, "generated", False):
             continue
         column = str(field.column)
-        found[column] = ID if column == key else OWN.get(column, f't."{column}"')
+        found[column] = key if column == pk else own.get(column, f't."{column}"')
     return found
+
+
+def _chain(model: type[models.Model]) -> list[type[models.Model]]:
+    """The model's tables, from ``iki_entity`` down to its own."""
+    return [*reversed(model._meta.get_parent_list()), model]
 
 
 def _sql(statement: str, params: list[Any] | None = None) -> list[tuple[Any, ...]]:
@@ -100,45 +154,55 @@ def _secondary(tables: list[str]) -> tuple[list[str], list[str]]:
 
 
 def fill(template: Entity, rows: int) -> None:
-    """``rows`` copies of ``template``, each with its own ID, HRID and values, in each
-    of its tables and its project's."""
+    """``rows`` copies of ``template``, a project's record of a registry entry: for each, an
+    entry of its own, in each of the entry's tables, and the project's record of it, in
+    each of the record's tables and its project's.
+
+    One transaction loads them, as a restore can: the database checks the rules
+    restoring its indexes and unique constraints, and if any is broken, the copies and
+    the dropped indexes are rolled back together."""
     form = search.form_of(TYPE)
-    assert form is not None
-    model = form.model
-    chain = [*reversed(model._meta.get_parent_list()), model]
-    copies: list[tuple[str, dict[str, str], str]] = []
-    for each in chain:
-        key = str(each._meta.pk.column)
-        copies.append((each._meta.db_table, _columns(each, key), f't."{key}" = %s'))
-    link = _columns(ProjectLink, "id") | {"id": LINK_ID, "entity_id": ID}
-    copies.append((ProjectLink._meta.db_table, link, 't."entity_id" = %s'))
-    tables = [table for table, _, _ in copies]
-    drop, create = _secondary(tables)
-    for statement in drop:
-        _sql(statement)
-    # Foreign keys and triggers aren't checked while copying: the copies point where the
-    # template does, which they're checked against.
-    _sql("SET session_replication_role = replica")
-    began = time.monotonic()
-    try:
+    assert form is not None and form.entry_model is not None
+    assert template.entry_id is not None, "a protein's record has its registry entry"
+    # Each table's copies: its columns', and the column and value that pick the template's
+    # row in it. Entries first: records name theirs.
+    copies: list[tuple[str, dict[str, str], str, uuid.UUID]] = []
+    entry_own = ENTRY_OWN | {"identity_hash": _identity_hash()}
+    for each in _chain(form.entry_model):
+        columns = _columns(each, ENTRY_ID, entry_own)
+        copies.append((each._meta.db_table, columns, str(each._meta.pk.column), template.entry_id))
+    for each in _chain(form.model):
+        columns = _columns(each, ID, RECORD_OWN)
+        copies.append((each._meta.db_table, columns, str(each._meta.pk.column), template.pk))
+    link = _columns(ProjectLink, LINK_ID, {"entity_id": ID})
+    copies.append((ProjectLink._meta.db_table, link, "entity_id", template.pk))
+    tables = list(dict.fromkeys(table for table, _, _, _ in copies))
+    with transaction.atomic():
+        drop, create = _secondary(tables)
+        for statement in drop:
+            _sql(statement)
+        # Foreign keys and triggers aren't checked while copying: the copies point where
+        # the template does, which they're checked against, and records at their entries.
+        _sql("SET LOCAL session_replication_role = replica")
+        began = time.monotonic()
         for lo in range(1, rows + 1, CHUNK):
             hi = min(lo + CHUNK - 1, rows)
-            for table, columns, where in copies:
+            for table, columns, key, source in copies:
                 names = ", ".join(f'"{c}"' for c in columns)
                 _sql(
                     f"INSERT INTO {table} ({names}) SELECT {', '.join(columns.values())} "  # noqa: S608
-                    f"FROM {table} t, generate_series(%s::bigint, %s::bigint) n WHERE {where}",
-                    [lo, hi, template.pk],
+                    f"FROM {table} t, generate_series(%s::bigint, %s::bigint) n "
+                    f'WHERE t."{key}" = %s',
+                    [lo, hi, source],
                 )
             print(f"copied {hi:,} in {time.monotonic() - began:.0f}s", flush=True)  # noqa: T201
-    finally:
-        _sql("SET session_replication_role = DEFAULT")
-    began = time.monotonic()
-    _sql("SET max_parallel_maintenance_workers = 4")
-    _sql("SET maintenance_work_mem = '1GB'")
-    for statement in create:
-        _sql(statement)
-    print(f"indexed in {time.monotonic() - began:.0f}s", flush=True)  # noqa: T201
+        _sql("SET LOCAL session_replication_role = DEFAULT")
+        began = time.monotonic()
+        _sql("SET LOCAL max_parallel_maintenance_workers = 4")
+        _sql("SET LOCAL maintenance_work_mem = '1GB'")
+        for statement in create:
+            _sql(statement)
+        print(f"indexed in {time.monotonic() - began:.0f}s", flush=True)  # noqa: T201
     began = time.monotonic()
     for table in tables:
         _sql(f"VACUUM (ANALYZE) {table}")
@@ -160,7 +224,36 @@ def _timed(client: Api, body: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     return statistics.median(took), answer.json()
 
 
-def test_the_grid_stays_responsive_at_100m_rows() -> None:
+def _check_copies(world: World, rows: int) -> None:
+    """Each copy is an identity of the project's registry, which Iki finds as it would
+    one registered through it: a registration of its sequence is the project's record."""
+    entity_type = registry.types()[TYPE]
+    for n in sorted({1, rows // 2, rows}):
+        ((hrid, registry_id, project, record_hash, entry_hash),) = _sql(
+            "SELECT r.hrid, e.registry_id, r.owner_project_id, r.identity_hash, "
+            "e.identity_hash FROM iki_entity r JOIN iki_entity e ON e.id = r.entry_id "
+            "WHERE r.id = %s AND e.hrid = r.hrid AND e.owner_project_id IS NULL",
+            [entity_id(n)],
+        )
+        assert hrid == f"PRT-{n:09d}"
+        assert (registry_id, project) == (registry_of(world.project), world.project.pk)
+        assert record_hash is None
+        assert entry_hash == identity.hash_of({"sequence": sequence(n)}, entity_type)
+    again = entities.create(
+        world.users["admin"], TYPE, world.project, {"sequence": sequence(rows // 2)}
+    )
+    assert again.reused
+    assert again.entity.pk == entity_id(rows // 2)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        pytest.param(SMALL, id="small"),
+        pytest.param(ROWS, id="scale", marks=pytest.mark.scale),
+    ],
+)
+def test_the_grid_stays_responsive(rows: int) -> None:
     world: World = build_world()
     made = entities.create(
         world.users["admin"],
@@ -169,7 +262,8 @@ def test_the_grid_stays_responsive_at_100m_rows() -> None:
         {"sequence": "MLEICLKLVG", "name": "ABL1"},
     )
     template = Entity.objects.get(pk=made.entity.pk)
-    fill(template, ROWS)
+    fill(template, rows)
+    _check_copies(world, rows)
     client = Api(world.browser("viewer"))
     project = str(world.project.pk)
     grid = {"type": TYPE, "project": project, "limit": LIMIT}
@@ -181,7 +275,7 @@ def test_the_grid_stays_responsive_at_100m_rows() -> None:
     assert len(first["items"]) == LIMIT
     pages: dict[str, dict[str, Any]] = {
         "the next page": grid | {"cursor": first["next_cursor"]},
-        "a page 90% of the way in": grid | {"cursor": cursor_at(int(ROWS * 0.9))},
+        "a page 90% of the way in": grid | {"cursor": cursor_at(int(rows * 0.9))},
         "newest first": grid | {"sort": {"field": "created_at", "descending": True}},
         "by ID": grid | {"sort": {"field": "hrid"}},
         "by ID, last first": grid | {"sort": {"field": "hrid", "descending": True}},
@@ -189,19 +283,19 @@ def test_the_grid_stays_responsive_at_100m_rows() -> None:
         "heaviest first": grid | {"sort": {"field": "molecular_weight", "descending": True}},
         "lightest first": grid | {"sort": {"field": "molecular_weight"}},
         "a LIMS ID": grid
-        | {"where": {"field": "lims_id", "op": "eq", "value": f"LIMS-{ROWS // 2}"}},
+        | {"where": {"field": "lims_id", "op": "eq", "value": f"LIMS-{rows // 2}"}},
         "a narrow weight range": grid
         | {
             "where": {
                 "all": [
-                    {"field": "molecular_weight", "op": "gte", "value": 50_000},
-                    {"field": "molecular_weight", "op": "lt", "value": 50_010},
+                    {"field": "molecular_weight", "op": "gte", "value": weight(rows // 5)},
+                    {"field": "molecular_weight", "op": "lt", "value": weight(rows // 5) + 10},
                 ]
             }
         },
-        "an HRID": grid | {"q": f"PRT-{ROWS // 3:09d}"},
+        "an HRID": grid | {"q": f"PRT-{rows // 3:09d}"},
         "names containing": grid
-        | {"where": {"field": "name", "op": "contains", "value": f"P{ROWS // 7}"}},
+        | {"where": {"field": "name", "op": "contains", "value": f"P{rows // 7}"}},
     }
     took = {"the first page": first_took}
     for name, body in pages.items():
@@ -222,7 +316,7 @@ def test_the_grid_stays_responsive_at_100m_rows() -> None:
         "POST", "/entities/search", grid | {"sort": {"field": "temperature_optimum"}}
     )
     took["by an unindexed field"] = time.perf_counter() - began
-    if ROWS > search.UNINDEXED_SORT_MAX:
+    if rows > search.UNINDEXED_SORT_MAX:
         assert unindexed.status_code == 422, unindexed.content[:300]
         said = unindexed.json()
         assert said["code"] == "search_too_slow"

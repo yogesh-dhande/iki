@@ -11954,6 +11954,16 @@
             "description": "The project's address, as in its page's URL.",
             "title": "Slug"
           },
+          "sort": {
+            "default": "created",
+            "description": "created: oldest first. name: archived ones last, then by team and name, as people browse them.",
+            "enum": [
+              "created",
+              "name"
+            ],
+            "title": "Sort",
+            "type": "string"
+          },
           "team": {
             "anyOf": [
               {
@@ -29678,6 +29688,22 @@
               ],
               "description": "true: only projects you have a role in. Org Admins see all names.",
               "title": "Member"
+            }
+          },
+          {
+            "description": "created: oldest first. name: archived ones last, then by team and name, as people browse them.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "created",
+              "description": "created: oldest first. name: archived ones last, then by team and name, as people browse them.",
+              "enum": [
+                "created",
+                "name"
+              ],
+              "title": "Sort",
+              "type": "string"
             }
           }
         ],

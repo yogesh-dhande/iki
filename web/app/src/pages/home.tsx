@@ -1,14 +1,14 @@
 import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import { meQuery, projectsQuery } from "../api";
+import { meQuery, othersProjectsQuery, projectPagesQuery } from "../api";
 import { recordSearch, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { dueText, workQuery, workStates } from "../people";
 import { registriesQuery } from "../registries";
-import { buttonClass, Loading, PageHeader } from "../ui";
+import { Button, buttonClass, Loading, PageHeader } from "../ui";
 import { PluginSections } from "./plugin-sections";
-import { ProjectRows, sortProjects } from "./project-rows";
+import { ProjectRows } from "./project-rows";
 
 /** How many of what's assigned to you the home page lists: the rest are on My work. */
 const WORK_SHOWN = 5;
@@ -61,13 +61,15 @@ function YourWork() {
 export function Home() {
   usePageTitle("Home");
   const me = useSuspenseQuery(meQuery).data;
-  const projects = useQuery(projectsQuery);
+  // Your active projects, a page at a time, in the server's order.
+  const projects = useInfiniteQuery(projectPagesQuery({ member: true, archived: false }));
+  // Org Admins see every project's name: whether there are others is one row away.
+  const others = useQuery({ ...othersProjectsQuery, enabled: me.can.manage_org }).data;
   // Registrars curate registries' entries (ADR 0115): theirs are a link away.
   const curated = (useQuery(registriesQuery()).data ?? []).filter((r) => r.can.curate);
   const fullName = me.name.trim();
   const firstName = fullName === "" ? me.email : (fullName.split(/\s+/)[0] ?? fullName);
-  const mine = sortProjects((projects.data ?? []).filter((p) => p.my_role && !p.archived));
-  const others = (projects.data ?? []).filter((p) => !p.my_role && !p.archived).length;
+  const mine = projects.data?.pages.flatMap((p) => p.items) ?? [];
   const newProject = me.can.create_projects ? (
     <Link to="/projects/new/" className={buttonClass("primary")}>
       New project
@@ -84,6 +86,17 @@ export function Home() {
         <>
           <h2>Your projects</h2>
           <ProjectRows projects={mine} />
+          {projects.hasNextPage ? (
+            <div className="actions">
+              <Button
+                busy={projects.isFetchingNextPage}
+                busyText="Loading…"
+                onClick={() => void projects.fetchNextPage()}
+              >
+                Show more
+              </Button>
+            </div>
+          ) : null}
         </>
       ) : (
         <section className="card empty">
@@ -147,10 +160,10 @@ export function Home() {
           </ul>
         </section>
       ) : null}
-      {others > 0 ? (
+      {others ? (
         <p className="muted">
-          As an Org Admin you can also see {others} project{others === 1 ? "" : "s"} you’re not a
-          member of. <Link to="/projects/">See all projects</Link>
+          As an Org Admin you can also see projects you’re not a member of.{" "}
+          <Link to="/projects/">See all projects</Link>
         </p>
       ) : null}
     </>

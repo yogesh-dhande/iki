@@ -14,7 +14,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { iki, problemOf, projectByIdQuery, useApiMutation } from "../api";
 import { ENTITIES } from "../entities";
 import { usePageTitle } from "../layout";
 import {
@@ -156,7 +156,7 @@ export function BatchPage() {
   const action = actions?.find((a) => a.name === batch.action);
   const label = actionLabel(actions, batch.action);
   usePageTitle(`${label} (${batch.hrid})`);
-  const project = useQuery(projectsQuery).data?.find((p) => p.id === batch.project);
+  const project = useQuery(projectByIdQuery(batch.project)).data;
   const client = useQueryClient();
   const runs = useInfiniteQuery(batchRunsQuery(batch.hrid, status));
   const items = runs.data?.pages.flatMap((p) => p.items) ?? [];

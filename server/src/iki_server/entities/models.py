@@ -120,6 +120,9 @@ class Entity(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["type", "created_at"], name="iki_entity_type"),
             models.Index(fields=["type", "updated_at", "id"], name="iki_entity_updated"),
+            # A type's entities by ID, as a page sorted by it reads them (ADR 0103). Records
+            # share their entry's, so neither index of IDs below orders them all.
+            models.Index(fields=["type", "hrid", "id"], name="iki_entity_hrid_sorted"),
             GinIndex(fields=["hrid"], opclasses=["gin_trgm_ops"], name="iki_entity_hrid_trgm"),
             models.Index(
                 fields=["hrid"], name="iki_entity_record_hrid", condition=Q(entry__isnull=False)

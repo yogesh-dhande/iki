@@ -330,9 +330,9 @@ class _Writer:
         here = set(
             File.objects.filter(pk__in=[f["id"] for f in lines]).values_list("pk", flat=True)
         )
-        for f in lines:
-            if uuid.UUID(f["id"]) in here:
-                continue
+        new = [f for f in lines if uuid.UUID(f["id"]) not in here]
+        self._store(new)
+        for f in new:
             File.objects.create(
                 id=f["id"],
                 blob=self._blob(f),
@@ -344,6 +344,32 @@ class _Writer:
                 created_at=f["created_at"],
             )
             self.counts["files"] += 1
+
+    def _store(self, files: list[dict[str, Any]]) -> None:
+        """Stores the bytes of the files whose bytes aren't here, in one pass over the
+        bundle, each checked against its SHA-256 before it's stored. A file's bytes are here
+        if a blob of them is, or storage has them; or they're registered (ADR 0055), where
+        the first file of that SHA-256 in the bundle says they are."""
+        first: dict[str, dict[str, Any]] = {}
+        for f in files:
+            first.setdefault(f["sha256"], f)
+        known = set(Blob.objects.filter(sha256__in=first).values_list("sha256", flat=True))
+        wanted = {
+            sha256
+            for sha256, f in first.items()
+            if sha256 not in known
+            and not f["registered"]
+            and not storage.exists(storage.blob_key(sha256))
+        }
+        for sha256, chunks in self.bundle.blobs(wanted):
+            local = self.tmp / sha256
+            try:
+                with local.open("wb") as out:
+                    for chunk in chunks:
+                        out.write(chunk)
+                storage.upload_file(local, storage.blob_key(sha256), "application/octet-stream")
+            finally:
+                local.unlink(missing_ok=True)
 
     def _blob(self, f: dict[str, Any]) -> Blob:
         found = Blob.objects.filter(sha256=f["sha256"]).first()
@@ -358,15 +384,8 @@ class _Writer:
                 object_version=registered["version"],
                 registered_external=True,
             )
+        # Its bytes are stored: _store stored them if they weren't.
         key = storage.blob_key(f["sha256"])
-        if not storage.exists(key):
-            # Its bytes, checked against their SHA-256 when the bundle was read.
-            local = self.tmp / f["sha256"]
-            with local.open("wb") as out:
-                for chunk in self.bundle.blob(f["sha256"]):
-                    out.write(chunk)
-            storage.upload_file(local, key, "application/octet-stream")
-            local.unlink()
         return Blob.objects.create(sha256=f["sha256"], size=f["size"], storage_uri=storage.uri(key))
 
     # Registry entries -------------------------------------------------------------------

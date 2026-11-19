@@ -241,6 +241,78 @@ def test_projects_show_your_role_and_filter(world: World) -> None:
     assert admin.get("/projects", member=True).json()["items"] == []
 
 
+def _projects_with(world: World, count: int) -> None:
+    """``count`` more projects, which "mixed" is in by their own grant and by their team's,
+    with a lab role from one."""
+    from iki_server.org.models import LabRoleGrant, ProjectMembership
+
+    start = Project.objects.count()
+    for n in range(start, start + count):
+        p = Project.objects.create(team=world.other_team, name=f"Screen {n:03}")
+        mine = ProjectMembership.objects.create(
+            project=p, user=world.users["mixed"], role=ProjectRole.VIEWER
+        )
+        ProjectMembership.objects.create(project=p, team=world.other_team, role=ProjectRole.EDITOR)
+        LabRoleGrant.objects.create(membership=mine, role="iki/example.qa")
+
+
+def _queries_listing(world: World, principal: str) -> int:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    api = api_as(world, principal)
+    api.get("/me")  # signs the session in before counting
+    with CaptureQueriesContext(connection) as queries:
+        answer = api.get("/projects", limit=100)
+    assert answer.status_code == 200, answer.content
+    return len(queries)
+
+
+@pytest.mark.parametrize("principal", ["mixed", "org_admin"])
+def test_a_page_of_projects_takes_as_many_queries_however_many_it_holds(
+    world: World, principal: str
+) -> None:
+    """What the caller may do in each project, their role and their lab roles there, are
+    decided for the whole page at once."""
+    _projects_with(world, 2)
+    few = _queries_listing(world, principal)
+    _projects_with(world, 40)
+    assert _queries_listing(world, principal) == few
+
+
+def test_projects_browse_by_team_and_name_a_page_at_a_time(world: World) -> None:
+    """Archived ones last, then by team and name: each page starts where the last ended."""
+    for name in ("Beta", "Alpha", "Gamma"):
+        Project.objects.create(team=world.other_team, name=name)
+    Project.objects.create(team=world.team, name="Assays")
+    api = api_as(world, "org_admin")
+    seen: list[str] = []
+    cursor = None
+    while True:
+        query: dict[str, Any] = {"sort": "name", "limit": 2}
+        if cursor:
+            query["cursor"] = cursor
+        page = api.get("/projects", **query).json()
+        seen += [f"{p['team']['name']}/{p['name']}" for p in page["items"]]
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == [
+        "Chemistry/Alpha",
+        "Chemistry/Beta",
+        "Chemistry/Gamma",
+        "Structural Biology/Assays",
+        "Structural Biology/Kinase Atlas",
+        "Structural Biology/Old Screens",
+    ]
+    # A cursor from one order doesn't continue another.
+    first = api.get("/projects", limit=2).json()["next_cursor"]
+    body = problem(api.get("/projects", sort="name", cursor=first), 422, "validation_failed")
+    assert body["errors"] == [
+        {"parameter": "cursor", "detail": "Not a cursor from this list, sorted so."}
+    ]
+
+
 def test_archived_projects_are_restored_before_changes(world: World) -> None:
     api = api_as(world, "admin")
     path = f"/projects/{world.archived.pk}"

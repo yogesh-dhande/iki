@@ -35,6 +35,7 @@ function member(n: number, overrides: Partial<Schemas["RunOut"]> = {}): Schemas[
 function onBatch(found: () => Schemas["BatchOut"], runs: () => Schemas["RunOut"][]): void {
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
+  answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
   answer("GET /api/v1/actions", [{ ...ACTION, batchable: 100 }]);
   answer("GET /api/v1/batches/BAT-000001", () => found());
   answer("GET /api/v1/runs", (r: { query: URLSearchParams }) => {
@@ -168,6 +169,7 @@ describe("a batch's page", () => {
   it("says when there's no such batch", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
     await renderApp("/batches/BAT-000009/");
     expect(
@@ -180,6 +182,7 @@ describe("a run in a batch", () => {
   it("links to its batch, and says when it ran in one job with others", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
     answer("GET /api/v1/runs/RUN-000002", member(2));
     answer("GET /api/v1/runs/RUN-000002/attempts", [

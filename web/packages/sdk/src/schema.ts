@@ -9853,6 +9853,13 @@ export interface components {
              * @description The project's address, as in its page's URL.
              */
             slug?: string | null;
+            /**
+             * Sort
+             * @description created: oldest first. name: archived ones last, then by team and name, as people browse them.
+             * @default created
+             * @enum {string}
+             */
+            sort: "created" | "name";
             /** Team */
             team?: string | null;
         };
@@ -17816,6 +17823,8 @@ export interface operations {
                 archived?: boolean | null;
                 /** @description true: only projects you have a role in. Org Admins see all names. */
                 member?: boolean | null;
+                /** @description created: oldest first. name: archived ones last, then by team and name, as people browse them. */
+                sort?: "created" | "name";
             };
             header?: never;
             path?: never;

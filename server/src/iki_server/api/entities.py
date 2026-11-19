@@ -2265,7 +2265,8 @@ def list_revisions(
     revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, entity, result["items"])
-    result["items"] = [_revision(r, made) for r in result["items"]]
+    states = revision_states(result["items"])
+    result["items"] = [_revision(r, made, states=states) for r in result["items"]]
     return result
 
 
@@ -2342,9 +2343,11 @@ def _revision(
     *,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
+    states: dict[Any, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """A revision as ``RevisionOut``. One of ``entity``'s registry entry's, for a reader of
-    ``projects``, says who made it and when only if :func:`services.discloses` it."""
+    ``projects``, says who made it and when only if :func:`services.discloses` it. A page's
+    revisions pass their ``states``, from :func:`revision_states`, found for all at once."""
     of_entry = entity is not None and revision.entity_id != entity.pk
     if of_entry and not services.discloses(revision, projects or set()):
         return undisclosed(revision)
@@ -2359,31 +2362,41 @@ def _revision(
         "agent": agent_out(revision.agent, revision.client),
         "run": None if of_entry else runs.get(revision.number),
         "reason": revision.reason,
-        "state": _revision_state(revision),
+        "state": (states if states is not None else revision_states([revision])).get(revision.pk),
         "submitted": revision.submitted,
         "created_at": revision.created_at,
     }
 
 
-def _revision_state(revision: Revision) -> dict[str, Any] | None:
-    if revision.kind != RevisionKind.STATE_CHANGED:
-        return None
-    type_name = Entity.objects.values_list("type", flat=True).get(pk=revision.entity_id)
-    carried = {
-        s.pk: s for s in signing_models.Signature.objects.filter(pk__in=revision.signatures or ())
-    }
+def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
+    """What each state change among the revisions did, by revision ID: its field, its
+    states, and the signatures that set it (ADR 0126). Their entities' types and their
+    signatures are found for all of them at once, in two queries however many there are."""
+    changed = [r for r in revisions if r.kind == RevisionKind.STATE_CHANGED]
+    if not changed:
+        return {}
+    types = dict(
+        Entity.objects.filter(pk__in={r.entity_id for r in changed}).values_list("pk", "type")
+    )
+    wanted = {i for r in changed for i in r.signatures or ()}
+    carried = (
+        {s.pk: s for s in signing_models.Signature.objects.filter(pk__in=wanted)} if wanted else {}
+    )
     return {
-        **services.state_change(type_name, revision),
-        "signatures": [
-            {
-                "id": i,
-                "manifestation": sig_services.manifestation(sig_services.parsed(carried[i]))
-                if i in carried
-                else "",
-                "present": i in carried,
-            }
-            for i in revision.signatures or ()
-        ],
+        r.pk: {
+            **services.state_change(types[r.entity_id], r),
+            "signatures": [
+                {
+                    "id": i,
+                    "manifestation": sig_services.manifestation(sig_services.parsed(carried[i]))
+                    if i in carried
+                    else "",
+                    "present": i in carried,
+                }
+                for i in r.signatures or ()
+            ],
+        }
+        for r in changed
     }
 
 
@@ -2421,8 +2434,9 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
     made = _runs_of(me, entity, [r for r in found.values() if r.entity_id == entity.pk])
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    states = revision_states(list(found.values()))
     return {
-        name: _revision(revision, made, entity=entity, projects=readable)
+        name: _revision(revision, made, entity=entity, projects=readable, states=states)
         for name, revision in found.items()
     }
 

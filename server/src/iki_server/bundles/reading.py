@@ -14,7 +14,7 @@ import json
 import re
 import tarfile
 import zlib
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
@@ -63,7 +63,7 @@ class Bundle:
         part = _LINES[member]
         if not any(m["path"] == member for m in self.manifest["members"]):
             return
-        with tarfile.open(self.path, "r:gz") as tar:
+        with tarfile.open(self.path, "r|gz") as tar:
             stream = _open(tar, member)
             for number, line in enumerate(_split(stream, member), start=1):
                 try:
@@ -75,11 +75,35 @@ class Bundle:
                     raise BundleError(f"Line {number} of {member}: {issues[0].message}")
                 yield row
 
-    def blob(self, sha256: str) -> Iterator[bytes]:
-        """A file's bytes, in chunks."""
-        with tarfile.open(self.path, "r:gz") as tar:
-            stream = _open(tar, f"blobs/sha256/{sha256}")
-            yield from iter(lambda: stream.read(CHUNK), b"")
+    def blobs(self, wanted: Collection[str]) -> Iterator[tuple[str, Iterator[bytes]]]:
+        """The bytes of the files with the SHA-256s ``wanted``, each in chunks, in one pass
+        over the archive, in the order it holds them.
+
+        Each file's chunks are checked against its SHA-256 and size as they're read: if
+        they don't match, its last chunk is followed by a ``BundleError`` rather than the
+        end, so what reads them stores nothing. Read each file's chunks before the next.
+        """
+        listed = {m["path"]: int(m["size"]) for m in self.manifest["members"]}
+        left = {f"blobs/sha256/{sha256}" for sha256 in wanted}
+        if not left:
+            return
+        try:
+            with tarfile.open(self.path, "r|gz") as tar:
+                for info in tar:
+                    if info.name not in left:
+                        continue
+                    left.discard(info.name)
+                    stream = tar.extractfile(info)
+                    if stream is None:
+                        raise BundleError(f"{info.name} can't be read.")
+                    sha256 = info.name.rsplit("/", 1)[1]
+                    yield sha256, _checked(stream, info.name, sha256, listed.get(info.name))
+                    if not left:
+                        break
+        except (tarfile.TarError, EOFError, OSError, zlib.error) as error:
+            raise BundleError(f"It isn't a bundle Iki can read: {error}.") from None
+        if left:
+            raise BundleError(f"It has no {min(left)}.")
 
 
 def read(path: Path, trusted: Mapping[str, tuple[str, ...]], *, limit: int) -> Bundle:
@@ -171,19 +195,35 @@ def _hash(stream: IO[bytes]) -> tuple[str, int]:
     return sha.hexdigest(), size
 
 
+def _checked(stream: IO[bytes], name: str, sha256: str, size: int | None) -> Iterator[bytes]:
+    sha = hashlib.sha256()
+    read = 0
+    try:
+        for chunk in iter(lambda: stream.read(CHUNK), b""):
+            sha.update(chunk)
+            read += len(chunk)
+            yield chunk
+    except (tarfile.TarError, EOFError, OSError, zlib.error) as error:
+        raise BundleError(f"It isn't a bundle Iki can read: {error}.") from None
+    if (sha.hexdigest(), read) != (sha256, size):
+        raise BundleError(f"{name} isn't what its bundle.json says: it was changed.")
+
+
 def _file_hash(path: Path) -> tuple[str, int]:
     with path.open("rb") as stream:
         return _hash(stream)
 
 
 def _open(tar: tarfile.TarFile, name: str) -> IO[bytes]:
-    try:
-        stream = tar.extractfile(name)
-    except KeyError:
-        raise BundleError(f"It has no {name}.") from None
-    if stream is None:
-        raise BundleError(f"{name} can't be read.")
-    return stream
+    """The member ``name``, read on from where ``tar`` is: an archive is read forward only,
+    as a lookup by name would read it to its end, then again from its start."""
+    for info in tar:
+        if info.name == name:
+            stream = tar.extractfile(info)
+            if stream is None:
+                raise BundleError(f"{name} can't be read.")
+            return stream
+    raise BundleError(f"It has no {name}.")
 
 
 def _split(stream: IO[bytes], member: str) -> Iterator[bytes]:

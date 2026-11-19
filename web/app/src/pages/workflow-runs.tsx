@@ -9,7 +9,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { iki, problemOf, projectByIdQuery, useApiMutation } from "../api";
 import { ENTITIES } from "../entities";
 import { usePageTitle } from "../layout";
 import {
@@ -432,7 +432,7 @@ function RerunWorkflow({ run }: { run: WorkflowRun }) {
 export function WorkflowRunPage() {
   const run = useWorkflowRun();
   usePageTitle(`${run.label} (${run.hrid})`);
-  const project = useQuery(projectsQuery).data?.find((p) => p.id === run.project);
+  const project = useQuery(projectByIdQuery(run.project)).data;
   const client = useQueryClient();
   const going = run.status === "running";
   useWorkflowUpdates(run.hrid, going);

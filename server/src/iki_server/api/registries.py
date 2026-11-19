@@ -39,6 +39,7 @@ from iki_server.api.entities import (
     _lookup,
     _one,
     _revision,
+    revision_states,
     undisclosed,
 )
 from iki_server.api.pagination import PageParams, page
@@ -555,8 +556,9 @@ def list_entry_revisions(
     revisions = Revision.objects.filter(entity=entry).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    states = revision_states(result["items"])
     result["items"] = [
-        {**_revision(r, {}), "entry": True}
+        {**_revision(r, {}, states=states), "entry": True}
         if curates or services.discloses(r, readable)
         else undisclosed(r)
         for r in result["items"]
