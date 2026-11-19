@@ -2578,12 +2578,19 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
     if reached != {("alphafold.ebi.ac.uk", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not AlphaFold DB alone")
     made = {e["type"]: e for e in run["effects"] if e["kind"] in ("created", "reused")}
-    if set(made) != {"iki/protein.Protein", "iki/protein.ProteinStructure"}:
+    # Crambin's organism, Crambe hispanica subsp. abyssinica (NCBI taxon 3721), is a record
+    # its protein refers to (ADR 0140), made the first time an import meets it.
+    expected = {"iki/protein.Protein", "iki/protein.ProteinStructure", "iki/core.Organism"}
+    if set(made) != expected:
         fail(f"{run['hrid']} ({action}) made {run['effects']}")
     ref = made["iki/protein.ProteinStructure"]["entity"]
     structure = api_call(alice, "GET", f"/entities/{ref}").json()
     values = structure["values"]
     protein = entry_of(record(alice, made["iki/protein.Protein"]["entity"]))
+    taxon = record(alice, made["iki/core.Organism"]["entity"])
+    of_protein = record(alice, made["iki/protein.Protein"]["entity"])["values"].get("organism")
+    if taxon["values"].get("taxon_id") != 3721 or of_protein != entry_of(taxon):
+        fail(f"{run['hrid']} gave crambin the organism {of_protein}, not taxon 3721 ({taxon})")
     if (
         values.get("name") != "AF-P01542-F1"
         or values.get("method") != "predicted"
