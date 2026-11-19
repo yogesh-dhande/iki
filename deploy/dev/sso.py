@@ -35,7 +35,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any, NoReturn
-from urllib.parse import parse_qs, quote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
 
 import requests
 import urllib3.util.connection
@@ -3021,16 +3021,39 @@ TOOLS_IMAGE = (
 )
 
 
-def _run_pods() -> list[dict[str, Any]]:
-    pods: list[dict[str, Any]] = json.loads(
-        subprocess.run(  # noqa: S603 - fixed argv
-            ["kubectl", "--context", CONTEXT, "-n", "iki-runs", "get", "pods", "-o", "json"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-    )["items"]
-    return pods
+RUN_PODS = "/api/v1/namespaces/iki-runs/pods"
+
+
+def _labelled_run_pod(version: str, worker: str, run: str, project: str) -> dict[str, Any]:
+    """Read this worker's pod events since before launch, even if cleanup already deleted it."""
+    wanted = {"iki.ikisci.org/run": run, "iki.ikisci.org/project": project}
+    labels: dict[str, str] = {}
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        query = urlencode(
+            {
+                "watch": "true",
+                "resourceVersion": version,
+                "fieldSelector": f"metadata.name={worker}",
+                "timeoutSeconds": 2,
+            }
+        )
+        events = kubectl("get", "--raw", f"{RUN_PODS}?{query}", "--request-timeout=10s")
+        for line in events.splitlines():
+            event = json.loads(line)
+            pod: dict[str, Any] = event["object"]
+            if event["type"] == "ERROR":
+                fail(f"watching {worker}: {pod.get('message', 'Kubernetes watch error')}")
+            meta = pod["metadata"]
+            version = meta["resourceVersion"]
+            if meta.get("name") != worker:
+                continue
+            labels = meta.get("labels", {})
+            if all(labels.get(k) == v for k, v in wanted.items()):
+                return pod
+            if event["type"] == "DELETED":
+                fail(f"{worker} was deleted without its run and project labels: {labels}")
+    fail(f"timed out waiting for {worker}'s run and project labels: {labels}")
 
 
 def _sample(alice: requests.Session, project: dict[str, Any], **values: str) -> dict[str, Any]:
@@ -3087,14 +3110,17 @@ def containers() -> None:
         if not listed.get(action, {}).get("available"):
             fail(f"{action} isn't available to run: {listed.get(action)}")
     action = "acme/example.assign_storage"
-    run, attempt, storage = _contained(alice, project, action, _sample(alice, project))
+    sample = _sample(alice, project)
+    # A short run can finish and its pod disappear before followed() returns.
+    version = json.loads(kubectl("get", "--raw", f"{RUN_PODS}?limit=1"))["metadata"][
+        "resourceVersion"
+    ]
+    run, attempt, storage = _contained(alice, project, action, sample)
     if storage != "-80 °C freezer":
         fail(f"{run['hrid']} wrote {storage!r}, not the plugin's default storage")
     if attempt["template"] != "container-small":
         fail(f"{run['hrid']} didn't run on a pod of its own: {attempt}")
-    pod = next((p for p in _run_pods() if p["metadata"]["name"] == attempt["worker"]), None)
-    if pod is None:
-        fail(f"no pod {attempt['worker']} in iki-runs")
+    pod = _labelled_run_pod(version, attempt["worker"], run["id"], project["id"])
     (container,) = pod["spec"]["containers"]
     if container["image"] != TOOLS_IMAGE or pod["spec"]["automountServiceAccountToken"]:
         fail(f"{attempt['worker']} isn't the environment's image without a Kubernetes token")
@@ -3102,17 +3128,6 @@ def containers() -> None:
         f"{action} ran in a pod of its own ({attempt['worker']}, {TOOLS_IMAGE.split('@')[0]}) "
         f"on the container tier ({run['hrid']}) and wrote storage {storage!r}"
     )
-    # Its pod says whose it is, for the cluster's own cost tools (ADR 0070).
-    wanted = {"iki.ikisci.org/run": run["id"], "iki.ikisci.org/project": project["id"]}
-    deadline = time.monotonic() + 60
-    while True:
-        pod = next((p for p in _run_pods() if p["metadata"]["name"] == attempt["worker"]), None)
-        labels = (pod or {}).get("metadata", {}).get("labels", {})
-        if all(labels.get(k) == v for k, v in wanted.items()):
-            break
-        if pod is None or time.monotonic() > deadline:
-            fail(f"{attempt['worker']} isn't labelled with its run and project: {labels}")
-        time.sleep(2)
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
     action = "acme/example.tidy_storage"
@@ -3126,9 +3141,7 @@ def containers() -> None:
     if any(storage != "-80 °C freezer" for _, _, storage in ran):
         fail(f"{action} wrote {[s for _, _, s in ran]}")
     (worker,) = workers
-    pod = next((p for p in _run_pods() if p["metadata"]["name"] == worker), None)
-    if pod is None:
-        fail(f"no warm pod {worker} in iki-runs")
+    pod = json.loads(kubectl("get", "--raw", f"{RUN_PODS}/{worker}"))
     first = ran[0][0]
     started = datetime.fromisoformat(pod["metadata"]["creationTimestamp"])
     if started > datetime.fromisoformat(first["created_at"]):
