@@ -198,6 +198,26 @@ describe("the frame", () => {
   });
 });
 
+describe("the project list", () => {
+  it("shows the first page at once, and the next when asked", async () => {
+    signedIn();
+    const second = project({ id: "p2", name: "Variant Calls", slug: "variant-calls" });
+    answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
+      query.get("cursor") === "next" ? page([second]) : { items: [PROJECT], next_cursor: "next" },
+    );
+    const { user } = await renderApp("/projects/");
+    expect(await screen.findAllByRole("listitem")).toHaveLength(1);
+    expect(calls("GET", "/api/v1/projects")).toHaveLength(1);
+    expect(calls("GET", "/api/v1/projects")[0]?.query.get("sort")).toBe("name");
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    });
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Variant Calls");
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+});
+
 describe("home", () => {
   it("welcomes people and lists their active projects", async () => {
     signedIn({
@@ -210,13 +230,12 @@ describe("home", () => {
         manage_compute: false,
       },
     });
-    answer(
-      "GET /api/v1/projects",
-      page([
-        PROJECT,
-        project({ id: "p2", name: "Old Screen", slug: "old-screen", archived: true }),
-        project({ id: "p3", name: "Imaging", slug: "imaging", my_role: null }),
-      ]),
+    answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
+      page(
+        query.get("member") === "true"
+          ? [PROJECT]
+          : [project({ id: "p3", name: "Imaging", slug: "imaging", my_role: null })],
+      ),
     );
     await renderApp("/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Welcome, Rosalind");
@@ -225,7 +244,22 @@ describe("home", () => {
     expect(rows[0]).toHaveTextContent("Kinase Atlas");
     expect(rows[0]).toHaveTextContent("Structural Biology");
     expect(rows[0]).toHaveTextContent("Admin");
-    expect(screen.getByText(/can also see 1 project you’re not a member of/)).toBeVisible();
+    expect(await screen.findByText(/can also see projects you’re not a member of/)).toBeVisible();
+    // The server finds the active projects they're in, in order: not every project there is.
+    const [mine, others] = ["true", "false"].map((member) =>
+      calls("GET", "/api/v1/projects").find((c) => c.query.get("member") === member),
+    );
+    expect(Object.fromEntries(mine?.query ?? [])).toEqual({
+      sort: "name",
+      limit: "50",
+      member: "true",
+      archived: "false",
+    });
+    expect(Object.fromEntries(others?.query ?? [])).toEqual({
+      member: "false",
+      archived: "false",
+      limit: "1",
+    });
     expect(screen.getByRole("link", { name: "New project" })).toHaveAttribute(
       "href",
       "/projects/new/",

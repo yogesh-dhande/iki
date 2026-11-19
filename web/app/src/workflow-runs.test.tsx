@@ -15,6 +15,7 @@ const EVENTS = "/api/v1/workflow-runs/WF-000001/events";
 function onWorkflow(found: () => ReturnType<typeof workflowRun>): void {
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
+  answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
   answer("GET /api/v1/actions", [ACTION]);
   answer("GET /api/v1/workflow-runs/WF-000001", () => found());
 }
@@ -331,6 +332,7 @@ describe("a workflow run's page", () => {
   it("says when there's no such workflow run", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     await renderApp("/workflow-runs/WF-000009/");
     expect(
       screen.getByText("There’s nothing here, or you don’t have access to it."),
@@ -342,6 +344,7 @@ describe("a run that's a workflow's step", () => {
   it("links to its workflow run", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
     const step = run({ workflow: { id: WORKFLOW_ID, hrid: "WF-000001", step: "properties" } });
     answer("GET /api/v1/runs/RUN-000001", step);

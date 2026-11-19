@@ -1,15 +1,17 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseInfiniteQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import { meQuery, projectsQuery } from "../api";
+import { meQuery, projectPagesQuery } from "../api";
 import { usePageTitle } from "../layout";
-import { buttonClass, PageHeader } from "../ui";
-import { ProjectRows, sortProjects } from "./project-rows";
+import { Button, buttonClass, PageHeader } from "../ui";
+import { ProjectRows } from "./project-rows";
 
 export function ProjectList() {
   usePageTitle("Projects");
   const me = useSuspenseQuery(meQuery).data;
-  const projects = sortProjects(useSuspenseQuery(projectsQuery).data);
+  // The first page shows at once; more as they're asked for.
+  const pages = useSuspenseInfiniteQuery(projectPagesQuery());
+  const projects = pages.data.pages.flatMap((p) => p.items);
   return (
     <>
       <PageHeader
@@ -23,7 +25,20 @@ export function ProjectList() {
         }
       />
       {projects.length > 0 ? (
-        <ProjectRows projects={projects} />
+        <>
+          <ProjectRows projects={projects} />
+          {pages.hasNextPage ? (
+            <div className="actions">
+              <Button
+                busy={pages.isFetchingNextPage}
+                busyText="Loading…"
+                onClick={() => void pages.fetchNextPage()}
+              >
+                Show more
+              </Button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <section className="card empty">
           <p>

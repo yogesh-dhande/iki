@@ -2741,6 +2741,8 @@ class ProjectFilters(TypedDict):
     member: NotRequired[bool | None]
     #: The project's address, as in its page's URL.
     slug: NotRequired[str | None]
+    #: created: oldest first. name: archived ones last, then by team and name, as people browse them.
+    sort: NotRequired[Literal['created', 'name']]
     team: NotRequired[str | None]
 
 

@@ -1,15 +1,15 @@
 """Projects and who has access to them."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, QuerySet
+from django.db.models import BooleanField, Count, Exists, ExpressionWrapper, OuterRef, Q, QuerySet
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Status
 
 from iki_server.api.common import caller, person, project, require, team
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_by
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
     LabRoleOut,
@@ -45,6 +45,11 @@ class ProjectFilters(PageParams):
     archived: bool | None = None
     member: bool | None = Field(
         None, description="true: only projects you have a role in. Org Admins see all names."
+    )
+    sort: Literal["created", "name"] = Field(
+        "created",
+        description="created: oldest first. name: archived ones last, then by team and name, "
+        "as people browse them.",
     )
 
 
@@ -104,7 +109,18 @@ def list_projects(request: HttpRequest, filters: Query[ProjectFilters]) -> dict[
         projects = projects.annotate(
             has_entities=Exists(Entity.objects.filter(owner_project=OuterRef("pk")))
         )
-    found = page(projects, filters)
+    if filters.sort == "name":
+        found = page_by(
+            projects.annotate(
+                sort_archived=ExpressionWrapper(
+                    Q(archived_at__isnull=False), output_field=BooleanField()
+                )
+            ),
+            filters,
+            by=("sort_archived", "team__name", "name", "pk"),
+        )
+    else:
+        found = page(projects, filters)
     # What the caller may do in each, decided for the whole page at once.
     permissions.remember_roles(me, found["items"])
     return found

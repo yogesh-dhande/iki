@@ -159,6 +159,8 @@ export const labRolesQuery = queryOptions({
   staleTime: Infinity,
 });
 
+/** Every project the reader can see, each page fetched in turn: for choosing one in a
+ * form. Browsing them is a page at a time, with {@link projectPagesQuery}. */
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
   queryFn: () =>
@@ -170,6 +172,64 @@ export const projectsQuery = queryOptions({
       ),
     ),
 });
+
+/** The projects the reader can see as people browse them, a page at a time ("Show
+ * more"): archived ones last, then by team and name, in the server's order. `member` keeps
+ * those they have a role in, and `archived: false` the active ones. */
+export function projectPagesQuery(filter: { member?: boolean; archived?: boolean } = {}) {
+  return infiniteQueryOptions({
+    queryKey: ["projects", "pages", filter],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/projects", {
+          params: {
+            query: {
+              sort: "name",
+              limit: 50,
+              ...filter,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+/** Whether there are active projects the reader sees but has no role in, as an Org Admin
+ * does: one row is enough to say so. */
+export const othersProjectsQuery = queryOptions({
+  queryKey: ["projects", "others"],
+  queryFn: async () =>
+    unwrap(
+      await iki.GET("/api/v1/projects", {
+        params: { query: { member: false, archived: false, limit: 1 } },
+      }),
+    ).items.length > 0,
+});
+
+/** Whether the reader can see a project, by its slug: an empty list if not, rather than a
+ * refusal, as a request's sides may each be a project the other can't open. */
+export function seesProjectQuery(slug: string) {
+  return queryOptions({
+    queryKey: ["projects", "sees", slug],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/projects", { params: { query: { slug, limit: 1 } } })).items
+        .length > 0,
+  });
+}
+
+/** One project, by ID: what a run, batch or workflow run says it's in. */
+export function projectByIdQuery(id: string) {
+  return queryOptions({
+    queryKey: ["projects", "by-id", id],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } }),
+      ),
+  });
+}
 
 export function projectQuery(slug: string) {
   return queryOptions({

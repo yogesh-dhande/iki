@@ -280,6 +280,39 @@ def test_a_page_of_projects_takes_as_many_queries_however_many_it_holds(
     assert _queries_listing(world, principal) == few
 
 
+def test_projects_browse_by_team_and_name_a_page_at_a_time(world: World) -> None:
+    """Archived ones last, then by team and name: each page starts where the last ended."""
+    for name in ("Beta", "Alpha", "Gamma"):
+        Project.objects.create(team=world.other_team, name=name)
+    Project.objects.create(team=world.team, name="Assays")
+    api = api_as(world, "org_admin")
+    seen: list[str] = []
+    cursor = None
+    while True:
+        query: dict[str, Any] = {"sort": "name", "limit": 2}
+        if cursor:
+            query["cursor"] = cursor
+        page = api.get("/projects", **query).json()
+        seen += [f"{p['team']['name']}/{p['name']}" for p in page["items"]]
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == [
+        "Chemistry/Alpha",
+        "Chemistry/Beta",
+        "Chemistry/Gamma",
+        "Structural Biology/Assays",
+        "Structural Biology/Kinase Atlas",
+        "Structural Biology/Old Screens",
+    ]
+    # A cursor from one order doesn't continue another.
+    first = api.get("/projects", limit=2).json()["next_cursor"]
+    body = problem(api.get("/projects", sort="name", cursor=first), 422, "validation_failed")
+    assert body["errors"] == [
+        {"parameter": "cursor", "detail": "Not a cursor from this list, sorted so."}
+    ]
+
+
 def test_archived_projects_are_restored_before_changes(world: World) -> None:
     api = api_as(world, "admin")
     path = f"/projects/{world.archived.pk}"

@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
-import { iki, problemOf, projectQuery, projectsQuery, useApiMutation } from "../api";
+import { iki, problemOf, projectQuery, seesProjectQuery, useApiMutation } from "../api";
 import {
   ENTITIES,
   entityQuery,
@@ -51,9 +51,9 @@ interface ProjectRef {
 /** A project by name: a link, if the reader can open it. Each side of a request may not
  * see the other's project. */
 function ProjectName({ project }: { project: ProjectRef | null }) {
-  const visible = useQuery(projectsQuery).data;
+  const visible = useQuery({ ...seesProjectQuery(project?.slug ?? ""), enabled: !!project }).data;
   if (!project) return <span className="muted">A project you can’t see</span>;
-  if (!visible?.some((p) => p.id === project.id)) return <>{project.name}</>;
+  if (!visible) return <>{project.name}</>;
   return (
     <Link to="/projects/$slug/" params={{ slug: project.slug }}>
       {project.name}

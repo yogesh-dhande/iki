@@ -15,7 +15,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, meQuery, problemOf, projectsQuery, useApiMutation } from "../api";
+import { iki, meQuery, problemOf, projectByIdQuery, useApiMutation } from "../api";
 import { capacityText, slurmRequestText, type AttemptSlurm } from "../compute";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
@@ -1319,7 +1319,7 @@ export function RunPage() {
   const action = actions?.find((a) => a.name === run.action);
   const label = actionLabel(actions, run.action);
   usePageTitle(`${label} (${run.hrid})`);
-  const project = useQuery(projectsQuery).data?.find((p) => p.id === run.project);
+  const project = useQuery(projectByIdQuery(run.project)).data;
   const attempts = useQuery(attemptsQuery(run.hrid));
   const artifacts = useQuery(artifactsQuery(run.hrid)).data ?? [];
   const client = useQueryClient();
