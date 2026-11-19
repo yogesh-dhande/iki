@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: annotate_new_plasmid
+label: Annotate each new plasmid from the library
+description: >-
+  Annotates a plasmid as soon as a project has it. On each project's own record, not once
+  per registry entry: the annotation and what it says about the plasmid are the record's,
+  since they depend on the library and the identity the run asked for. Its length is its
+  entry's, so a run fills that only where it's still empty.
+on: entity.created
+type: Plasmid
+run: annotate_plasmid

@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: check_stated_product
+label: Check each assembly when its product is stated
+description: >-
+  Checks a cloning plan against its product as soon as someone says what the clone's
+  sequence turned out to be, so the scientist who sequenced it hears at once whether the
+  plan explains it.
+on: entity.updated
+type: Assembly
+fields: [product]
+run: check_assembly

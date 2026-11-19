@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: annotate_plasmid
+label: Annotate a plasmid from the library
+description: >-
+  Finds the common vector parts of the plugin's library along a plasmid's sequence, on
+  both strands and round its origin, and records what they say about it: its origins of
+  replication, the antibiotics it's selected with in bacteria, its markers in the cells
+  it's expressed in, and its promoters.
+inputs:
+  plasmid: { type: Plasmid, schema: ">=1", include: [sequence] }
+params:
+  min_identity:
+    type: float
+    min: 0.5
+    max: 1.0
+    default: 0.9
+    label: Least identity
+    description: >-
+      How much of a part's bases must match for it to be annotated. A part under 40 bases
+      long is annotated only where it matches exactly, whatever this says.
+effects:
+  updates:
+    - input: plasmid
+      fields:
+        - length
+        - annotated_features
+        - annotated_with
+        - replication_origins
+        - bacterial_resistance
+        - selection_markers
+        - promoters
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, annotate]
+deterministic: true
+batchable: 20
+timeout: 30m

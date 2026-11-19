@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_plasmid
+label: Register a plasmid
+description: >-
+  Registers a plasmid from its bases: the circular, double-stranded DNA sequence, and the
+  plasmid that is it. The same molecule given again, from another origin or on the other
+  strand, finds the entries it has already (ADR 0138), and this project gets its records.
+params:
+  bases:
+    type: string
+    format: dna_sequence
+    required: true
+    max_length: 1000000
+    label: Bases
+    description: Its bases, 5′ to 3′, in IUPAC codes, from any origin.
+  name: { type: string, max_length: 255, label: Name }
+  description: { type: text, max_length: 10000, label: Description }
+  accession:
+    type: string
+    max_length: 64
+    pattern: "^[A-Za-z0-9_.]+$"
+    label: Accession
+    description: The GenBank, ENA or DDBJ accession its sequence was read from, with its version.
+  addgene_id:
+    type: string
+    max_length: 7
+    pattern: "^[1-9][0-9]{0,6}$"
+    label: Addgene number
+effects:
+  creates:
+    - { type: iki/dna.DNASequence }
+    - { type: Plasmid }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, register]
+deterministic: true
+timeout: 10m

@@ -1,0 +1,74 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: the_product_from_another_origin_on_the_other_strand_is_the_same_molecule
+description: >-
+  The plan's circle and the product's sequence are the same molecule when they're the same
+  bases from any origin and on either strand (ADR 0138): the product here is the plan's
+  circle rotated by 77 bases and read on the other strand, and it matches.
+action: check_assembly
+inputs:
+  assembly:
+    - values: { method: restriction_ligation, enzymes: [EcoRI, HindIII] }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+                name: pBackbone,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAAAGCTTGG",
+                topology: linear,
+                name: fragment,
+              }
+        product:
+          - values:
+              {
+                bases: "GCGTACAACAGTGTCCATAAGACTGAAATCCTGGCGGAAGTATGACCGAGAGGCGCGTAGAAGGGAAACCTCAAGCTTTTAATACGGGCCAGGTGACACGCGGCACCCGGGGACGGGTAAAGCTAGCGGCACAAGGGAGCCCATGAATTCATCATCAGAACGGAGCCTTATGTGAACCGCCACCTGAAGGGGGAAGCA",
+                topology: circular,
+              }
+expect:
+  output:
+    updates:
+      assembly:
+        - values: { simulated_length: 198, matches_product: true }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_product_the_plan_doesnt_make
+description: >-
+  A product of the right length whose bases aren't the plan's circle doesn't match, and
+  the plan's own length is recorded all the same, so whoever sequenced the clone can see
+  what was expected.
+action: check_assembly
+inputs:
+  assembly:
+    - values: { method: restriction_ligation, enzymes: [EcoRI, HindIII] }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAAAGCTTGG",
+                topology: linear,
+              }
+        product:
+          - values:
+              {
+                bases: "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTAC",
+                topology: circular,
+              }
+expect:
+  output:
+    updates:
+      assembly:
+        - values: { simulated_length: 198, matches_product: false }

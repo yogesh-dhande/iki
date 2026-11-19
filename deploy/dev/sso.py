@@ -1126,6 +1126,7 @@ def actions() -> None:
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
+    plasmids(alice, project)
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -1808,6 +1809,297 @@ def oligonucleotides(alice: requests.Session, project: dict[str, Any]) -> None:
     if [(e["kind"], e["entity"]) for e in again] != [("reused", oligo["id"])]:
         fail(f"{run['hrid']} made {run['effects']}, not {oligo['hrid']} reused")
     ok(f"nusinersen's HELM written another way is {oligo['hrid']}, reused ({run['hrid']})")
+
+
+#: Cloning vector pUC19, 2,686 bp, as INSDC record L09137.2 gives it: the vector most
+#: molecular cloning starts from (Yanisch-Perron, Vieira & Messing, Gene 33:103, 1985).
+PUC19 = (
+    "TCGCGCGTTTCGGTGATGACGGTGAAAACCTCTGACACATGCAGCTCCCGGAGACGGTCACAGCTTGTCTGT"
+    "AAGCGGATGCCGGGAGCAGACAAGCCCGTCAGGGCGCGTCAGCGGGTGTTGGCGGGTGTCGGGGCTGGCTTA"
+    "ACTATGCGGCATCAGAGCAGATTGTACTGAGAGTGCACCATATGCGGTGTGAAATACCGCACAGATGCGTAA"
+    "GGAGAAAATACCGCATCAGGCGCCATTCGCCATTCAGGCTGCGCAACTGTTGGGAAGGGCGATCGGTGCGGG"
+    "CCTCTTCGCTATTACGCCAGCTGGCGAAAGGGGGATGTGCTGCAAGGCGATTAAGTTGGGTAACGCCAGGGT"
+    "TTTCCCAGTCACGACGTTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCG"
+    "ACCTGCAGGCATGCAAGCTTGGCGTAATCATGGTCATAGCTGTTTCCTGTGTGAAATTGTTATCCGCTCACA"
+    "ATTCCACACAACATACGAGCCGGAAGCATAAAGTGTAAAGCCTGGGGTGCCTAATGAGTGAGCTAACTCACA"
+    "TTAATTGCGTTGCGCTCACTGCCCGCTTTCCAGTCGGGAAACCTGTCGTGCCAGCTGCATTAATGAATCGGC"
+    "CAACGCGCGGGGAGAGGCGGTTTGCGTATTGGGCGCTCTTCCGCTTCCTCGCTCACTGACTCGCTGCGCTCG"
+    "GTCGTTCGGCTGCGGCGAGCGGTATCAGCTCACTCAAAGGCGGTAATACGGTTATCCACAGAATCAGGGGAT"
+    "AACGCAGGAAAGAACATGTGAGCAAAAGGCCAGCAAAAGGCCAGGAACCGTAAAAAGGCCGCGTTGCTGGCG"
+    "TTTTTCCATAGGCTCCGCCCCCCTGACGAGCATCACAAAAATCGACGCTCAAGTCAGAGGTGGCGAAACCCG"
+    "ACAGGACTATAAAGATACCAGGCGTTTCCCCCTGGAAGCTCCCTCGTGCGCTCTCCTGTTCCGACCCTGCCG"
+    "CTTACCGGATACCTGTCCGCCTTTCTCCCTTCGGGAAGCGTGGCGCTTTCTCATAGCTCACGCTGTAGGTAT"
+    "CTCAGTTCGGTGTAGGTCGTTCGCTCCAAGCTGGGCTGTGTGCACGAACCCCCCGTTCAGCCCGACCGCTGC"
+    "GCCTTATCCGGTAACTATCGTCTTGAGTCCAACCCGGTAAGACACGACTTATCGCCACTGGCAGCAGCCACT"
+    "GGTAACAGGATTAGCAGAGCGAGGTATGTAGGCGGTGCTACAGAGTTCTTGAAGTGGTGGCCTAACTACGGC"
+    "TACACTAGAAGAACAGTATTTGGTATCTGCGCTCTGCTGAAGCCAGTTACCTTCGGAAAAAGAGTTGGTAGC"
+    "TCTTGATCCGGCAAACAAACCACCGCTGGTAGCGGTGGTTTTTTTGTTTGCAAGCAGCAGATTACGCGCAGA"
+    "AAAAAAGGATCTCAAGAAGATCCTTTGATCTTTTCTACGGGGTCTGACGCTCAGTGGAACGAAAACTCACGT"
+    "TAAGGGATTTTGGTCATGAGATTATCAAAAAGGATCTTCACCTAGATCCTTTTAAATTAAAAATGAAGTTTT"
+    "AAATCAATCTAAAGTATATATGAGTAAACTTGGTCTGACAGTTACCAATGCTTAATCAGTGAGGCACCTATC"
+    "TCAGCGATCTGTCTATTTCGTTCATCCATAGTTGCCTGACTCCCCGTCGTGTAGATAACTACGATACGGGAG"
+    "GGCTTACCATCTGGCCCCAGTGCTGCAATGATACCGCGAGACCCACGCTCACCGGCTCCAGATTTATCAGCA"
+    "ATAAACCAGCCAGCCGGAAGGGCCGAGCGCAGAAGTGGTCCTGCAACTTTATCCGCCTCCATCCAGTCTATT"
+    "AATTGTTGCCGGGAAGCTAGAGTAAGTAGTTCGCCAGTTAATAGTTTGCGCAACGTTGTTGCCATTGCTACA"
+    "GGCATCGTGGTGTCACGCTCGTCGTTTGGTATGGCTTCATTCAGCTCCGGTTCCCAACGATCAAGGCGAGTT"
+    "ACATGATCCCCCATGTTGTGCAAAAAAGCGGTTAGCTCCTTCGGTCCTCCGATCGTTGTCAGAAGTAAGTTG"
+    "GCCGCAGTGTTATCACTCATGGTTATGGCAGCACTGCATAATTCTCTTACTGTCATGCCATCCGTAAGATGC"
+    "TTTTCTGTGACTGGTGAGTACTCAACCAAGTCATTCTGAGAATAGTGTATGCGGCGACCGAGTTGCTCTTGC"
+    "CCGGCGTCAATACGGGATAATACCGCGCCACATAGCAGAACTTTAAAAGTGCTCATCATTGGAAAACGTTCT"
+    "TCGGGGCGAAAACTCTCAAGGATCTTACCGCTGTTGAGATCCAGTTCGATGTAACCCACTCGTGCACCCAAC"
+    "TGATCTTCAGCATCTTTTACTTTCACCAGCGTTTCTGGGTGAGCAAAAACAGGAAGGCAAAATGCCGCAAAA"
+    "AAGGGAATAAGGGCGACACGGAAATGTTGAATACTCATACTCTTCCTTTTTCAATATTATTGAAGCATTTAT"
+    "CAGGGTTATTGTCTCATGAGCGGATACATATTTGAATGTATTTAGAAAAATAAACAAATAGGGGTTCCGCGC"
+    "ACATTTCCCCGAAAAGTGCCACCTGACGTCTAAGAAACCATTATTATCATGACATTAACCTATAAAAATAGG"
+    "CGTATCACGAGGCCCTTTCGTC"
+)
+
+#: The stretch of pUC19 between its EcoRI and HindIII sites, with a few bases either
+#: side, as a PCR product of its polylinker would be: 66 bp of its own real sequence.
+POLYLINKER = PUC19[389:455]
+
+
+def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
+    2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
+    parts, at the coordinates pUC19's published map gives; the same molecule read from
+    another origin on the other strand finding the entries it has already; a plasmid under
+    a material transfer agreement having to name it (ADR 0127); and a cloning plan that
+    puts pUC19's own polylinker back between its EcoRI and HindIII sites making pUC19
+    again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
+    which its construct states then follow, up to the four-eyes guard that won't let
+    whoever built it verify it (ADR 0128)."""
+    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
+    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
+    held = {held["role"] for held in grant.get("lab_roles") or []}
+    roles = sorted(held | {"iki/plasmid.cloner", "iki/plasmid.construct_reviewer"})
+    given = api_call(
+        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", {"roles": roles}
+    )
+    if given.status_code != 200:
+        fail(f"giving alice the plasmid plugin's lab roles answered HTTP {given.status_code}")
+    # A trigger is off until a project Admin turns it on, and then its runs are launched as
+    # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
+    # before alice turns these on herself.
+    annotating = "iki/plasmid.annotate_new_plasmid"
+    for trigger in (annotating, "iki/plasmid.check_stated_product"):
+        on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{trigger}/enable", {})
+        if on.status_code != 200 or not on.json().get("enabled"):
+            fail(f"turning {trigger} on answered HTTP {on.status_code}: {on.text[:300]}")
+    action = "iki/plasmid.register_plasmid"
+    run = launch(
+        alice, project, action, {}, {"bases": PUC19, "name": "pUC19", "accession": "L09137.2"}
+    )
+    kinds = {e["type"]: e["kind"] for e in run["effects"]}
+    if kinds.get("iki/plasmid.Plasmid") != "created":
+        fail(f"{run['hrid']} ({action}) made {run['effects']}, not a plasmid")
+    plasmid = record(
+        alice, next(e["entity"] for e in run["effects"] if e["type"].endswith("Plasmid"))
+    )
+    # Its trigger annotates it: the run is launched by the server, so wait for its values.
+    deadline = time.monotonic() + 180
+    values: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        values = record(alice, plasmid["id"])["values"]
+        if values.get("annotated_with"):
+            break
+        time.sleep(2)
+    else:
+        fail(f"{plasmid['hrid']} wasn't annotated by its trigger within 180 seconds")
+    found = {f["name"]: (f["start"], f["end"], f["strand"]) for f in values["annotated_features"]}
+    expected = {
+        "ori": (867, 1455, "reverse"),
+        "AmpR": (1626, 2486, "reverse"),
+        "lac promoter": (508, 591, "reverse"),
+    }
+    if found != expected or values.get("length") != 2686:
+        fail(f"{plasmid['hrid']} was annotated {found}, {values.get('length')} bp, not {expected}")
+    if (values.get("bacterial_resistance"), values.get("replication_origins")) != (
+        ["ampicillin"],
+        ["pMB1/pUC"],
+    ):
+        fail(f"{plasmid['hrid']}'s parts say {values}, not ampicillin from a pMB1/pUC origin")
+    # The trigger did it, not something else that writes those fields.
+    listed = api_call(alice, "GET", f"/projects/{project['id']}/triggers").json()
+    fired = next(t for t in listed if t["name"] == annotating)
+    if not fired["last_fired_at"]:
+        fail(f"{plasmid['hrid']} was annotated, but {annotating} says it never fired")
+    ok(
+        f"{action} registered pUC19 as {plasmid['hrid']} and the trigger alice turned on "
+        f"annotated it ({values['annotated_with']}): AmpR 1626..2486, ori 867..1455, "
+        f"lac promoter 508..591"
+    )
+    # A rule holds at every save, however it's written: an MTA must be named (ADR 0127).
+    etag = api_call(alice, "GET", f"/entities/{plasmid['id']}").headers["ETag"]
+    unnamed = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{plasmid['id']}",
+        {"values": {"mta_required": True}},
+        {"If-Match": etag},
+    )
+    said = (
+        [(e["pointer"], e["detail"]) for e in unnamed.json().get("errors", [])]
+        if unnamed.status_code == 422
+        else []
+    )
+    if not any(at.endswith("/mta_reference") and "name the agreement" in why for at, why in said):
+        fail(f"an unnamed MTA answered HTTP {unnamed.status_code}: {unnamed.text[:300]}")
+    named = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{plasmid['id']}",
+        {
+            "values": {
+                "mta_required": True,
+                "mta_reference": "DEV-MTA-1",
+                "mta_provider": "Example University",
+            }
+        },
+        {"If-Match": etag},
+    )
+    if named.status_code != 200:
+        fail(f"naming the MTA answered HTTP {named.status_code}: {named.text[:300]}")
+    ok(f"{plasmid['hrid']}: an MTA has to be named, and DEV-MTA-1 saves ({unnamed.status_code})")
+    # The same molecule from another origin, on the other strand: the entries it has.
+    rotated = PUC19[1343:] + PUC19[:1343]
+    other = rotated.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    run = launch(alice, project, action, {}, {"bases": other})
+    again = {e["type"]: (e["kind"], e["entity"]) for e in run["effects"]}
+    if again.get("iki/plasmid.Plasmid") != ("reused", plasmid["id"]):
+        fail(f"{run['hrid']} made {run['effects']}, not {plasmid['hrid']} reused")
+    ok(
+        f"pUC19 read from base 1344 on the other strand is {plasmid['hrid']}, "
+        f"reused ({run['hrid']})"
+    )
+    plan = assembled(alice, project, plasmid)
+    constructs(alice, project, plan)
+
+
+def assembled(
+    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
+) -> dict[str, Any]:
+    """A cloning plan, worked out: pUC19 cut with EcoRI and HindIII keeps its 2,635 bp
+    fragment, and its polylinker goes back in as the 51 bp piece between the two sites, so
+    the plan makes 2,686 bp — pUC19 again, which the registry recognises. Then the clone is
+    sequenced: stating its product fires the plan's other trigger, which finds that the
+    plan makes what the clone has."""
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/dna.DNASequence",
+            "project": project["id"],
+            "values": {"bases": POLYLINKER, "topology": "linear", "name": "pUC19 polylinker"},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering the polylinker answered HTTP {made.status_code}: {made.text[:300]}")
+    insert = made.json()
+    plan = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/plasmid.Assembly",
+            "project": project["id"],
+            "values": {
+                "name": "pUC19 polylinker back in",
+                "method": "restriction_ligation",
+                "enzymes": ["EcoRI", "HindIII"],
+                "backbone": plasmid["values"]["sequence"],
+                "inserts": [entry_of(insert)],
+            },
+        },
+    )
+    if plan.status_code != 201:
+        fail(f"recording a cloning plan answered HTTP {plan.status_code}: {plan.text[:300]}")
+    assembly: dict[str, Any] = plan.json()
+    run = launch(alice, project, "iki/plasmid.assemble", {"assembly": assembly["id"]})
+    effects = {e["type"]: e for e in run["effects"]}
+    # What the plan makes is pUC19, so both of its entries are the ones Iki has already. An
+    # effect names the project's record; its entry is what the plasmid's `sequence` holds.
+    sequence = effects.get("iki/dna.DNASequence") or {}
+    if sequence.get("kind") != "reused" or (
+        entry_of(record(alice, sequence["entity"])) != plasmid["values"]["sequence"]
+    ):
+        fail(f"{run['hrid']} made {run['effects']}, not pUC19's own sequence reused")
+    clone = effects.get("iki/plasmid.Plasmid") or {}
+    if (clone.get("kind"), clone.get("entity")) != ("reused", plasmid["id"]):
+        fail(f"{run['hrid']} made {run['effects']}, not {plasmid['hrid']} reused")
+    got = record(alice, assembly["id"])["values"]
+    if got.get("simulated_length") != 2686 or got.get("matches_product") is not None:
+        fail(f"{run['hrid']} wrote {got}, not a 2686 bp circle with nothing to match yet")
+    overhangs = sorted(j["overhang"] for j in got.get("junctions") or [])
+    if overhangs != ["5' AATT", "5' AGCT"]:
+        fail(f"{run['hrid']} wrote junctions {got.get('junctions')}, not the two sites'")
+    ok(
+        f"iki/plasmid.assemble worked out {assembly['hrid']} ({run['hrid']}): 2635 bp of "
+        f"pUC19 and its 51 bp polylinker make 2686 bp, pUC19's own entries reused"
+    )
+    # The clone is sequenced: stating what it turned out to have fires the plan's other
+    # trigger, whose run compares the two molecules.
+    etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
+    stated = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{assembly['id']}",
+        {"values": {"product": plasmid["values"]["sequence"]}},
+        {"If-Match": etag},
+    )
+    if stated.status_code != 200:
+        fail(f"stating the product answered HTTP {stated.status_code}: {stated.text[:300]}")
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        got = record(alice, assembly["id"])["values"]
+        if got.get("matches_product") is not None:
+            break
+        time.sleep(2)
+    else:
+        fail(f"{assembly['hrid']}'s product wasn't checked by its trigger within 180 seconds")
+    if got.get("matches_product") is not True:
+        fail(f"{assembly['hrid']} says its plan makes {got}, not the sequence the clone has")
+    ok(
+        f"{assembly['hrid']}: the clone's sequence stated, and the trigger's check found "
+        f"the plan makes it (2686 bp, the same molecule from any origin and either strand)"
+    )
+    return assembly
+
+
+def constructs(alice: requests.Session, project: dict[str, Any], assembly: dict[str, Any]) -> None:
+    """A construct's states: Checked only once the plan matches its product, Built from
+    Checked, and Verified by someone other than whoever built it (ADR 0128)."""
+    for state in ("checked", "built"):
+        etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
+        moved = api_call(
+            alice,
+            "POST",
+            f"/entities/{assembly['id']}/states/status",
+            {"state": state, "reason": ""},
+            {"If-Match": etag},
+        )
+        if moved.status_code != 200:
+            fail(
+                f"setting {assembly['hrid']} {state} answered HTTP {moved.status_code}: "
+                f"{moved.text[:300]}"
+            )
+    etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
+    refused = api_call(
+        alice,
+        "POST",
+        f"/entities/{assembly['id']}/states/status",
+        {"state": "verified", "reason": ""},
+        {"If-Match": etag},
+    )
+    if refused.status_code != 409 or refused.json().get("code") != "guard_refused":
+        fail(
+            f"verifying her own construct answered HTTP {refused.status_code}: {refused.text[:300]}"
+        )
+    ok(
+        f"{assembly['hrid']} is Checked and Built, and alice may not verify what she built: "
+        f"{refused.json()['detail']}"
+    )
 
 
 def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:

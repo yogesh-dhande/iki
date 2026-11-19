@@ -1,0 +1,244 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: restriction_ligation_puts_the_insert_in_the_backbone
+description: >-
+  A backbone cut with EcoRI and HindIII, and an insert cut with the same two, give one
+  circle: the backbone's 126 bp fragment and the insert's 72 bp fragment, each end
+  ligated to the matching overhang, 198 bp in all. The 96 bp piece of the backbone
+  between its two sites is left out, as it is in the lab.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: restriction_ligation, enzymes: [EcoRI, HindIII], name: pTest-insert }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+                name: pBackbone,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAAAGCTTGG",
+                topology: linear,
+                name: fragment,
+              }
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: made
+        values:
+          {
+            bases: "AGCTTGAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAA",
+            topology: circular,
+            strandedness: double,
+            name: pTest-insert,
+          }
+      - type: iki/plasmid.Plasmid
+        values: { sequence: { $create: made }, name: pTest-insert }
+    updates:
+      assembly:
+        - values:
+            simulated_length: 198
+            junctions:
+              - at: 127
+                from: pBackbone (DNA-000002)
+                to: fragment (DNA-000003)
+                overhang: "5' AATT"
+                enzymes: [EcoRI, HindIII]
+              - at: 1
+                from: fragment (DNA-000003)
+                to: pBackbone (DNA-000002)
+                overhang: "5' AGCT"
+                enzymes: [EcoRI, HindIII]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: gibson_joins_fragments_that_share_their_ends
+description: >-
+  A Gibson assembly of a 150 bp linear backbone and a 120 bp insert whose ends repeat 20
+  bases of each of the backbone's gives a 230 bp circle: each shared stretch counted once,
+  150 + 120 - 2 x 20.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: gibson, name: pGibson }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC",
+                topology: linear,
+                name: backbone,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATGAGAGCTGCTTCACTTTCGTCCCTCGCCCAGTTCCAGGACGACCCGTCGTCGGCTTCAATCACTACAAGAAGGTGTGCTGAATAAGGATAATTTCACGAAGATGACTATGATAG",
+                topology: linear,
+                name: insert,
+              }
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: made
+        values:
+          {
+            bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCACTTTCGTCCCTCGCCCAGTTCCAGGACGACCCGTCGTCGGCTTCAATCACTACAAGAAGGTGTGCTGAATAAGGATAATTT",
+            topology: circular,
+            strandedness: double,
+          }
+      - type: iki/plasmid.Plasmid
+        values: { sequence: { $create: made }, name: pGibson }
+    updates:
+      assembly:
+        - values:
+            simulated_length: 230
+            junctions:
+              - at: 131
+                from: backbone (DNA-000002)
+                to: insert (DNA-000003)
+                overlap: 20 bp
+                bases: CCGAATGAGAGCTGCTTCAC
+              - at: 1
+                from: insert (DNA-000003)
+                to: backbone (DNA-000002)
+                overlap: 20 bp
+                bases: CACGAAGATGACTATGATAG
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_gibson_plan_needs_its_backbone_linearised
+description: >-
+  A Gibson assembly whose backbone is a circle and which names no enzyme makes nothing:
+  the run says to name the enzyme that cuts it.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: gibson }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC",
+                topology: circular,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATGAGAGCTGCTTCACTTTCGTCCCTCGCCCAGTTCCAGGACGACCCGTCGTCGGCTTCAATCACTACAAGAAGGTGTGCTGAATAAGGATAATTTCACGAAGATGACTATGATAG",
+                topology: linear,
+              }
+expect:
+  error: "is circular, and the plan names no enzyme to linearise it"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: gateway_and_topo_are_recorded_not_worked_out
+description: >-
+  A Gateway LR plan is recorded as what was done, and not simulated: Iki works out
+  restriction-ligation, Golden Gate and Gibson assemblies, and says so.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: gateway_lr }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC",
+                topology: circular,
+              }
+        inserts: []
+expect:
+  error: "A gateway lr assembly is recorded, not worked out"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: golden_gate_leaves_no_site_behind
+description: >-
+  A Golden Gate reaction with BsaI, which cuts outside its site: the vector's dropout
+  cassette and the insert's flanks go with the enzyme sites, and the four-base overhangs
+  (AATG and GCTT) put the insert in one way round. 144 bp of vector and 74 bp of insert
+  make a 218 bp circle with no BsaI site left in it.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: golden_gate, enzymes: [BsaI], name: pGoldenGate }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "AATGAAATGTCACACGATGCAGCGTGCTGGTCGTACCACTGTAAGACGCTGCCAGAGATCCCGACTGTGCTAAGGCCCCCTGAGGCTCGAAAGACTCTTATGTTAGTAATCGATCGTTGATTAACGCTTGCACTAACTTTCGTGGCTTAGAGACCTCACCGTACCGGGATCTGCGATGGTTTTTGAACTACTACTGGTAGCTACGTTCCGGGCAGGGTCTCA",
+                topology: circular,
+                name: destination,
+              }
+        inserts:
+          - values:
+              {
+                bases: "TTGGTCTCAGCTTGAATCTGTTGGAAATAGTACCTCCCCCTGCTCGACACACGAATGAATCAGCTATTATTAGGGAGTATTTAAATGAGAGACCTT",
+                topology: linear,
+                name: part,
+              }
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: made
+        values:
+          {
+            bases: "AATGAAATGTCACACGATGCAGCGTGCTGGTCGTACCACTGTAAGACGCTGCCAGAGATCCCGACTGTGCTAAGGCCCCCTGAGGCTCGAAAGACTCTTATGTTAGTAATCGATCGTTGATTAACGCTTGCACTAACTTTCGTGGCTTGAATCTGTTGGAAATAGTACCTCCCCCTGCTCGACACACGAATGAATCAGCTATTATTAGGGAGTATTTA",
+            topology: circular,
+            strandedness: double,
+          }
+      - type: iki/plasmid.Plasmid
+        values: { sequence: { $create: made } }
+    updates:
+      assembly:
+        - values:
+            simulated_length: 218
+            junctions:
+              - at: 145
+                from: destination (DNA-000002)
+                to: part (DNA-000003)
+                overhang: "5' GCTT"
+                enzymes: [BsaI]
+              - at: 1
+                from: part (DNA-000003)
+                to: destination (DNA-000002)
+                overhang: "5' AATG"
+                enzymes: [BsaI]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_plan_that_makes_several_circles_makes_none
+description: >-
+  Taking any fragment of the backbone, the insert fits either of the two the double
+  digest leaves, so the plan makes two circles and doesn't say which: it makes none, and
+  says how long each would be. By default the backbone's longest fragment alone goes
+  into the reaction, which is why the same plan has one answer.
+action: assemble
+params: { backbone_fragment: any }
+inputs:
+  assembly:
+    - values: { method: restriction_ligation, enzymes: [EcoRI, HindIII] }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAAAGCTTGG",
+                topology: linear,
+              }
+expect:
+  error: "make 2 different circles (168 bp, 198 bp)"
