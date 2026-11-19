@@ -13,7 +13,10 @@ humanness. Only antibody domains count (heavy, kappa and lambda): a T-cell recep
 aren't.
 
 A protein's fields describe its first heavy domain and its first light domain: a heavy
-chain has one, a light chain the other, an scFv both. Every field is set, so numbering
+chain has one, a light chain the other, an scFv both. A chain with a domain ANARCI finds
+but can't number in the scheme (a CDR with more insertions than it has codes for, as a
+cow's ultralong CDR-H3 has in Kabat's) is left as it was, and the run warns which: saved
+without that domain, it would say it's another kind of chain. Every field is set, so numbering
 a protein again leaves nothing of the last time: a chain whose liabilities were found
 (find_liabilities) has them found again on the new numbering, since each liability's
 number and region are its numbering's. A protein with none is left as it was, and the
@@ -117,6 +120,8 @@ OWN_DEFINITION = {
 READABLE = frozenset("ACDEFGHIKLMNPQRSTVWYX")
 #: ANARCI's chain types that are an antibody's: heavy, kappa and lambda.
 ANTIBODY = {"H", "K", "L"}
+#: ANARCI's chain types, as people say them.
+CHAINS = {"H": "heavy", "K": "kappa", "L": "lambda"}
 #: A run's output keeps at most 100 messages.
 MAX_MESSAGES = 100
 #: The species ANARCI has germlines for.
@@ -338,11 +343,22 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
     ):
         found_human, about_human, found_cdrs, about_cdrs = others
         domains = []
+        unnumbered = []
         for positions, d in zip(found or [], about or [], strict=True):
             if d["chain_type"] not in ANTIBODY:
                 continue
+            if not positions[0]:
+                # ANARCI found the domain but gave it no numbers: it has more insertions
+                # than the scheme has codes for (a bovine CDR-H3 of 60 in Kabat's).
+                unnumbered.append(
+                    f"a {CHAINS[d['chain_type']]} variable domain at residues "
+                    f"{positions[1] + 1}-{positions[2] + 1}"
+                )
+                continue
             for_human = _matching(positions, d, (found_human, about_human))
             for_cdrs = _matching(positions, d, (found_cdrs, about_cdrs))
+            if for_cdrs is not None and not for_cdrs[0][0]:
+                for_cdrs = None
             cdrs = None
             if for_cdrs is not None:
                 cdr_positions, cdr_start, _ = for_cdrs[0]
@@ -361,7 +377,21 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
             domains.append(
                 domain(numbered, start, end, d, for_human[1] if for_human else None, cdrs)
             )
-        if not domains:
+        if unnumbered:
+            # Numbered without it, the chain would say it's something else (an scFv a light
+            # chain), so none of it is.
+            messages.append(
+                {
+                    "level": "warning",
+                    "text": f"{_label(entity)} was left as it was: ANARCI found "
+                    f"{' and '.join(unnumbered)} but couldn't number "
+                    f"{'it' if len(unnumbered) == 1 else 'them'} in the {scheme} scheme, "
+                    "which hasn't the insertion codes for a CDR so long. The imgt scheme "
+                    "numbers longer ones.",
+                    "entity": entity["id"],
+                }
+            )
+        elif not domains:
             messages.append(
                 {
                     "level": "warning",

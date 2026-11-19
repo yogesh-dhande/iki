@@ -293,6 +293,73 @@ def test_a_constant_region_no_human_reference_matches_is_unchecked(tmp_path: Pat
     assert said["text"].endswith("Its isotype, igg1, is as given, unchecked.")
 
 
+def domains(name: str, *parts: tuple[str, str]) -> dict[str, Any]:
+    """A chain of `parts` end to end, each a (kind, residues): H, K or L for a variable
+    domain, which numbering finds where it is, or "" for what isn't one."""
+    found, sequence = [], ""
+    for kind, residues in parts:
+        if kind:
+            found.append(
+                {"chain": kind, "start": len(sequence) + 1, "end": len(sequence) + len(residues)}
+            )
+        sequence += residues
+    for each in found:
+        each |= {"numbering": [], "closest": {}, "human": {}}
+    return {
+        "id": name,
+        "hrid": name,
+        "values": {"name": name, "sequence": sequence, "variable_domains": found},
+    }
+
+
+#: Trastuzumab's light chain variable domain, and a (G4S)3 linker.
+VL = LIGHT[:107]
+LINKER = "GGGGS" * 3
+
+
+def test_a_tandem_of_scfvs_isnt_an_scfv(tmp_path: Path) -> None:
+    """An scFv is one heavy and one light variable domain on one chain. Two scFvs on one
+    chain (a tandem scFv, such as blinatumomab, a BiTE) have the same kinds of domain, two
+    of each, in either orientation; they're format other."""
+    single = domains("single", ("H", VH), ("", LINKER), ("K", VL))
+    code, _, output = run_assemble(tmp_path, single, None, format="scfv")
+    assert code == 0 and output["creates"][0]["values"]["format"] == "scfv"
+    for order in ((("H", VH), ("K", VL)), (("K", VL), ("H", VH))):
+        tandem = domains(
+            "tandem", *order, ("", LINKER), ("", "GGGGS"), ("H", VH), ("", LINKER), ("K", VL)
+        )
+        code, stdout, output = run_assemble(tmp_path, tandem, None, format="scfv")
+        assert code == 1 and output == {}
+        kinds = ", ".join(kind for kind, _ in order)
+        assert (
+            f"The chain of an scFv has a heavy and a light variable domain, and numbering found "
+            f"{kinds}, H, K in tandem, in that order. A chain of more variable domains (a "
+            "tandem scFv, a DVD-Ig's) is format other."
+        ) in stdout
+        code, _, output = run_assemble(tmp_path, tandem, None, format="other")
+        assert code == 0 and output["creates"][0]["values"]["format"] == "other"
+
+
+def test_a_dual_variable_domain_igg_isnt_an_igg(tmp_path: Path) -> None:
+    """A DVD-Ig's heavy chain has two heavy variable domains before its constant region,
+    and its light chain two light ones before CL: an IgG's have one each."""
+    ch = constant(HEAVY["D03257"])  # trastuzumab's IgG1 constant region
+    two_heavy = domains("dvd heavy", ("H", VH), ("", "ASTKGP"), ("H", VH), ("", ch))
+    one_heavy = domains("heavy", ("H", VH), ("", ch))
+    two_light = domains("dvd light", ("K", VL), ("", "TVAAP"), ("K", VL), ("", LIGHT[107:]))
+    code, stdout, _ = run_assemble(tmp_path, two_heavy, chain("light", LIGHT, "K", 107))
+    assert code == 1
+    assert "numbering found H, H in dvd heavy, in that order" in stdout
+    code, stdout, _ = run_assemble(tmp_path, one_heavy, two_light)
+    assert code == 1
+    assert (
+        "dvd light has 2 light variable domains, and the light chain of a whole antibody "
+        "(IgG) has one. A chain of more (a DVD-Ig's) is format other."
+    ) in stdout
+    code, _, output = run_assemble(tmp_path, two_heavy, two_light, format="other")
+    assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
+
+
 # --- alleles, crossovers and Fc fusions -------------------------------------------------
 
 

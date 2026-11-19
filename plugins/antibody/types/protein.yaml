@@ -48,12 +48,14 @@ fields:
     description: >-
       Which definition says where its CDRs are: IMGT's, Kabat's, Chothia's,
       AbM's or Contact's, each read in the numbering it's published in.
-  cdr_h1: { type: string, label: CDR-H1, max_length: 64, computed: true }
-  cdr_h2: { type: string, label: CDR-H2, max_length: 64, computed: true }
-  cdr_h3: { type: string, label: CDR-H3, max_length: 64, computed: true, indexed: true }
-  cdr_l1: { type: string, label: CDR-L1, max_length: 64, computed: true }
-  cdr_l2: { type: string, label: CDR-L2, max_length: 64, computed: true }
-  cdr_l3: { type: string, label: CDR-L3, max_length: 64, computed: true, indexed: true }
+  # Room for the longest CDR ANARCI numbers: IMGT's CDR3 positions 105-117 and 52
+  # insertions either side of the loop's top, 117 (bovine B11's CDR-H3, PDB 5IHU, is 65).
+  cdr_h1: { type: string, label: CDR-H1, max_length: 128, computed: true }
+  cdr_h2: { type: string, label: CDR-H2, max_length: 128, computed: true }
+  cdr_h3: { type: string, label: CDR-H3, max_length: 128, computed: true, indexed: true }
+  cdr_l1: { type: string, label: CDR-L1, max_length: 128, computed: true }
+  cdr_l2: { type: string, label: CDR-L2, max_length: 128, computed: true }
+  cdr_l3: { type: string, label: CDR-L3, max_length: 128, computed: true, indexed: true }
   heavy_v_gene:
     type: string
     registry: derived
@@ -131,9 +133,11 @@ fields:
             maxItems: 200
             items:
               type: array
+              # Its number, insertion code (ANARCI's: A to Z, then AA to ZZ, so
+              # a CDR3 of more than 65 by IMGT's has two letters), and residue.
               prefixItems:
                 - { type: integer, minimum: 1 }
-                - { type: string, maxLength: 1 }
+                - { type: string, maxLength: 2 }
                 - { type: string, minLength: 1, maxLength: 1 }
               minItems: 3
               maxItems: 3

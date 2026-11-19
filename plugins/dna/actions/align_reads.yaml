@@ -51,6 +51,6 @@ metrics:
   differences:
     {
       label: Differences,
-      description: "Differences from the sequence: substitutions, deletions and insertions.",
+      description: "Differences from the sequence, as HGVS names them: substitutions, deletions, insertions, duplications and deletion-insertions.",
     }
 timeout: 30m

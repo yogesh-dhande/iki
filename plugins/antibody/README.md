@@ -95,9 +95,13 @@ been numbered first (`number_chains`):
 | `igg`   | A heavy chain with CH1, hinge, CH2 and CH3; a light chain with its CL                         | `igg1` to `igg4`             |
 | `fab`   | A heavy chain with CH1, perhaps some hinge, but no Fc (CH2 or CH3); a light chain with its CL | Any class                    |
 | `fv`    | A heavy and a light variable domain, with no constant domain                                  | None                         |
-| `scfv`  | One chain with a heavy and a light variable domain, no constant domain                        | None                         |
+| `scfv`  | One chain with one heavy and one light variable domain, no constant domain                    | None                         |
 | `vhh`   | One chain with one heavy variable domain, no constant domain                                  | None                         |
 | `other` | Not checked                                                                                   | Any, given a constant region |
+
+Each chain has one variable domain of its kind, and an scFv's one of each: a
+chain of more, such as a tandem scFv (blinatumomab, a BiTE) or a DVD-Ig's heavy
+or light chain, is `other`.
 
 An immunoglobulin constant domain is about 100 residues (human IGKC's is 107,
 IGHG1's CH1 98), so fewer than 90 residues after a variable domain count as no
@@ -223,6 +227,16 @@ insertions. Kabat's numbering has room for two at H35 (H35A, H35B), where
 Martin's table ends Kabat's CDR-H1; ANARCI numbers a longer CDR-H1's further
 residues H35C onwards, still before the conserved W36, and these are kept in
 CDR-H1, as AbNumber's Kabat borders also have it.
+
+A long CDR-H3 takes insertions: IMGT's at the loop's top, in the order 112.1,
+111.1, 112.2, 111.2 and so on (ANARCI writes 111.1 as 111A), Kabat's, Chothia's
+and Martin's at H100 (H100A, H100B, ...). IMGT's numbering takes the longest,
+such as a cow's ultralong CDR-H3s (BLV1H12's, PDB 4K3D, is 63 residues by IMGT's
+definition, B11's, PDB 5IHU, 65), and the CDR fields hold up to 128 residues.
+The others run out of insertion codes for them: ANARCI finds the domain but
+can't number it, so the chain is left as it was, and the run says why and that
+the imgt scheme numbers it. A CDR definition whose numbering can't take a
+chain's CDRs leaves them empty, saying so.
 
 Without a `cdr_definition`, a scheme's CDRs are its own: IMGT's, Kabat's or
 Chothia's for those numberings; Chothia's for Martin's, whose numbering is

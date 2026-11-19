@@ -92,11 +92,15 @@ makes is recorded as made with it
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
 temperature uses SantaLucia's unified nearest-neighbour parameters (1998) with
-his salt correction, at 50 mM Na⁺ and 50 nM primer, with sodium alone: no Mg²⁺
-or dNTPs. That isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM dNTPs as
-well), under which the same primer's Tm is some 5 to 6 °C higher, so compare it
-with Tms computed for sodium alone. It's computed only for primers of A, C, G
-and T alone.
+his salt correction, at 50 mM Na⁺, with sodium alone: no Mg²⁺ or dNTPs. Its
+strands are 50 nM in all, his CT, the total strand concentration: 25 nM each
+of the primer and its complement, so the Tm is at CT/4, or 50 nM of a primer
+that pairs with itself, at CT. (Biopython's `Tm_NN` takes each strand's:
+`dnac1=25, dnac2=25`, its defaults. At 50 nM of each, a primer's Tm is some
+0.8 °C higher.) That isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
+dNTPs as well), under which the same primer's Tm is some 5 to 6 °C higher, so
+compare it with Tms computed for sodium alone. It's computed only for primers
+of A, C, G and T alone.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
@@ -141,7 +145,8 @@ description (the rest), and an accession where the header has one
 the `topology` param does.
 
 A record that can't be read (RNA written with U, gaps, letters that aren't
-IUPAC bases, a file cut short) fails the whole import, and the run says which record and
+IUPAC bases, a file cut short, or a GenBank record whose bases aren't as many
+as its LOCUS line says) fails the whole import, and the run says which record and
 why, so nothing is half imported.
 
 Fetching follows NCBI's rules for automated clients: it names itself
@@ -169,11 +174,17 @@ sequence's base, covers nothing, and the run lists where reads have only such
 bases. Bases compare as the sets their IUPAC codes stand for: a read's Y where
 the sequence has R is a difference, and where the sequence is itself
 ambiguous, the base a read has there is listed apart (`R31A`). It lists each
-difference from the sequence in its numbering, as HGVS names them: substitutions
-(`C1234T`), deletions (`1240delA`, `1240_1242del`), insertions
-(`1250_1251insG`) and duplications (`1250dupG`), a deletion or insertion in
-repeated bases named at its 3′-most place, with the reads that show it and
-their quality there. In the alignment, each read's row is as it lies on the
+difference from the sequence, as HGVS's DNA recommendations name them with the
+sequence as their reference, numbered from its first base: `o.` for a
+circular sequence (a plasmid), `g.` for a linear one. They are substitutions
+(`g.1234C>T`), deletions (`g.1240del`, `g.1240_1242del`), insertions
+(`g.1250_1251insG`), duplications (`g.1250dup`) and, for changes side by
+side, deletion-insertions (`g.1260_1261delinsTA`), with the reads that show
+each and their least quality there. A deletion or insertion in repeated bases
+is named at its 3′-most place; a circular sequence's origin is no end, so one
+may move on round it, and one across it is named from the last place to the
+first (`o.2686_1insA`). HGVS names a mitochondrial genome's with `m.`, which
+Iki can't tell from another circular sequence's: such a sequence's are `o.`. In the alignment, each read's row is as it lies on the
 sequence (its reverse complement if it read the other strand), and bases a
 read has that the sequence doesn't get columns of their own.
 

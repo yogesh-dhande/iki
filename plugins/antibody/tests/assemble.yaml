@@ -225,7 +225,7 @@ inputs:
         variable_domains:
           - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
 expect:
-  error: "The heavy chain of a whole antibody (IgG) has a heavy variable domain, and numbering found K in trastuzumab light chain."
+  error: "The heavy chain of a whole antibody (IgG) has one heavy variable domain, and numbering found K in trastuzumab light chain."
 ---
 apiVersion: iki/v1
 kind: ActionTest

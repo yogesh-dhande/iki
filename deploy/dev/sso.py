@@ -1196,7 +1196,7 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{run['hrid']} ({action}) measured {metrics}, not 2 reads and 1 difference")
     said = [m["text"] for m in run.get("messages") or []]
     # An AB1 trace's read is named by its file.
-    expected = f"Differences from {reference['hrid']}: {plasmid[450]}451{other} (clone_F1 Q40)."
+    expected = f"Differences from {reference['hrid']}: o.451{plasmid[450]}>{other} (clone_F1 Q40)."
     if expected not in said:
         fail(f"{run['hrid']} said {said}, not {expected!r}")
     created = [e for e in run.get("effects") or [] if e["kind"] == "created"]

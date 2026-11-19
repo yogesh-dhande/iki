@@ -9,10 +9,12 @@ G, T, U, S and W); other IUPAC codes, such as N, are left out of it. A sequence 
 none has no GC content.
 
 Melting temperature uses SantaLucia's unified nearest-neighbour parameters (PNAS 95,
-1460; 1998) with his salt correction, at 50 mM Na+ and 50 nM primer, sodium alone: no
-Mg2+ or dNTPs. That's not Primer3's default buffer, which adds 1.5 mM Mg2+ and 0.6 mM
-dNTPs and gives a Tm some 5 to 6 °C higher; a PCR buffer's Tm needs those. It's computed
-only for primers of A, C, G and T alone.
+1460; 1998) with his salt correction, at 50 mM Na+, sodium alone: no Mg2+ or dNTPs. Its
+strands are 50 nM in all, his CT, the total strand concentration: 25 nM each of the
+primer and its complement, so Tm = ΔH / (ΔS + R ln(CT/4)), or 50 nM of a primer that
+pairs with itself, at CT (his equation 3). That's not Primer3's default buffer, which
+adds 1.5 mM Mg2+ and 0.6 mM dNTPs and gives a Tm some 5 to 6 °C higher; a PCR buffer's Tm
+needs those. It's computed only for primers of A, C, G and T alone.
 """
 
 import json
@@ -36,7 +38,9 @@ SYMMETRY = (0.0, -1.4)
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
 GAS_CONSTANT = 1.987  # cal/K/mol
 SODIUM = 0.05  # mol/L
-PRIMER = 50e-9  # mol/L
+#: SantaLucia's CT, all the strands together (mol/L): 25 nM each of the primer and its
+#: complement, or 50 nM of a primer that pairs with itself.
+STRANDS = 50e-9
 
 
 def gc_content(bases: str) -> float | None:
@@ -62,13 +66,14 @@ def melting_temperature(bases: str) -> float | None:
         dh, ds = NEIGHBOURS.get(pair) or NEIGHBOURS[reverse_complement(pair)]
         enthalpy += dh
         entropy += ds
-    # One strand pairs with itself; otherwise with an equal amount of its complement.
+    # One strand pairs with itself, at CT; otherwise with an equal amount of its
+    # complement, at CT/4 (SantaLucia 1998, equation 3).
     if bases == reverse_complement(bases):
         enthalpy += SYMMETRY[0]
         entropy += SYMMETRY[1]
-        strands = PRIMER
+        strands = STRANDS
     else:
-        strands = PRIMER / 4
+        strands = STRANDS / 4
     entropy += 0.368 * (len(bases) - 1) * math.log(SODIUM)
     kelvin = 1000 * enthalpy / (entropy + GAS_CONSTANT * math.log(strands))
     return round(kelvin - 273.15, 1)

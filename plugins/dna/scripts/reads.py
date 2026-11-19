@@ -29,11 +29,15 @@ it covers nothing, and the run lists where reads have only such bases. Bases are
 compared as the sets of bases their IUPAC codes stand for: a difference is a read base
 none of whose bases the reference's code allows. Where the reference itself is
 ambiguous (R, N, ...), the base a read has there is listed apart, as resolving it.
-Differences are substitutions (C1234T), deletions (1240delA, 1240_1242del) and
-insertions (1250_1251insG), with the reads that show it and their quality there. As
-HGVS asks, a deletion or insertion in repeated bases is named at its 3'-most place, and
-an insertion that repeats the bases before it is a duplication (1250dupG). The rows show
-them where the aligner put them.
+Differences are named as HGVS's DNA recommendations name them, with the reference as the
+reference sequence, numbered from its first base: `o.` for a circular one (a plasmid),
+`g.` for a linear one. They are substitutions (g.1234C>T), deletions (g.1240del,
+g.1240_1242del), insertions (g.1250_1251insG), duplications (g.1250dup) and, for changes
+side by side, deletion-insertions (g.1260_1261delinsTA), with the reads that show each and
+their least quality there. A deletion or insertion in repeated bases is named at its
+3'-most place, as HGVS asks; on a circular reference, its origin is no end, so one may
+move on round it, and one across it is named from its last place to its first
+(o.2686_1insA). The rows show them where the aligner put them.
 """
 
 from __future__ import annotations
@@ -104,6 +108,12 @@ class Placed:
     #: Reference position → bases the read has before it that the reference doesn't.
     inserted: dict[int, str] = field(default_factory=dict)
     inserted_quality: dict[int, int] = field(default_factory=dict)
+    #: Where it lies on the aligned target, 0-based, end exclusive: past the reference's
+    #: length, it's gone round a circular one's origin.
+    span: tuple[int, int] = (0, 0)
+    #: Reference positions the read lies across the place just before: it reads on from
+    #: the base before (round the origin, on a circular reference) without ending there.
+    across: set[int] = field(default_factory=set)
 
 
 def mott(quality: list[int]) -> tuple[int, int]:
@@ -209,6 +219,11 @@ def place(
     best = scorer.align(target, query)[0]
     coordinates = best.coordinates
     placed = Placed(read, reverse, int(coordinates[1][0]), int(coordinates[1][-1]))
+    # Where it begins it doesn't lie across: the place before its first base, even when
+    # that's the reference's last (round the origin), is one it has no observation of.
+    first, last = int(coordinates[0][0]), int(coordinates[0][-1])
+    placed.span = (first, last)
+    placed.across = {spot % size for spot in range(first + 1, last)}
     for (t0, q0), (t1, q1) in zip(coordinates.T[:-1], coordinates.T[1:], strict=True):
         t0, q0, t1, q1 = int(t0), int(q0), int(t1), int(q1)
         if t1 > t0 and q1 > q0:
@@ -231,29 +246,55 @@ def place(
     return placed
 
 
-def deletion(reference: str, first: int, last: int) -> str:
-    """A deletion's name, moved as far 3' as the bases allow, as HGVS names them."""
+def numbered(circular: bool) -> str:
+    """HGVS's prefix for the reference's numbering, counting from its first base: `o.` for a
+    circular genomic reference sequence (a plasmid, say), `g.` for a linear one."""
+    return "o." if circular else "g."
+
+
+def deletion(reference: str, first: int, last: int, circular: bool = False) -> str:
+    """A deletion's name, 0-based `first` to `last` gone, moved as far 3' as the bases
+    allow, as HGVS names them: `g.5del`, `g.5_6del` (without the bases deleted). On a
+    circular reference it moves on round the origin, and one across it is named from its
+    first place to its last (`o.2686_1del`), as HGVS allows there."""
     size = len(reference)
-    while last + 1 < size and reference[last + 1] == reference[first]:
-        first, last = first + 1, last + 1
-    if first == last:
-        return f"{first + 1}del{reference[first]}"
-    return f"{first + 1}_{last + 1}del"
+    for _ in range(size):
+        after = last + 1
+        if circular:
+            after %= size
+        elif after >= size:
+            break
+        if reference[after] != reference[first]:
+            break
+        first, last = (first + 1) % size, after
+    where = f"{first + 1}" if first == last else f"{first + 1}_{last + 1}"
+    return f"{numbered(circular)}{where}del"
 
 
-def insertion(reference: str, spot: int, bases: str) -> str:
+def insertion(reference: str, spot: int, bases: str, circular: bool = False) -> str:
     """An insertion's name, `bases` inserted before 0-based `spot`, moved as far 3' as the
-    bases allow; one that repeats the bases before it is a duplication, as HGVS names
-    them."""
+    bases allow, as HGVS names them (`g.1_2insT`); one that copies the bases just before it
+    is a duplication of them (`g.5dup`, `g.5_6dup`). On a circular reference it moves on
+    round the origin, and one before the first base is after the last (`o.2686_1insA`)."""
     size = len(reference)
-    while spot < size and bases[0] == reference[spot]:
-        bases, spot = bases[1:] + reference[spot], spot + 1
-    if spot >= len(bases) and reference[spot - len(bases) : spot] == bases:
-        if len(bases) == 1:
-            return f"{spot}dup{bases}"
-        return f"{spot - len(bases) + 1}_{spot}dup"
-    before = spot if spot else size
-    return f"{before}_{spot % size + 1}ins{bases}"
+    found = numbered(circular)
+    for _ in range(size):
+        if not circular and spot >= size:
+            break
+        if bases[0] != reference[spot % size]:
+            break
+        bases, spot = bases[1:] + reference[spot % size], spot + 1
+    n = len(bases)
+    if n <= size and (circular or spot >= n):
+        before = "".join(reference[i % size] for i in range(spot - n, spot))
+        if before == bases:
+            first, last = (spot - n) % size + 1, (spot - 1) % size + 1
+            return f"{found}{first}dup" if n == 1 else f"{found}{first}_{last}dup"
+    if not circular and spot >= size:
+        # Moved past the last base, it's beyond the reference: one place back, it's inside.
+        spot, bases = spot - 1, reference[spot - 1] + bases[:-1]
+    spot %= size
+    return f"{found}{spot if spot else size}_{spot + 1}ins{bases}"
 
 
 def call(base: str, reference: str) -> str:
@@ -302,8 +343,9 @@ def write_alignments(out_dir: Path, rows: list[tuple[str, str]]) -> None:
 
 def lies_across(each: Placed, k: int) -> bool:
     """Whether a read lies across the place just before position k, where others may have
-    inserted: if not, it has no observation there, `.`, not a gap."""
-    return k in each.at and k - 1 in each.at
+    inserted: if not, it has no observation there, `.`, not a gap. On a circular reference,
+    the place before the first base is after the last."""
+    return k in each.across
 
 
 def covered_by(placed: Placed, reference: str) -> set[int]:
@@ -316,30 +358,67 @@ def covered_by(placed: Placed, reference: str) -> set[int]:
     }
 
 
-def differences(placed: Placed, reference: str) -> list[tuple[int, str, int | None]]:
-    """The read's differences from the reference: (where, as HGVS names it, its quality
-    there)."""
+def differences(
+    placed: Placed, reference: str, circular: bool = False
+) -> list[tuple[int, str, int | None]]:
+    """The read's differences from the reference, as HGVS names them: (where, its name, the
+    read's least quality in it). Read along the read, so one across a circular reference's
+    origin is one. A run of changed places (bases that differ, and deletions) with what's
+    inserted between them is one change: a substitution (`g.151C>T`) when it's one base for
+    one, a deletion when it's only deletions, and otherwise a deletion-insertion
+    (`g.10_11delinsTA`), as HGVS asks for consecutive changes."""
+    size = len(reference)
+    first, last = placed.span
     out: list[tuple[int, str, int | None]] = []
-    deleted: list[int] = []
+    # The run of changes open: its first and last target places, what the read has there
+    # instead, and the read's qualities in it.
+    run: list[int] = []
+    instead: list[str] = []
+    qualities: list[int] = []
 
-    def close_deletion() -> None:
-        if deleted:
-            out.append((deleted[0], deletion(reference, deleted[0], deleted[-1]), None))
-            deleted.clear()
+    def close() -> None:
+        if not run:
+            return
+        start, end = run[0] % size, run[-1] % size
+        bases = "".join(instead)
+        least = min(qualities) if qualities else None
+        if not bases:
+            out.append((start, deletion(reference, start, end, circular), None))
+        elif start == end and len(bases) == 1:
+            name = f"{numbered(circular)}{start + 1}{reference[start]}>{bases}"
+            out.append((start, name, least))
+        else:
+            where = f"{start + 1}" if start == end else f"{start + 1}_{end + 1}"
+            out.append((start, f"{numbered(circular)}{where}delins{bases}", least))
+        run.clear()
+        instead.clear()
+        qualities.clear()
 
-    for spot in sorted(placed.at):
-        base = placed.at[spot]
-        if base == "-":
-            if deleted and spot != deleted[-1] + 1:
-                close_deletion()
-            deleted.append(spot)
+    for t in range(first, last):
+        spot = t % size
+        base = placed.at.get(spot, ".")
+        changed = base == "-" or call(base, reference[spot]) == "differs"
+        added = placed.inserted.get(spot, "") if t > first else ""
+        if added and not run and not changed:
+            quality = placed.inserted_quality.get(spot)
+            out.append((spot, insertion(reference, spot, added, circular), quality))
+        elif added:
+            # Inserted next to a change: it's part of it.
+            if not run:
+                run.append(t)
+            instead.append(added)
+            if spot in placed.inserted_quality:
+                qualities.append(placed.inserted_quality[spot])
+        if not changed:
+            close()
             continue
-        close_deletion()
-        if call(base, reference[spot]) == "differs":
-            out.append((spot, f"{reference[spot]}{spot + 1}{base}", placed.quality_at.get(spot)))
-    close_deletion()
-    for spot, bases in placed.inserted.items():
-        out.append((spot, insertion(reference, spot, bases), placed.inserted_quality.get(spot)))
+        if not run or run[-1] != t:
+            run.append(t)
+        if base != "-":
+            instead.append(base)
+            if spot in placed.quality_at:
+                qualities.append(placed.quality_at[spot])
+    close()
     return out
 
 
@@ -548,7 +627,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
 
     seen: dict[str, tuple[int, list[str]]] = {}
     for each in placed:
-        for spot, name, quality in differences(each, reference):
+        for spot, name, quality in differences(each, reference, circular):
             _, shown = seen.setdefault(name, (spot, []))
             shown.append(each.read.name + (f" Q{quality}" if quality is not None else ""))
     named = listing(seen)
