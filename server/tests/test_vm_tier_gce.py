@@ -484,9 +484,21 @@ def test_instances_with_no_live_launch_are_deleted_and_others_left_alone(world: 
     theirs = dict(instance, name="theirs-run-1", status="RUNNING")
     theirs["labels"] = {OWNER_LABEL: "someone-else"}
     gce.made["theirs-run-1"] = theirs
+    # deploy/gcp labels everything of the deployment's with it, the cluster's nodes too: a
+    # node isn't the provisioner's (no launch, not named for the deployment), so it stays.
+    owner = instance["labels"][OWNER_LABEL]
+    node = dict(instance, name=f"gke-{owner}-system-8155ca24-q6mg", status="RUNNING")
+    node["labels"] = {OWNER_LABEL: owner, "goog-gke-node": ""}
+    gce.made[node["name"]] = node
+    # Nor is one with a launch label that isn't named for the deployment.
+    named = dict(instance, name="lab-tools-1", status="RUNNING")
+    named["labels"] = {OWNER_LABEL: owner, LAUNCH_LABEL: "01a1f4e7-0000-7000-8000-000000000000"}
+    gce.made["lab-tools-1"] = named
     provisioner.tick(fleet(gce))
     assert instance["name"] in gce.deleted
     assert "theirs-run-1" not in gce.deleted
+    assert node["name"] not in gce.deleted
+    assert "lab-tools-1" not in gce.deleted
 
 
 def test_an_instance_stopped_outside_iki_ends_its_launch(world: World) -> None:

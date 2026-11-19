@@ -505,6 +505,14 @@ vmTier:
   # often an internal load balancer in their VPC. Defaults to publicUrl,
   # reached through the subnets' NAT gateway.
   serverUrl: ""
+  # A Secret with the CA certificates (PEM) that machines' workers trust
+  # besides their machine's own roots: your CA's, when serverUrl's certificate
+  # is your own CA's, as an internal load balancer's often is. Each machine's
+  # boot script carries them, so give a few certificates, at most 8 KiB, not a
+  # bundle of public ones. The provisioner reads them as it starts.
+  caSecret:
+    name: ""
+    key: ca.crt
   # Where machines' runs reach the egress proxy (egressProxy), from their
   # subnets: http://iki-egress.internal.example.com:3128. Without it, their
   # runs reach only the server and the URLs it signs.

@@ -34,6 +34,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     iki_live.skip_unless_asked(config, items, "gcp_live", gcp_live_skip_reason(config))
 
 
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Once the run reaches its cap (IKI_GCP_CAP_HOURS), only the check that tears down runs."""
+    if "gcp_live" in item.keywords:
+        iki_live.fail_if_capped(item)
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(
     item: pytest.Item, call: pytest.CallInfo[None]

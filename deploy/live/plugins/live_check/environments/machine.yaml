@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A cloud machine of the run's own (the VM tier), with reference data on a volume its
+# setup fills. A deployment mirrors the image into its own registry when its machines
+# can't reach Docker Hub: the digest names the same image there.
+apiVersion: iki/v1
+kind: Environment
+name: machine
+tiers: [vm]
+resources: { cpu: 0.25, memory: 256Mi }
+image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+volumes:
+  reference:
+    size: 16Mi
+    populated_by: setup
+    mount: /data/reference
+setup:
+  script: setup/fill.sh
+  timeout: 15m

@@ -214,6 +214,9 @@ class VmMachines:
     #: This deployment's name in its instances' tags.
     owner: str
     allow_http: bool = False
+    #: CA certificates (PEM) their workers trust besides the machine's own roots: the
+    #: deployment's, when the server's certificate is its own CA's.
+    ca_certificates: str = ""
 
 
 @dataclass(frozen=True)
@@ -330,6 +333,9 @@ class Host:
     #: Which cloud's metadata the host reads (spot notices): None for EC2's, which the
     #: host assumes.
     cloud: str | None = None
+    #: Shell lines after the rule that keeps containers from the metadata server: what of
+    #: its address they may still reach.
+    metadata_allows: str = ""
 
     @property
     def worker(self) -> str:
@@ -400,6 +406,7 @@ def host_config(
         "spot_stop_timeout": SPOT_STOP,
         "volumes": _host_volumes(data or [], host.devices),
         **({"succeeded_file": f"{HOST_SCRATCH}/{SUCCEEDED}"} if publishing else {}),
+        **({"ca_certificates": machines.ca_certificates} if machines.ca_certificates else {}),
     }
 
 
@@ -425,7 +432,7 @@ IKI_HOST_TOKEN
 {after}command -v docker >/dev/null 2>&1 || fail unsupported "the machine image has no Docker"
 systemctl start docker >/dev/null 2>&1 || true
 {metadata}iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true
-{logins}n=0
+{metadata_allows}{logins}n=0
 until docker pull {worker_image}; do
     n=$((n + 1))
     [ "$n" -lt 5 ] || fail worker_unavailable "couldn't pull Iki's worker image "{worker_image}
@@ -518,6 +525,7 @@ def script(
         prepare=host.prepare,
         after=_AWS_AFTER if host is AWS else "",
         metadata=_AWS_METADATA if host is AWS else _OTHER_METADATA,
+        metadata_allows=host.metadata_allows,
         host=host.root,
         scratch=HOST_SCRATCH,
         config=CONFIG,

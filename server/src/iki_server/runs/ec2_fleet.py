@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -83,11 +84,13 @@ HOST_REASONS = {
 
 
 def vm_machines() -> VmMachines:
+    ca = settings.IKI_RUNS_VM_CA_FILE
     return VmMachines(
         server_url=settings.IKI_RUNS_VM_SERVER_URL,
         worker_image=settings.IKI_RUNS_WORKER_IMAGE,
         owner=settings.IKI_RUNS_VM_OWNER,
         allow_http=settings.IKI_RUNS_ALLOW_HTTP,
+        ca_certificates=Path(ca).read_text(encoding="utf-8") if ca else "",
     )
 
 

@@ -382,7 +382,23 @@ def test_disks_and_images_with_no_build_are_deleted_and_others_left(world: World
         "status": "READY",
         "labels": {OWNER_LABEL: "someone-else", SETUP_LABEL: stray},
     }
+    # The deployment's own images that no setup build made (deploy/gcp labels what it makes
+    # with the deployment too), and disks, such as its cluster's nodes', are left.
+    gce.images_made["iki-test-base"] = {
+        "name": "iki-test-base",
+        "status": "READY",
+        "labels": {OWNER_LABEL: "iki-test"},
+    }
+    gce.disks_made[("us-central1-a", "gke-iki-test-system-1")] = {
+        "name": "gke-iki-test-system-1",
+        "zone": "us-central1-a",
+        "status": "READY",
+        "users": [],
+        "labels": {OWNER_LABEL: "iki-test"},
+    }
     provisioner.tick(machines, timezone.now())
     assert gce.disks_made[("us-central1-a", "iki-test-stray")]["status"] == "DELETED"
     assert gce.images_made["iki-test-stray"]["status"] == "DELETED"
     assert gce.images_made["theirs"]["status"] == "READY"
+    assert gce.images_made["iki-test-base"]["status"] == "READY"
+    assert gce.disks_made[("us-central1-a", "gke-iki-test-system-1")]["status"] == "READY"

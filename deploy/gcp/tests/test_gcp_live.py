@@ -8,19 +8,31 @@ replica), External Secrets, the secrets and database roles, and Iki's chart, wit
 and worker images Cloud Build makes there. Iki is served by an internal load balancer
 only, with a certificate this test makes; the test reaches it by `kubectl port-forward`.
 Then it checks what a deployment must do, and always tears it down with
-deploy/gcp/scripts/teardown.sh, even when setting up or a check failed. Last, it lists
-the project again and fails if anything of the deployment's is left but what Google
-Cloud won't delete (key rings, keys with their versions scheduled for destruction, the
-log bucket and custom roles pending deletion) or an API it turned on, or if anything that
-was there before is gone: the project is shared. A listing that fails is never taken as
-empty: the run fails, since what's in the project is unknown. A run that passes
-whole, of a clean tree, is recorded in deploy/live-runs.json (deploy/live/live_runs.py):
-commit it.
+deploy/gcp/scripts/teardown.sh, even when setting up or a check failed.
+
+Heavy runs are proven with light stand-ins (roadmap 48h): the VM tier on, a small
+Compute Engine machine (e2-small) stands in for a GPU one, and a small volume for a
+reference database of terabytes. A setup build fills the volume on a machine of its
+own, which becomes an image; a run of the live check plugin's action
+(deploy/live/plugins/live_check) then reads it on another, from a disk made from that
+image, and keeps what it read. Machines reach Iki at the internal load balancer, and
+trust the test's CA (vmTier.caSecret); their images come from the deployment's own
+Artifact Registry, where Cloud Build mirrors the plugin's.
+
+Last, it lists the project again and fails if anything of the deployment's is left but
+what Google Cloud won't delete (key rings, keys with their versions scheduled for
+destruction, the log bucket and custom roles pending deletion) or an API it turned on,
+or if anything that was there before is gone: the project is shared. A listing that
+fails is never taken as empty: the run fails, since what's in the project is unknown. A
+run that passes whole, of a clean tree, is recorded in deploy/live-runs.json
+(deploy/live/live_runs.py): commit it.
 
 It costs: a regional GKE cluster's fee and three or four small nodes, a highly
 available Cloud SQL Enterprise Plus instance (2 vCPUs), Cloud NAT, an internal load
-balancer and two Cloud Build builds: a few US dollars for its hour or two. It never runs
-on CI (conftest.py). What it shares with the AWS one is deploy/live/iki_live.py.
+balancer, a Cloud Build build, and two e2-small machines for minutes each: a few US
+dollars for its two hours or so. It tears down once IKI_GCP_CAP_HOURS (3) have gone,
+whatever is still running. It never runs on CI (conftest.py). What it shares with the
+AWS one is deploy/live/iki_live.py.
 
 Who it acts as is one OAuth access token, for gcloud, OpenTofu, kubectl and Helm alike
 (``Gcp`` below): IKI_GCP_TOKEN_COMMAND prints one, and is run again every 20 minutes. By
@@ -35,6 +47,7 @@ unused and unchanged. Other settings:
   it makes is named for it, and labelled ``iki-test=true`` and ``iki-deployment=<name>``.
 - IKI_GCP_REGION, IKI_GCP_DR_REGION, IKI_GCP_MULTI_REGION, IKI_GCP_ZONES (comma
   separated): us-central1, us-east1, us, and the region's b and c zones by default.
+- IKI_GCP_CAP_HOURS: how long a run may go before tearing down starts, 3 by default.
 - IKI_GCP_DATA_ACCESS: the services whose Data Access audit logs it turns on, comma
   separated. Not Cloud Storage's by default: in a shared project they'd log every other
   workload's reads. It refuses to start if any already has an audit config, which
@@ -68,8 +81,9 @@ from iki_live import REPO, Iki, until
 
 pytestmark = pytest.mark.gcp_live
 
-#: Bumped when what the suite checks changes: recorded with each passing run.
-SUITE_VERSION = "1"
+#: Bumped when what the suite checks changes: recorded with each passing run. 2: heavy
+#: runs and volumes on Compute Engine, with light stand-ins (48h).
+SUITE_VERSION = "2"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -102,6 +116,7 @@ class Settings:
     data_access: tuple[str, ...]
     token_command: str
     workdir: Path
+    cap_hours: float = 3.0
 
     @classmethod
     def from_env(cls, *, new: bool = False) -> "Settings":
@@ -123,6 +138,7 @@ class Settings:
             ),
             token_command=env.get("IKI_GCP_TOKEN_COMMAND", "gcloud auth print-access-token"),
             workdir=Path(env.get("IKI_GCP_WORKDIR", REPO / "build" / "gcp-live" / name)).resolve(),
+            cap_hours=float(env.get("IKI_GCP_CAP_HOURS", "3")),
         )
 
     @property
@@ -133,6 +149,103 @@ class Settings:
     @property
     def certificate(self) -> str:
         return f"{self.name}-internal"
+
+
+# --- The VM tier's light stand-ins (48h) -------------------------------------------------
+
+#: The live check plugin: a VM-tier action and the reference data its setup makes.
+LIVE_CHECK = "acme/live_check"
+LIVE_CHECK_DIR = REPO / "deploy" / "live" / "plugins" / "live_check"
+VM_ENVIRONMENT = f"{LIVE_CHECK}.machine"
+VM_ACTION = f"{LIVE_CHECK}.read_reference"
+VM_VOLUME = "reference"
+#: The compute template its machines start from, and what stands in for a GPU machine.
+VM_TEMPLATE = "vm-small"
+VM_MACHINE_TYPE = "e2-small"
+VM_IMAGE = "projects/cos-cloud/global/images/family/cos-stable"
+#: The Secret holding the test's CA, which the machines' workers trust (vmTier.caSecret).
+VM_CA_SECRET = "iki-test-vm-ca"
+#: Copies the plugin's image into the deployment's plugins repository as it is, so its
+#: digest names it there too: gcrane signs in to Artifact Registry as the build's
+#: service account. Docker Hub's images come from Google's mirror of it.
+GCRANE = (
+    "gcr.io/go-containerregistry/gcrane:v0.22.1"
+    "@sha256:67b9993e083198db3d30ae6d2bb685cc67a45494a3c485ef2fa9994715bee9ff"
+)
+
+
+@dataclass(frozen=True)
+class Mirrored:
+    """An image the deployment's machines pull from its own registry, as its digest names
+    it: copied from `source` to `destination` (a tag), and pulled as `pinned`."""
+
+    source: str
+    destination: str
+    pinned: str
+
+
+def mirrored(image: str, repository: str) -> Mirrored:
+    """Where `image` (``registry/path/name:tag@sha256:...``) is copied from and to, and how
+    it's then named, in `repository`: Docker Hub's from mirror.gcr.io, its copy under the
+    same name and tag."""
+    reference, _, digest = image.partition("@")
+    assert digest.startswith("sha256:"), f"{image} isn't pinned by its digest"
+    tagged = ":" in reference.rsplit("/", 1)[-1]
+    path, tag = reference.rsplit(":", 1) if tagged else (reference, "")
+    name = path.rsplit("/", 1)[-1]
+    source = (
+        path.replace("docker.io/", "mirror.gcr.io/", 1) if path.startswith("docker.io/") else path
+    )
+    return Mirrored(
+        source=f"{source}@{digest}",
+        destination=f"{repository}/{name}:{tag or 'live'}",
+        pinned=f"{repository}/{name}@{digest}",
+    )
+
+
+def live_check_plugin(work: Path, repository: str) -> tuple[Path, Mirrored]:
+    """A copy of the live check plugin in the work directory, its environment's image the
+    copy in `repository` (the deployment's plugins repository), and that copy."""
+    plugin = work / "live-plugins" / "live_check"
+    shutil.rmtree(plugin, ignore_errors=True)
+    shutil.copytree(LIVE_CHECK_DIR, plugin)
+    environment = plugin / "environments" / "machine.yaml"
+    text = environment.read_text()
+    (image,) = re.findall(r"^image: (\S+)$", text, flags=re.MULTILINE)
+    copy = mirrored(image, repository)
+    environment.write_text(text.replace(f"image: {image}", f"image: {copy.pinned}"))
+    return plugin, copy
+
+
+def vm_compute(s: "Settings") -> list[dict[str, Any]]:
+    """The VM tier's compute template, an e2-small on Container-Optimized OS in the
+    deployment's zones, whose volume is a disk made from its version's image; and the live
+    check's environment bound to it."""
+    return [
+        {
+            "apiVersion": "iki/v1",
+            "kind": "ComputeTemplate",
+            "name": VM_TEMPLATE,
+            "provisioner": "gcp_gce",
+            "capacity": {"cpu": 0.5, "memory": "1Gi", "scratch_disk": "2Gi"},
+            "gcp": {
+                "machine_type": VM_MACHINE_TYPE,
+                "image": VM_IMAGE,
+                "region": s.region,
+                "zones": list(s.zones),
+            },
+            "volumes": {VM_VOLUME: {"strategy": "clone_from_snapshot"}},
+            "limits": {"max_concurrent": 2},
+            # An e2-small's list price, about.
+            "price": {"per_hour": 0.02, "currency": "USD"},
+        },
+        {
+            "apiVersion": "iki/v1",
+            "kind": "EnvironmentBinding",
+            "environment": VM_ENVIRONMENT,
+            "templates": [{"template": VM_TEMPLATE}],
+        },
+    ]
 
 
 # --- The one place gcloud, OpenTofu, kubectl and Helm run ------------------------------------
@@ -565,8 +678,23 @@ def run_teardown(gcp: Gcp, s: Settings) -> None:
 
 
 def record_facts(gcp: Gcp, s: Settings) -> None:
-    """What the cost report can't learn once the deployment is gone: its images' sizes."""
-    facts: dict[str, Any] = {"artifact_bytes": {}}
+    """What the cost report can't learn once the deployment is gone: its images' sizes, in
+    Artifact Registry and Compute Engine's (the setup builds' versions of volumes)."""
+    facts: dict[str, Any] = {"artifact_bytes": {}, "image_bytes": {}}
+    images = gcp.run(
+        "gcloud",
+        "compute",
+        "images",
+        "list",
+        f"--filter=name~^{s.name}-",
+        "--no-standard-images",
+        "--format=json(name,archiveSizeBytes)",
+        "--project",
+        s.project,
+        check=False,
+    )
+    for image in json.loads(images.stdout or "[]") if images.returncode == 0 else []:
+        facts["image_bytes"][image["name"]] = int(image.get("archiveSizeBytes") or 0)
     listed = gcp.run(
         "tofu", "-chdir=deploy/gcp/production", "output", "-json", "images", check=False
     )
@@ -673,6 +801,8 @@ def variables(s: Settings, gcp: Gcp, state_key: str, writers: list[str]) -> dict
         "log_retention_days": 30,
         "optional_secrets": ["backend-worker-token"],
         "image_writers": writers,
+        # The VM tier, its machines reaching Iki at publicUrl: the internal load balancer.
+        "vm_tier": {},
         # Every run's, besides the modules' iki-deployment=<name>.
         "labels": {"iki-test": "true"},
     }
@@ -720,9 +850,13 @@ steps:
            --build-arg, "IKI_WORKER_IMAGE=${_WORKER_BASE}", -t, "${_WORKER}", --push,
            build/gcp-live/worker]
     waitFor: [worker-base]
+  - id: plugin-image
+    name: {gcrane}
+    args: [cp, "${_PLUGIN_SOURCE}", "${_PLUGIN_IMAGE}"]
+    waitFor: ["-"]
 options: {machineType: E2_HIGHCPU_8, diskSizeGb: 100, logging: CLOUD_LOGGING_ONLY}
 timeout: 5400s
-"""
+""".replace("{gcrane}", GCRANE)
 
 
 def digest(gcp: Gcp, ref: str) -> str:
@@ -826,8 +960,10 @@ def stand_up(d: Deployment) -> None:
         gcp.run("tofu", "-chdir=deploy/gcp/production", "output", "-json", "images").stdout
     )
     server, worker = f"{images['server']}/iki-server:live", f"{images['worker']}/iki-worker:live"
+    worker_base = f"{images['worker']}/iki-worker-base:live"
     registry = images["server"].split("/", 1)[0]
-    iki_live.build_plugins(work)
+    live_check, plugin_image = live_check_plugin(work, images["plugins"])
+    iki_live.build_plugins(work, {LIVE_CHECK: live_check}, vm_compute(s))
     archive = iki_live.source_archive(work, "build/gcp-live")
     # Tagged, so the cost report finds its builds.
     (work / "cloudbuild.yaml").write_text(f"{CLOUDBUILD}tags: [{s.name}]\n")
@@ -844,7 +980,8 @@ def stand_up(d: Deployment) -> None:
             f"--gcs-source-staging-dir=gs://{s.project}_cloudbuild/{s.name}-live",
             f"--substitutions=_SERVER={server},_WORKER={worker},_REGISTRY={registry},"
             f"_SERVER_BASE={images['server']}/iki-server-base:live,"
-            f"_WORKER_BASE={images['worker']}/iki-worker-base:live",
+            f"_WORKER_BASE={worker_base},"
+            f"_PLUGIN_SOURCE={plugin_image.source},_PLUGIN_IMAGE={plugin_image.destination}",
             timeout=900,
         )
         .strip()
@@ -873,6 +1010,11 @@ def stand_up(d: Deployment) -> None:
     )
     assert status == "SUCCESS", f"build {build}: {status} (gcloud builds log {build})"
     server_digest, worker_digest = digest(gcp, server), digest(gcp, worker)
+    # The VM tier's machines copy iki-worker out of it: the plugins aren't needed there.
+    worker_base_digest = digest(gcp, worker_base)
+    assert digest(gcp, plugin_image.destination) == plugin_image.pinned.rpartition("@")[2], (
+        f"{plugin_image.destination} isn't the image its plugin names"
+    )
 
     # 3. The cluster's controllers.
     write_kubeconfig(gcp, s)
@@ -907,6 +1049,11 @@ def stand_up(d: Deployment) -> None:
             "iki-database-migrator",
         ),
     )
+    # The CA the VM tier's machines trust (vmTier.caSecret): the test's alone, since their
+    # own roots cover Google's APIs. Before Iki, whose provisioner mounts it.
+    gcp.kubectl(
+        "-n", "iki", "create", "secret", "generic", VM_CA_SECRET, f"--from-file=ca.crt={ca}"
+    )
 
     # 5. Iki, then its Gateway.
     values = work / "deploy/gcp/production"
@@ -923,6 +1070,15 @@ def stand_up(d: Deployment) -> None:
         },
         "tasks": {"replicas": 1},
         "egressProxy": {"replicas": 1},
+        # The VM tier's machines copy iki-worker out of the deployment's worker image, and
+        # trust the test's CA, whose certificate the internal load balancer serves.
+        "containerTier": {
+            "workerImage": {
+                "repository": f"{images['worker']}/iki-worker-base",
+                "digest": worker_base_digest,
+            }
+        },
+        "vmTier": {"caSecret": {"name": VM_CA_SECRET, "key": "ca.crt"}},
     }
     (values / "values-live.yaml").write_text(yaml.safe_dump(live))
     chart = (
@@ -997,6 +1153,7 @@ def deployment(request: pytest.FixtureRequest) -> Iterator[Deployment]:
         tools=Gcp(s),
         suite_version=SUITE_VERSION,
         settings=s,
+        cap_seconds=s.cap_hours * 3600,
     )
     yield from iki_live.lifecycle(d, request)
 
@@ -1017,6 +1174,108 @@ def admin(deployment: Deployment, iki: Iki) -> Iki:
 @pytest.fixture(scope="module")
 def project(deployment: Deployment, admin: Iki) -> dict[str, Any]:
     return iki_live.make_project(admin, deployment.team)
+
+
+@pytest.fixture(scope="module")
+def compute_admin(admin: Iki) -> Iki:
+    """The Org Admin, made a Compute Admin too: setup builds and workers are theirs."""
+    me = admin.api("GET", "/me").json()
+    roles = sorted({*me["org_roles"], "compute_admin"})
+    granted = admin.api("PUT", f"/users/{me['id']}/org-roles", {"roles": roles})
+    assert granted.status_code == 200, granted.text[:500]
+    return admin
+
+
+@pytest.fixture(scope="module")
+def setup_build(deployment: Deployment, compute_admin: Iki) -> dict[str, Any]:
+    """A setup build of the live check's environment, asked for early: its machine fills
+    the volume while the other checks run."""
+    made = compute_admin.api(
+        "POST", "/compute/setups", {"environment": VM_ENVIRONMENT, "reason": "GCP live test"}
+    )
+    assert made.status_code == 201, made.text[:500]
+    (build,) = made.json()
+    found: dict[str, Any] = build
+    return found
+
+
+# --- What the VM tier's machines say, while they're there ------------------------------------
+
+
+def machines(gcp: Gcp, s: Settings) -> list[dict[str, Any]]:
+    """The deployment's VM-tier instances: named for it, as the provisioner names them."""
+    listed = gcp.gcloud(
+        "compute",
+        "instances",
+        "list",
+        f"--filter=name~^{s.name}-",
+        "--format=json(name,zone.basename(),status,labels)",
+    )
+    found: list[dict[str, Any]] = json.loads(listed or "[]")
+    return found
+
+
+def keep_evidence(d: Deployment) -> list[dict[str, Any]]:
+    """The VM tier's instances now, with what each has written to its serial port, in
+    logs/serial-<instance>.log, and the provisioner's log, in logs/provisioner.log: the
+    provisioner deletes a machine once it stops, and tearing down deletes the rest, so
+    this is what says why one didn't do what it should. Never fails a check itself."""
+    gcp, s = d.gcp, d.settings
+    logs = s.workdir / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    try:
+        found = machines(gcp, s)
+    except AssertionError as error:
+        with (logs / "machines.log").open("a") as out:
+            out.write(f"listing failed: {error}\n")
+        return []
+    for machine in found:
+        said = gcp.run(
+            "gcloud",
+            "compute",
+            "instances",
+            "get-serial-port-output",
+            machine["name"],
+            "--zone",
+            str(machine.get("zone", "")),
+            "--project",
+            s.project,
+            check=False,
+        )
+        if said.returncode == 0 and said.stdout:
+            (logs / f"serial-{machine['name']}.log").write_text(said.stdout)
+    logged = gcp.run(
+        "kubectl", "-n", "iki", "logs", "deploy/iki-provisioner", "--tail=3000", check=False
+    )
+    if logged.returncode == 0:
+        (logs / "provisioner.log").write_text(logged.stdout)
+    with (logs / "machines.log").open("a") as out:
+        out.write(f"{datetime.datetime.now(datetime.UTC).isoformat()} {json.dumps(found)}\n")
+    return found
+
+
+def followed(
+    d: Deployment, what: str, look: Callable[[], dict[str, Any]], done: set[str], within: float
+) -> dict[str, Any]:
+    """`look`'s answer once its state (or status) is one of `done`, keeping the VM tier's
+    evidence as it waits, and once more at the end."""
+
+    def ended() -> dict[str, Any] | None:
+        keep_evidence(d)
+        try:
+            found = look()
+        except requests.RequestException as error:
+            # The port-forward can stall for a moment over a long wait: ask again.
+            with (d.settings.workdir / "logs" / "machines.log").open("a") as out:
+                out.write(f"asking for {what} failed: {error}\n")
+            return None
+        return found if found.get("state", found.get("status")) in done else None
+
+    try:
+        result: dict[str, Any] = until(what, ended, within, every=20)
+    finally:
+        keep_evidence(d)
+    return result
 
 
 # --- The checks ------------------------------------------------------------------------------
@@ -1046,6 +1305,13 @@ def test_an_org_admin_creates_a_project_and_an_entity(admin: Iki, project: dict[
     iki_live.check_project_and_entity(admin, project)
 
 
+def test_a_compute_admin_asks_for_a_setup_build(setup_build: dict[str, Any]) -> None:
+    """Early, so its machine fills the volume while the checks below run: it's queued for
+    the deployment's region, on the VM tier's template, with no approval asked for."""
+    assert setup_build["state"] == "queued", setup_build
+    assert (setup_build["environment"], setup_build["template"]) == (VM_ENVIRONMENT, VM_TEMPLATE)
+
+
 def test_a_file_goes_up_and_comes_down_through_urls_iam_signed(
     admin: Iki, project: dict[str, Any]
 ) -> None:
@@ -1068,6 +1334,130 @@ def test_a_backend_worker_computes_a_proteins_properties(
 
 def test_setup_storage_finds_the_bucket_as_iki_needs_it(deployment: Deployment) -> None:
     iki_live.check_setup_storage(deployment.gcp)
+
+
+def test_backend_workers_reach_the_server_only_at_its_load_balancers_address(
+    deployment: Deployment, compute_admin: Iki
+) -> None:
+    """Their NetworkPolicy lets them reach the server at the internal load balancer's /32
+    alone (ADR 0155), and under GKE Dataplane V2 that's the address their connections are
+    seen going to: the backend worker registered through it, and is online."""
+    gcp = deployment.gcp
+    address = gcp.output("load_balancer_address").strip()
+    policy = json.loads(
+        gcp.kubectl("-n", "iki", "get", "networkpolicy", "iki-worker-egress", "-o", "json")
+    )
+    https = [
+        rule
+        for rule in policy["spec"]["egress"]
+        if {"protocol": "TCP", "port": 443} in rule.get("ports", [])
+    ]
+    assert [peer for rule in https for peer in rule["to"]] == [
+        {"ipBlock": {"cidr": f"{address}/32"}}
+    ], https
+    workers = compute_admin.api("GET", "/compute/workers?limit=100").json()["items"]
+    backend = [w for w in workers if w["tier"] == "backend" and w["status"] == "online"]
+    assert backend, workers
+
+
+def test_the_setup_build_fills_its_volume_on_a_compute_engine_machine(
+    deployment: Deployment, compute_admin: Iki, setup_build: dict[str, Any]
+) -> None:
+    """On an e2-small of its own, standing in for a GPU machine: it fills an empty disk,
+    which once the machine's gone becomes an image, encrypted with the deployment's key;
+    then the disk and the machine are gone."""
+    gcp, s = deployment.gcp, deployment.settings
+    ref = f"/compute/setups/{setup_build['hrid']}"
+    build = followed(
+        deployment,
+        f"setup build {setup_build['hrid']}",
+        lambda: compute_admin.api("GET", ref).json(),
+        {"succeeded", "failed", "timed_out", "cancelled"},
+        2700,
+    )
+    log = compute_admin.api("GET", f"{ref}/log").json()["text"]
+    assert build["state"] == "succeeded", f"{build}\n{log[-3000:]}"
+    assert build["template"] == VM_TEMPLATE and build["place"] == s.region, build
+    token = build["data_version"].removeprefix("Live check ")
+    assert re.fullmatch(r"[0-9a-f-]{36}", token), build["data_version"]
+    assert f"Wrote the reference data, {token}." in log, log[-2000:]
+    (volume,) = build["volumes"]
+    assert volume["state"] == "ready", volume
+    image = volume["handle"].rsplit("/", 1)[-1]
+    assert volume["handle"] == f"projects/{s.project}/global/images/{image}", volume
+    assert image.startswith(f"{s.name}-"), image
+    described = gcp.gcloud_json("compute", "images", "describe", image)
+    assert described["status"] == "READY", described
+    assert described["labels"]["iki-setup"] == build["id"], described["labels"]
+    key = gcp.run("tofu", "-chdir=deploy/gcp/production", "output", "-json", "vm_tier").stdout
+    assert described["imageEncryptionKey"]["kmsKeyName"].startswith(
+        json.loads(key)["disk_kms_key"]
+    ), described["imageEncryptionKey"]
+    # Its machine shut itself down and was deleted, and the disk it filled too.
+    left = [m for m in machines(gcp, s) if m.get("labels", {}).get("iki-setup") == build["id"]]
+    assert not left, left
+    disks = gcp.gcloud(
+        "compute",
+        "disks",
+        "list",
+        f"--filter=labels.iki-setup={build['id']}",
+        "--format=value(name)",
+    )
+    assert not disks.strip(), disks
+
+
+def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
+    deployment: Deployment, admin: Iki, project: dict[str, Any], setup_build: dict[str, Any]
+) -> None:
+    """Another e2-small, with a disk made from the version's image, mounted read-only: the
+    run reads what the setup build wrote, keeps it as an artifact (uploaded from the
+    machine to Cloud Storage), and records the version it read. Then its machine is gone."""
+    gcp, s = deployment.gcp, deployment.settings
+    # Its runs wait for a version of the volume: with none to come, it fails now.
+    build = admin.api("GET", f"/compute/setups/{setup_build['hrid']}").json()
+    assert build["state"] == "succeeded", f"no version of the volume to read: {build}"
+    launched = admin.api(
+        "POST", f"/actions/{VM_ACTION}/runs", {"project": project["id"], "inputs": {}, "params": {}}
+    )
+    assert launched.status_code == 201, launched.text[:500]
+    run_id = launched.json()["id"]
+    run = followed(
+        deployment,
+        "the VM-tier run",
+        lambda: admin.api("GET", f"/runs/{run_id}").json(),
+        {"succeeded", "failed", "cancelled"},
+        1800,
+    )
+    assert run["status"] == "succeeded", run
+    (attempt,) = admin.api("GET", f"/runs/{run_id}/attempts").json()
+    assert attempt["template"] == VM_TEMPLATE, attempt
+    # Its machine's name, which its worker took: the deployment's, then its launch's.
+    assert attempt["worker"].startswith(f"{s.name}-run-"), attempt
+    read = attempt["volumes"][VM_VOLUME]
+    assert (read["hrid"], read["data_version"]) == (build["hrid"], build["data_version"]), read
+    artifacts = {a["path"]: a for a in admin.api("GET", f"/runs/{run_id}/artifacts").json()}
+    assert sorted(artifacts) == ["mount.txt", "reference.txt"], artifacts
+
+    def content(path: str) -> str:
+        assert artifacts[path]["state"] == "kept", artifacts[path]
+        link = admin.request(
+            "GET", f"/api/v1/runs/{run_id}/artifacts/{artifacts[path]['id']}/content"
+        )
+        assert link.status_code == 302, link.text[:300]
+        assert urlsplit(link.headers["Location"]).hostname == "storage.googleapis.com"
+        got = requests.get(link.headers["Location"], timeout=120)
+        assert got.status_code == 200, got.text[:300]
+        return got.text
+
+    token = build["data_version"].removeprefix("Live check ")
+    assert content("reference.txt") == f"Iki live check reference data {token}\n"
+    # /proc/mounts: device, where, type, options. Read-only, from a disk of its own.
+    (mount,) = content("mount.txt").splitlines()
+    fields = mount.split()
+    assert fields[1] == "/data/reference" and "ro" in fields[3].split(","), mount
+    # The provisioner deletes the machine once it has shut itself down, and its disks
+    # with it: none of the VM tier's is left.
+    until("the run's machine to go", lambda: not machines(gcp, s), 600, every=20)
 
 
 def test_tearing_down_leaves_only_what_google_cloud_keeps(deployment: Deployment) -> None:

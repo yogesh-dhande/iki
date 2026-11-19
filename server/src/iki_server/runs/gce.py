@@ -24,7 +24,8 @@ what Compute Engine lets a request replace, so a template can't loosen it:
   metadata in a request replaces the template's.
 - **Spot** if the template says, deleted when Compute Engine takes it back, with two
   minutes' notice (``preemptionNoticeDuration``) for the run to save its progress.
-  Otherwise standard, stopped (never migrated) for host maintenance, as GPUs need.
+  Otherwise standard: with GPUs, stopped (never migrated) for host maintenance, as GPUs
+  need; without, migrated live, as E2 machines need (they refuse to stop unless Spot).
 - No access config, so no public address: :func:`public` refuses an instance template that
   would give one.
 
@@ -263,6 +264,16 @@ mount -o remount,bind,exec,nosuid,nodev {ROOT} \\
 export DOCKER_CONFIG={DOCKER_CONFIG}
 """
 
+#: Compute Engine's DNS answers at the metadata server's address, as the machine's
+#: resolver: a run's container may ask it names (and Cloud DNS's private zones, such as an
+#: internal load balancer's), and reach nothing else there. Inserted after the rule that
+#: drops the rest, so they come before it.
+_DNS = "".join(
+    f"iptables -I DOCKER-USER -d 169.254.169.254/32 -p {protocol} --dport 53 -j ACCEPT "
+    ">/dev/null 2>&1 || true\n"
+    for protocol in ("udp", "tcp")
+)
+
 #: Compute Engine's machines.
 GCE = Host(
     root=f"{ROOT}/host",
@@ -271,6 +282,7 @@ GCE = Host(
     devices=DEVICES,
     unit=f"Environment=DOCKER_CONFIG={DOCKER_CONFIG}\n",
     cloud="gcp",
+    metadata_allows=_DNS,
 )
 
 
@@ -398,7 +410,7 @@ def instance_request(
             "enableVtpm": True,
             "enableIntegrityMonitoring": True,
         },
-        "scheduling": _scheduling(spot),
+        "scheduling": _scheduling(spot, gpus=bool(template.capacity.gpu_count)),
     }
     if gcp.get("gpu_type") and template.capacity.gpu_count:
         instance["guestAccelerators"] = [
@@ -426,7 +438,10 @@ def root_disk(template: Template) -> int:
     return gib(int(size or 0))
 
 
-def _scheduling(spot: bool) -> dict[str, Any]:
+def _scheduling(spot: bool, *, gpus: bool) -> dict[str, Any]:
+    """Spot machines are stopped for host maintenance, as Compute Engine requires. Standard
+    ones with GPUs too, since GPUs can't be migrated; those without are migrated live, so a
+    run goes on through it, and E2 machines refuse to be stopped for it unless Spot."""
     if spot:
         return {
             "provisioningModel": "SPOT",
@@ -437,7 +452,7 @@ def _scheduling(spot: bool) -> dict[str, Any]:
         }
     return {
         "provisioningModel": "STANDARD",
-        "onHostMaintenance": "TERMINATE",
+        "onHostMaintenance": "TERMINATE" if gpus else "MIGRATE",
         "automaticRestart": False,
     }
 
