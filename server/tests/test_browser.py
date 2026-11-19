@@ -816,6 +816,41 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     assert Entity.objects.get(pk=made.pk).archived_at is not None
 
 
+def test_a_picker_takes_a_press_as_the_page_scrolls(open_as: Any, world: World) -> None:
+    """A press on a picker's option while the page scrolls (a trackpad still coasting, or
+    the browser bringing the option into view) chooses it. The list is in the field and
+    moves with it: scrolling neither closes it nor swaps its rows, as a popover that closed
+    on scroll and opened again at once did, so the press landed on a row that was gone."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    gene = Entity.objects.get(
+        pk=entities.create(
+            world.users["admin"],
+            "acme/dna.DNASequence",
+            world.project,
+            {"bases": "ATG", "name": "abl1"},
+        ).entity.pk
+    )
+    page = open_as("admin", "/projects/kinase-atlas/entities/new/?type=acme/protein.Protein")
+    picker = page.get_by_role("combobox", name="Encoded by (optional)")
+    picker.scroll_into_view_if_needed()
+    picker.fill("abl")
+    option = page.get_by_role("option", name=re.compile("abl1"))
+    row = option.element_handle()
+    box = row.bounding_box()
+    assert box
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.evaluate("window.scrollBy(0, 1)")
+    page.evaluate(NEXT_FRAMES)
+    assert page.evaluate("window.scrollY") > 0
+    assert row.evaluate("(row) => row.isConnected"), "scrolling replaced the list"
+    page.mouse.up()
+    assert picker.input_value() == f"abl1 ({gene.hrid})"
+    assert_clean(page)
+
+
 @pytest.fixture
 def browser_name(browser: Browser) -> str:
     return browser.browser_type.name

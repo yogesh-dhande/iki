@@ -2492,8 +2492,14 @@ input.input-number {
   border-color: var(--error);
 }
 
+/* A picker's list, in the field under its box (or over it, when there's more room there):
+   it moves with the field as the page scrolls. Above the form's fields, under dialogs. */
 .popover {
-  width: var(--trigger-width);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
   max-height: 18rem;
   overflow: auto;
   background: var(--surface);
@@ -2501,6 +2507,11 @@ input.input-number {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.popover[data-placement="top"] {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .listbox {

@@ -20,11 +20,9 @@ import {
 } from "react";
 import {
   DismissButton,
-  Overlay,
   useComboBox,
   useListBox,
   useOption,
-  usePopover,
   type AriaListBoxOptions,
 } from "react-aria";
 import { Item, useComboBoxState, type ComboBoxState, type Key, type Node } from "react-stately";
@@ -627,24 +625,64 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
         {/* Named by its <label for>, not aria-labelledby too: in Firefox, working out a name
             through aria-labelledby (as axe does) and then changing the form crashed the page. */}
         <input {...inputProps} aria-labelledby={undefined} ref={inputRef} spellCheck={false} />
+        {state.isOpen ? (
+          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
+            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
+            <PickerMessage
+              found={found}
+              shown={state.collection.size}
+              none={typed ? `Nothing matches “${typed}”.` : "None yet."}
+            />
+          </Popover>
+        ) : null}
       </div>
       <p {...descriptionProps} className="field-help">
         {help}
       </p>
-      {state.isOpen ? (
-        <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
-          <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-          <PickerMessage
-            found={found}
-            shown={state.collection.size}
-            none={typed ? `Nothing matches “${typed}”.` : "None yet."}
-          />
-        </Popover>
-      ) : null}
     </div>
   );
 }
 
+/** The most of a picker's list that shows before it scrolls: the stylesheet's 18rem. */
+const LIST_HEIGHT_REM = 18;
+/** Room a list keeps from the edge of what's visible, and the least it's given. */
+const LIST_MARGIN = 12;
+const LIST_MIN_HEIGHT = 120;
+
+/** Where a field's list has room: below it unless there's more above. Measured against
+ * the window and any scrolling box the field is in (a dialog's body), once, when it opens. */
+function listRoom(field: HTMLElement): { above: boolean; maxHeight: number } {
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const tallest = LIST_HEIGHT_REM * rem;
+  const box = field.getBoundingClientRect();
+  let top = 0;
+  let bottom = window.visualViewport?.height ?? window.innerHeight;
+  for (let up = field.parentElement; up; up = up.parentElement) {
+    const { overflowY } = getComputedStyle(up);
+    if (overflowY === "visible") continue;
+    const clip = up.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    bottom = Math.min(bottom, clip.bottom);
+  }
+  const below = bottom - box.bottom - LIST_MARGIN;
+  const aboveRoom = box.top - top - LIST_MARGIN;
+  const above = below < tallest && aboveRoom > below;
+  return {
+    above,
+    maxHeight: Math.max(LIST_MIN_HEIGHT, Math.min(tallest, above ? aboveRoom : below)),
+  };
+}
+
+/**
+ * A picker's list, in the field just after its box (as in WAI-ARIA's combo box pattern), so
+ * it moves with the field as the page or a dialog scrolls, and scrolling never closes it.
+ * React Aria's popover, portalled to the page, closed whenever the page scrolled; the box
+ * kept the typed text, so it opened again at once with new rows, and a press that came as
+ * the page scrolled (a trackpad still coasting, or the browser bringing the row into view)
+ * landed on a row that was gone and chose nothing. Its side is chosen once, when it opens,
+ * so rows never jump while someone points at one. A press in it that isn't on an option
+ * (its scroll bar, its message) keeps focus in the box.
+ */
 function Popover({
   state,
   triggerRef,
@@ -656,36 +694,37 @@ function Popover({
   popoverRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
-  const { popoverProps } = usePopover(
-    { triggerRef, popoverRef, placement: "bottom start", offset: 4, isNonModal: true },
-    state,
-  );
-  // As wide as the field it belongs to, measured once it's laid out.
-  const [width, setWidth] = useState<number>();
+  const [room, setRoom] = useState<{ above: boolean; maxHeight: number }>();
   useLayoutEffect(() => {
-    setWidth(triggerRef.current?.offsetWidth);
-  }, [triggerRef]);
+    if (triggerRef.current) setRoom(listRoom(triggerRef.current));
+    // Not a control itself: a press anywhere in it but an option (whose own press keeps
+    // focus) mustn't take focus from the box, which would close the list.
+    const list = popoverRef.current;
+    const keepFocus = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    list?.addEventListener("mousedown", keepFocus);
+    return () => list?.removeEventListener("mousedown", keepFocus);
+  }, [triggerRef, popoverRef]);
   return (
-    <Overlay>
-      <div
-        {...popoverProps}
-        ref={popoverRef}
-        className="popover"
-        style={{ ...popoverProps.style, width }}
-      >
-        <DismissButton
-          onDismiss={() => {
-            state.close();
-          }}
-        />
-        {children}
-        <DismissButton
-          onDismiss={() => {
-            state.close();
-          }}
-        />
-      </div>
-    </Overlay>
+    <div
+      ref={popoverRef}
+      className="popover"
+      data-placement={room?.above ? "top" : "bottom"}
+      style={room ? { maxHeight: room.maxHeight } : undefined}
+    >
+      <DismissButton
+        onDismiss={() => {
+          state.close();
+        }}
+      />
+      {children}
+      <DismissButton
+        onDismiss={() => {
+          state.close();
+        }}
+      />
+    </div>
   );
 }
 
@@ -849,20 +888,20 @@ export function PersonPicker({
           spellCheck={false}
           autoComplete="off"
         />
+        {state.isOpen ? (
+          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
+            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
+            <PickerMessage
+              found={found}
+              shown={state.collection.size}
+              none={typed ? `Nobody here matches “${typed}”.` : "Nobody can be named here yet."}
+            />
+          </Popover>
+        ) : null}
       </div>
       <p {...descriptionProps} className="field-help">
         {shownHelp}
       </p>
-      {state.isOpen ? (
-        <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
-          <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-          <PickerMessage
-            found={found}
-            shown={state.collection.size}
-            none={typed ? `Nobody here matches “${typed}”.` : "Nobody can be named here yet."}
-          />
-        </Popover>
-      ) : null}
     </div>
   );
 }
