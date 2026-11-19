@@ -1206,9 +1206,14 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     plasmid_entry = entry_of(reference)
     if values["reference"] != plasmid_entry or values["members"] != [plasmid_entry]:
         fail(f"{created[0]['hrid']} is {values}")
-    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    # It keeps Iki's alignment, its file, and the same with `-` for every gap, which tools
+    # reading aligned FASTA take (alignment-standard.fasta).
+    artifacts = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    kept = {a["name"]: a for a in artifacts}
+    if set(kept) != {"alignment.fasta", "alignment-standard.fasta"}:
+        fail(f"{run['hrid']} kept {sorted(kept)}, not its alignment and the standard one")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
-    if stored["sha256"] != kept["sha256"]:
+    if stored["sha256"] != kept["alignment.fasta"]["sha256"]:
         fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     ok(
         f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
