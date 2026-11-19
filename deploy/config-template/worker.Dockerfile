@@ -32,9 +32,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=secret,id=uv_index,env=UV_INDEX_URL \
     sh /tmp/worker/build-environments.sh
 
+# Stage just the runtime trees. Use numeric modes on real files and directories
+# before the final copy. Keep symlinks, including the venv's Python, intact.
+RUN mkdir -p /tmp/runtime/iki \
+ && mv /opt/iki/python /opt/iki/envs /tmp/worker/plugins /tmp/runtime/iki/ \
+ && find /tmp/runtime/iki \
+      \( -type d -o -type f -perm /111 \) -exec chmod 0755 {} + \
+      -o -type f -exec chmod 0644 {} +
+
 # --- The deployment's worker -----------------------------------------------------------
 FROM ${IKI_WORKER_IMAGE}
-COPY --from=build /opt/iki/python /opt/iki/python
-COPY --from=build /opt/iki/envs /opt/iki/envs
-# A private build context still has to be readable by the non-root worker.
-COPY --chmod=u=rwX,go=rX plugins /opt/iki/plugins
+COPY --from=build --chown=0:0 /tmp/runtime/ /opt/
