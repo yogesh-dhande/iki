@@ -35,22 +35,40 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 RECORD = REPO / "deploy" / "live-runs.json"
 
-#: What every cloud's run tests: the chart, the images it builds and their Dockerfiles, and
-#: the harness itself. Not deploy/live-runs.json: recording a run changes only that.
+#: What every cloud's run tests: whatever the cloud under it could change the outcome of.
+#: Not deploy/live-runs.json: recording a run changes only that.
 SHARED = (
+    # The chart, the images it builds and their Dockerfiles, and the harness itself.
     "deploy/helm/",
     "deploy/live/iki_live.py",
     "deploy/plugins.Dockerfile",
     "deploy/worker.Dockerfile",
     "server/Dockerfile",
     "worker/Dockerfile",
-    # The VM tier's machines run it, on either cloud.
-    "worker/crates/iki-worker/src/host.rs",
+    # The plugins it installs (iki_live.PLUGINS): their migrations run on the cloud's
+    # database, their environments are built into the worker's image, and the backend
+    # run's action (iki_live.ACTION) runs their script on the cloud's nodes.
+    "plugins/dna/",
+    "plugins/protein/",
+    # The worker, which runs it there, reaching the server and storage over the cloud's
+    # network; its machines, on the VM tier, on either cloud.
+    "worker/crates/iki-protocol/",
+    "worker/crates/iki-worker/",
+    # The server's code the checks reach that's the cloud's to decide: the database's
+    # connection over verified TLS, storage (whichever cloud's backend it hands to), its
+    # check of the bucket, readiness, and the setup wizard.
+    "server/src/iki_server/settings.py",
+    "server/src/iki_server/core/postgresql/",
+    "server/src/iki_server/files/storage.py",
+    "server/src/iki_server/files/management/commands/setup_storage.py",
+    "server/src/iki_server/health.py",
+    "server/src/iki_server/setup/",
 )
 
 #: For each cloud, what its run tests beyond SHARED: its deploy/<cloud>/ (modules, roots,
 #: scripts and its own live test), and the server's code for that cloud: the storage
-#: backend, the VM tier's provisioner and its fleets and volumes. test_live_runs.py fails if
+#: backend (S3's is storage.py, in SHARED, since it hands to GCS's), the VM tier's
+#: provisioner and its fleets and volumes. test_live_runs.py fails if
 #: a module of the server that's one cloud's isn't listed for it.
 RELEVANT: dict[str, tuple[str, ...]] = {
     "gcp": (
@@ -64,7 +82,6 @@ RELEVANT: dict[str, tuple[str, ...]] = {
     "aws": (
         *SHARED,
         "deploy/aws/",
-        "server/src/iki_server/files/storage.py",
         "server/src/iki_server/runs/ec2.py",
         "server/src/iki_server/runs/ec2_fleet.py",
         "server/src/iki_server/runs/ec2_volumes.py",

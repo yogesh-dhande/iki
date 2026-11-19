@@ -7,8 +7,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import iki_live
 import live_runs
 import pytest
+import yaml
 
 REPO = live_runs.REPO
 
@@ -69,6 +71,21 @@ def test_a_cloud_is_due_after_a_relevant_change_and_not_after_another(repo: Path
     # The chart is every cloud's.
     commit(repo, {"deploy/helm/iki/values.yaml": "x"}, "chart")
     assert all(v.due for v in live_runs.due("HEAD", repo, record))
+
+
+def test_a_change_to_what_the_backend_run_runs_makes_every_cloud_due(repo: Path) -> None:
+    """The action's script runs on each cloud's nodes, in the worker the run tests too."""
+    script = "plugins/protein/scripts/proteins.py"
+    worker = "worker/crates/iki-worker/src/files.rs"
+    tested = commit(repo, {script: "a", worker: "a", "plugins/other/x.py": "a"}, "1")
+    record = repo / "runs.json"
+    for cloud in live_runs.CLOUDS:
+        live_runs.append(entry(cloud, tested), record)
+    commit(repo, {"plugins/other/x.py": "b"}, "a plugin no run installs")
+    assert not any(v.due for v in live_runs.due("HEAD", repo, record))
+    for path in (script, worker):
+        commit(repo, {path: path}, path)
+        assert all(v.due and path in (v.paths or []) for v in live_runs.due("HEAD", repo, record))
 
 
 def test_a_cloud_never_tested_is_due(repo: Path) -> None:
@@ -215,6 +232,26 @@ def test_every_module_of_one_cloud_is_relevant_to_its_live_test() -> None:
     for cloud, modules in cloud_modules().items():
         missing = sorted(m for m in modules - SHARED_SERVER_MODULES if not covered(m, cloud))
         assert not missing, f"list these in live_runs.RELEVANT[{cloud!r}]: {missing}"
+
+
+def test_what_the_runs_install_and_run_is_relevant_to_every_cloud() -> None:
+    """Every plugin the harness installs, with the script of the action it runs: a plugin
+    added to the runs, or another action run, would otherwise change nothing that's due."""
+    plugins = [f"plugins/{name}/plugin.yaml" for name in iki_live.PLUGINS]
+    plugin, action = iki_live.ACTION.removeprefix("iki/").split(".")
+    manifest = yaml.safe_load(
+        (REPO / "plugins" / plugin / "actions" / f"{action}.yaml").read_text()
+    )
+    scripts = [
+        f"plugins/{plugin}/{arg.removeprefix('./')}"
+        for arg in manifest["command"]
+        if arg.startswith("./")
+    ]
+    assert scripts, manifest["command"]
+    for path in [*plugins, *scripts]:
+        assert (REPO / path).is_file(), path
+        for cloud in live_runs.CLOUDS:
+            assert covered(path, cloud), f"list {path} in live_runs.RELEVANT[{cloud!r}]"
 
 
 def test_every_relevant_path_exists() -> None:

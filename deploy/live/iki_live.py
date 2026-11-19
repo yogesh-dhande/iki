@@ -52,6 +52,10 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 #: External Secrets' chart, as both runbooks install it: pinned to a release qualified here.
 EXTERNAL_SECRETS = ("https://charts.external-secrets.io", "2.15.0")
+#: Iki's plugins the deployment installs (plugins/<name>), and the action of theirs the
+#: backend run launches: live_runs.RELEVANT covers them, since the run is what tests them.
+PLUGINS = ("dna", "protein")
+ACTION = "iki/protein.compute_properties"
 #: The protein the backend run computes the properties of: human haemoglobin's beta chain.
 HBB = (
     "MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLD"
@@ -452,7 +456,7 @@ def build_plugins(root: Path) -> Path:
                 "kind": "PluginLock",
                 "plugins": [
                     {"name": f"iki/{n}", "local": str(REPO / "plugins" / n), "state": "active"}
-                    for n in ("dna", "protein")
+                    for n in PLUGINS
                 ],
             }
         )
@@ -863,7 +867,7 @@ def check_backend_run(admin: Iki, project: dict[str, Any]) -> None:
     protein = made.json()
     launched = admin.api(
         "POST",
-        "/actions/iki/protein.compute_properties/runs",
+        f"/actions/{ACTION}/runs",
         {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}},
     )
     assert launched.status_code == 201, launched.text[:500]
