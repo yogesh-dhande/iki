@@ -47,7 +47,7 @@ from django.db.models import Exists, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from iki_server.entities import registry
-from iki_server.runs import catalog, launches, queue, quotas, setups, volumes
+from iki_server.runs import catalog, launches, queue, quotas, setups, slurm, volumes
 from iki_server.runs.kubernetes import (
     KEEP_FINISHED,
     LABEL,
@@ -234,6 +234,9 @@ def template_for(
     if image is None:
         return None
     wanted = _resources(job)
+    first = slurm.first(job)
+    if first is not None and first.provisioner == "slurm":
+        return None  # a Slurm cluster's workers lease it (ADR 0133)
     fitting = [
         template
         for template in catalog.availability(action).templates

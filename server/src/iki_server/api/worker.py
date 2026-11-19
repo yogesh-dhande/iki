@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.core.handlers.asgi import ASGIRequest
+from django.db import transaction
 from django.http import (
     FileResponse,
     HttpRequest,
@@ -52,6 +53,7 @@ from iki_server.runs import (
     launches,
     queue,
     setups,
+    slurm,
     uploads,
     wakeup,
     workers,
@@ -264,6 +266,11 @@ class RegisteredOut(Schema):
     tier: str
     token: str = Field(description="Its own token, for everything else. Shown once.")
     heartbeat_every: int = Field(description="Seconds between heartbeats while it holds a job.")
+    slurm_cluster: str = Field(
+        "",
+        description="The Slurm cluster it submits jobs to, from its login node (ADR 0133); "
+        "empty for other workers.",
+    )
 
 
 @api.post(
@@ -313,6 +320,7 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
             "tier": worker.tier,
             "token": token,
             "heartbeat_every": int(queue.HEARTBEAT_EVERY.total_seconds()),
+            "slurm_cluster": worker.slurm_cluster,
         },
     )
 
@@ -339,6 +347,9 @@ class WorkerOut(Schema):
     labels: list[str] = Field(
         description="A self-hosted worker's labels, which runs are matched to it by. A Compute "
         "admin sets them."
+    )
+    slurm_cluster: str = Field(
+        description="The Slurm cluster it submits jobs to (ADR 0133); empty for other workers."
     )
     update: UpdateOut | None = Field(
         description="For a self-hosted worker: the release to update itself to, when it's "
@@ -494,7 +505,7 @@ def deregister(request: HttpRequest) -> Any:  # noqa: ANN401
 
 # --- Reporting on a job ------------------------------------------------------------------------
 
-JobState = Literal["leased", "staging", "running", "uploading"]
+JobState = Literal["leased", "staging", "pending", "running", "uploading"]
 
 
 class LeaseIn(Schema):
@@ -523,6 +534,64 @@ def heartbeat(request: HttpRequest, job_id: UUID, payload: HeartbeatIn) -> dict[
     except ValueError as error:
         raise Problem(409, str(error), code="wrong_state") from None
     return {"lease_expires_at": expires, "cancel_requested": cancelled}
+
+
+class SlurmAllocIn(Schema):
+    cpu: float | None = Field(None, ge=0, description="CPUs Slurm allocated (`AllocTRES` cpu).")
+    memory: int | None = Field(None, ge=0, description="Bytes of memory it allocated.")
+    gpu_count: int | None = Field(None, ge=0, description="GPUs it allocated.")
+
+
+class SlurmUsageIn(Schema):
+    elapsed: int | None = Field(None, ge=0, description="Seconds it ran (`ElapsedRaw`).")
+    cpu_seconds: float | None = Field(None, ge=0, description="CPU time it used (`TotalCPU`).")
+    max_rss: int | None = Field(None, ge=0, description="Bytes of its largest RSS (`MaxRSS`).")
+    alloc: SlurmAllocIn | None = None
+
+
+class SlurmIn(LeaseIn):
+    """What Slurm reports of the job, as ``sbatch``, ``squeue`` and ``sacct`` say. Each
+    field is optional: the worker sends what changed."""
+
+    slurm_id: str | None = Field(
+        None, pattern=r"^[0-9]+(_[0-9]+)?(\+[0-9]+)?$", description="Its Slurm job ID."
+    )
+    state: slurm.State | None = Field(None, description="Its Slurm state, such as `PENDING`.")
+    reason: str | None = Field(
+        None, max_length=200, description="Why it's pending, or how it ended, as Slurm says."
+    )
+    nodes: str | None = Field(None, max_length=500, description="The nodes it ran on.")
+    exit_code: str | None = Field(
+        None, pattern=r"^[0-9]{1,3}:[0-9]{1,3}$", description="Its `ExitCode`, as `code:signal`."
+    )
+    submitted_at: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    usage: SlurmUsageIn | None = None
+    image_signer: str | None = Field(
+        None, max_length=500, description="Who signed the image it ran, as cosign verified."
+    )
+
+
+class SlurmOut(Schema):
+    slurm_id: str
+    state: str
+    lease_expires_at: datetime
+
+
+@api.post("/jobs/{job_id}/slurm", response=SlurmOut, summary="Report a Slurm job")
+def slurm_report(request: HttpRequest, job_id: UUID, payload: SlurmIn) -> dict[str, Any]:
+    """For a cluster's worker (ADR 0133): what Slurm reports of the job it submitted."""
+    worker = _worker(request)
+    given = payload.model_dump(exclude={"lease_token"}, exclude_none=True)
+    with transaction.atomic():
+        job = queue.held(worker, job_id, payload.lease_token)
+        placed = slurm.report(job, given)
+    return {
+        "slurm_id": placed.slurm_id,
+        "state": placed.state,
+        "lease_expires_at": job.lease_expires_at,
+    }
 
 
 class ProgressIn(LeaseIn):

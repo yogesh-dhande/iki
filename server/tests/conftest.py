@@ -83,15 +83,32 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Run the load tests (marked scale), such as importing 10M entities: "
         "`make check-scale`.",
     )
+    parser.addoption(
+        "--slurm",
+        action="store_true",
+        help="Run the tests against a Slurm cluster in a container (marked slurm_e2e): "
+        "`make check-slurm`, which builds it.",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.getoption("--scale"):
-        return
-    skip = pytest.mark.skip(reason="a load test: run it with --scale (make check-scale)")
-    for item in items:
-        if "scale" in item.keywords:
-            item.add_marker(skip)
+    opted = {
+        "scale": (
+            config.getoption("--scale"),
+            "a load test: run it with --scale (make check-scale)",
+        ),
+        "slurm_e2e": (
+            config.getoption("--slurm"),
+            "needs the Slurm cluster in a container: run it with --slurm (make check-slurm)",
+        ),
+    }
+    for marker, (run, reason) in opted.items():
+        if run:
+            continue
+        skip = pytest.mark.skip(reason=reason)
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
 
 
 #: The servers the controller started for its workers, stopped when the run ends.

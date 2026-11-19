@@ -63,6 +63,7 @@ _UNFINISHED_JOBS = frozenset(
         JobState.QUEUED,
         JobState.LEASED,
         JobState.STAGING,
+        JobState.PENDING,
         JobState.RUNNING,
         JobState.UPLOADING,
         JobState.COMMITTING,

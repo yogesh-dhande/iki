@@ -14,6 +14,11 @@ registration token names the teams, and perhaps only some of their projects, and
 the labels its machines get. Each worker that registers with it starts with those,
 which an admin can change on it later, and it leases only runs in the projects they
 cover (:func:`covered`), checked again on every report about a job.
+
+A Slurm cluster's worker (ADR 0133) runs on the cluster's login node. Its registration
+token is for the cluster, as the deployment's Slurm templates name it, and so is each
+worker that registers with it: it leases the container-tier jobs those templates take,
+many at once.
 """
 
 from __future__ import annotations
@@ -113,7 +118,7 @@ def update_for(worker: Worker) -> dict[str, str] | None:
 
 
 #: The states in which a worker holds a job (queue.HELD, which imports this module).
-HELD_STATES = ("leased", "staging", "running", "uploading")
+HELD_STATES = ("leased", "staging", "pending", "running", "uploading")
 
 #: A worker not heard from for this long shows as offline.
 OFFLINE_AFTER = timedelta(minutes=2)
@@ -199,10 +204,24 @@ def create_registration(
     expires_at: datetime | None = None,
     scope: Scope | None = None,
     labels: list[str] | None = None,
+    slurm_cluster: str = "",
 ) -> tuple[RegistrationToken, str]:
     """A new registration token, and its value (shown once). ``by`` is None when an
     operator makes it with `iki-server create_registration_token`. A self-hosted one is
-    for the teams (and projects) `scope` names, and gives its machines `labels`."""
+    for the teams (and projects) `scope` names, and gives its machines `labels`. One for
+    a Slurm cluster's login node names the cluster."""
+    if slurm_cluster:
+        from iki_server.runs import slurm
+
+        if tier != "container":
+            raise Refused("A Slurm cluster runs container-tier runs.", field="tier")
+        if slurm_cluster not in slurm.clusters():
+            known = ", ".join(slurm.clusters()) or "none"
+            raise Refused(
+                f"This deployment's compute.yaml has no Slurm templates for {slurm_cluster!r} "
+                f"(its clusters: {known}).",
+                field="slurm_cluster",
+            )
     if (tier == SELF_HOSTED) != (scope is not None):
         raise Refused(
             "A self-hosted token is for some teams' machines: choose the teams."
@@ -222,8 +241,11 @@ def create_registration(
             created_by=by,
             expires_at=expires_at,
             labels=labels or [],
+            slurm_cluster=slurm_cluster,
         )
         data: dict[str, Any] = {"tier": tier}
+        if slurm_cluster:
+            data["slurm_cluster"] = slurm_cluster
         if scope is not None:
             token.teams.set(scope.teams)
             token.projects.set(scope.projects)
@@ -389,6 +411,7 @@ def register(
             capacity={k: capacity.get(k) for k in CAPACITY_KEYS},
             plugins=plugins,
             labels=registration.labels,
+            slurm_cluster=registration.slurm_cluster,
             last_seen_at=now,
         )
         data: dict[str, Any] = {
@@ -397,6 +420,8 @@ def register(
             "version": version,
             "plugins": plugins,
         }
+        if worker.slurm_cluster:
+            data["slurm_cluster"] = worker.slurm_cluster
         if worker.tier == SELF_HOSTED:
             worker.teams.set(registration.teams.all())
             worker.projects.set(registration.projects.all())

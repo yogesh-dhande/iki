@@ -22,6 +22,7 @@ mod plugins;
 mod register;
 mod say;
 mod shared;
+mod slurm;
 mod update;
 mod worker;
 
@@ -64,6 +65,7 @@ enum Command {
         directory: String,
     },
     Host(PathBuf),
+    SlurmStep(PathBuf),
     Version,
     Help,
     Unknown(String),
@@ -100,6 +102,8 @@ fn parse(args: &[String]) -> Command {
         ),
         ["host", config] if !config.starts_with('-') => Command::Host(PathBuf::from(config)),
         ["host", ..] => Command::Unknown("host needs the machine's config.json".into()),
+        ["slurm-step", dir] if !dir.starts_with('-') => Command::SlurmStep(PathBuf::from(dir)),
+        ["slurm-step", ..] => Command::Unknown("slurm-step needs the job's directory".into()),
         ["register", rest @ ..] => parse_register(rest),
         ["deregister"] => Command::Deregister,
         ["login" | "logout", ..] => Command::Removed,
@@ -236,6 +240,10 @@ Usage: iki-worker register --url <server> --token <registration token> [--name N
                                    Run a cloud machine's run container from the config
                                    its boot script wrote, then shut the machine down
                                    (the VM tier does this)
+       iki-worker slurm-step <dir>
+                                   Run a Slurm job's command in its image under Apptainer,
+                                   from the job's directory on the cluster's shared file
+                                   system (a Slurm cluster's jobs do this)
        iki-worker --version
 
 Set in the environment:
@@ -259,7 +267,16 @@ Set in the environment:
   IKI_WORKER_IDLE_EXIT     Stop after this many seconds without a job
   IKI_WORKER_CLEAN_DIR     A directory that holds only what jobs leave (a pod's scratch
                            volume): emptied after each job, so the next starts clean
-  IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only";
+  IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only
+
+On a Slurm cluster's login node (registered with a token for the cluster):
+  IKI_SLURM_WORK_DIR       Where jobs are staged, on a file system the compute nodes mount
+                           at the same path
+  IKI_SLURM_IMAGE_CACHE    Where images are kept as SIF files (IKI_SLURM_WORK_DIR/images)
+  IKI_SLURM_MAX_JOBS       The most jobs it holds at once (100)
+  IKI_SLURM_POLL_SECONDS   How often it asks squeue after them (15)
+  IKI_SLURM_BIN            The directory of sbatch, squeue, sacct and scancel (on PATH)
+  IKI_APPTAINER, IKI_COSIGN  Apptainer and cosign (on PATH)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -325,6 +342,7 @@ fn main() -> ExitCode {
             directory,
         } => finish(shared::publish(&from, &root, &directory)),
         Command::Host(config) => finish(host::host(&config)),
+        Command::SlurmStep(dir) => finish(Err(slurm::step::run(&dir))),
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
         Command::Unknown(arg) => write_or_fail(

@@ -1339,6 +1339,30 @@ def test_the_image_policy_needs_its_controller_and_the_builds_identity(
     assert message in error
 
 
+def test_slurm_clusters_workers_learn_who_signs_images_without_the_controller() -> None:
+    # A Slurm cluster's worker checks images itself (ADR 0133): the server tells it whom
+    # to trust once the deployment names its build's signer, controller or not.
+    docs = manifests({"containerTier": {"imagePolicy": {"approvals": APPROVED}}})
+    assert not by_kind(docs, "ClusterImagePolicy")
+    web = named(docs, "Deployment", "iki-web")["spec"]["template"]["spec"]
+    env = {e["name"]: e.get("value") for e in web["containers"][0]["env"]}
+    assert json.loads(env["IKI_IMAGE_POLICY"]) == {
+        "iki": {
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subject_regexp": (
+                r"^https://github\.com/yogesh-dhande/iki/\.github/workflows/publish\.yml"
+                r"@refs/tags/v"
+            ),
+        },
+        "approvals": {
+            "issuer": "https://token.actions.githubusercontent.com",
+            **APPROVED,
+        },
+    }
+    for _, spec in pod_specs(manifests()):
+        assert "IKI_IMAGE_POLICY" not in {e["name"] for e in spec["containers"][0]["env"]}
+
+
 # --- The VM tier (ADR 0074) ----------------------------------------------------------------
 
 ROLE = "arn:aws:iam::123456789012:role/iki-provisioner"

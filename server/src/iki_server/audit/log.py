@@ -134,6 +134,7 @@ ACTIONS: dict[str, str] = {
     "quota.created": "Set a run quota",
     "quota.updated": "Changed a run quota",
     "quota.removed": "Removed a run quota",
+    "slurm_account.changed": "Changed the Slurm account a project's runs are charged to",
     "budget.created": "Set a budget",
     "budget.updated": "Changed a budget",
     "budget.removed": "Removed a budget",

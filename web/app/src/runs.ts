@@ -44,6 +44,7 @@ export const ATTEMPT_STATE: Record<AttemptState, string> = {
   queued: "Queued",
   leased: "Starting",
   staging: "Staging inputs",
+  pending: "Waiting in the cluster’s queue",
   running: "Running",
   uploading: "Uploading results",
   committing: "Committing results",

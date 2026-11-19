@@ -307,6 +307,7 @@ PAGES = [
     ("org_admin", "/settings/webhooks/"),
     ("compute_admin", "/compute/"),
     ("compute_admin", "/compute/workers/"),
+    ("compute_admin", "/compute/slurm/"),
     ("compute_admin", "/compute/quotas/"),
     ("org_admin", "/settings/registries/"),
     ("org_admin", "/settings/signatures/"),

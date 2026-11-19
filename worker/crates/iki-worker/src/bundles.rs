@@ -107,6 +107,37 @@ pub fn sync(api: &Api, cache: &Path, listed: &[AvailableOut]) -> Have {
     Have::fetched(code, built, dirs)
 }
 
+/// What a Slurm cluster's worker needs (ADR 0133): each plugin's code, at the commit the
+/// server installs (or, on a development server, from its local directory). Its jobs run
+/// in their environments' images, so nothing is built.
+pub fn sync_code(api: &Api, cache: &Path, listed: &[AvailableOut]) -> Have {
+    let mut code = Vec::new();
+    let mut dirs = BTreeMap::new();
+    let mut kept = BTreeSet::new();
+    for plugin in listed {
+        let local = plugin.sha == LOCAL;
+        match fetch(api, cache, plugin, local) {
+            Ok(dir) => {
+                kept.insert(dir.clone());
+                dirs.insert(plugin.name.clone(), dir);
+                code.push(PluginCode {
+                    name: plugin.name.clone(),
+                    sha: (!local).then(|| plugin.sha.clone()),
+                    environments: None,
+                    bundle: local.then(|| plugin.bundle.sha256.clone()),
+                });
+            }
+            Err(error) => say::warn(
+                "Couldn't fetch a plugin's code; running without it.",
+                &[("plugin", &plugin.name), ("detail", &error)],
+            ),
+        }
+    }
+    tidy(&cache.join("plugins"), &kept);
+    code.sort_by(|a, b| a.name.cmp(&b.name));
+    Have::code_only(code, dirs)
+}
+
 /// What a worker in an environment's image needs (ADR 0061): that one plugin's code, at
 /// the commit the server installs (or, on a development server, from its local
 /// directory). The image is the environment, so nothing is built.

@@ -24,6 +24,9 @@ export function ComputeTabs() {
       <Link to="/compute/workers/" activeProps={{ "aria-current": "page" }}>
         Workers
       </Link>
+      <Link to="/compute/slurm/" activeProps={{ "aria-current": "page" }}>
+        Slurm
+      </Link>
       <Link to="/compute/quotas/" activeProps={{ "aria-current": "page" }}>
         Quotas
       </Link>

@@ -15,7 +15,7 @@ use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::job::{self, Ended};
 use crate::say;
-use crate::{between, bundles, plugins, update};
+use crate::{between, bundles, plugins, slurm, update};
 
 /// Seconds a lease request waits for work. Short enough that a stopping worker isn't
 /// held for long (give pods a termination grace period of at least a minute).
@@ -156,7 +156,11 @@ fn fetch_plugins(
     config: &Config,
     listed: &[iki_protocol::AvailableOut],
 ) -> Result<plugins::Have, Error> {
-    let have = bundles::sync(api, &config.cache_dir, listed);
+    let have = if config.slurm.is_some() {
+        bundles::sync_code(api, &config.cache_dir, listed)
+    } else {
+        bundles::sync(api, &config.cache_dir, listed)
+    };
     if have.code.is_empty() && !listed.is_empty() {
         say::warn("Fetched no plugin this worker can run.", &[]);
     }
@@ -434,6 +438,9 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
     if let Some(failed) = self_update(config, told(&api).as_ref(), &mut tried) {
         return Err(failed);
     }
+    if let Some(settings) = for_cluster(&api, config, ephemeral)? {
+        return serve_cluster(&api, config, settings, listed, have, tried, &interrupted);
+    }
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
@@ -513,6 +520,70 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
     }
     say::info("Stopped.", &[]);
     outcome
+}
+
+/// Serves a Slurm cluster's jobs (ADR 0133), fetching newer plugin code and updating
+/// itself while it holds none.
+fn serve_cluster(
+    api: &Api,
+    config: &Config,
+    settings: &slurm::Settings,
+    mut listed: Vec<iki_protocol::AvailableOut>,
+    have: plugins::Have,
+    mut tried: Option<String>,
+    interrupted: &Arc<AtomicBool>,
+) -> Result<(), String> {
+    let mut synced = std::time::Instant::now();
+    let fetches = config.plugins_dir.is_none();
+    let idle = |have: &mut plugins::Have| {
+        if synced.elapsed() < RESYNC_EVERY {
+            return None;
+        }
+        synced = std::time::Instant::now();
+        if fetches {
+            resync(api, config, &mut listed, have);
+        }
+        self_update(config, told(api).as_ref(), &mut tried).map(Err)
+    };
+    let served = slurm::serve(api, config, settings, have, interrupted, idle);
+    say::info("Stopped.", &[]);
+    served
+}
+
+/// The Slurm settings, when this worker is a Slurm cluster's (ADR 0133): its registration
+/// says so, and it must be set up for it.
+fn for_cluster<'a>(
+    api: &Api,
+    config: &'a Config,
+    ephemeral: bool,
+) -> Result<Option<&'a slurm::Settings>, String> {
+    let me = api
+        .get::<WorkerOut>(paths::ME)
+        .map_err(|e| unreachable_or_revoked(config, &e))?;
+    let cluster = me.map(|me| me.slurm_cluster).unwrap_or_default();
+    match (&config.slurm, cluster.is_empty()) {
+        (None, true) => Ok(None),
+        (Some(_), true) => Err(
+            "IKI_SLURM_WORK_DIR is set, but this worker isn't registered for a Slurm cluster. \
+             A Compute admin can make a registration token for the cluster (Compute → \
+             Workers)."
+                .to_owned(),
+        ),
+        (None, false) => Err(format!(
+            "This worker is registered for the {cluster} Slurm cluster: set \
+             IKI_SLURM_WORK_DIR to a directory the cluster's compute nodes share."
+        )),
+        // Its jobs outlive it restarting, so it must keep its token to pick them up again.
+        (Some(_), false) if ephemeral => Err(
+            "A Slurm cluster's worker keeps its token across restarts: set \
+             IKI_WORKER_STATE, or register it with iki-worker register."
+                .to_owned(),
+        ),
+        (Some(settings), false) => {
+            say::info("Submitting to a Slurm cluster.", &[("cluster", &cluster)]);
+            Ok(Some(settings))
+        }
+    }
 }
 
 fn unreachable_or_revoked(config: &Config, error: &Error) -> String {

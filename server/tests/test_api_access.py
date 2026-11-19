@@ -1214,6 +1214,26 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         lambda w: (f"/compute/quotas/{_quota(w).pk}", None),
         row(403, compute_admin=204),
     ),
+    # Slurm clusters (ADR 0133): the deployment's compute has one, hpc1.
+    ("GET", "/compute/slurm", fixed("/compute/slurm"), COMPUTE_ONLY),
+    (
+        "GET",
+        "/compute/slurm/{cluster}/accounts",
+        fixed("/compute/slurm/hpc1/accounts"),
+        COMPUTE_ONLY,
+    ),
+    (
+        "PUT",
+        "/compute/slurm/{cluster}/accounts/{project_id}",
+        lambda w: (f"/compute/slurm/hpc1/accounts/{w.project.pk}", {"account": "rd-proteins"}),
+        COMPUTE_ONLY,
+    ),
+    (
+        "DELETE",
+        "/compute/slurm/{cluster}/accounts/{project_id}",
+        lambda w: (f"/compute/slurm/hpc1/accounts/{w.project.pk}", None),
+        row(403, compute_admin=204),
+    ),
     (
         "PATCH",
         "/compute/workers/{worker_id}",
@@ -1563,6 +1583,10 @@ def test_operation_matrix(
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]
+    if template.startswith("/compute/slurm"):
+        from test_slurm import with_cluster
+
+        with_cluster(request)
     world = build_world()
     path, body, *headers = build(world)
     client = Api(world.browser(principal))

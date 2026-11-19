@@ -13,7 +13,9 @@ Workers (:class:`Worker`) register with a :class:`RegistrationToken` a
 compute admin made for their tier, and get a token of their own. Only
 hashes of either are stored. A self-hosted worker belongs to the teams (and
 perhaps only some of their projects) its token was made for, and carries the
-labels runs are matched to it by (ADR 0112).
+labels runs are matched to it by (ADR 0112). A Slurm cluster's worker, on its login
+node, is registered for the cluster, and submits each job it leases as a Slurm job
+(:class:`SlurmJob`), many at once (ADR 0133).
 """
 
 from datetime import timedelta
@@ -92,6 +94,8 @@ class JobState(models.TextChoices):
     QUEUED = "queued", "Queued"
     LEASED = "leased", "Leased"
     STAGING = "staging", "Staging inputs"
+    #: Submitted to a Slurm cluster, and waiting in its queue for nodes (ADR 0133).
+    PENDING = "pending", "Waiting in the cluster's queue"
     RUNNING = "running", "Running"
     UPLOADING = "uploading", "Uploading results"
     COMMITTING = "committing", "Committing results"
@@ -819,6 +823,9 @@ class RegistrationToken(models.Model):
     projects = models.ManyToManyField(Project, blank=True, related_name="+")
     #: Self-hosted: the labels its workers get, such as ``chromeleon`` or ``lab-3``.
     labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
+    #: Container tier: the Slurm cluster its workers submit jobs to, as the deployment's
+    #: Slurm templates name it (ADR 0133). Empty for any other kind of worker.
+    slurm_cluster = models.CharField(max_length=63, blank=True, default="")
     token_hash = models.CharField(max_length=64, unique=True)
     #: The token's last four characters, so people can tell tokens apart.
     hint = models.CharField(max_length=4)
@@ -841,6 +848,10 @@ class RegistrationToken(models.Model):
             models.CheckConstraint(
                 condition=Q(tier="self_hosted") | Q(labels=[]),
                 name="iki_worker_registration_labels",
+            ),
+            models.CheckConstraint(
+                condition=Q(tier="container") | Q(slurm_cluster=""),
+                name="iki_worker_registration_slurm",
             ),
         ]
 
@@ -1141,6 +1152,9 @@ class Worker(models.Model):
     projects = models.ManyToManyField(Project, blank=True, related_name="+")
     #: Self-hosted: the labels an admin gave it, which runs are matched to it by.
     labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
+    #: On a Slurm cluster's login node: the cluster it submits jobs to, from its
+    #: registration token (ADR 0133). It holds many jobs at once.
+    slurm_cluster = models.CharField(max_length=63, blank=True, default="")
     #: For a machine Iki started (ADR 0061): the launch it registered for.
     launch = models.OneToOneField(
         Launch, null=True, blank=True, on_delete=models.PROTECT, related_name="worker"
@@ -1169,6 +1183,10 @@ class Worker(models.Model):
             ),
             models.CheckConstraint(
                 condition=Q(tier="self_hosted") | Q(labels=[]), name="iki_worker_labels"
+            ),
+            models.CheckConstraint(
+                condition=Q(slurm_cluster="") | Q(tier="container", launch__isnull=True),
+                name="iki_worker_slurm",
             ),
         ]
 
@@ -1278,7 +1296,7 @@ class Job(models.Model):
                 fields=["project"],
                 name="iki_job_held",
                 condition=Q(
-                    state__in=["leased", "staging", "running", "uploading"],
+                    state__in=["leased", "staging", "pending", "running", "uploading"],
                     packed_into__isnull=True,
                 ),
             ),
@@ -1308,6 +1326,75 @@ class Job(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} attempt {self.attempt}"
+
+
+class SlurmJob(models.Model):
+    """The Slurm job an attempt runs as on a cluster (ADR 0133): where the server placed
+    it, and what its worker last said Slurm reports. Its usage, from ``sacct`` once it
+    ended, is what its cost is recorded from."""
+
+    job = models.OneToOneField(
+        Job, on_delete=models.CASCADE, primary_key=True, related_name="slurm"
+    )
+    cluster = models.CharField(max_length=63)
+    #: Placed by the server when it leased the attempt, from its template and project.
+    partition = models.CharField(max_length=64)
+    account = models.CharField(max_length=64)
+    qos = models.CharField(max_length=64, blank=True, default="")
+    #: What it asked Slurm for: cpu, memory, gpu_count, scratch_disk and walltime.
+    requested = models.JSONField(default=dict)
+    #: Slurm's ID for it, such as ``123456``, once submitted.
+    slurm_id = models.CharField(max_length=32, blank=True, default="")
+    #: Slurm's state, such as ``PENDING`` or ``OUT_OF_MEMORY``, and why it waits.
+    state = models.CharField(max_length=32, blank=True, default="")
+    reason = models.CharField(max_length=200, blank=True, default="")
+    nodes = models.CharField(max_length=500, blank=True, default="")
+    exit_code = models.CharField(max_length=16, blank=True, default="")
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    #: When Slurm started it on its nodes, and when it ended there.
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    #: From ``sacct``: elapsed and CPU seconds, peak memory, and what it was given.
+    usage = models.JSONField(null=True, blank=True)
+    #: Who signed the image it ran, as its worker checked it; empty if unchecked.
+    image_signer = models.CharField(max_length=500, blank=True, default="")
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_slurm_job"
+        db_table_comment = "The Slurm job each attempt on a Slurm cluster ran as."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["cluster", "slurm_id"], name="iki_slurm_job_id"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cluster}:{self.slurm_id or '-'}"
+
+
+class SlurmAccount(models.Model):
+    """The Slurm account a project's jobs are charged to on a cluster (ADR 0133). Compute
+    admins set it; a project without one uses its template's ``account``."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    cluster = models.CharField(max_length=63)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="+")
+    account = models.CharField(max_length=64)
+    set_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    set_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_slurm_account"
+        db_table_comment = "Each project's Slurm account on each cluster."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["cluster", "project"], name="iki_slurm_account_once"),
+            models.CheckConstraint(
+                condition=Q(account__regex=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"),
+                name="iki_slurm_account_name",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cluster}: {self.account}"
 
 
 class JobLog(models.Model):
@@ -1840,9 +1927,13 @@ class CostRecord(models.Model):
     the deployment's price for it (ADR 0130). Recorded once, never changed."""
 
     id = models.BigAutoField(primary_key=True)
-    #: The machine, for a run's share or idle time; none for an outside API's call.
+    #: The machine, for a run's share or idle time; none for an outside API's call, or for
+    #: a run on a Slurm cluster, whose Slurm job it ran as is `slurm_job` (ADR 0133).
     launch = models.ForeignKey(
         Launch, null=True, blank=True, on_delete=models.PROTECT, related_name="costs"
+    )
+    slurm_job = models.ForeignKey(
+        SlurmJob, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     kind = models.CharField(max_length=8, choices=CostKind.choices)
     #: For an outside API's call: the call, and the API (``plugin.api``).
@@ -1887,12 +1978,14 @@ class CostRecord(models.Model):
             models.CheckConstraint(condition=Q(kind__in=CostKind.values), name="iki_cost_kind"),
             models.CheckConstraint(condition=Q(seconds__gte=0), name="iki_cost_seconds"),
             models.CheckConstraint(
-                condition=Q(
-                    kind="run",
-                    run__isnull=False,
-                    project__isnull=False,
-                    launch__isnull=False,
-                    call__isnull=True,
+                # A run's share is of a machine Iki started or of a Slurm job; idle time
+                # is a machine's alone; an outside API's call is neither's.
+                condition=(
+                    Q(kind="run", run__isnull=False, project__isnull=False, call__isnull=True)
+                    & (
+                        Q(launch__isnull=False, slurm_job__isnull=True)
+                        | Q(launch__isnull=True, slurm_job__isnull=False)
+                    )
                 )
                 | Q(
                     kind="idle",
@@ -1900,6 +1993,7 @@ class CostRecord(models.Model):
                     project__isnull=True,
                     team__isnull=True,
                     launch__isnull=False,
+                    slurm_job__isnull=True,
                     call__isnull=True,
                 )
                 | (
@@ -1908,6 +2002,7 @@ class CostRecord(models.Model):
                         run__isnull=False,
                         project__isnull=False,
                         launch__isnull=True,
+                        slurm_job__isnull=True,
                         call__isnull=False,
                     )
                     & ~Q(api="")

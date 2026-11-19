@@ -122,7 +122,17 @@ def availability(of: Action) -> Availability:
             "admin can bind it in the deployment's compute.yaml.",
         )
     ordered = sorted(bound, key=lambda pair: (pair[0], _size(pair[1])))
-    return Availability(True, templates=tuple(t for _, t in ordered))
+    # A Slurm partition whose time limit is too short, or whose compute nodes can't reach
+    # the egress proxy, doesn't run it (ADR 0133).
+    allowed = tuple(t for _, t in ordered if t.why_not(of) is None)
+    if not allowed:
+        why = "; ".join(str(t.why_not(of)) for _, t in ordered)
+        return Availability(
+            False,
+            f"This deployment can't run it: {why}. A compute admin can change the Slurm "
+            "template in the deployment's compute.yaml.",
+        )
+    return Availability(True, templates=allowed)
 
 
 def detached(plugin: str) -> str:

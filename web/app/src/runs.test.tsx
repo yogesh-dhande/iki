@@ -782,6 +782,86 @@ describe("a run's page", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows each attempt's Slurm job: where it went, how long it waited, what it used", async () => {
+    const GI = 1024 ** 3;
+    const job: Schemas["AttemptSlurmOut"] = {
+      cluster: "hpc",
+      partition: "gpu",
+      account: "cryo-em",
+      qos: "normal",
+      slurm_id: "48213",
+      state: "TIMEOUT",
+      reason: "TimeLimit",
+      nodes: "gpu-node-07",
+      exit_code: "0:15",
+      requested: { cpus: 8, memory: 32 * GI, gpus: 1, scratch_disk: 0, walltime: 7200 },
+      usage: {
+        elapsed: 7200,
+        cpu_seconds: 27_600,
+        max_rss: 12 * GI,
+        alloc: { cpu: 8, memory: 32 * GI, gpu_count: 1 },
+      },
+      image_signer:
+        "https://github.com/ikisci/plugins/.github/workflows/release.yml@refs/heads/main",
+      submitted_at: "2026-03-14T09:00:05Z",
+      started_at: "2026-03-14T09:12:05Z",
+      ended_at: "2026-03-14T11:12:05Z",
+    };
+    onRun(run, () => [
+      attempt({
+        state: "timed_out",
+        worker: "hpc-login-1",
+        finished_at: "2026-03-14T11:12:10Z",
+        slurm: job,
+      }),
+      attempt({
+        attempt: 2,
+        state: "pending",
+        worker: "hpc-login-1",
+        progress: null,
+        log_size: 0,
+        slurm: {
+          ...job,
+          slurm_id: "48990",
+          state: "PENDING",
+          reason: "Priority",
+          nodes: "",
+          exit_code: "",
+          usage: {},
+          started_at: null,
+          ended_at: null,
+        },
+      }),
+    ]);
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const first = within(await screen.findByRole("group", { name: "Slurm job of attempt 1" }));
+    const fact = (term: string) => first.getByText(term).nextSibling;
+    expect(fact("Slurm job")).toHaveTextContent("48213 on hpc");
+    expect(fact("Slurm state")).toHaveTextContent("TIMEOUT (TimeLimit)");
+    expect(fact("Partition")).toHaveTextContent("gpu, QOS normal");
+    expect(fact("Account")).toHaveTextContent("cryo-em");
+    expect(fact("Nodes")).toHaveTextContent("gpu-node-07");
+    expect(fact("Asked for")).toHaveTextContent("8 CPUs, 32 GiB, 1 GPU, for up to 2 h");
+    expect(fact("Used, as sacct says")).toHaveTextContent(
+      "Ran for 2 h on 8 CPUs, 32 GiB, 1 GPU, 7 h 40 min of CPU time, at most 12 GiB of memory in use",
+    );
+    expect(fact("Exit code")).toHaveTextContent("0:15");
+    expect(fact("Image signed by")).toHaveTextContent(
+      "https://github.com/ikisci/plugins/.github/workflows/release.yml@refs/heads/main, as its worker checked",
+    );
+    expect(fact("Started")).toHaveTextContent("after 12 min 0 s in the queue");
+    expect(fact("Ended")).toHaveTextContent("14 Mar 2026");
+
+    // The second waits in the cluster's queue: nothing used yet.
+    const attempts = screen.getByRole("region", { name: "Attempts" });
+    expect(within(attempts).getByText("Waiting in the cluster’s queue")).toBeVisible();
+    const second = within(screen.getByRole("group", { name: "Slurm job of attempt 2" }));
+    expect(second.getByText("Slurm state").nextSibling).toHaveTextContent("PENDING (Priority)");
+    expect(second.queryByText("Used, as sacct says")).not.toBeInTheDocument();
+    expect(second.queryByText("Started")).not.toBeInTheDocument();
+  });
+
   it("cancels, with a reason for the record", async () => {
     onRun(run, () => [attempt()]);
     withLog(() => "");

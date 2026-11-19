@@ -52,6 +52,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("settings/outside-apis/", web.app, name="outside_api_settings"),
     path("compute/", web.app, name="compute"),
     path("compute/workers/", web.app, name="compute_workers"),
+    path("compute/slurm/", web.app, name="compute_slurm"),
     path("compute/quotas/", web.app, name="compute_quotas"),
     path("compute/volumes/", web.app, name="compute_volumes"),
     path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),

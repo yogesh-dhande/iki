@@ -453,6 +453,10 @@ containerTier:
     # The images runs use, approved by the deployment's build: it signs each
     # one `iki deploy build --images` lists into a repository of its own. The
     # config template's CI writes these into image.yaml.
+    # Once `approvals.repository` is set, the server also tells Slurm clusters'
+    # workers who may sign the images they run (ADR 0133): they check each
+    # with cosign before running it under Apptainer, with or without
+    # `enabled`, which needs policy-controller in this cluster.
     approvals:
       # required with imagePolicy, such as ghcr.io/acme/iki-production-approvals.
       repository: ""

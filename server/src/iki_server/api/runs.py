@@ -38,6 +38,7 @@ from iki_server.runs import (
     quotas,
     secrets,
     services,
+    slurm,
     triggers,
     workers,
 )
@@ -963,13 +964,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             if r.status == RunStatus.QUEUED and r.tier == workers.SELF_HOSTED
         }
     )
-    starting = provisioner.waiting(
-        {
-            _qualified_environment(r)
-            for r in runs
-            if r.status == RunStatus.QUEUED and r.tier in ("container", "vm")
-        }
-    )
+    machines = {
+        _qualified_environment(r)
+        for r in runs
+        if r.status == RunStatus.QUEUED and r.tier in ("container", "vm")
+    }
+    # A Slurm cluster's runs wait for its worker, or its templates' room (ADR 0133).
+    starting = {**provisioner.waiting(machines), **slurm.waiting(machines)}
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
     batches = {
         b["id"]: b
@@ -1698,6 +1699,36 @@ class AttemptVolumeOut(Schema):
     data_version: str = Field(description="What the data is, as its setup said.")
 
 
+class SlurmUsageOut(Schema):
+    elapsed: int | None = Field(None, description="Seconds it ran on its nodes.")
+    cpu_seconds: float | None = Field(None, description="CPU time it used.")
+    max_rss: int | None = Field(None, description="Bytes of its largest resident memory.")
+    alloc: dict[str, Any] | None = Field(
+        None, description="What Slurm gave it: `cpu`, `memory` (bytes) and `gpu_count`."
+    )
+
+
+class AttemptSlurmOut(Schema):
+    cluster: str
+    partition: str
+    account: str = Field(description="The Slurm account it was charged to.")
+    qos: str
+    slurm_id: str = Field(description="Its Slurm job ID; empty until it's submitted.")
+    state: str = Field(description="Its state as Slurm reports it, such as `PENDING`.")
+    reason: str = Field(description="Why it's waiting, or how it ended, as Slurm says.")
+    nodes: str
+    exit_code: str
+    requested: dict[str, Any] = Field(
+        description="What it asked Slurm for: `cpus`, `memory`, `gpus`, `scratch_disk` "
+        "(bytes) and `walltime` (seconds)."
+    )
+    usage: SlurmUsageOut = Field(description="What `sacct` says it used, once it ends.")
+    image_signer: str = Field(description="Who signed the image it ran, as its worker checked.")
+    submitted_at: datetime | None
+    started_at: datetime | None
+    ended_at: datetime | None
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -1738,6 +1769,37 @@ class RunAttemptOut(Schema):
     resumed_from: CheckpointOut | None = Field(
         description="The checkpoint an earlier attempt saved that this one resumed from."
     )
+    slurm: AttemptSlurmOut | None = Field(
+        description="When a Slurm cluster ran it: its Slurm job (ADR 0133)."
+    )
+
+
+def _slurm_out(job: Job) -> dict[str, Any] | None:
+    placed = getattr(job, "slurm", None)
+    if placed is None:
+        return None
+    return {
+        **{
+            f: getattr(placed, f)
+            for f in (
+                "cluster",
+                "partition",
+                "account",
+                "qos",
+                "slurm_id",
+                "state",
+                "reason",
+                "nodes",
+                "exit_code",
+                "requested",
+                "usage",
+                "image_signer",
+                "submitted_at",
+                "started_at",
+                "ended_at",
+            )
+        }
+    }
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
@@ -1746,7 +1808,9 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
     run = _find(caller(request), ref)
     jobs = list(
         Job.objects.filter(run=run)
-        .select_related("worker", "packed_into__worker", "packed_into__run")
+        .select_related(
+            "worker", "packed_into__worker", "packed_into__run", "slurm", "packed_into__slurm"
+        )
         .prefetch_related("egress", "packed_into__egress")
         .order_by("attempt")
     )
@@ -1802,6 +1866,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "bulk_import": _import_out(bulk[job.pk]) if job.pk in bulk else None,
                 "checkpoint": _checkpoint_out(saved["by_job"].get(job.pk)),
                 "resumed_from": _checkpoint_out(saved["by_id"].get(job.resumed_from_id)),
+                "slurm": _slurm_out(held),
             }
         )
     return out

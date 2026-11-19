@@ -13,10 +13,12 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { iki, meQuery, problemOf, useApiMutation } from "../api";
 import {
+  capacityText,
   COMPUTE,
   parseLabels,
   quotaScopesQuery,
   registrationsQuery,
+  slurmClustersQuery,
   TIER_NAME,
   workersQuery,
   type Registration,
@@ -24,7 +26,6 @@ import {
   type Worker,
   type WorkerFilter,
 } from "../compute";
-import { formatSize } from "../entities";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import {
@@ -90,8 +91,9 @@ function Workers() {
       </h2>
       <p className="muted">
         Each runs the jobs of its tier it has the code and room for. A self-hosted one runs only its
-        teams’ runs, in the projects it’s for. Revoking one stops its token at once; the jobs it
-        holds are retried on other workers if their action allows.
+        teams’ runs, in the projects it’s for. One on a Slurm cluster’s login node submits its
+        cluster’s runs as Slurm jobs, many at once. Revoking one stops its token at once; the jobs
+        it holds are retried on other workers if their action allows.
       </p>
       <div className="toolbar">
         <SelectField label="Tier" value={tier} onChange={setTier} options={TIER_FILTER} compact />
@@ -190,7 +192,10 @@ function WorkerRow({
           iki-worker {worker.version} · token …{worker.hint}
         </span>
       </th>
-      <td>{TIER_NAME[worker.tier] ?? worker.tier}</td>
+      <td>
+        {TIER_NAME[worker.tier] ?? worker.tier}
+        <SlurmCluster cluster={worker.slurm_cluster} />
+      </td>
       <td>
         <span className={`badge ${status.tone}`}>{status.label}</span>
       </td>
@@ -278,6 +283,19 @@ export function scopeText(
       return listed.length ? `${team.name}: ${listed.join(", ")}` : team.name;
     })
     .join("; ");
+}
+
+/** The Slurm cluster a worker (or its token) submits jobs to, if it's on one. */
+function SlurmCluster({ cluster }: { cluster: string }) {
+  if (!cluster) return null;
+  return (
+    <span className="cell-meta">
+      On the Slurm cluster{" "}
+      <Link to="/compute/slurm/">
+        <code>{cluster}</code>
+      </Link>
+    </span>
+  );
 }
 
 function Labels({ labels }: { labels: readonly string[] }) {
@@ -485,23 +503,6 @@ function ChangeWorker({ worker, onDone }: { worker: Worker; onDone: () => void }
   );
 }
 
-/** "8 CPUs, 32 GiB, 1 GPU (80 GiB)": what one job may use on it. */
-export function capacityText(capacity: Record<string, unknown>): string {
-  const parts: string[] = [];
-  const cpu = Number(capacity["cpu"] ?? 0);
-  if (cpu) parts.push(`${String(cpu)} CPU${cpu === 1 ? "" : "s"}`);
-  const memory = Number(capacity["memory"] ?? 0);
-  if (memory) parts.push(formatSize(memory));
-  const gpus = Number(capacity["gpu_count"] ?? 0);
-  if (gpus) {
-    const each = Number(capacity["gpu_memory"] ?? 0);
-    parts.push(
-      `${String(gpus)} GPU${gpus === 1 ? "" : "s"}${each ? ` (${formatSize(each)})` : ""}`,
-    );
-  }
-  return parts.join(", ") || "—";
-}
-
 function RevokeWorker({ worker, onDone }: { worker: Worker; onDone: () => void }) {
   const { say } = useMessages();
   const revoke = useApiMutation(
@@ -571,7 +572,8 @@ function Registrations() {
         A worker registers once with a token, and gets one of its own. Give a token to your backend
         workers as a secret (the chart’s <code>backendWorkers.registrationToken</code>). A
         self-hosted token is for some teams’ machines: each registers with{" "}
-        <code>iki-worker register</code>. Machines Iki starts get theirs without one.
+        <code>iki-worker register</code>. So does a Slurm cluster’s login node, with a Container
+        token for the cluster. Machines Iki starts get theirs without one.
       </p>
       {made ? (
         <MadeToken
@@ -618,7 +620,10 @@ function Registrations() {
                     ) : null}
                     {token.labels.length ? <Labels labels={token.labels} /> : null}
                   </th>
-                  <td>{TIER_NAME[token.tier] ?? token.tier}</td>
+                  <td>
+                    {TIER_NAME[token.tier] ?? token.tier}
+                    <SlurmCluster cluster={token.slurm_cluster} />
+                  </td>
                   <td>{token.workers}</td>
                   <td>
                     {token.last_used_at ? <RelativeTime value={token.last_used_at} /> : "Never"}
@@ -673,7 +678,10 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
   const [teams, setTeams] = useState<Named[]>([]);
   const [projects, setProjects] = useState<ScopeProject[]>([]);
   const [labels, setLabels] = useState("");
+  const [cluster, setCluster] = useState("");
   const selfHosted = tier === "self_hosted";
+  const container = tier === "container";
+  const clusters = useQuery({ ...slurmClustersQuery, enabled: container });
   const make = useApiMutation(
     async (body: {
       label: string;
@@ -682,6 +690,7 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
       teams: string[];
       projects: string[];
       labels: string[];
+      slurm_cluster: string;
     }) => unwrap(await iki.POST("/api/v1/compute/registration-tokens", { body })),
     [COMPUTE],
   );
@@ -704,6 +713,7 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
         teams: selfHosted ? teams.map((t) => t.id) : [],
         projects: selfHosted ? projects.map((p) => p.id) : [],
         labels: selfHosted ? parseLabels(labels) : [],
+        slurm_cluster: container ? cluster : "",
       },
       {
         onSuccess: (token) => {
@@ -711,6 +721,7 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
           setTeams([]);
           setProjects([]);
           setLabels("");
+          setCluster("");
           onMade(token);
           say(`Made the registration token “${token.label}”. Copy it now.`);
         },
@@ -731,6 +742,25 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
           maxLength={100}
         />
         <SelectField label="Tier" value={tier} onChange={setTier} options={TOKEN_TIERS} />
+        {container ? (
+          clusters.isPending ? (
+            <Loading label="Loading Slurm clusters…" />
+          ) : clusters.isError ? (
+            <ProblemAlert problem={problemOf(clusters.error)} />
+          ) : clusters.data.length ? (
+            <SelectField
+              label="Slurm cluster"
+              value={cluster}
+              onChange={setCluster}
+              error={form.errors["slurm_cluster"]}
+              options={[
+                { value: "", label: "None" },
+                ...clusters.data.map((c) => ({ value: c.name, label: c.name })),
+              ]}
+              help="For a worker on a cluster’s login node: it submits the runs of the cluster’s templates as Slurm jobs."
+            />
+          ) : null
+        ) : null}
         {selfHosted ? (
           <>
             <ScopeFields
@@ -773,9 +803,13 @@ function MadeToken({ token, onDone }: { token: RegistrationCreated; onDone: () =
         <strong>Copy the token now.</strong> It won’t be shown again: Iki keeps only a hash of it.
       </p>
       <CopyValue value={token.token} label="registration token" />
-      {token.tier === "self_hosted" ? (
+      {token.tier === "self_hosted" || token.slurm_cluster ? (
         <>
-          <p>On each machine, register it with:</p>
+          <p>
+            {token.slurm_cluster
+              ? `On a login node of ${token.slurm_cluster}, as the user its jobs run as, register it with:`
+              : "On each machine, register it with:"}
+          </p>
           <CopyValue
             value={`iki-worker register --url ${window.location.origin} --token ${token.token}`}
             label="register command"

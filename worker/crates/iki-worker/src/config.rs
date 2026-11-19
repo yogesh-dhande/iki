@@ -49,6 +49,9 @@ pub struct Config {
     /// copied into a bucket (ADR 0078), the file to write once the server has taken the
     /// build as succeeded, so the machine copies them only then.
     pub setup_succeeded_file: Option<PathBuf>,
+    /// `IKI_SLURM_WORK_DIR` and the rest: on a Slurm cluster's login node, how it submits
+    /// its jobs to the cluster (ADR 0133).
+    pub slurm: Option<crate::slurm::Settings>,
 }
 
 /// The environment a worker runs in the image of.
@@ -328,6 +331,7 @@ impl Config {
             allow_http,
             image,
             setup_succeeded_file: get("IKI_SETUP_SUCCEEDED_FILE").map(PathBuf::from),
+            slurm: crate::slurm::Settings::from_env(&get)?,
             idle_exit: match get("IKI_WORKER_IDLE_EXIT") {
                 None => None,
                 Some(raw) => Some(Duration::from_secs(raw.parse().map_err(

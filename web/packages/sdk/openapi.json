@@ -1423,6 +1423,120 @@
         "title": "AttemptPackOut",
         "type": "object"
       },
+      "AttemptSlurmOut": {
+        "properties": {
+          "account": {
+            "description": "The Slurm account it was charged to.",
+            "title": "Account",
+            "type": "string"
+          },
+          "cluster": {
+            "title": "Cluster",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "exit_code": {
+            "title": "Exit Code",
+            "type": "string"
+          },
+          "image_signer": {
+            "description": "Who signed the image it ran, as its worker checked.",
+            "title": "Image Signer",
+            "type": "string"
+          },
+          "nodes": {
+            "title": "Nodes",
+            "type": "string"
+          },
+          "partition": {
+            "title": "Partition",
+            "type": "string"
+          },
+          "qos": {
+            "title": "Qos",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it's waiting, or how it ended, as Slurm says.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested": {
+            "additionalProperties": true,
+            "description": "What it asked Slurm for: `cpus`, `memory`, `gpus`, `scratch_disk` (bytes) and `walltime` (seconds).",
+            "title": "Requested",
+            "type": "object"
+          },
+          "slurm_id": {
+            "description": "Its Slurm job ID; empty until it's submitted.",
+            "title": "Slurm Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "description": "Its state as Slurm reports it, such as `PENDING`.",
+            "title": "State",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/SlurmUsageOut",
+            "description": "What `sacct` says it used, once it ends."
+          }
+        },
+        "required": [
+          "cluster",
+          "partition",
+          "account",
+          "qos",
+          "slurm_id",
+          "state",
+          "reason",
+          "nodes",
+          "exit_code",
+          "requested",
+          "usage",
+          "image_signer",
+          "submitted_at",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "AttemptSlurmOut",
+        "type": "object"
+      },
       "AttemptVolumeOut": {
         "properties": {
           "build": {
@@ -7489,6 +7603,7 @@
           "queued",
           "leased",
           "staging",
+          "pending",
           "running",
           "uploading",
           "committing",
@@ -9918,6 +10033,35 @@
           "next_cursor"
         ],
         "title": "Page[SetupBuildOut]",
+        "type": "object"
+      },
+      "Page_SlurmAccountOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SlurmAccountOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SlurmAccountOut]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -14084,6 +14228,17 @@
             "title": "Secrets",
             "type": "array"
           },
+          "slurm": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttemptSlurmOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a Slurm cluster ran it: its Slurm job (ADR 0133)."
+          },
           "started_at": {
             "anyOf": [
               {
@@ -14153,7 +14308,8 @@
           "pack",
           "bulk_import",
           "checkpoint",
-          "resumed_from"
+          "resumed_from",
+          "slurm"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -17306,6 +17462,248 @@
         "title": "SlotSearchOut",
         "type": "object"
       },
+      "SlurmAccountIn": {
+        "properties": {
+          "account": {
+            "description": "The Slurm account (as `sacctmgr` names it) its jobs are charged to.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+            "title": "Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account"
+        ],
+        "title": "SlurmAccountIn",
+        "type": "object"
+      },
+      "SlurmAccountOut": {
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "cluster": {
+            "title": "Cluster",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectScopeOut"
+          },
+          "set_at": {
+            "format": "date-time",
+            "title": "Set At",
+            "type": "string"
+          },
+          "set_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cluster",
+          "project",
+          "account",
+          "set_by",
+          "set_at"
+        ],
+        "title": "SlurmAccountOut",
+        "type": "object"
+      },
+      "SlurmClusterOut": {
+        "properties": {
+          "accounts": {
+            "description": "Projects given their own account on it.",
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/SlurmTemplateOut"
+            },
+            "title": "Templates",
+            "type": "array"
+          },
+          "workers_online": {
+            "description": "Its login nodes' workers heard from lately.",
+            "title": "Workers Online",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "templates",
+          "workers_online",
+          "accounts"
+        ],
+        "title": "SlurmClusterOut",
+        "type": "object"
+      },
+      "SlurmTemplateOut": {
+        "properties": {
+          "account": {
+            "description": "The account projects without their own are charged to.",
+            "title": "Account",
+            "type": "string"
+          },
+          "capacity": {
+            "additionalProperties": true,
+            "description": "The most one job may ask for.",
+            "title": "Capacity",
+            "type": "object"
+          },
+          "constraint": {
+            "title": "Constraint",
+            "type": "string"
+          },
+          "egress_proxy_url": {
+            "description": "Where its compute nodes reach the egress proxy; without it, actions that reach the internet don't run there.",
+            "title": "Egress Proxy Url",
+            "type": "string"
+          },
+          "gpu_type": {
+            "title": "Gpu Type",
+            "type": "string"
+          },
+          "jobs": {
+            "description": "Its jobs leased now: submitted, waiting or running.",
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "max_concurrent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most of its jobs at once.",
+            "title": "Max Concurrent"
+          },
+          "max_walltime": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The partition's time limit, in seconds.",
+            "title": "Max Walltime"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "partition": {
+            "title": "Partition",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a job pays per hour for each CPU, GPU and GiB of memory it's given.",
+            "title": "Price"
+          },
+          "qos": {
+            "title": "Qos",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "partition",
+          "qos",
+          "account",
+          "constraint",
+          "gpu_type",
+          "max_walltime",
+          "egress_proxy_url",
+          "capacity",
+          "max_concurrent",
+          "price",
+          "jobs"
+        ],
+        "title": "SlurmTemplateOut",
+        "type": "object"
+      },
+      "SlurmUsageOut": {
+        "properties": {
+          "alloc": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What Slurm gave it: `cpu`, `memory` (bytes) and `gpu_count`.",
+            "title": "Alloc"
+          },
+          "cpu_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CPU time it used.",
+            "title": "Cpu Seconds"
+          },
+          "elapsed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds it ran on its nodes.",
+            "title": "Elapsed"
+          },
+          "max_rss": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bytes of its largest resident memory.",
+            "title": "Max Rss"
+          }
+        },
+        "title": "SlurmUsageOut",
+        "type": "object"
+      },
       "SoftwareOut": {
         "properties": {
           "name": {
@@ -19871,6 +20269,11 @@
             "title": "Running",
             "type": "array"
           },
+          "slurm_cluster": {
+            "description": "The Slurm cluster it submits jobs to.",
+            "title": "Slurm Cluster",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "online",
@@ -19909,6 +20312,7 @@
           "teams",
           "projects",
           "labels",
+          "slurm_cluster",
           "registered_at",
           "last_seen_at",
           "revoked_at",
@@ -20062,6 +20466,11 @@
             ],
             "title": "Revoked At"
           },
+          "slurm_cluster": {
+            "description": "The Slurm cluster its workers submit jobs to.",
+            "title": "Slurm Cluster",
+            "type": "string"
+          },
           "teams": {
             "description": "Self-hosted: whose runs its workers take.",
             "items": {
@@ -20092,6 +20501,7 @@
           "teams",
           "projects",
           "labels",
+          "slurm_cluster",
           "hint",
           "created_by",
           "created_at",
@@ -20146,6 +20556,14 @@
             "maxItems": 500,
             "title": "Projects",
             "type": "array"
+          },
+          "slurm_cluster": {
+            "default": "",
+            "description": "Container tier: the Slurm cluster whose login node its worker runs on, as the deployment's Slurm templates name it.",
+            "maxLength": 63,
+            "pattern": "^([a-z][a-z0-9]*(-[a-z0-9]+)*)?$",
+            "title": "Slurm Cluster",
+            "type": "string"
           },
           "teams": {
             "description": "Self-hosted: the teams whose runs its workers take. At least one.",
@@ -20259,6 +20677,11 @@
             ],
             "title": "Revoked At"
           },
+          "slurm_cluster": {
+            "description": "The Slurm cluster its workers submit jobs to.",
+            "title": "Slurm Cluster",
+            "type": "string"
+          },
           "teams": {
             "description": "Self-hosted: whose runs its workers take.",
             "items": {
@@ -20284,6 +20707,7 @@
           "teams",
           "projects",
           "labels",
+          "slurm_cluster",
           "hint",
           "created_by",
           "created_at",
@@ -23077,6 +23501,217 @@
           }
         ],
         "summary": "Retire a version of an environment's volumes",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/slurm": {
+      "get": {
+        "description": "The clusters the deployment's Slurm templates name, from its compute.yaml, which is\nreviewed like code (ADR 0041): each one's templates, workers and accounts.",
+        "operationId": "iki_server_api_compute_list_slurm_clusters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlurmClusterOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Slurm clusters",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/slurm/{cluster}/accounts": {
+      "get": {
+        "description": "The projects given their own account on the cluster. The rest are charged to their\ntemplate's.",
+        "operationId": "iki_server_api_compute_list_slurm_accounts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cluster",
+            "required": true,
+            "schema": {
+              "title": "Cluster",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SlurmAccountOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Projects' Slurm accounts",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/slurm/{cluster}/accounts/{project_id}": {
+      "delete": {
+        "description": "Its runs on the cluster are charged to their template's account again.",
+        "operationId": "iki_server_api_compute_clear_slurm_account",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cluster",
+            "required": true,
+            "schema": {
+              "title": "Cluster",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Clear a project's Slurm account",
+        "tags": [
+          "compute"
+        ]
+      },
+      "put": {
+        "description": "Its runs on the cluster are charged to it from their next attempt; ones already\nsubmitted keep theirs. Audited, with the account before and after.",
+        "operationId": "iki_server_api_compute_set_slurm_account",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cluster",
+            "required": true,
+            "schema": {
+              "title": "Cluster",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlurmAccountIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlurmAccountOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set a project's Slurm account",
         "tags": [
           "compute"
         ]

@@ -27,7 +27,13 @@ from iki_server.runs.models import ActionRun, Job, JobState, RunQuota, RunStatus
 __all__ = ["Blocked", "blocked", "check_queued"]
 
 #: States in which a worker holds a job (as the queue's HELD).
-_HELD = (JobState.LEASED, JobState.STAGING, JobState.RUNNING, JobState.UPLOADING)
+_HELD = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
 
 
 @dataclass

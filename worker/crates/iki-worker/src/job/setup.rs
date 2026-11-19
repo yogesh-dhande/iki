@@ -443,7 +443,7 @@ fn ending(
         })
     };
     match stopped {
-        Some(Stop::Lost) => None,
+        Some(Stop::Lost | Stop::Detached) => None,
         Some(Stop::Cancelled) => stopped_with(
             SetupFinishInOutcome::Cancelled,
             "Stopped: the setup build was cancelled.".into(),
@@ -863,6 +863,7 @@ mod tests {
             idle_exit: None,
             clean_dir: None,
             setup_succeeded_file: Some(dir.join("succeeded")),
+            slurm: None,
         }
     }
 

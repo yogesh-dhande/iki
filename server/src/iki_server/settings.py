@@ -7,6 +7,7 @@ explicitly. Required values have no default and fail fast at startup.
 """
 
 import ipaddress
+import json
 import os
 import re
 from importlib.util import find_spec
@@ -117,6 +118,42 @@ IKI_RUNS_SERVICE_ACCOUNT: str = env.str("IKI_RUNS_SERVICE_ACCOUNT", default="iki
 IKI_RUNS_IMAGE_PULL_SECRETS: list[str] = env.list("IKI_RUNS_IMAGE_PULL_SECRETS", default=[])
 #: Plain http:// to the server, for a development cluster without TLS.
 IKI_RUNS_ALLOW_HTTP: bool = env.bool("IKI_RUNS_ALLOW_HTTP", default=False)
+
+
+def _image_policy(raw: str) -> dict[str, Any] | None:
+    """Who may have signed the images runs use (ADR 0063), for workers that check them
+    themselves: a Slurm cluster's, which no admission controller stands in front of (ADR
+    0133). The chart writes it from `containerTier.imagePolicy`."""
+    if not raw.strip():
+        return None
+    try:
+        policy = json.loads(raw)
+    except ValueError as error:
+        raise environ.ImproperlyConfigured(f"IKI_IMAGE_POLICY isn't JSON: {error}") from None
+    signer_keys = {"issuer", "subject", "subject_regexp", "repository"}
+    ok = (
+        isinstance(policy, dict)
+        and set(policy) <= {"iki", "approvals"}
+        and policy
+        and all(
+            isinstance(signer, dict)
+            and set(signer) <= signer_keys
+            and all(isinstance(v, str) for v in signer.values())
+            and str(signer.get("issuer", "")).startswith("https://")
+            and bool(signer.get("subject") or signer.get("subject_regexp"))
+            for signer in policy.values()
+        )
+    )
+    if not ok:
+        raise environ.ImproperlyConfigured(
+            "IKI_IMAGE_POLICY names who may sign runs' images: "
+            '{"iki": {"issuer": "https://…", "subject_regexp": "…"}, "approvals": '
+            '{"repository": "ghcr.io/…", "issuer": "https://…", "subject": "…"}}.'
+        )
+    return dict(policy)
+
+
+IKI_IMAGE_POLICY: dict[str, Any] | None = _image_policy(env.str("IKI_IMAGE_POLICY", default=""))
 # The vm tier (ADR 0074): `iki-server provision` starts cloud machines for runs, tagged
 # with IKI_RUNS_VM_OWNER (this deployment's name, which its IAM policy can require), that
 # reach the server at IKI_RUNS_VM_SERVER_URL: an address in their VPC, not the cluster's.

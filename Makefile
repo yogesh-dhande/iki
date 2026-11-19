@@ -146,6 +146,10 @@ check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets 
 check-scale-queue: ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
 
+.PHONY: check-slurm
+check-slurm: ## iki-worker on a Slurm cluster in a container (deploy/dev/slurm) against the real server: builds both (and iki-wasm, for plugins' rules), then runs server/tests/test_slurm_e2e.py
+	scripts/build-wasm.sh && built=$$(deploy/dev/slurm/build.sh) && env $$built uv run pytest server/tests/test_slurm_e2e.py --slurm -p no:xdist -v
+
 # --- The live cloud tests (deploy/live) -------------------------------------------
 # Each deploys Iki to a real cloud, checks it and tears it all down, billing that cloud: run
 # them when make live-due says a cloud is due, and before tagging a release (release.yml

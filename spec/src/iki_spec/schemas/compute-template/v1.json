@@ -22,15 +22,15 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "provisioner": {
-      "description": "How machines start. `backend_pool`: Iki's backend worker pods (backend tier). `k8s_job`: a Kubernetes Job for each run, and `k8s_deployment`: a warm pool of pods (container tier). `aws_ec2`: EC2 instances, and `gcp_gce`: Compute Engine instances (vm tier).",
-      "enum": ["backend_pool", "k8s_job", "k8s_deployment", "aws_ec2", "gcp_gce"]
+      "description": "How machines start. `backend_pool`: Iki's backend worker pods (backend tier). `k8s_job`: a Kubernetes Job for each run, and `k8s_deployment`: a warm pool of pods (container tier). `slurm`: a Slurm job for each run, submitted by iki-worker on the cluster's login node (container tier). `aws_ec2`: EC2 instances, and `gcp_gce`: Compute Engine instances (vm tier).",
+      "enum": ["backend_pool", "k8s_job", "k8s_deployment", "slurm", "aws_ec2", "gcp_gce"]
     },
     "lifecycle": {
       "description": "For `aws_ec2` and `gcp_gce`: a machine for each run (`ephemeral`, the default), or warm machines that shut down when idle (`persistent`).",
       "enum": ["ephemeral", "persistent"]
     },
     "capacity": {
-      "description": "What each machine gives a run. A job runs here only if it fits.",
+      "description": "What each machine gives a run. A job runs here only if it fits. For `slurm`, the most one job may ask for: each job asks Slurm for what its action needs.",
       "type": "object",
       "required": ["cpu", "memory"],
       "properties": {
@@ -207,7 +207,7 @@
           "pattern": "^(arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:(key|alias)/[A-Za-z0-9/_-]+|alias/[A-Za-z0-9/_-]+)$"
         },
         "tags": {
-          "description": "More tags for the instances and their disks, such as a cost center. Iki's own tags (`iki.ikisci.org/\u2026`) and AWS's (`aws:\u2026`) are taken.",
+          "description": "More tags for the instances and their disks, such as a cost center. Iki's own tags (`iki.ikisci.org/…`) and AWS's (`aws:…`) are taken.",
           "type": "object",
           "maxProperties": 30,
           "propertyNames": {
@@ -302,6 +302,56 @@
             "maxLength": 63,
             "pattern": "^[a-z0-9_-]*$"
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "slurm": {
+      "description": "For `slurm`: where on the cluster its jobs go. iki-worker, registered on the cluster's login node for `cluster`, submits each run with sbatch, sized to what its action needs.",
+      "type": "object",
+      "required": ["cluster", "partition"],
+      "properties": {
+        "cluster": {
+          "description": "The cluster, as Iki names it: only workers a Compute admin registered for it run these jobs, and projects' Slurm accounts are set for it.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "maxLength": 63
+        },
+        "partition": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "description": "The partition jobs go in (sbatch --partition)."
+        },
+        "qos": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "description": "The quality of service jobs ask for (--qos), if not the partition's default."
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "description": "The Slurm account jobs are charged to when their project has none of its own. Compute admins set each project's under Compute → Slurm. Without either, a project's runs don't start here."
+        },
+        "constraint": {
+          "description": "The node features jobs need (--constraint), such as `a100` or `skylake&ib`.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9_.&|,!*()\\[\\]:-]+$"
+        },
+        "gpu_type": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+          "description": "The GPUs' type in the cluster's GRES, such as `a100` (--gpus=a100:2). Any type unless set."
+        },
+        "max_walltime": {
+          "description": "The partition's time limit (MaxTime). An action whose timeout is longer doesn't run here.",
+          "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+        },
+        "egress_proxy_url": {
+          "description": "Where the cluster's compute nodes reach Iki's egress proxy, such as `http://iki-egress.hpc.example.com:3128`. Without it, actions that reach the internet don't run on this template.",
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^http://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?/?$"
         }
       },
       "additionalProperties": false
@@ -406,14 +456,33 @@
       "additionalProperties": false
     },
     "price": {
-      "description": "What a machine costs while it runs, for cost records and budgets.",
+      "description": "What a machine costs while it runs, for cost records and budgets. A `slurm` job pays for what Slurm gave it, for as long as it ran: by the CPU, GPU and GiB of memory, an hour.",
       "type": "object",
-      "required": ["per_hour", "currency"],
+      "required": ["currency"],
       "properties": {
         "per_hour": {
           "type": "number",
           "minimum": 0,
-          "maximum": 100000
+          "maximum": 100000,
+          "description": "What each machine costs an hour. Not for `slurm`."
+        },
+        "per_cpu_hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "For `slurm`: what each CPU costs an hour."
+        },
+        "per_gpu_hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "For `slurm`: what each GPU costs an hour."
+        },
+        "per_memory_gib_hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "For `slurm`: what each GiB of memory costs an hour."
         },
         "currency": {
           "description": "An ISO 4217 code, such as `USD` or `EUR`.",
@@ -449,6 +518,19 @@
       },
       "then": {
         "required": ["gcp"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provisioner": {
+            "const": "slurm"
+          }
+        },
+        "required": ["provisioner"]
+      },
+      "then": {
+        "required": ["slurm"]
       }
     }
   ],

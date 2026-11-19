@@ -132,6 +132,72 @@
           "additionalProperties": { "type": "string" },
           "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
         },
+        "slurm": {
+          "type": "object",
+          "description": "For a Slurm cluster's worker (ADR 0133): where on the cluster to submit the job, and what to ask for. The worker submits it with `sbatch`, runs its image under Apptainer, and reports what Slurm says of it.",
+          "additionalProperties": false,
+          "required": ["cluster", "template", "partition", "account", "cpus", "walltime", "image"],
+          "properties": {
+            "cluster": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+            "template": { "type": "string", "description": "The compute template that placed it." },
+            "partition": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+            "account": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+              "description": "The Slurm account it's charged to."
+            },
+            "qos": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+            "constraint": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Node features it must run on (`--constraint`)."
+            },
+            "gpu_type": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+              "description": "The GPU type to ask for (`--gpus=type:n`)."
+            },
+            "cpus": { "type": "integer", "minimum": 1, "description": "`--cpus-per-task`." },
+            "memory": { "type": "integer", "minimum": 1, "description": "Bytes: `--mem`." },
+            "gpus": { "type": "integer", "minimum": 0 },
+            "scratch_disk": { "type": "integer", "minimum": 1, "description": "Bytes: `--tmp`." },
+            "walltime": { "type": "integer", "minimum": 1, "description": "Seconds: `--time`." },
+            "image": {
+              "type": "string",
+              "pattern": "@sha256:[0-9a-f]{64}$",
+              "description": "The environment's image, by digest. The worker pulls it into a SIF file for Apptainer."
+            },
+            "image_policy": {
+              "type": "object",
+              "description": "Who may have signed the image (ADR 0063), when the deployment says. The worker checks its signature with cosign before running it.",
+              "additionalProperties": false,
+              "properties": {
+                "iki": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["issuer"],
+                  "properties": {
+                    "issuer": { "type": "string", "pattern": "^https://" },
+                    "subject": { "type": "string" },
+                    "subject_regexp": { "type": "string" },
+                    "repository": { "type": "string" }
+                  }
+                },
+                "approvals": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["issuer"],
+                  "properties": {
+                    "issuer": { "type": "string", "pattern": "^https://" },
+                    "subject": { "type": "string" },
+                    "subject_regexp": { "type": "string" },
+                    "repository": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
         "artifacts": {
           "type": "array",
           "items": { "type": "string" },

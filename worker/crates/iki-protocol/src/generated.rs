@@ -133,6 +133,9 @@ pub struct RunInputJob {
     /// The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<std::collections::BTreeMap<String, String>>,
+    /// For a Slurm cluster's worker (ADR 0133): where on the cluster to submit the job, and what to ask for. The worker submits it with `sbatch`, runs its image under Apptainer, and reports what Slurm says of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slurm: Option<RunInputJobSlurm>,
     /// For an action that keeps artifacts: its `artifacts.keep` patterns. Once the command ends, the worker uploads each file in the output directory one matches, as an artifact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<Vec<String>>,
@@ -171,6 +174,73 @@ pub struct RunInputJobApisCallsItem {
     /// For an API that calls back when a job is done: where it calls, for this run. The command gets it as IKI_API_<NAME>_CALLBACK_URL, to give the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback: Option<String>,
+}
+
+/// For a Slurm cluster's worker (ADR 0133): where on the cluster to submit the job, and what to ask for. The worker submits it with `sbatch`, runs its image under Apptainer, and reports what Slurm says of it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobSlurm {
+    pub cluster: String,
+    /// The compute template that placed it.
+    pub template: String,
+    pub partition: String,
+    /// The Slurm account it's charged to.
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qos: Option<String>,
+    /// Node features it must run on (`--constraint`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraint: Option<String>,
+    /// The GPU type to ask for (`--gpus=type:n`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_type: Option<String>,
+    /// `--cpus-per-task`.
+    pub cpus: i64,
+    /// Bytes: `--mem`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpus: Option<i64>,
+    /// Bytes: `--tmp`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scratch_disk: Option<i64>,
+    /// Seconds: `--time`.
+    pub walltime: i64,
+    /// The environment's image, by digest. The worker pulls it into a SIF file for Apptainer.
+    pub image: String,
+    /// Who may have signed the image (ADR 0063), when the deployment says. The worker checks its signature with cosign before running it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_policy: Option<RunInputJobSlurmImagePolicy>,
+}
+
+/// Who may have signed the image (ADR 0063), when the deployment says. The worker checks its signature with cosign before running it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobSlurmImagePolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iki: Option<RunInputJobSlurmImagePolicyIki>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approvals: Option<RunInputJobSlurmImagePolicyApprovals>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobSlurmImagePolicyIki {
+    pub issuer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_regexp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobSlurmImagePolicyApprovals {
+    pub issuer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_regexp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
 }
 
 /// For a checkpointable action: the worker gives the command a checkpoint directory, `IKI_CHECKPOINT_DIR`, and saves it as this says (ADR 0069).
@@ -644,6 +714,8 @@ pub enum HeartbeatInState {
     Leased,
     #[serde(rename = "staging")]
     Staging,
+    #[serde(rename = "pending")]
+    Pending,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "uploading")]
@@ -739,6 +811,9 @@ pub struct RegisteredOut {
     /// Seconds between heartbeats while it holds a job.
     pub heartbeat_every: i64,
     pub id: String,
+    /// The Slurm cluster it submits jobs to, from its login node (ADR 0133); empty for other workers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slurm_cluster: Option<String>,
     pub tier: String,
     /// Its own token, for everything else. Shown once.
     pub token: String,
@@ -785,6 +860,130 @@ pub struct SetupHeartbeatOut {
     /// Someone cancelled the build: stop the script, then report `cancelled`.
     pub cancel_requested: bool,
     pub lease_expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlurmAllocIn {
+    /// CPUs Slurm allocated (`AllocTRES` cpu).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu: Option<f64>,
+    /// GPUs it allocated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_count: Option<i64>,
+    /// Bytes of memory it allocated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<i64>,
+}
+
+/// What Slurm reports of the job, as ``sbatch``, ``squeue`` and ``sacct`` say. Each
+/// field is optional: the worker sends what changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlurmIn {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    /// Its `ExitCode`, as `code:signal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<String>,
+    /// Who signed the image it ran, as cosign verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_signer: Option<String>,
+    pub lease_token: String,
+    /// The nodes it ran on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nodes: Option<String>,
+    /// Why it's pending, or how it ended, as Slurm says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Its Slurm job ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slurm_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    /// Its Slurm state, such as `PENDING`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<SlurmInState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<SlurmUsageIn>,
+}
+
+/// Its Slurm state, such as `PENDING`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SlurmInState {
+    #[serde(rename = "PENDING")]
+    PENDING,
+    #[serde(rename = "CONFIGURING")]
+    CONFIGURING,
+    #[serde(rename = "REQUEUED")]
+    REQUEUED,
+    #[serde(rename = "REQUEUE_HOLD")]
+    REQUEUEHOLD,
+    #[serde(rename = "REQUEUE_FED")]
+    REQUEUEFED,
+    #[serde(rename = "RESV_DEL_HOLD")]
+    RESVDELHOLD,
+    #[serde(rename = "SUSPENDED")]
+    SUSPENDED,
+    #[serde(rename = "STOPPED")]
+    STOPPED,
+    #[serde(rename = "RUNNING")]
+    RUNNING,
+    #[serde(rename = "COMPLETING")]
+    COMPLETING,
+    #[serde(rename = "STAGE_OUT")]
+    STAGEOUT,
+    #[serde(rename = "SIGNALING")]
+    SIGNALING,
+    #[serde(rename = "RESIZING")]
+    RESIZING,
+    #[serde(rename = "COMPLETED")]
+    COMPLETED,
+    #[serde(rename = "FAILED")]
+    FAILED,
+    #[serde(rename = "CANCELLED")]
+    CANCELLED,
+    #[serde(rename = "TIMEOUT")]
+    TIMEOUT,
+    #[serde(rename = "DEADLINE")]
+    DEADLINE,
+    #[serde(rename = "OUT_OF_MEMORY")]
+    OUTOFMEMORY,
+    #[serde(rename = "NODE_FAIL")]
+    NODEFAIL,
+    #[serde(rename = "BOOT_FAIL")]
+    BOOTFAIL,
+    #[serde(rename = "PREEMPTED")]
+    PREEMPTED,
+    #[serde(rename = "SPECIAL_EXIT")]
+    SPECIALEXIT,
+    #[serde(rename = "REVOKED")]
+    REVOKED,
+    /// A value this version of the protocol doesn't know.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlurmOut {
+    pub lease_expires_at: String,
+    pub slurm_id: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlurmUsageIn {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alloc: Option<SlurmAllocIn>,
+    /// CPU time it used (`TotalCPU`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_seconds: Option<f64>,
+    /// Seconds it ran (`ElapsedRaw`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed: Option<i64>,
+    /// Bytes of its largest RSS (`MaxRSS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rss: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -887,6 +1086,8 @@ pub struct WorkerOut {
     pub labels: Vec<String>,
     pub name: String,
     pub plugins: Vec<PluginCode>,
+    /// The Slurm cluster it submits jobs to (ADR 0133); empty for other workers.
+    pub slurm_cluster: String,
     pub tier: String,
     /// For a self-hosted worker: the release to update itself to, when it's idle. Null when it runs the one it should.
     pub update: Option<UpdateOut>,
@@ -917,6 +1118,8 @@ pub mod paths {
     pub const JOBS_LOGS: &str = "/worker/v1/jobs/{job_id}/logs";
     /// `/worker/v1/jobs/{job_id}/progress`
     pub const JOBS_PROGRESS: &str = "/worker/v1/jobs/{job_id}/progress";
+    /// `/worker/v1/jobs/{job_id}/slurm`
+    pub const JOBS_SLURM: &str = "/worker/v1/jobs/{job_id}/slurm";
     /// `/worker/v1/jobs/{job_id}/uploads`
     pub const JOBS_UPLOADS: &str = "/worker/v1/jobs/{job_id}/uploads";
     /// `/worker/v1/jobs/{job_id}/uploads/{upload_id}/complete`

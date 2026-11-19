@@ -63,6 +63,10 @@ const ComputeQuotasPage = lazyRouteComponent(
   () => import("./pages/compute-quotas"),
   "ComputeQuotasPage",
 );
+const ComputeSlurmPage = lazyRouteComponent(
+  () => import("./pages/compute-slurm"),
+  "ComputeSlurmPage",
+);
 const ComputeOverviewPage = lazyRouteComponent(
   () => import("./pages/compute"),
   "ComputeOverviewPage",
@@ -170,6 +174,12 @@ const computeQuotasRoute = createRoute({
   getParentRoute: () => computeRoute,
   path: "quotas",
   component: ComputeQuotasPage,
+});
+
+const computeSlurmRoute = createRoute({
+  getParentRoute: () => computeRoute,
+  path: "slurm",
+  component: ComputeSlurmPage,
 });
 
 const computeVolumesRoute = createRoute({
@@ -522,6 +532,7 @@ const routeTree = rootRoute.addChildren([
     computeOverviewRoute,
     computeWorkersRoute,
     computeQuotasRoute,
+    computeSlurmRoute,
     computeVolumesRoute,
   ]),
   projectsRoute.addChildren([

@@ -48,6 +48,7 @@ from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.runs import (
     budgets,
+    catalog,
     checkpoints,
     costs,
     endings,
@@ -57,6 +58,7 @@ from iki_server.runs import (
     outside,
     quotas,
     secrets,
+    slurm,
     workers,
 )
 from iki_server.runs.models import (
@@ -118,9 +120,21 @@ MAX_LOG_BYTES = 16 * 1024**2
 RETRY_BACKOFF = timedelta(seconds=10)
 
 #: States in which a worker holds the job.
-HELD = (JobState.LEASED, JobState.STAGING, JobState.RUNNING, JobState.UPLOADING)
+HELD = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
 #: The order a worker may report them in.
-PHASES = (JobState.LEASED, JobState.STAGING, JobState.RUNNING, JobState.UPLOADING)
+PHASES = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
 
 #: Why an attempt ended → the run's status, if it isn't retried.
 _FINAL = {
@@ -130,6 +144,8 @@ _FINAL = {
     "worker_lost": RunStatus.FAILED,
     "machine_unavailable": RunStatus.FAILED,
     "not_allowed": RunStatus.REJECTED,
+    # It can't go where its template says, such as a project with no Slurm account there.
+    "unplaceable": RunStatus.FAILED,
     "plugin_detached": RunStatus.CANCELLED,
 }
 
@@ -156,6 +172,12 @@ class LogGap(Exception):  # noqa: N818 - reads as "there's a gap in the log"
     def __init__(self, expected: int) -> None:
         super().__init__(f"The log continues at byte {expected}.")
         self.expected = expected
+
+
+def lease_ttl(worker: Worker) -> timedelta:
+    """How long the worker's leases last without a heartbeat: a Slurm job outlives its
+    login node's worker restarting (ADR 0133)."""
+    return slurm.LEASE_TTL if worker.slurm_cluster else LEASE_TTL
 
 
 def notify(tier: str) -> None:
@@ -309,8 +331,10 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         .annotate(n=Count("pk"))
         .values("n")
     )
+    # A cluster's worker leases what its Slurm templates take, rather than what fits it.
+    cluster = worker.slurm_cluster
     candidates = Job.objects.filter(
-        _fits(worker),
+        Q() if cluster else _fits(worker),
         _runnable(worker),
         # A later attempt waits for its run's checkpoint to be checked (ADR 0069).
         checkpoints.ready_to_resume(),
@@ -338,6 +362,16 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         # It's still running, and an ephemeral machine's first job.
         if not launches.may_lease(worker):
             return None
+        if cluster:
+            # Its templates' `max_concurrent` holds across the cluster's workers (ADR 0133).
+            slurm.lock(cluster)
+            leasable = slurm.leasable(worker)
+            if leasable is None:
+                return None
+            candidates = candidates.filter(leasable)
+        elif worker.tier == "container" and (theirs := slurm.taken()) is not None:
+            # Nor does any other worker lease a cluster's jobs.
+            candidates = candidates.exclude(theirs)
         stop = quotas.blocked(worker.tier, lock=True)
         if stop.organization:
             return None
@@ -391,9 +425,20 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             # Queued before a deploy detached it, which the sweep hasn't reached yet.
             _end_detached(job, plugin)
             return None
-        members = _pack(job, run)
-        build = _build(worker, job.environment)
         template = worker.launch.template if worker.launch is not None else ""
+        build = _build(worker, job.environment)
+        if cluster:
+            try:
+                slurm.place(job, worker)
+            except slurm.Unplaceable as why:
+                fail_queued(job, "unplaceable", str(why))
+                return None
+            template = job.template
+            # The image is the environment: its digest is the build it ran (ADR 0061).
+            action = catalog.action(run.action)
+            image = catalog.environment(action).image if action is not None else None
+            build = launches.image_digest(image) if image else ""
+        members = _pack(job, run)
         # The versions of the environment's volumes its machine has (ADR 0075).
         volumes = dict(worker.launch.volumes) if worker.launch is not None else {}
         job.state = JobState.LEASED
@@ -401,7 +446,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         job.worker = worker
         job.worker_labels = list(worker.labels)
         job.lease_token = uuid.uuid4()
-        job.lease_expires_at = now + LEASE_TTL
+        job.lease_expires_at = now + lease_ttl(worker)
         job.started_at = now
         job.environment_build = build
         job.volumes = volumes
@@ -555,6 +600,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "resources": job.resources,
             **_proxy(job, run),
             **({"secrets": given} if given else {}),
+            **slurm.for_payload(job),
             **({"artifacts": run.spec["artifacts"]} if run.spec.get("artifacts") else {}),
             **({"checkpoint": saving} if (saving := checkpoints.for_payload(job, run)) else {}),
             **outside.for_payload(job, run),
@@ -597,9 +643,12 @@ def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
     """For an action that declares hosts, or calls outside APIs: the egress proxy, with this
     attempt's job ID and lease token as its credentials (ADR 0053, 0130). They work while
     the attempt holds its lease."""
-    # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074).
+    # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074), and a Slurm
+    # cluster's compute nodes from theirs (ADR 0133).
     vm = job.tier == "vm"
     url = settings.IKI_RUNS_VM_EGRESS_PROXY_URL if vm else settings.IKI_EGRESS_PROXY_URL
+    if slurm.template_of(job) is not None:
+        url = slurm.proxy_url(job)
     if not (run.spec.get("network") or run.spec.get("apis")) or not url:
         return {}
     parts = urlsplit(url)
@@ -659,6 +708,8 @@ def heartbeat(
                 JobState(job.state)
             ):
                 raise ValueError(f"A job can't go from {job.state} back to {state}.")
+            if state == JobState.PENDING and not worker.slurm_cluster:
+                raise ValueError("Only a Slurm cluster's jobs wait in its queue.")
             job.state = state
             fields.append("state")
             live.changed(job.run_id)
@@ -666,7 +717,7 @@ def heartbeat(
                 member.state = state
                 member.save(update_fields=["state"])
                 live.changed(member.run_id)
-        job.lease_expires_at = timezone.now() + LEASE_TTL
+        job.lease_expires_at = timezone.now() + lease_ttl(worker)
         job.save(update_fields=fields)
         return job.lease_expires_at, _cancelled(job)
 
@@ -1003,11 +1054,17 @@ def recover_expired() -> int:
         overdue = (
             Job.objects.select_for_update(skip_locked=True, of=("self",))
             .filter(state__in=HELD, started_at__lt=now - TIMEOUT_GRACE, packed_into__isnull=True)
-            .select_related("run")[:500]
+            # A Slurm job's time counts from when the cluster started it, not from waiting in
+            # its queue (ADR 0133).
+            .filter(Q(slurm__isnull=True) | Q(slurm__started_at__lt=now - TIMEOUT_GRACE))
+            .select_related("run", "slurm")[:500]
         )
         for job in overdue:
             assert job.started_at is not None  # noqa: S101 - held jobs have started
-            if job.started_at + timedelta(seconds=job.run.timeout) + TIMEOUT_GRACE < now:
+            placed = getattr(job, "slurm", None)
+            began = placed.started_at if placed is not None else job.started_at
+            assert began is not None  # noqa: S101 - filtered above
+            if began + timedelta(seconds=job.run.timeout) + TIMEOUT_GRACE < now:
                 _end_pack(
                     job,
                     JobState.TIMED_OUT,

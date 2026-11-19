@@ -123,6 +123,7 @@ export function attempt(
     secrets: [],
     volumes: {},
     pack: null,
+    slurm: null,
     bulk_import: null,
     checkpoint: null,
     resumed_from: null,

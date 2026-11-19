@@ -260,6 +260,20 @@ which version of an environment's volumes machines there get (ADR 0075). */}}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with $ctx.Values.containerTier.imagePolicy }}
+{{- if .approvals.repository }}
+{{- /* Who may sign runs' images, for workers that check them themselves: a Slurm
+cluster's (ADR 0133), with no admission controller in front of its nodes. */}}
+{{- $iki := dict "issuer" .iki.issuer }}
+{{- with .iki.subject }}{{ $_ := set $iki "subject" . }}{{ end }}
+{{- with .iki.subjectRegExp }}{{ $_ := set $iki "subject_regexp" . }}{{ end }}
+{{- $approvals := dict "issuer" .approvals.issuer "repository" .approvals.repository }}
+{{- with .approvals.subject }}{{ $_ := set $approvals "subject" . }}{{ end }}
+{{- with .approvals.subjectRegExp }}{{ $_ := set $approvals "subject_regexp" . }}{{ end }}
+- name: IKI_IMAGE_POLICY
+  value: {{ dict "iki" $iki "approvals" $approvals | toJson | quote }}
+{{- end }}
+{{- end }}
 - name: IKI_DB_SSLMODE
   value: {{ $ctx.Values.database.sslmode | quote }}
 {{- if $ctx.Values.database.caSecret.name }}

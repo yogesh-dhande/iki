@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
 import { iki, meQuery, problemOf, projectsQuery, useApiMutation } from "../api";
+import { capacityText, slurmRequestText, type AttemptSlurm } from "../compute";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
@@ -1041,6 +1042,124 @@ function workedThere(imported: Run["imported"], attempt: number): string | null 
   return imported && worker ? `${worker} on ${imported.deployment}` : null;
 }
 
+/** "Ran for 1 h 5 min on 8 CPUs, 32 GiB, 7 h 40 min of CPU time, at most 12 GiB of memory". */
+export function slurmUsageText(usage: AttemptSlurm["usage"]): string | null {
+  const given = usage.alloc ? capacityText(usage.alloc) : "—";
+  const parts: string[] = [];
+  if (typeof usage.elapsed === "number") {
+    parts.push(`Ran for ${machineTime(usage.elapsed)}${given === "—" ? "" : ` on ${given}`}`);
+  } else if (given !== "—") {
+    parts.push(`Given ${given}`);
+  }
+  if (typeof usage.cpu_seconds === "number") {
+    parts.push(`${machineTime(usage.cpu_seconds)} of CPU time`);
+  }
+  if (typeof usage.max_rss === "number") {
+    parts.push(`at most ${formatSize(usage.max_rss)} of memory in use`);
+  }
+  return parts.length ? parts.join(", ") : null;
+}
+
+/** The Slurm job an attempt ran as (ADR 0133): where it went, how it waited, what it used. */
+function SlurmJob({ attempt, slurm }: { attempt: number; slurm: AttemptSlurm }) {
+  const used = slurmUsageText(slurm.usage);
+  return (
+    <div role="group" aria-label={`Slurm job of attempt ${String(attempt)}`}>
+      <dl className="summary">
+        <dt>Slurm job</dt>
+        <dd>
+          {slurm.slurm_id ? (
+            <>
+              <code>{slurm.slurm_id}</code> on {slurm.cluster}
+            </>
+          ) : (
+            `Not submitted to ${slurm.cluster} yet`
+          )}
+        </dd>
+        {slurm.state ? (
+          <>
+            <dt>Slurm state</dt>
+            <dd>
+              <code>{slurm.state}</code>
+              {slurm.reason ? ` (${slurm.reason})` : ""}
+            </dd>
+          </>
+        ) : null}
+        <dt>Partition</dt>
+        <dd>
+          <code>{slurm.partition}</code>
+          {slurm.qos ? (
+            <>
+              , QOS <code>{slurm.qos}</code>
+            </>
+          ) : null}
+        </dd>
+        <dt>Account</dt>
+        <dd>{slurm.account ? <code>{slurm.account}</code> : "Slurm’s default for its user"}</dd>
+        {slurm.nodes ? (
+          <>
+            <dt>Nodes</dt>
+            <dd>
+              <code>{slurm.nodes}</code>
+            </dd>
+          </>
+        ) : null}
+        <dt>Asked for</dt>
+        <dd>{slurmRequestText(slurm.requested)}</dd>
+        {used ? (
+          <>
+            <dt>Used, as sacct says</dt>
+            <dd>{used}</dd>
+          </>
+        ) : null}
+        {slurm.exit_code ? (
+          <>
+            <dt>Exit code</dt>
+            <dd>
+              <code>{slurm.exit_code}</code>
+            </dd>
+          </>
+        ) : null}
+        {slurm.image_signer ? (
+          <>
+            <dt>Image signed by</dt>
+            <dd>
+              <code>{slurm.image_signer}</code>, as its worker checked
+            </dd>
+          </>
+        ) : null}
+        {slurm.submitted_at ? (
+          <>
+            <dt>Submitted</dt>
+            <dd>
+              <RelativeTime value={slurm.submitted_at} />
+            </dd>
+          </>
+        ) : null}
+        {slurm.started_at ? (
+          <>
+            <dt>Started</dt>
+            <dd>
+              <RelativeTime value={slurm.started_at} />
+              {slurm.submitted_at
+                ? `, after ${duration(slurm.submitted_at, slurm.started_at)} in the queue`
+                : ""}
+            </dd>
+          </>
+        ) : null}
+        {slurm.ended_at ? (
+          <>
+            <dt>Ended</dt>
+            <dd>
+              <RelativeTime value={slurm.ended_at} />
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 function AttemptRow({
   runRef,
   attempt,
@@ -1108,6 +1227,7 @@ function AttemptRow({
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
+        {attempt.slurm ? <SlurmJob attempt={attempt.attempt} slurm={attempt.slurm} /> : null}
         {attempt.bulk_import ? <p className="row-meta">{importNote(attempt.bulk_import)}</p> : null}
         {attempt.resumed_from ? (
           <p className="row-meta">

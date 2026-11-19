@@ -24,7 +24,13 @@ from django.utils import timezone
 from iki_server.runs.models import Job, JobEgress, JobState, SetupBuild, SetupEgress, SetupState
 
 #: The states in which an attempt's command may be running.
-HELD = (JobState.LEASED, JobState.STAGING, JobState.RUNNING, JobState.UPLOADING)
+HELD = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
 PORT = 443
 
 

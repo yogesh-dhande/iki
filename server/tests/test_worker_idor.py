@@ -47,6 +47,7 @@ ROUTES: dict[str, dict[str, Any]] = {
     "/jobs/{job_id}/uploads/{upload_id}/parts": {},
     "/jobs/{job_id}/uploads/{upload_id}/complete": {},
     "/jobs/{job_id}/files/{file_id}": {},
+    "/jobs/{job_id}/slurm": {"slurm_id": "4242", "state": "PENDING"},
     # An async view outside the OpenAPI document; wait=0 answers at once.
     "/jobs/{job_id}/watch?wait=0": {},
 }

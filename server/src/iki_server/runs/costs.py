@@ -12,6 +12,10 @@ for as long as it's up, whether or not it's running a job. So:
 - A job that ran several runs of a batch at once (ADR 0055) is split evenly
   between them.
 
+A **Slurm job** (ADR 0133) is no machine of Iki's: it pays for what Slurm gave it (its
+CPUs, GPUs and memory, as ``sacct`` reports them, at its template's rates) for as long as
+it ran on its nodes, not while it waited in the cluster's queue. It has no idle time.
+
 Each record keeps the price it was recorded at, and the project, team and
 action, as they were. Backend and self-hosted tiers have no per-run cost: their
 machines run anyway.
@@ -23,6 +27,7 @@ import statistics
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
+from functools import partial
 from typing import Any
 
 from django.db import transaction
@@ -40,9 +45,10 @@ from iki_server.runs.models import (
     Launch,
     LaunchState,
     RunStatus,
+    SlurmJob,
     Worker,
 )
-from iki_spec.model import Action
+from iki_spec.model import Action, Resources
 
 #: What's recorded, for dashboards (ADR 0098): by template, tier and kind (a run's share, or
 #: idle), never by project, which Compute → Costs has.
@@ -73,7 +79,13 @@ __all__ = [
 PRICED_TIERS = ("container", "vm")
 #: Past runs an estimate looks at, newest first.
 _ESTIMATE_FROM = 50
-_HELD = (JobState.LEASED, JobState.STAGING, JobState.RUNNING, JobState.UPLOADING)
+_HELD = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
 
 
 @dataclass(frozen=True)
@@ -85,12 +97,16 @@ class Price:
         return (seconds * self.per_hour / 3600).quantize(Decimal("0.0001"), ROUND_HALF_UP)
 
 
-def price(template: str) -> Price | None:
-    """The template's price now, as the deployment's compute says; None if it has none."""
+def price(template: str, wanted: Resources | None = None) -> Price | None:
+    """The template's price now, as the deployment's compute says; None if it has none.
+    A Slurm template's is for a job given `wanted`."""
     found = catalog.compute().templates.get(template)
-    if found is None or found.price_per_hour is None or not found.currency:
+    if found is None or not found.currency:
         return None
-    return Price(Decimal(str(found.price_per_hour)), found.currency)
+    per_hour = found.per_hour(wanted or Resources())
+    if per_hour is None:
+        return None
+    return Price(Decimal(str(round(per_hour, 6))), found.currency)
 
 
 def _seconds(start: datetime, end: datetime) -> Decimal:
@@ -159,14 +175,79 @@ def _runs(launch: Launch, job: Job, start: datetime, end: datetime) -> None:
 
 def released(job: Job, at: datetime | None = None) -> None:
     """The worker let go of the attempt. On a persistent machine, the time it held it is
-    its runs'. Call inside the transaction that ends it."""
+    its runs'; a Slurm job's cost is recorded now, from what it was given and ran for.
+    Call inside the transaction that ends it."""
     if job.packed_into_id is not None or job.started_at is None or job.worker_id is None:
+        return
+    placed = SlurmJob.objects.filter(job=job).first()
+    if placed is not None:
+        _slurm_ended(job, placed, at or timezone.now())
         return
     worker = Worker.objects.select_related("launch").filter(pk=job.worker_id).first()
     launch = worker.launch if worker is not None else None
     if launch is None or launch.once:
         return
     _runs(launch, job, job.started_at, at or timezone.now())
+
+
+def given(placed: SlurmJob) -> Resources:
+    """What a Slurm job was given: as ``sacct`` says, or else what it asked for."""
+    alloc = (placed.usage or {}).get("alloc") or {}
+    asked = placed.requested or {}
+    return Resources(
+        cpu=alloc.get("cpu") or asked.get("cpus"),
+        memory=alloc.get("memory") or asked.get("memory"),
+        gpu_count=int(alloc.get("gpu_count") or asked.get("gpus") or 0),
+    )
+
+
+def _slurm_ended(job: Job, placed: SlurmJob, at: datetime) -> None:
+    """Records what a Slurm job cost, split between the runs packed into it: nothing if it
+    never started on its nodes."""
+    if placed.started_at is None or CostRecord.objects.filter(slurm_job=placed).exists():
+        return
+    end = placed.ended_at or at
+    elapsed = (placed.usage or {}).get("elapsed")
+    seconds = Decimal(str(elapsed)) if elapsed is not None else _seconds(placed.started_at, end)
+    costs = price(job.template, given(placed))
+    attempts = [job, *Job.objects.filter(packed_into=job).select_related("run__project")]
+    for attempt in attempts:
+        share = (seconds / len(attempts)).quantize(Decimal("0.001"))
+        run = attempt.run
+        record = CostRecord.objects.create(
+            slurm_job=placed,
+            kind=CostKind.RUN,
+            template=job.template,
+            tier=job.tier,
+            started_at=placed.started_at,
+            ended_at=end,
+            seconds=share,
+            price_per_hour=costs.per_hour if costs else None,
+            currency=costs.currency if costs else "",
+            amount=costs.of(share) if costs else None,
+            job=attempt,
+            run=run,
+            project=run.project,
+            team_id=run.project.team_id,
+            action=run.action,
+        )
+        transaction.on_commit(partial(_count, record))
+
+
+def slurm_so_far(jobs: QuerySet[Job], now: datetime) -> list[tuple[Job, Decimal, Price | None]]:
+    """For held attempts running as Slurm jobs that have started: each, its seconds on its
+    nodes so far, and its price."""
+    found = []
+    for job in jobs.filter(
+        state__in=_HELD,
+        packed_into__isnull=True,
+        slurm__started_at__isnull=False,
+        slurm__ended_at__isnull=True,
+    ).select_related("slurm"):
+        started = job.slurm.started_at
+        assert started is not None  # noqa: S101 - filtered
+        found.append((job, _seconds(started, now), price(job.template, given(job.slurm))))
+    return found
 
 
 def launch_ended(launch: Launch) -> None:
@@ -223,6 +304,12 @@ def of_run(run: ActionRun) -> dict[str, Any] | None:
     seconds = recorded["seconds"] or Decimal(0)
     currency = run.costs.exclude(currency="").values_list("currency", flat=True).first() or ""
     final = run.finished
+    for _, part, costs in slurm_so_far(Job.objects.filter(run=run), now):
+        final = False
+        seconds += part
+        if costs is not None:
+            amount += costs.of(part)
+            currency = currency or costs.currency
     for job in Job.objects.filter(run=run, packed_into__isnull=True).select_related(
         "worker__launch"
     ):
@@ -259,7 +346,11 @@ def estimate(action: Action) -> dict[str, Any] | None:
     if action.tier not in PRICED_TIERS:
         return None
     templates = catalog.availability(action).templates
-    priced = next(((t, price(t.name)) for t in templates if price(t.name) is not None), None)
+    wanted = catalog.environment(action).resources.at_least(action.resources)
+    priced = next(
+        ((t, price(t.name, wanted)) for t in templates if price(t.name, wanted) is not None),
+        None,
+    )
     if priced is None:
         return None
     template, costs = priced

@@ -92,6 +92,19 @@ Safari versions), add `127.0.0.1 keycloak.iki.localhost` to `/etc/hosts`.
 <http://localhost:5173>, passing pages, the API and sign-in to the cluster.
 Sign in at <http://localhost:8000> first. See [web/app](../../web/app/README.md).
 
+## A Slurm cluster in a container
+
+[`slurm/`](slurm) is a whole Slurm cluster in one container: slurmctld, a
+slurmd node, slurmdbd with MariaDB, munge, and Apptainer. `make check-slurm`
+builds it and a static Linux iki-worker. It then runs
+`server/tests/test_slurm_e2e.py`, in which the worker serves the cluster from
+its login node against the real server on your machine
+([ADR 0133](../../docs/adr/0133-a-slurm-cluster-runs-container-tier-jobs-its-templates-place.md)).
+It doesn't need the kind cluster. The image is linux/amd64, because
+Apptainer ships no Arm packages, so on an Arm Mac it runs emulated, and
+more slowly. It runs privileged, for Apptainer's mounts. CI runs it on every
+change to code.
+
 ## Security posture
 
 The dev cluster is deliberately close to production:

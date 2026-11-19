@@ -4,7 +4,9 @@ themselves (ADR 0043), and quotas on runs (ADR 0045).
 All of it takes the Compute admin role. A registration token's value is
 shown once, when it's made; only a hash is kept. Self-hosted workers belong to
 teams, perhaps only some of their projects, and carry labels (ADR 0112): their
-tokens say which, and an admin changes them on each worker.
+tokens say which, and an admin changes them on each worker. A Slurm cluster's worker, on its
+login node, registers with a token for the cluster, and each project's runs there are
+charged to the Slurm account an admin sets for it (ADR 0133).
 """
 
 from datetime import datetime
@@ -25,7 +27,7 @@ from iki_server.audit import log as audit
 from iki_server.org.models import Project, Team
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs import overview, queue, workers
+from iki_server.runs import overview, queue, slurm, workers
 from iki_server.runs.models import (
     MAX_LABELS,
     TIERS,
@@ -34,9 +36,11 @@ from iki_server.runs.models import (
     RegistrationToken,
     RunQuota,
     RunStatus,
+    SlurmAccount,
     Worker,
 )
 from iki_server.runs.queue import HELD
+from iki_spec.compute import Template
 
 router = Router(tags=["compute"])
 
@@ -136,6 +140,13 @@ class WorkerRegistrationIn(ScopeIn):
         description="Self-hosted: the labels the machines it registers get, which runs are "
         "matched to them by.",
     )
+    slurm_cluster: str = Field(
+        "",
+        max_length=63,
+        pattern=r"^([a-z][a-z0-9]*(-[a-z0-9]+)*)?$",
+        description="Container tier: the Slurm cluster whose login node its worker runs on, "
+        "as the deployment's Slurm templates name it.",
+    )
 
 
 class ScopeOut(Schema):
@@ -158,6 +169,7 @@ class WorkerRegistrationOut(Schema):
         description="Self-hosted: within a team, only these of its projects."
     )
     labels: list[str] = Field(description="Self-hosted: the labels its workers get.")
+    slurm_cluster: str = Field(description="The Slurm cluster its workers submit jobs to.")
     hint: str = Field(description="The token's last four characters, to tell it by.")
     created_by: PersonRef | None = Field(
         description="Null when an operator made it with `iki-server create_registration_token`."
@@ -192,6 +204,7 @@ def _registration_out(token: RegistrationToken) -> dict[str, Any]:
         "teams": _teams_out(token.teams.all()),
         "projects": _projects_out(token.projects.all()),
         "labels": token.labels,
+        "slurm_cluster": token.slurm_cluster,
         "hint": token.hint,
         "created_by": token.created_by,
         "created_at": token.created_at,
@@ -253,6 +266,7 @@ def create_registration(
         expires_at=payload.expires_at,
         scope=_scope(payload) if hosted else None,
         labels=workers.clean_labels(payload.labels),
+        slurm_cluster=payload.slurm_cluster,
     )
     response["Location"] = f"/api/v1/compute/registration-tokens/{token.pk}"
     response["Cache-Control"] = "no-store"
@@ -314,6 +328,7 @@ class WorkerOut(Schema):
         description="Self-hosted: within a team, only these of its projects."
     )
     labels: list[str] = Field(description="Self-hosted: what runs are matched to it by.")
+    slurm_cluster: str = Field(description="The Slurm cluster it submits jobs to.")
     registered_at: datetime
     last_seen_at: datetime
     revoked_at: datetime | None
@@ -341,6 +356,7 @@ def _worker_out(worker: Worker) -> dict[str, Any]:
                 "capacity",
                 "plugins",
                 "registration_id",
+                "slurm_cluster",
                 "registered_at",
                 "last_seen_at",
                 "revoked_at",
@@ -678,4 +694,200 @@ def delete_quota(request: HttpRequest, quota_id: UUID) -> Any:  # noqa: ANN401
         quota.delete()
     for tier in [quota.tier] if quota.tier else list(TIERS):
         queue.notify(tier)
+    return Status(204, None)
+
+
+# --- Slurm clusters (ADR 0133) -------------------------------------------------------------
+
+
+class SlurmTemplateOut(Schema):
+    name: str
+    partition: str
+    qos: str
+    account: str = Field(description="The account projects without their own are charged to.")
+    constraint: str
+    gpu_type: str
+    max_walltime: int | None = Field(description="The partition's time limit, in seconds.")
+    egress_proxy_url: str = Field(
+        description="Where its compute nodes reach the egress proxy; without it, actions that "
+        "reach the internet don't run there."
+    )
+    capacity: dict[str, Any] = Field(description="The most one job may ask for.")
+    max_concurrent: int | None = Field(description="The most of its jobs at once.")
+    price: dict[str, Any] | None = Field(
+        description="What a job pays per hour for each CPU, GPU and GiB of memory it's given."
+    )
+    jobs: int = Field(description="Its jobs leased now: submitted, waiting or running.")
+
+
+class SlurmClusterOut(Schema):
+    name: str
+    templates: list[SlurmTemplateOut]
+    workers_online: int = Field(description="Its login nodes' workers heard from lately.")
+    accounts: int = Field(description="Projects given their own account on it.")
+
+
+def _slurm_template_out(template: Template, jobs: dict[str, int]) -> dict[str, Any]:
+    given = template.slurm
+    capacity = template.capacity
+    rates = {
+        "per_cpu_hour": template.price_per_cpu_hour,
+        "per_gpu_hour": template.price_per_gpu_hour,
+        "per_memory_gib_hour": template.price_per_memory_gib_hour,
+    }
+    return {
+        "name": template.name,
+        "partition": given["partition"],
+        "qos": given.get("qos") or "",
+        "account": given.get("account") or "",
+        "constraint": given.get("constraint") or "",
+        "gpu_type": given.get("gpu_type") or "",
+        "max_walltime": given.get("max_walltime"),
+        "egress_proxy_url": given.get("egress_proxy_url") or "",
+        "capacity": {
+            "cpu": capacity.cpu,
+            "memory": capacity.memory,
+            "gpu_count": capacity.gpu_count,
+            "gpu_memory": capacity.gpu_memory,
+            "scratch_disk": capacity.scratch_disk,
+        },
+        "max_concurrent": template.max_concurrent,
+        "price": {**rates, "currency": template.currency} if template.currency else None,
+        "jobs": jobs.get(template.name, 0),
+    }
+
+
+@router.get("/compute/slurm", response=list[SlurmClusterOut], summary="Slurm clusters")
+def list_slurm_clusters(request: HttpRequest) -> list[dict[str, Any]]:
+    """The clusters the deployment's Slurm templates name, from its compute.yaml, which is
+    reviewed like code (ADR 0041): each one's templates, workers and accounts."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    found = slurm.clusters()
+    names = [t.name for ts in found.values() for t in ts]
+    jobs = dict(
+        Job.objects.filter(state__in=HELD, template__in=names, packed_into__isnull=True)
+        .values("template")
+        .annotate(n=Count("pk"))
+        .values_list("template", "n")
+    )
+    since = timezone.now() - OFFLINE_AFTER
+    online = dict(
+        Worker.objects.filter(
+            slurm_cluster__in=list(found), revoked_at__isnull=True, last_seen_at__gte=since
+        )
+        .values("slurm_cluster")
+        .annotate(n=Count("pk"))
+        .values_list("slurm_cluster", "n")
+    )
+    accounts = dict(
+        SlurmAccount.objects.filter(cluster__in=list(found))
+        .values("cluster")
+        .annotate(n=Count("pk"))
+        .values_list("cluster", "n")
+    )
+    return [
+        {
+            "name": name,
+            "templates": [_slurm_template_out(t, jobs) for t in templates],
+            "workers_online": online.get(name, 0),
+            "accounts": accounts.get(name, 0),
+        }
+        for name, templates in found.items()
+    ]
+
+
+class SlurmAccountOut(Schema):
+    cluster: str
+    project: ProjectScopeOut
+    account: str
+    set_by: PersonRef | None
+    set_at: datetime
+
+
+class SlurmAccountIn(Schema):
+    account: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+        description="The Slurm account (as `sacctmgr` names it) its jobs are charged to.",
+    )
+
+
+def _slurm_account_out(given: SlurmAccount) -> dict[str, Any]:
+    project = given.project
+    return {
+        "cluster": given.cluster,
+        "project": {
+            "id": project.pk,
+            "name": project.name,
+            "team": {"id": project.team.pk, "name": project.team.name},
+        },
+        "account": given.account,
+        "set_by": given.set_by,
+        "set_at": given.set_at,
+    }
+
+
+def _slurm_cluster(cluster: str) -> str:
+    if cluster not in slurm.clusters():
+        raise Problem(404, "This deployment has no such Slurm cluster.")
+    return cluster
+
+
+@router.get(
+    "/compute/slurm/{cluster}/accounts",
+    response=Page[SlurmAccountOut],
+    summary="Projects' Slurm accounts",
+)
+def list_slurm_accounts(
+    request: HttpRequest, cluster: str, params: Query[PageParams]
+) -> dict[str, Any]:
+    """The projects given their own account on the cluster. The rest are charged to their
+    template's."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    found = SlurmAccount.objects.filter(cluster=_slurm_cluster(cluster)).select_related(
+        "project__team", "set_by"
+    )
+    result = page(found, params, newest_first=True)
+    result["items"] = [_slurm_account_out(a) for a in result["items"]]
+    return result
+
+
+def _project(project_id: UUID) -> Project:
+    found = Project.objects.filter(pk=project_id).select_related("team").first()
+    if found is None:
+        raise Problem(404, "No such project.")
+    return found
+
+
+@router.put(
+    "/compute/slurm/{cluster}/accounts/{project_id}",
+    response=SlurmAccountOut,
+    summary="Set a project's Slurm account",
+)
+def set_slurm_account(
+    request: HttpRequest, cluster: str, project_id: UUID, payload: SlurmAccountIn
+) -> dict[str, Any]:
+    """Its runs on the cluster are charged to it from their next attempt; ones already
+    submitted keep theirs. Audited, with the account before and after."""
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    project = _project(project_id)
+    slurm.set_account(_slurm_cluster(cluster), project, payload.account, by=me)
+    given = SlurmAccount.objects.select_related("project__team", "set_by").get(
+        cluster=cluster, project=project
+    )
+    return _slurm_account_out(given)
+
+
+@router.delete(
+    "/compute/slurm/{cluster}/accounts/{project_id}",
+    response={204: None},
+    summary="Clear a project's Slurm account",
+)
+def clear_slurm_account(request: HttpRequest, cluster: str, project_id: UUID) -> Any:  # noqa: ANN401
+    """Its runs on the cluster are charged to their template's account again."""
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    slurm.set_account(_slurm_cluster(cluster), _project(project_id), None, by=me)
     return Status(204, None)

@@ -76,6 +76,8 @@ TIER = {
     "backend_pool": "backend",
     "k8s_job": "container",
     "k8s_deployment": "container",
+    # A Slurm job per run, which iki-worker on the cluster's login node submits (ADR 0133).
+    "slurm": "container",
     "aws_ec2": "vm",
     "gcp_gce": "vm",
 }
@@ -97,6 +99,9 @@ STRATEGIES = {
     # Persistent disks from an image; no shared file systems or buckets yet.
     "gcp_gce": {"clone_from_snapshot", "attach_exclusive"},
 }
+
+#: A price's rates: a machine's by the hour, or a Slurm job's by what it was given.
+RATES = ("per_hour", "per_cpu_hour", "per_gpu_hour", "per_memory_gib_hour")
 
 #: What a cloud machine's disk needs besides the scratch space runs get: at least this
 #: (and unless the template says, :data:`ROOT_DEFAULT`) for the system and the run's image.
@@ -161,16 +166,69 @@ class Template:
     kubernetes: dict[str, Any] = field(default_factory=dict)
     aws: dict[str, Any] = field(default_factory=dict)
     gcp: dict[str, Any] = field(default_factory=dict)
+    #: For `slurm`: the cluster, partition, QOS, default account, constraint, GPU type,
+    #: ``max_walltime`` (seconds) and where compute nodes reach the egress proxy.
+    slurm: dict[str, Any] = field(default_factory=dict)
     volumes: dict[str, TemplateVolume] = field(default_factory=dict)
     max_concurrent: int | None = None
     min_warm: int = 0
     idle_shutdown: int | None = None  # seconds
     price_per_hour: float | None = None
     currency: str | None = None
+    #: For `slurm`: a job pays for what Slurm gave it, for as long as it ran.
+    price_per_cpu_hour: float | None = None
+    price_per_gpu_hour: float | None = None
+    price_per_memory_gib_hour: float | None = None
 
     @property
     def tier(self) -> str:
         return TIER[self.provisioner]
+
+    def serves(self, lifecycle: str | None) -> bool:
+        """Whether an action that asks for `lifecycle` machines runs here. Each Slurm job is
+        an allocation of its own, as an ephemeral action asks; a persistent one asks only for
+        a machine that's warm, which no cluster's queue promises, so it runs there too."""
+        return lifecycle is None or self.provisioner == "slurm" or self.lifecycle == lifecycle
+
+    @property
+    def priced(self) -> bool:
+        rates = (
+            self.price_per_hour,
+            self.price_per_cpu_hour,
+            self.price_per_gpu_hour,
+            self.price_per_memory_gib_hour,
+        )
+        return self.currency is not None and any(rate is not None for rate in rates)
+
+    def per_hour(self, wanted: Resources) -> float | None:
+        """What one of its machines costs an hour, or for a Slurm job, one given `wanted`."""
+        if not self.priced:
+            return None
+        if self.provisioner != "slurm":
+            return self.price_per_hour
+        return (
+            (wanted.cpu or 1) * (self.price_per_cpu_hour or 0)
+            + wanted.gpu_count * (self.price_per_gpu_hour or 0)
+            + (wanted.memory or 0) / 1024**3 * (self.price_per_memory_gib_hour or 0)
+        )
+
+    def why_not(self, action: Action) -> str | None:
+        """Why `action` can't run here though it fits, or None: a Slurm partition's time limit
+        is shorter than its timeout, or the cluster's compute nodes can't reach the egress
+        proxy (ADR 0133)."""
+        if self.provisioner != "slurm":
+            return None
+        walltime = self.slurm.get("max_walltime")
+        if walltime is not None and action.timeout > walltime:
+            return (
+                f"its timeout ({_duration(action.timeout)}) is longer than `{self.name}`'s "
+                f"partition allows ({_duration(walltime)})"
+            )
+        if (action.network or action.apis) and not self.slurm.get("egress_proxy_url"):
+            # Outside APIs are called through the egress proxy too (ADR 0130).
+            reaches = "calls outside APIs" if not action.network else "reaches the internet"
+            return f"it {reaches}, and `{self.name}`'s compute nodes can't reach the egress proxy"
+        return None
 
     def fits(self, wanted: Resources) -> bool:
         """Whether a job that needs `wanted` fits on one of these machines."""
@@ -363,6 +421,7 @@ _ONLY_FOR = {
     "gcp": ("gcp_gce",),
     "lifecycle": ("aws_ec2", "gcp_gce"),
     "kubernetes": ("backend_pool", "k8s_job", "k8s_deployment"),
+    "slurm": ("slurm",),
     "volumes": ("k8s_job", "k8s_deployment", "aws_ec2", "gcp_gce"),
 }
 
@@ -379,6 +438,38 @@ def _provisioner_keys(data: dict[str, Any], document: Document, problems: _Probl
                 (key,),
                 key=True,
             )
+    return _price_rates(data, document, problems) and ok
+
+
+def _price_rates(data: dict[str, Any], document: Document, problems: _Problems) -> bool:
+    """A machine is priced by the hour; a Slurm job by what it's given (ADR 0133)."""
+    price = data.get("price") or {}
+    slurm = data["provisioner"] == "slurm"
+    ok = True
+    for rate in RATES:
+        if rate in price and (rate == "per_hour") == slurm:
+            ok = False
+            problems.add(
+                "wrong-price",
+                "A Slurm job pays for what it's given: price it `per_cpu_hour`, "
+                "`per_gpu_hour` and `per_memory_gib_hour`."
+                if slurm
+                else f"`{rate}` is for `slurm` templates: price a machine `per_hour`.",
+                document,
+                ("price", rate),
+                key=True,
+            )
+    if price and not any(rate in price for rate in RATES):
+        ok = False
+        problems.add(
+            "price-without-rate",
+            "A `price` needs what it costs, not only its currency.",
+            document,
+            ("price",),
+            hint="Add `per_cpu_hour`, `per_gpu_hour` or `per_memory_gib_hour`."
+            if slurm
+            else "Add `per_hour`.",
+        )
     return ok
 
 
@@ -408,6 +499,7 @@ def _template(data: dict[str, Any]) -> Template:
         kubernetes=dict(data.get("kubernetes") or {}),
         aws=dict(data.get("aws") or {}),
         gcp=dict(data.get("gcp") or {}),
+        slurm=_slurm(data.get("slurm")),
         volumes={
             n: TemplateVolume(
                 v["strategy"],
@@ -431,7 +523,25 @@ def _template(data: dict[str, Any]) -> Template:
         else None,
         price_per_hour=price.get("per_hour"),
         currency=price.get("currency"),
+        price_per_cpu_hour=price.get("per_cpu_hour"),
+        price_per_gpu_hour=price.get("per_gpu_hour"),
+        price_per_memory_gib_hour=price.get("per_memory_gib_hour"),
     )
+
+
+def _slurm(given: dict[str, Any] | None) -> dict[str, Any]:
+    """A Slurm template's settings, with its time limit in seconds."""
+    found = dict(given or {})
+    if "max_walltime" in found:
+        found["max_walltime"] = parse_duration(found["max_walltime"])
+    return found
+
+
+def _duration(seconds: int) -> str:
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size and seconds % size == 0:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
 
 
 class _Rules:
@@ -558,7 +668,7 @@ class _Rules:
                     hint="Add an ApiPrice for it, with `per_call` or `usage`.",
                 )
         for template, document in self.templates.values():
-            if template.tier in ("container", "vm") and template.price_per_hour is None:
+            if template.tier in ("container", "vm") and not template.priced:
                 self.add(
                     "unpriced-template",
                     f"`{template.name}` has no `price`, so runs on it cost nothing in Iki's "
@@ -566,7 +676,9 @@ class _Rules:
                     document,
                     ("name",),
                     severity=Severity.WARNING,
-                    hint="Give it a `price: { per_hour: …, currency: … }`.",
+                    hint="Give it a `price: { per_cpu_hour: …, per_gpu_hour: …, currency: … }`."
+                    if template.provisioner == "slurm"
+                    else "Give it a `price: { per_hour: …, currency: … }`.",
                 )
 
     def template(self, template: Template, document: Document) -> None:
@@ -617,6 +729,18 @@ class _Rules:
                 )
         if template.provisioner == "gcp_gce":
             self.gcp(template, document)
+        if (
+            template.provisioner == "slurm"
+            and template.slurm.get("gpu_type")
+            and not template.capacity.gpu_count
+        ):
+            self.add(
+                "gpu-type-without-gpus",
+                "`gpu_type` names the GPUs jobs ask for, and this template has none.",
+                document,
+                ("slurm", "gpu_type"),
+                key=True,
+            )
         for name, volume in template.volumes.items():
             path: DocPath = ("volumes", name)
             allowed = STRATEGIES.get(template.provisioner, set())
@@ -848,8 +972,9 @@ class _Rules:
                 continue  # reported as unbound, if at all
             wanted = env.resources.at_least(action.resources)
             if action.lifecycle is not None:
-                on_tier = [t for t in on_tier if t.lifecycle == action.lifecycle] or on_tier
-            if not any(t.fits(wanted) for t in on_tier):
+                on_tier = [t for t in on_tier if t.serves(action.lifecycle)] or on_tier
+            fitting = [t for t in on_tier if t.fits(wanted)]
+            if not fitting:
                 largest = max(on_tier, key=lambda t: (t.capacity.memory or 0, t.capacity.cpu or 0))
                 self.add(
                     "action-does-not-fit",
@@ -859,8 +984,10 @@ class _Rules:
                     ("templates",),
                     hint="Bind a larger template.",
                 )
+            elif all(t.why_not(action) for t in fitting):
+                self.cannot_run(action, binding, fitting, document)
             elif action.lifecycle is not None and not any(
-                t.lifecycle == action.lifecycle for t in on_tier
+                t.serves(action.lifecycle) for t in on_tier
             ):
                 self.add(
                     "lifecycle-unbound",
@@ -872,6 +999,28 @@ class _Rules:
                     hint="Its runs will use the other templates.",
                 )
 
+    def cannot_run(
+        self, action: Action, binding: Binding, fitting: list[Template], document: Document
+    ) -> None:
+        """An action that fits Slurm templates, none of which can run it (ADR 0133). A
+        timeout no partition allows is a mistake; reaching the internet from a cluster is
+        the deployment's to allow."""
+        too_long = any(
+            action.timeout > t.slurm.get("max_walltime", action.timeout) for t in fitting
+        )
+        self.add(
+            "action-cannot-run-here",
+            f"`{action.qualified_name}` can't run on any template bound to "
+            f"`{binding.environment}`: " + "; ".join(str(t.why_not(action)) for t in fitting) + ".",
+            document,
+            ("templates",),
+            severity=Severity.ERROR if too_long else Severity.WARNING,
+            hint="Bind a template whose partition allows it, or shorten its timeout."
+            if too_long
+            else "Give the Slurm template the `egress_proxy_url` its compute nodes reach the "
+            "egress proxy at, or bind another template.",
+        )
+
     def volumes(
         self,
         template: Template,
@@ -882,7 +1031,16 @@ class _Rules:
     ) -> None:
         for name, volume in env.volumes.items():
             given = template.volumes.get(name)
-            if given is None:
+            if template.provisioner == "slurm":
+                self.add(
+                    "volume-on-slurm",
+                    f"`{template.name}` is a Slurm partition, and Iki doesn't give Slurm jobs "
+                    f"volumes yet, so it can't run `{binding.environment}`, which reads `{name}`.",
+                    document,
+                    path,
+                    hint="Bind the environment to a template Iki starts machines on.",
+                )
+            elif given is None:
                 self.add(
                     "volume-strategy-missing",
                     f"`{template.name}` doesn't say how its machines get `{binding.environment}`'s "

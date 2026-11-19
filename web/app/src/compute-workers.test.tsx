@@ -1,7 +1,7 @@
 /**
  * Compute → Workers, against a fake API: the workers and their state, revoking one,
  * changing a self-hosted one's teams and labels, and making and revoking registration
- * tokens.
+ * tokens, a Slurm cluster's among them.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -9,8 +9,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
-import { parseLabels } from "./compute";
-import { capacityText, scopeText } from "./pages/compute-workers";
+import { capacityText, parseLabels } from "./compute";
+import { scopeText } from "./pages/compute-workers";
 import { answer, calls, ME, page, signedIn } from "./test-server";
 
 const COMPUTE_ADMIN = { ...ME.can, manage_compute: true };
@@ -30,6 +30,7 @@ function worker(overrides: Partial<Schemas["WorkerOut"]> = {}): Schemas["WorkerO
     teams: [],
     projects: [],
     labels: [],
+    slurm_cluster: "",
     running: [],
     registered_at: NOW,
     last_seen_at: NOW,
@@ -57,6 +58,7 @@ function token(
     teams: [],
     projects: [],
     labels: [],
+    slurm_cluster: "",
     ...overrides,
   };
 }
@@ -305,6 +307,85 @@ describe("Compute → Workers", () => {
       projects: [ASSAYS.id],
       labels: ["chromeleon", "lab-3"],
     });
+  });
+
+  it("makes a Container token for a Slurm cluster, and says to register on its login node", async () => {
+    const tokens: Schemas["WorkerRegistrationOut"][] = [];
+    onWorkers([], tokens);
+    answer("GET /api/v1/compute/slurm", [
+      { name: "hpc", templates: [], workers_online: 0, accounts: 0 },
+    ]);
+    const made = token({
+      label: "HPC login node",
+      tier: "container",
+      slurm_cluster: "hpc",
+      workers: 0,
+    });
+    answer("POST /api/v1/compute/registration-tokens", () => {
+      tokens.push(made);
+      return { ...made, token: "iki_wreg_slurm-value" };
+    });
+    const { user } = await renderApp("/compute/workers/");
+    const card = section("Registration tokens");
+    await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "HPC login node");
+    // Only the container tier has Slurm clusters.
+    expect(card.queryByRole("combobox", { name: /Slurm cluster/ })).not.toBeInTheDocument();
+    await user.selectOptions(card.getByRole("combobox", { name: /Tier/ }), "container");
+    const cluster = await card.findByRole("combobox", { name: /Slurm cluster/ });
+    expect(cluster).toHaveAccessibleDescription(/submits the runs of the cluster’s templates/);
+    await user.selectOptions(cluster, "hpc");
+    await user.click(card.getByRole("button", { name: "Make token" }));
+    expect(await card.findByText(/On a login node of hpc/)).toBeVisible();
+    expect(
+      card.getByText(
+        `iki-worker register --url ${window.location.origin} --token iki_wreg_slurm-value`,
+      ),
+    ).toBeVisible();
+    expect(calls("POST", "/api/v1/compute/registration-tokens")[0]?.body).toMatchObject({
+      tier: "container",
+      slurm_cluster: "hpc",
+      teams: [],
+      labels: [],
+    });
+    const row = (await card.findByRole("rowheader", { name: /HPC login node/ })).closest("tr");
+    if (!row) throw new Error("no row");
+    expect(within(row).getAllByRole("cell")[0]).toHaveTextContent(
+      "ContainerOn the Slurm cluster hpc",
+    );
+    expect(within(row).getByRole("link", { name: "hpc" })).toHaveAttribute(
+      "href",
+      "/compute/slurm/",
+    );
+  });
+
+  it("sends no Slurm cluster for other tiers", async () => {
+    onWorkers([], []);
+    answer("POST /api/v1/compute/registration-tokens", () => ({ ...token(), token: "x" }));
+    const { user } = await renderApp("/compute/workers/");
+    const card = section("Registration tokens");
+    await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "GPU pool");
+    await user.click(card.getByRole("button", { name: "Make token" }));
+    await card.findByText("Copy the token now.");
+    expect(calls("GET", "/api/v1/compute/slurm")).toEqual([]);
+    expect(calls("POST", "/api/v1/compute/registration-tokens")[0]?.body).toMatchObject({
+      tier: "backend",
+      slurm_cluster: "",
+    });
+  });
+
+  it("shows the Slurm cluster a worker submits jobs to", async () => {
+    onWorkers(
+      [worker({ name: "hpc-login-1", tier: "container", slurm_cluster: "hpc", jobs: 14 })],
+      [],
+    );
+    await renderApp("/compute/workers/");
+    const row = (await section("Workers").findByRole("rowheader", { name: /hpc-login-1/ })).closest(
+      "tr",
+    );
+    if (!row) throw new Error("no row");
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent("ContainerOn the Slurm cluster hpc");
+    expect(cells[3]).toHaveTextContent("14 jobs");
   });
 
   it("revokes a token, and its workers too if asked", async () => {

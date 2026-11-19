@@ -65,6 +65,9 @@ pub enum Stop {
     Interrupted,
     /// The lease went to someone else: nothing to report.
     Lost,
+    /// A Slurm cluster's worker is stopping, and its job runs on without it: the worker
+    /// picks it up again when it starts (ADR 0133). Nothing to report.
+    Detached,
 }
 
 /// What became of a job, for the worker's loop.
@@ -145,10 +148,10 @@ pub trait Host: Send + Sync + 'static {
     }
 }
 
-struct Job {
+pub(crate) struct Job {
     api: Api,
-    id: String,
-    lease_token: String,
+    pub(crate) id: String,
+    pub(crate) lease_token: String,
     /// Whether it's an environment's setup build (ADR 0075), whose lease, log and
     /// progress go to `/setups/…` rather than `/jobs/…`.
     setup: bool,
@@ -158,7 +161,101 @@ struct Job {
     progress: Mutex<Option<(f64, String)>>,
 }
 
+/// A leased job, its heartbeats and the sender of its log, until it ends.
+pub(crate) struct Held {
+    pub(crate) job: Arc<Job>,
+    beating: thread::JoinHandle<()>,
+    sending: thread::JoinHandle<()>,
+}
+
+impl Held {
+    /// Starts renewing the lease every `every` seconds, sending the log, and with `watch`,
+    /// a long-poll for cancels.
+    pub(crate) fn start(
+        api: &Api,
+        id: &str,
+        lease_token: &str,
+        state: HeartbeatInState,
+        every: i64,
+        watch: bool,
+    ) -> Self {
+        let job = Arc::new(Job {
+            api: api.clone(),
+            id: id.to_owned(),
+            lease_token: lease_token.to_owned(),
+            setup: false,
+            state: Mutex::new(state),
+            signals: Signals::default(),
+            log: Log::default(),
+            progress: Mutex::new(None),
+        });
+        let every = Duration::from_secs(u64::try_from(every.max(1)).unwrap_or(20));
+        let beating = {
+            let job = Arc::clone(&job);
+            thread::spawn(move || heartbeats(&job, every))
+        };
+        if watch {
+            // Not joined: it ends with its long-poll, up to half a minute after the job.
+            let job = Arc::clone(&job);
+            thread::spawn(move || watcher(&job));
+        }
+        let sending = {
+            let job = Arc::clone(&job);
+            thread::spawn(move || sender(&job))
+        };
+        Self {
+            job,
+            beating,
+            sending,
+        }
+    }
+
+    /// Sends the rest of the log and how the attempt ended, then stops the heartbeats.
+    pub(crate) fn end(self, report: Option<Report>) -> Ended {
+        self.job.signals.output_read.store(true, Ordering::SeqCst);
+        let _ = self.sending.join();
+        let ended = finish(&self.job, report);
+        self.job.signals.finished.store(true, Ordering::SeqCst);
+        let _ = self.beating.join();
+        ended
+    }
+
+    /// Lets go of the job without a word: a Slurm job runs on while its worker restarts,
+    /// and the worker picks it up again from its directory (ADR 0133).
+    pub(crate) fn detach(self) -> Ended {
+        self.job.signals.output_read.store(true, Ordering::SeqCst);
+        let _ = self.sending.join();
+        let _ = self.job.send_log();
+        self.job.signals.finished.store(true, Ordering::SeqCst);
+        let _ = self.beating.join();
+        if self.job.signals.unauthorized.load(Ordering::SeqCst) {
+            Ended::Unauthorized
+        } else {
+            Ended::Done
+        }
+    }
+}
+
 impl Job {
+    pub(crate) fn api(&self) -> &Api {
+        &self.api
+    }
+
+    /// Whether the lease went elsewhere, or the server stopped taking the worker's token.
+    pub(crate) fn is_lost(&self) -> bool {
+        self.signals.lost.load(Ordering::SeqCst)
+    }
+
+    /// Renews the lease once, now: for a worker picking up a Slurm job it submitted
+    /// before restarting. Errs if the lease went elsewhere.
+    pub(crate) fn renew(&self) -> Result<bool, Error> {
+        let renewed = self.heartbeat();
+        if let Err(error) = &renewed {
+            self.note(error);
+        }
+        renewed
+    }
+
     fn path(&self, template: &str) -> String {
         fill(template, &[&self.id])
     }
@@ -349,7 +446,7 @@ impl Host for Job {
 }
 
 /// Reads what the command prints, line by line, for its host.
-fn read_lines(
+pub(crate) fn read_lines(
     host: &impl Host,
     stream: impl Read,
     said: &Mutex<Option<String>>,
@@ -461,11 +558,11 @@ fn sender(job: &Job) {
 /// Where a job's files go.
 pub struct Dirs {
     pub root: PathBuf,
-    input: PathBuf,
+    pub(crate) input: PathBuf,
     output: PathBuf,
     out: PathBuf,
-    tmp: PathBuf,
-    home: PathBuf,
+    pub(crate) tmp: PathBuf,
+    pub(crate) home: PathBuf,
     /// Input files, each in a directory named for its ID.
     inputs: PathBuf,
     /// For a checkpointable action: where its command saves progress (ADR 0069). Inside
@@ -536,7 +633,11 @@ pub struct Plan<'a> {
 }
 
 /// The command's environment: nothing of the worker's but what programs need to run.
-fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(String, String)> {
+pub(crate) fn environment(
+    dirs: &Dirs,
+    input: &RunInput,
+    built: Option<&Built>,
+) -> Vec<(String, String)> {
     let mut env = base_environment(built);
     let path = |p: &Path| p.to_string_lossy().into_owned();
     env.extend([
@@ -637,7 +738,7 @@ fn write_trust(input: &RunInput, dirs: &Dirs) -> Result<(), String> {
 }
 
 /// The proxy, as programs look for it.
-fn proxy_environment(proxy: &str) -> impl Iterator<Item = (String, String)> + '_ {
+pub(crate) fn proxy_environment(proxy: &str) -> impl Iterator<Item = (String, String)> + '_ {
     ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
         .into_iter()
         .map(move |name| (name.to_owned(), proxy.to_owned()))
@@ -687,7 +788,7 @@ fn base_environment(built: Option<&Built>) -> Vec<(String, String)> {
 
 /// The program and its arguments: the action's command, run through `micromamba run` in
 /// a conda environment so its activation scripts run.
-fn command_line(plan: &Plan) -> Result<(PathBuf, Vec<String>), String> {
+pub(crate) fn command_line(plan: &Plan) -> Result<(PathBuf, Vec<String>), String> {
     let (program, args) = plan
         .input
         .command
@@ -824,16 +925,15 @@ pub fn run(
         Ok(input) => input,
         Err(error) => return unreadable(api, raw, &error.to_string()),
     };
-    let job = Arc::new(Job {
-        api: api.clone(),
-        id: input.job.id.clone(),
-        lease_token: input.job.lease_token.clone(),
-        setup: false,
-        state: Mutex::new(HeartbeatInState::Staging),
-        signals: Signals::default(),
-        log: Log::default(),
-        progress: Mutex::new(None),
-    });
+    let held = Held::start(
+        api,
+        &input.job.id,
+        &input.job.lease_token,
+        HeartbeatInState::Staging,
+        input.job.heartbeat_every,
+        true,
+    );
+    let job = Arc::clone(&held.job);
     say::info(
         "Leased a job.",
         &[
@@ -843,20 +943,6 @@ pub fn run(
             ("attempt", &input.run.attempt),
         ],
     );
-    let every = Duration::from_secs(u64::try_from(input.job.heartbeat_every.max(1)).unwrap_or(20));
-    let beating = {
-        let job = Arc::clone(&job);
-        thread::spawn(move || heartbeats(&job, every))
-    };
-    {
-        // Not joined: it ends with its long-poll, up to half a minute after the job.
-        let job = Arc::clone(&job);
-        thread::spawn(move || watcher(&job));
-    }
-    let sending = {
-        let job = Arc::clone(&job);
-        thread::spawn(move || sender(&job))
-    };
     let dirs = Dirs::new(&config.work_dir, &job.id);
     let name = &input.run.plugin.name;
     let plugin_dir = have.dir(name).map_or_else(
@@ -896,11 +982,7 @@ pub fn run(
             execute(&job, &plan, &dirs, raw, interrupted)
         }
     };
-    job.signals.output_read.store(true, Ordering::SeqCst);
-    let _ = sending.join();
-    let ended = finish(&job, report);
-    job.signals.finished.store(true, Ordering::SeqCst);
-    let _ = beating.join();
+    let ended = held.end(report);
     if !config.keep_job_dirs
         && let Err(error) = std::fs::remove_dir_all(&dirs.root)
         && error.kind() != std::io::ErrorKind::NotFound
@@ -1002,43 +1084,75 @@ pub fn execute<H: Host>(
     raw: &serde_json::Value,
     interrupted: &AtomicBool,
 ) -> Option<Report> {
-    let (input, timeout) = (plan.input, plan.timeout);
+    if let Err(report) = prepare(host, plan, dirs, raw) {
+        return report;
+    }
+    conclude(host, plan, dirs, |host, said, mask| {
+        run_here(host, plan, dirs, interrupted, said, mask)
+    })
+}
+
+/// How the command ran: how it exited, or why the worker stopped it, and what to report
+/// in place of what that would say, if anything.
+pub(crate) struct Ran {
+    pub(crate) status: Option<ExitStatus>,
+    pub(crate) stopped: Option<Stop>,
+    pub(crate) report: Option<Report>,
+}
+
+/// Makes the job's directory, stages its input and restores its checkpoint. Errs with what
+/// to report (`None`: the lease was lost) if it can't.
+pub(crate) fn prepare<H: Host>(
+    host: &Arc<H>,
+    plan: &Plan,
+    dirs: &Dirs,
+    raw: &serde_json::Value,
+) -> Result<(), Option<Report>> {
+    let input = plan.input;
     if let Err(error) = dirs.create() {
         let message = format!("Couldn't stage the job: {error}.");
-        return Some(Report::Fail(FailInReason::Failed, message));
+        return Err(Some(Report::Fail(FailInReason::Failed, message)));
     }
     match stage_input(host.as_ref(), input, dirs, raw) {
         Ok(()) => {}
         Err(files::Failed::Lost(error)) => {
             host.lost(&error);
-            return None;
+            return Err(None);
         }
         Err(files::Failed::Job(message)) => {
-            return Some(Report::Fail(FailInReason::Failed, message));
+            return Err(Some(Report::Fail(FailInReason::Failed, message)));
         }
     }
     if let Err(message) = write_trust(input, dirs) {
-        return Some(Report::Fail(FailInReason::Failed, message));
+        return Err(Some(Report::Fail(FailInReason::Failed, message)));
     }
-    let saving = input.job.checkpoint.as_ref();
-    if let Some(saved) = saving.and_then(|c| c.saved.as_ref())
+    if let Some(saved) = input.job.checkpoint.as_ref().and_then(|c| c.saved.as_ref())
         && restore(host.as_ref(), saved, dirs).is_err()
     {
-        return None;
+        return Err(None);
     }
+    Ok(())
+}
+
+/// Runs the staged job's command with `run`, saving its checkpoint as it goes, then keeps
+/// its artifacts and says what to report. `None` if the lease was lost. `run` gets the
+/// host, where to put the last `::error` line the command prints, and its secrets to
+/// mask; it errs with what to report if the command didn't start.
+pub(crate) fn conclude<H: Host>(
+    host: &Arc<H>,
+    plan: &Plan,
+    dirs: &Dirs,
+    run: impl FnOnce(&Arc<H>, &Arc<Mutex<Option<String>>>, &logs::Mask) -> Result<Ran, Report>,
+) -> Option<Report> {
+    let (input, timeout) = (plan.input, plan.timeout);
+    let saving = input.job.checkpoint.as_ref();
     let saver = saving.map(|_| Saver::new(host, dirs));
-    host.state(HeartbeatInState::Running);
-    let mut child = match spawn(plan, dirs) {
-        Ok(child) => child,
-        Err(message) => return Some(Report::Fail(FailInReason::Failed, message)),
-    };
     let saving_every = saver.as_ref().and_then(|saver| {
         let every = saving?.save_every?;
         let every = Duration::from_secs(u64::try_from(every.max(1)).unwrap_or(600));
         let saver = Arc::clone(saver);
         Some(thread::spawn(move || saver.every(every)))
     });
-    let (done, readers_done) = mpsc::channel::<()>();
     // The last `::error` line the command printed: why it failed, if it fails.
     let said: Arc<Mutex<Option<String>>> = Arc::default();
     let mask = logs::Mask::new(
@@ -1048,41 +1162,22 @@ pub fn execute<H: Host>(
             .iter()
             .flat_map(|secrets| secrets.values().map(String::as_str)),
     );
-    for stream in [
-        child
-            .stdout
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-        child
-            .stderr
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let (host, done, said, mask) = (
-            Arc::clone(host),
-            done.clone(),
-            Arc::clone(&said),
-            mask.clone(),
-        );
-        thread::spawn(move || {
-            read_lines(host.as_ref(), stream, &said, &mask);
-            let _ = done.send(());
-        });
-    }
-    drop(done);
-
-    let deadline = Instant::now() + timeout;
-    let (status, stopped) = supervise(host.as_ref(), &mut child, interrupted, deadline);
-    // The readers end when the pipes close; one a stray process holds open isn't waited on.
-    let wait_until = Instant::now() + Duration::from_secs(5);
-    while readers_done
-        .recv_timeout(wait_until.saturating_duration_since(Instant::now()))
-        .is_ok()
-    {}
-
+    let Ran {
+        status,
+        stopped,
+        report,
+    } = match run(host, &said, &mask) {
+        Ok(ran) => ran,
+        Err(report) => {
+            if let Some(saver) = &saver {
+                saver.stop.store(true, Ordering::SeqCst);
+            }
+            if let Some(every) = saving_every {
+                let _ = every.join();
+            }
+            return Some(report);
+        }
+    };
     let why = said.lock().unwrap_or_else(PoisonError::into_inner).take();
     if let Some(saver) = &saver {
         let save_on = saving.map(|c| c.save_on.as_slice()).unwrap_or_default();
@@ -1103,7 +1198,64 @@ pub fn execute<H: Host>(
             }
         }
     }
-    outcome(host.as_ref(), dirs, status, stopped, timeout, why)
+    if matches!(stopped, Some(Stop::Lost | Stop::Detached)) {
+        return None;
+    }
+    report.or_else(|| outcome(host.as_ref(), dirs, status, stopped, timeout, why))
+}
+
+/// Runs the command here, in a process group of its own, reading what it prints.
+fn run_here<H: Host>(
+    host: &Arc<H>,
+    plan: &Plan,
+    dirs: &Dirs,
+    interrupted: &AtomicBool,
+    said: &Arc<Mutex<Option<String>>>,
+    mask: &logs::Mask,
+) -> Result<Ran, Report> {
+    host.state(HeartbeatInState::Running);
+    let mut child =
+        spawn(plan, dirs).map_err(|message| Report::Fail(FailInReason::Failed, message))?;
+    let (done, readers_done) = mpsc::channel::<()>();
+    for stream in [
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let (host, done, said, mask) = (
+            Arc::clone(host),
+            done.clone(),
+            Arc::clone(said),
+            mask.clone(),
+        );
+        thread::spawn(move || {
+            read_lines(host.as_ref(), stream, &said, &mask);
+            let _ = done.send(());
+        });
+    }
+    drop(done);
+
+    let deadline = Instant::now() + plan.timeout;
+    let (status, stopped) = supervise(host.as_ref(), &mut child, interrupted, deadline);
+    // The readers end when the pipes close; one a stray process holds open isn't waited on.
+    let wait_until = Instant::now() + Duration::from_secs(5);
+    while readers_done
+        .recv_timeout(wait_until.saturating_duration_since(Instant::now()))
+        .is_ok()
+    {}
+    Ok(Ran {
+        status,
+        stopped,
+        report: None,
+    })
 }
 
 /// Restores the checkpoint an earlier attempt saved before the command starts. One that
@@ -1335,7 +1487,7 @@ fn outcome(
     why: Option<String>,
 ) -> Option<Report> {
     Some(match stopped {
-        Some(Stop::Lost) => return None,
+        Some(Stop::Lost | Stop::Detached) => return None,
         Some(Stop::Cancelled) => Report::Fail(
             FailInReason::Cancelled,
             "Stopped: the run was cancelled.".into(),
@@ -1477,7 +1629,7 @@ fn finish(job: &Job, report: Option<Report>) -> Ended {
 
 /// The server sent a job this worker can't read: say so, so the run doesn't wait for a
 /// lease to lapse. The worker is probably older than the server.
-fn unreadable(api: &Api, raw: &serde_json::Value, error: &str) -> Ended {
+pub(crate) fn unreadable(api: &Api, raw: &serde_json::Value, error: &str) -> Ended {
     let field = |key: &str| {
         raw.pointer(&format!("/job/{key}"))
             .and_then(serde_json::Value::as_str)

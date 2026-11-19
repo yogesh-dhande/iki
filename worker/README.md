@@ -69,6 +69,23 @@ iki-worker verify iki-worker-0.5.0-aarch64-apple-darwin.tar.gz \
   iki-worker-0.5.0-aarch64-apple-darwin.tar.gz.sigstore.json --version 0.5.0
 ```
 
+## On a Slurm cluster's login node
+
+A Slurm cluster runs container-tier actions that the deployment's Slurm
+templates place on it
+([ADR 0133](../docs/adr/0133-a-slurm-cluster-runs-container-tier-jobs-its-templates-place.md)).
+The worker runs on the cluster's login node, registered with a
+container-tier token for the cluster. With `IKI_SLURM_WORK_DIR` set to a
+directory the compute nodes share, `iki-worker start` leases the cluster's
+jobs, many at once. It stages each job there and submits it with `sbatch`.
+On the job's node, `iki-worker slurm-step` runs the job's command in its
+image under Apptainer, once cosign has checked who signed the image. The
+worker follows each job in `squeue`, cancels it with `scancel`, and reads
+how it ended and what it used from `sacct`. Restarting the worker leaves
+its jobs running, and it picks them up again when it starts.
+[Running Iki's jobs on a Slurm cluster](../docs/slurm.md) is the
+administrators' runbook.
+
 ## Running it on a deployment
 
 A Compute admin makes a registration token for a tier under Compute → Workers.

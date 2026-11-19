@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,15 +57,23 @@ def _iki(*args: str | Path, cwd: Path) -> None:
         )
 
 
-def ensure_built() -> Path:
-    """The directory to put on ``sys.path``, building it first if needed."""
-    final = ROOT / ".pytest_cache" / "iki-test-plugins" / _key()
+def ensure_built(variant: str = "", change: Callable[[Path], None] | None = None) -> Path:
+    """The directory to put on ``sys.path``, building it first if needed.
+
+    A ``variant`` is built from the plugins as ``change`` leaves them (given their
+    directory), for a server whose plugins differ from the tests' in what doesn't touch
+    the database, such as an environment's image."""
+    final = (
+        ROOT / ".pytest_cache" / "iki-test-plugins" / (_key() + (f"-{variant}" if variant else ""))
+    )
     if (final / "iki_installed_plugins").is_dir():
         return final
     final.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=final.parent) as tmp:
         work = Path(tmp)
         shutil.copytree(PLUGINS, work / "plugins")
+        if change is not None:
+            change(work / "plugins")
         for name, *dependencies in ORDER:
             withs = [arg for d in dependencies for arg in ("--with", d)]
             _iki("plugin", "makemigrations", name, *withs, "--no-input", cwd=work / "plugins")

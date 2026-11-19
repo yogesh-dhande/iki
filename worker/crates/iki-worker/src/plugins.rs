@@ -250,6 +250,18 @@ impl Have {
         }
     }
 
+    /// What a Slurm cluster's worker fetched (ADR 0133): code alone, as its jobs run in
+    /// their environments' images.
+    pub fn code_only(code: Vec<PluginCode>, dirs: BTreeMap<String, PathBuf>) -> Self {
+        Self {
+            code,
+            built: BTreeMap::new(),
+            from_manifest: false,
+            dirs,
+            image: None,
+        }
+    }
+
     /// Where `name`'s code is, if the worker fetched it.
     pub fn dir(&self, name: &str) -> Option<&Path> {
         self.dirs.get(name).map(PathBuf::as_path)

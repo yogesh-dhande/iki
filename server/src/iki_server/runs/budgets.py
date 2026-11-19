@@ -83,6 +83,11 @@ def _ongoing(budget: Budget, now: datetime) -> Decimal:
         price = costs.price(launch.template)
         if price is not None and price.currency == budget.currency:
             total += price.of(costs._seconds(since, now))
+    # And Slurm jobs running on their clusters' nodes (ADR 0133).
+    scoped = Job.objects.filter(_in_scope(budget, team="project__team_id"))
+    for _, seconds, price in costs.slurm_so_far(scoped, now):
+        if price is not None and price.currency == budget.currency:
+            total += price.of(seconds)
     return total
 
 

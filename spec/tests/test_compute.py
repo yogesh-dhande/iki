@@ -2,12 +2,13 @@
 
 import json
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from iki_spec.compute import ComputeResult, compute_from_dict, compute_to_dict, load_compute
-from iki_spec.model import Plugin
+from iki_spec.model import ApiUse, Plugin, Resources
 from iki_spec.problems import Severity
 from iki_spec.validate import load_plugin
 
@@ -581,6 +582,161 @@ def test_compute_engine_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     assert only(_errors(tmp_path, plugins, fast), "fast-restore-wrong-strategy")
     iops = GCE + "volumes: { af-db: { strategy: clone_from_snapshot, iops: 16000 } }\n"
     assert only(_errors(tmp_path, plugins, iops), "volume-option-aws-only")
+
+
+SLURM = """\
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: hpc-gpu
+provisioner: slurm
+capacity: { cpu: 64, memory: 512Gi, gpu: { count: 4, memory: 80Gi, model: A100 } }
+slurm:
+  cluster: hpc1
+  partition: gpu
+  qos: normal
+  account: rd-shared
+  gpu_type: a100
+  max_walltime: 2d
+price: { per_cpu_hour: 0.02, per_gpu_hour: 1.10, per_memory_gib_hour: 0.001, currency: USD }
+limits: { max_concurrent: 50 }
+"""
+
+ON_SLURM = """\
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/prediction.colabfold
+templates: [{ template: hpc-gpu }]
+"""
+
+
+def test_a_slurm_template(tmp_path: Path, plugins: list[Plugin]) -> None:
+    result = load(tmp_path, plugins, SLURM, ON_SLURM)
+    # A persistent action runs on a cluster too: every job is a fresh allocation. (The
+    # test plugins' unpriced outside API warns wherever they're deployed.)
+    others = {"unbound-environment", "unpriced-api"}
+    assert [p.code for p in result.problems if p.code not in others] == []
+    assert result.compute is not None
+    template = result.compute.templates["hpc-gpu"]
+    assert (template.tier, template.lifecycle) == ("container", "ephemeral")
+    assert template.slurm == {
+        "cluster": "hpc1",
+        "partition": "gpu",
+        "qos": "normal",
+        "account": "rd-shared",
+        "gpu_type": "a100",
+        "max_walltime": 2 * 86400,
+    }
+    assert template.priced
+    data = json.loads(json.dumps(compute_to_dict(result.compute)))
+    assert compute_from_dict(data) == result.compute
+
+
+def test_a_slurm_job_pays_for_what_its_given(tmp_path: Path, plugins: list[Plugin]) -> None:
+    result = load(tmp_path, plugins, SLURM, ON_SLURM)
+    assert result.compute is not None
+    template = result.compute.templates["hpc-gpu"]
+    wanted = Resources(cpu=8, memory=64 * 1024**3, gpu_count=2)
+    assert template.per_hour(wanted) == pytest.approx(8 * 0.02 + 2 * 1.10 + 64 * 0.001)
+    machine = load(tmp_path, plugins, A100).compute
+    assert machine is not None
+    assert machine.templates["gpu-t4"].per_hour(wanted) == 0.53
+
+
+@pytest.mark.parametrize(
+    ("change", "fragment"),
+    [
+        (("  cluster: hpc1\n", ""), "cluster"),
+        (("  partition: gpu\n", ""), "partition"),
+        (("cluster: hpc1", "cluster: HPC_1"), "cluster"),
+        (("partition: gpu", "partition: 'gpu --uid 0'"), "partition"),
+        (("max_walltime: 2d", "max_walltime: two days"), "max_walltime"),
+        (("  gpu_type: a100\n", "  egress_proxy_url: https://proxy\n"), "egress_proxy_url"),
+        (("  qos: normal\n", "  qos: normal\n  script: rm -rf /\n"), "script"),
+    ],
+)
+def test_the_slurm_schema(
+    tmp_path: Path, plugins: list[Plugin], change: tuple[str, str], fragment: str
+) -> None:
+    result = load(tmp_path, plugins, SLURM.replace(*change))
+    assert result.compute is None
+    assert codes(result)[0] == "schema"
+    assert any(fragment in p.message + str(p.path) for p in result.problems)
+
+
+def test_slurm_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
+    machine = SLURM.replace("per_cpu_hour: 0.02, ", "per_hour: 4, ")
+    assert "A Slurm job pays for what it's given" in only(
+        _errors(tmp_path, plugins, machine), "wrong-price"
+    )
+    by_cpu = A100.replace("per_hour: 32.77", "per_cpu_hour: 0.3", 1)
+    assert "`per_cpu_hour` is for `slurm` templates" in only(
+        _errors(tmp_path, plugins, by_cpu), "wrong-price"
+    )
+    bare = SLURM.replace(
+        "price: { per_cpu_hour: 0.02, per_gpu_hour: 1.10, per_memory_gib_hour: 0.001, ",
+        "price: { ",
+    )
+    assert only(_errors(tmp_path, plugins, bare), "price-without-rate")
+    no_gpus = SLURM.replace(", gpu: { count: 4, memory: 80Gi, model: A100 }", "")
+    assert only(_errors(tmp_path, plugins, no_gpus), "gpu-type-without-gpus")
+    # A cluster's volumes would be built by a setup job on it, which doesn't exist yet.
+    volumes = SLURM + "volumes: { af-db: { strategy: shared_filesystem } }\n"
+    assert only(_errors(tmp_path, plugins, volumes), "wrong-provisioner")
+    warm = SLURM.replace("limits: { max_concurrent: 50 }", "limits: { min_warm: 1 }")
+    assert only(_errors(tmp_path, plugins, warm), "limit-needs-persistent")
+    pods = SLURM + "kubernetes: { namespace: gpu }\n"
+    assert only(_errors(tmp_path, plugins, pods), "wrong-provisioner")
+
+
+def test_a_cluster_runs_nothing_that_reads_volumes(tmp_path: Path, plugins: list[Plugin]) -> None:
+    on_cluster = ON_SLURM.replace("acme/prediction.colabfold", "acme/prediction.alphafold-gpu")
+    roomy = SLURM.replace("memory: 512Gi,", "memory: 512Gi, scratch_disk: 1Ti,")
+    result = load(tmp_path, plugins, roomy, on_cluster)
+    (message,) = [p.message for p in result.problems if p.code == "volume-on-slurm"]
+    assert message == (
+        "`hpc-gpu` is a Slurm partition, and Iki doesn't give Slurm jobs volumes yet, so it "
+        "can't run `acme/prediction.alphafold-gpu`, which reads `af-db`."
+    )
+
+
+def test_an_action_must_fit_a_partitions_time_limit(tmp_path: Path, plugins: list[Plugin]) -> None:
+    # predict_with_colabfold may run an hour.
+    short = SLURM.replace("max_walltime: 2d", "max_walltime: 30m")
+    result = load(tmp_path, plugins, short, ON_SLURM)
+    (problem,) = [p for p in result.problems if p.code == "action-cannot-run-here"]
+    assert problem.is_error
+    assert problem.message == (
+        "`acme/prediction.predict_with_colabfold` can't run on any template bound to "
+        "`acme/prediction.colabfold`: its timeout (1h) is longer than `hpc-gpu`'s partition "
+        "allows (30m)."
+    )
+    # Another template it fits on runs it instead.
+    both = ON_SLURM.replace(
+        "[{ template: hpc-gpu }]", "[{ template: hpc-gpu }, { template: gpu-t4 }]"
+    )
+    assert "action-cannot-run-here" not in codes(load(tmp_path, plugins, short, A100, both))
+
+
+def test_a_cluster_runs_what_reaches_the_internet_only_through_the_proxy(
+    tmp_path: Path, plugins: list[Plugin]
+) -> None:
+    result = load(tmp_path, plugins, SLURM, ON_SLURM)
+    assert result.compute is not None
+    template = result.compute.templates["hpc-gpu"]
+    fetch = replace(plugins[2].actions["predict_with_colabfold"], network=("rest.uniprot.org",))
+    assert template.why_not(fetch) == (
+        "it reaches the internet, and `hpc-gpu`'s compute nodes can't reach the egress proxy"
+    )
+    reached = replace(
+        template, slurm={**template.slurm, "egress_proxy_url": "http://proxy.hpc:3128"}
+    )
+    assert reached.why_not(fetch) is None
+    # Outside APIs are called through the proxy too (ADR 0130).
+    calls = replace(plugins[2].actions["predict_with_colabfold"], apis=(ApiUse(name="fold"),))
+    assert template.why_not(calls) == (
+        "it calls outside APIs, and `hpc-gpu`'s compute nodes can't reach the egress proxy"
+    )
+    assert reached.why_not(calls) is None
 
 
 def _errors(tmp_path: Path, plugins: list[Plugin], document: str) -> ComputeResult:

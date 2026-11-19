@@ -700,6 +700,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/slurm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Slurm clusters
+         * @description The clusters the deployment's Slurm templates name, from its compute.yaml, which is
+         *     reviewed like code (ADR 0041): each one's templates, workers and accounts.
+         */
+        get: operations["iki_server_api_compute_list_slurm_clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/slurm/{cluster}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Projects' Slurm accounts
+         * @description The projects given their own account on the cluster. The rest are charged to their
+         *     template's.
+         */
+        get: operations["iki_server_api_compute_list_slurm_accounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/slurm/{cluster}/accounts/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a project's Slurm account
+         * @description Its runs on the cluster are charged to it from their next attempt; ones already
+         *     submitted keep theirs. Audited, with the account before and after.
+         */
+        put: operations["iki_server_api_compute_set_slurm_account"];
+        post?: never;
+        /**
+         * Clear a project's Slurm account
+         * @description Its runs on the cluster are charged to their template's account again.
+         */
+        delete: operations["iki_server_api_compute_clear_slurm_account"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/volumes": {
         parameters: {
             query?: never;
@@ -4704,6 +4771,59 @@ export interface components {
              */
             runs: number;
         };
+        /** AttemptSlurmOut */
+        AttemptSlurmOut: {
+            /**
+             * Account
+             * @description The Slurm account it was charged to.
+             */
+            account: string;
+            /** Cluster */
+            cluster: string;
+            /** Ended At */
+            ended_at: string | null;
+            /** Exit Code */
+            exit_code: string;
+            /**
+             * Image Signer
+             * @description Who signed the image it ran, as its worker checked.
+             */
+            image_signer: string;
+            /** Nodes */
+            nodes: string;
+            /** Partition */
+            partition: string;
+            /** Qos */
+            qos: string;
+            /**
+             * Reason
+             * @description Why it's waiting, or how it ended, as Slurm says.
+             */
+            reason: string;
+            /**
+             * Requested
+             * @description What it asked Slurm for: `cpus`, `memory`, `gpus`, `scratch_disk` (bytes) and `walltime` (seconds).
+             */
+            requested: {
+                [key: string]: unknown;
+            };
+            /**
+             * Slurm Id
+             * @description Its Slurm job ID; empty until it's submitted.
+             */
+            slurm_id: string;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * State
+             * @description Its state as Slurm reports it, such as `PENDING`.
+             */
+            state: string;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** @description What `sacct` says it used, once it ends. */
+            usage: components["schemas"]["SlurmUsageOut"];
+        };
         /** AttemptVolumeOut */
         AttemptVolumeOut: {
             /**
@@ -7664,7 +7784,7 @@ export interface components {
          * JobState
          * @enum {string}
          */
-        JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted" | "parked";
+        JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "pending" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted" | "parked";
         /** KindOut */
         KindOut: {
             /**
@@ -8744,6 +8864,16 @@ export interface components {
         Page_SetupBuildOut_: {
             /** Items */
             items: components["schemas"]["SetupBuildOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[SlurmAccountOut] */
+        Page_SlurmAccountOut_: {
+            /** Items */
+            items: components["schemas"]["SlurmAccountOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -10583,6 +10713,8 @@ export interface components {
              * @description The secrets its worker was given, by name (ADR 0054).
              */
             secrets: string[];
+            /** @description When a Slurm cluster ran it: its Slurm job (ADR 0133). */
+            slurm: components["schemas"]["AttemptSlurmOut"] | null;
             /** Started At */
             started_at: string | null;
             state: components["schemas"]["JobState"];
@@ -12100,6 +12232,122 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** SlurmAccountIn */
+        SlurmAccountIn: {
+            /**
+             * Account
+             * @description The Slurm account (as `sacctmgr` names it) its jobs are charged to.
+             */
+            account: string;
+        };
+        /** SlurmAccountOut */
+        SlurmAccountOut: {
+            /** Account */
+            account: string;
+            /** Cluster */
+            cluster: string;
+            project: components["schemas"]["ProjectScopeOut"];
+            /**
+             * Set At
+             * Format: date-time
+             */
+            set_at: string;
+            set_by: components["schemas"]["PersonRef"] | null;
+        };
+        /** SlurmClusterOut */
+        SlurmClusterOut: {
+            /**
+             * Accounts
+             * @description Projects given their own account on it.
+             */
+            accounts: number;
+            /** Name */
+            name: string;
+            /** Templates */
+            templates: components["schemas"]["SlurmTemplateOut"][];
+            /**
+             * Workers Online
+             * @description Its login nodes' workers heard from lately.
+             */
+            workers_online: number;
+        };
+        /** SlurmTemplateOut */
+        SlurmTemplateOut: {
+            /**
+             * Account
+             * @description The account projects without their own are charged to.
+             */
+            account: string;
+            /**
+             * Capacity
+             * @description The most one job may ask for.
+             */
+            capacity: {
+                [key: string]: unknown;
+            };
+            /** Constraint */
+            constraint: string;
+            /**
+             * Egress Proxy Url
+             * @description Where its compute nodes reach the egress proxy; without it, actions that reach the internet don't run there.
+             */
+            egress_proxy_url: string;
+            /** Gpu Type */
+            gpu_type: string;
+            /**
+             * Jobs
+             * @description Its jobs leased now: submitted, waiting or running.
+             */
+            jobs: number;
+            /**
+             * Max Concurrent
+             * @description The most of its jobs at once.
+             */
+            max_concurrent: number | null;
+            /**
+             * Max Walltime
+             * @description The partition's time limit, in seconds.
+             */
+            max_walltime: number | null;
+            /** Name */
+            name: string;
+            /** Partition */
+            partition: string;
+            /**
+             * Price
+             * @description What a job pays per hour for each CPU, GPU and GiB of memory it's given.
+             */
+            price: {
+                [key: string]: unknown;
+            } | null;
+            /** Qos */
+            qos: string;
+        };
+        /** SlurmUsageOut */
+        SlurmUsageOut: {
+            /**
+             * Alloc
+             * @description What Slurm gave it: `cpu`, `memory` (bytes) and `gpu_count`.
+             */
+            alloc?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Cpu Seconds
+             * @description CPU time it used.
+             */
+            cpu_seconds?: number | null;
+            /**
+             * Elapsed
+             * @description Seconds it ran on its nodes.
+             */
+            elapsed?: number | null;
+            /**
+             * Max Rss
+             * @description Bytes of its largest resident memory.
+             */
+            max_rss?: number | null;
+        };
         /** SoftwareOut */
         SoftwareOut: {
             /** Name */
@@ -13361,6 +13609,11 @@ export interface components {
              */
             running: components["schemas"]["RunningOut"][];
             /**
+             * Slurm Cluster
+             * @description The Slurm cluster it submits jobs to.
+             */
+            slurm_cluster: string;
+            /**
              * Status
              * @enum {string}
              */
@@ -13431,6 +13684,11 @@ export interface components {
             /** Revoked At */
             revoked_at: string | null;
             /**
+             * Slurm Cluster
+             * @description The Slurm cluster its workers submit jobs to.
+             */
+            slurm_cluster: string;
+            /**
              * Teams
              * @description Self-hosted: whose runs its workers take.
              */
@@ -13470,6 +13728,12 @@ export interface components {
              * @description Self-hosted: within a team, only these of its projects. A team none of whose projects is listed is taken whole.
              */
             projects?: string[];
+            /**
+             * Slurm Cluster
+             * @description Container tier: the Slurm cluster whose login node its worker runs on, as the deployment's Slurm templates name it.
+             * @default
+             */
+            slurm_cluster: string;
             /**
              * Teams
              * @description Self-hosted: the teams whose runs its workers take. At least one.
@@ -13518,6 +13782,11 @@ export interface components {
             projects: components["schemas"]["ProjectScopeOut"][];
             /** Revoked At */
             revoked_at: string | null;
+            /**
+             * Slurm Cluster
+             * @description The Slurm cluster its workers submit jobs to.
+             */
+            slurm_cluster: string;
             /**
              * Teams
              * @description Self-hosted: whose runs its workers take.
@@ -14828,6 +15097,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
+            };
+        };
+    };
+    iki_server_api_compute_list_slurm_clusters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlurmClusterOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_slurm_accounts: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                cluster: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SlurmAccountOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_set_slurm_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlurmAccountIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlurmAccountOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_clear_slurm_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
