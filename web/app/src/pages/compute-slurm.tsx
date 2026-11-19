@@ -251,9 +251,19 @@ function Accounts({ cluster }: { cluster: SlurmCluster }) {
   const titleId = `slurm-${cluster.name}-accounts`;
   return (
     <div role="group" aria-labelledby={titleId}>
-      <h3 className="section-title" id={titleId}>
-        Projects’ accounts
-      </h3>
+      {/* By the heading, not below the list, so it stays put when the list arrives. */}
+      <div className="section-header">
+        <h3 className="section-title" id={titleId}>
+          Projects’ accounts
+        </h3>
+        <Button
+          onClick={() => {
+            setSetting("new");
+          }}
+        >
+          Give a project an account
+        </Button>
+      </div>
       <p className="muted">
         A project’s jobs here are charged to its own Slurm account if it has one, or else to their
         template’s default. A change applies from each run’s next attempt; jobs already submitted
@@ -334,15 +344,6 @@ function Accounts({ cluster }: { cluster: SlurmCluster }) {
           None yet: every project’s jobs here are charged to their template’s default account.
         </p>
       )}
-      <p>
-        <Button
-          onClick={() => {
-            setSetting("new");
-          }}
-        >
-          Give a project an account
-        </Button>
-      </p>
       {setting ? (
         <AccountDialog
           cluster={cluster.name}

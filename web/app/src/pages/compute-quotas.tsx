@@ -72,9 +72,20 @@ function Quotas() {
   const [removing, setRemoving] = useState<Quota | undefined>();
   return (
     <section className="card card-wide" aria-labelledby="quotas">
-      <h2 className="section-title" id="quotas">
-        Run quotas
-      </h2>
+      {/* The action sits by the heading, not below the list: when the list arrives it
+      doesn't move, so a press meant for it isn't lost to the card. */}
+      <div className="section-header">
+        <h2 className="section-title" id="quotas">
+          Run quotas
+        </h2>
+        <Button
+          onClick={() => {
+            setSetting("new");
+          }}
+        >
+          Set a quota
+        </Button>
+      </div>
       <p className="muted">
         A quota limits the jobs running at once in its scope, or the runs waiting, or both. Every
         quota that covers a run applies: a project’s and its team’s both hold. Changing one affects
@@ -142,15 +153,6 @@ function Quotas() {
           as they like.
         </p>
       )}
-      <p>
-        <Button
-          onClick={() => {
-            setSetting("new");
-          }}
-        >
-          Set a quota
-        </Button>
-      </p>
       {setting ? (
         <QuotaDialog
           quota={setting === "new" ? undefined : setting}
