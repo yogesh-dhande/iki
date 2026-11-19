@@ -6,7 +6,10 @@ the people its fields name, holders of a lab role in its project, its creator, i
 watchers, and whoever made the change. The services call :func:`changed` and
 :func:`created` in each change's transaction, after its values are written, on every path
 (the web, the API, MCP, runs, triggers), so a notification exists exactly when its change
-does. A bulk import, which tells webhooks of its changes in one event, tells nobody record
+does. A request between projects (ADR 0132, 0142) tells its service when it's sent
+(:func:`sent`), in the service's project, by the lab roles held there; and the project
+that asked when one of its results is released (:func:`released`).
+A bulk import, which tells webhooks of its changes in one event, tells nobody record
 by record, as it fires no trigger (:func:`iki_server.entities.services.quietly`).
 
 Each firing is checked at send time, for each person: they're active and a person, not a
@@ -47,12 +50,13 @@ from iki_spec import titles, units
 from iki_spec.model import EntityType, Field, TypeNotification
 
 if TYPE_CHECKING:
+    from iki_server.audit.models import Agent
     from iki_server.entities.models import Entity, Revision
     from iki_server.org.models import Project
 
 logger = structlog.get_logger("iki.notifications")
 
-__all__ = ["Declared", "changed", "created", "describe", "of_type"]
+__all__ = ["Declared", "changed", "created", "describe", "of_type", "released", "sent"]
 
 #: The most records a change to one they refer to tells of: a booking's instrument, say.
 MAX_REFERRING = 1000
@@ -122,15 +126,23 @@ def _of_kind(type_name: str) -> list[str]:
 
 @dataclass(frozen=True)
 class Change:
-    """A change as its notifications tell of it."""
+    """A change as its notifications tell of it: a revision, or a request being sent, which
+    makes none (``revision`` None, and ``agent`` the agent that sent it, if one did)."""
 
     entity: Entity
-    revision: Revision
+    revision: Revision | None
     actor: User | None
+    agent_of_event: Agent | None = None
+
+    @property
+    def agent(self) -> Agent | None:
+        return self.revision.agent if self.revision is not None else self.agent_of_event
 
     @property
     def by_hand(self) -> bool:
         """Whether the actor made it themselves, not through an agent, a run or a trigger."""
+        if self.revision is None:
+            return self.actor is not None and self.agent_of_event is None
         return (
             self.actor is not None
             and self.revision.agent_id is None
@@ -160,7 +172,7 @@ def changed(
         return
     change = Change(entity, revision, actor)
     for d in of_type(entity.type):
-        if d.n.ref is None and not d.n.created and _sends(d.n, values.get(d.n.field)):
+        if d.n.field and d.n.ref is None and _sends(d.n, values.get(d.n.field)):
             _fire(d, entity, change)
     referring = _referring()
     if not referring:
@@ -171,6 +183,29 @@ def changed(
                 if _sends(d.n, before_after):
                     for record in _referrers(type_name, d, entity):
                         _fire(d, record, change)
+
+
+def sent(entity: Entity, service: Project, actor: User | None, agent: Agent | None) -> None:
+    """A request was sent to ``service`` (ADR 0132), and linked into it: what its type tells
+    the service, in its project, by the lab roles its people hold there (ADR 0142)."""
+    if _quiet():
+        return
+    change = Change(entity, None, actor, agent)
+    for d in of_type(entity.type):
+        if d.n.sent:
+            _fire(d, entity, change, project=service)
+
+
+def released(request: Entity, result: Entity, revision: Revision, actor: User | None) -> None:
+    """``result``, of ``request``, was released back to the project that asked, in
+    ``revision`` (ADR 0132): what the request's type tells that project's people of it
+    (ADR 0142), each only if they can read the result."""
+    if _quiet():
+        return
+    change = Change(result, revision, actor)
+    for d in of_type(request.type):
+        if d.n.released:
+            _fire(d, request, change)
 
 
 def _quiet() -> bool:
@@ -232,17 +267,15 @@ class _Candidate:
     why: str
 
 
-def _fire(d: Declared, record: Entity, change: Change) -> None:
-    """Tells whom the notification names about ``record``, as each may be told of it."""
+def _fire(d: Declared, record: Entity, change: Change, *, project: Project | None = None) -> None:
+    """Tells whom the notification names about ``record``, as each may be told of it: in
+    its project, or for a request sent, in ``project``, the service's."""
     from iki_server.entities import access
     from iki_server.entities import services as entities
     from iki_server.org.models import Project
 
-    project = (
-        Project.objects.select_related("team").filter(pk=record.owner_project_id).first()
-        if record.owner_project_id
-        else None
-    )
+    if project is None and record.owner_project_id:
+        project = Project.objects.select_related("team").filter(pk=record.owner_project_id).first()
     if project is None or record.archived_at is not None:
         return
     values = entities.current_values_of([record])[record.pk]
@@ -303,7 +336,7 @@ def _fire(d: Declared, record: Entity, change: Change) -> None:
             path=f"/entities/{record.pk}",
             project=project,
             actor=change.actor,
-            agent=change.revision.agent,
+            agent=change.agent,
             about=[record],
             fold=services.Fold(partial(_many, d, project)),
         )
@@ -321,12 +354,12 @@ def _fire(d: Declared, record: Entity, change: Change) -> None:
         actor=change.actor,
         target=record,
         project=project,
-        agent=change.revision.agent,
+        agent=change.agent,
         data={
             "kind": d.kind,
             "label": d.n.label,
             "required": d.n.required,
-            "revision": change.revision.number,
+            **({"revision": change.revision.number} if change.revision is not None else {}),
             **({"about": {"id": str(other.pk), "hrid": other.hrid}} if other else {}),
             "told": told[:MAX_AUDITED],
             "not_told": untold[:MAX_AUDITED],
@@ -567,6 +600,10 @@ def _when(n: TypeNotification, fields: Mapping[str, Field]) -> str:
 
     if n.created:
         return "When one is made"
+    if n.sent:
+        return "When one is sent to a service"
+    if n.released:
+        return "When a result of it is released back to the project that asked"
     if n.ref is not None:
         ref = fields.get(n.ref)
         target_type = ref.to[0] if ref is not None and len(ref.to) == 1 else None
@@ -593,7 +630,8 @@ def _when(n: TypeNotification, fields: Mapping[str, Field]) -> str:
 
 def _tells(n: TypeNotification, fields: Mapping[str, Field], role_label: Any) -> list[str]:  # noqa: ANN401 - a callable
     out = [f"Whoever its {_label(fields.get(f), f)} names" for f in n.tell_fields]
-    out += [f"Everyone with the {role_label(r)} role in its project" for r in n.tell_roles]
+    where = "the service it’s sent to" if n.sent else "its project"
+    out += [f"Everyone with the {role_label(r)} role in {where}" for r in n.tell_roles]
     if n.tell_creator:
         out.append("Whoever made it")
     if n.tell_watchers:

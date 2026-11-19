@@ -570,7 +570,8 @@ class StateMove:
 class TypeNotification:
     """Whom a type's records tell, and when (ADR 0129): on a state's change or a field's, the
     people its fields name, holders of a lab role in its project, its creator or its
-    watchers, in Iki and by email."""
+    watchers, in Iki and by email. A request's (ADR 0132) may tell its service it's been
+    sent, or the asking project that a result of it was released (ADR 0142)."""
 
     name: str
     #: What the settings page and the type's page call it: "A sample is in review".
@@ -579,6 +580,10 @@ class TypeNotification:
     description: str | None = None
     #: When a record is made, rather than when a field changes.
     created: bool = False
+    #: A request's: when it's sent to a service, which it tells, by its roles there.
+    sent: bool = False
+    #: A request's: when one of its results is released back to the project that asked.
+    released: bool = False
     #: The field whose change sends it: one of the record's own, or ``ref.field``, a field of
     #: the record one of its references names.
     field: str = ""
@@ -631,6 +636,8 @@ class TypeNotification:
             label=data.get("label") or name.replace("_", " ").capitalize(),
             description=data.get("description"),
             created=bool(when.get("created", False)),
+            sent=bool(when.get("sent", False)),
+            released=bool(when.get("released", False)),
             field=when.get("field") or "",
             to_values=values(when.get("to")),
             from_values=values(when.get("from")),

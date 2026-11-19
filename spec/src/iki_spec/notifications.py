@@ -6,7 +6,9 @@ A type's ``notifications`` say, each by name, when its records tell someone and 
   own, or ``ref.field``, a field of the record one of its references names (a booking's
   instrument's ``service``). A state field, an enum or a yes-or-no field can say ``to``
   which values, or ``from`` which, so a state field's notification is sent as it enters
-  states or leaves them;
+  states or leaves them. A request (ADR 0132) can also tell its service it's been sent
+  (``sent: true``), by the lab roles held there, and the project asking that one of its
+  results was released (``released: true``) (ADR 0142);
 - **where**: only for records these conditions find, as the search API takes them, on the
   type's own fields, compared with values or ``{{ now }}`` (dates and times);
 - **tell**: the people its fields name, holders of lab roles in its project, whoever made
@@ -163,14 +165,22 @@ class _Notification:
         """The field whose change sends it, checked, or None."""
         n = self.n
         path: Path = ("when",)
+        events = [k for k in ("created", "sent", "released") if getattr(n, k)]
+        if n.field or n.to_values or n.from_values:
+            events.append("field")
+        if len(events) > 1:
+            self.add(
+                "notification-when",
+                "It's sent on one thing: a record made, a field changing, or a request sent or "
+                f"its result released, not {' and '.join(f'`{e}`' for e in events)}.",
+                path,
+                hint="Keep one, and declare another notification for the other.",
+            )
+            return None
+        if n.sent or n.released:
+            self.request_event(path)
+            return None
         if n.created:
-            if n.field or n.to_values or n.from_values:
-                self.add(
-                    "notification-when",
-                    "It's sent when a record is made, or when a field changes, not both.",
-                    path,
-                    hint="Remove `created`, or `field`, `to` and `from`.",
-                )
             return None
         if not n.field:
             self.add(
@@ -191,6 +201,44 @@ class _Notification:
             if values:
                 self.values(changed, values, (*path, key))
         return changed
+
+    def request_event(self, path: Path) -> None:
+        """``sent`` and ``released`` are a request's (ADR 0132, 0142): sent, it tells the
+        service, by the lab roles its people hold there, and nobody of the project asking."""
+        n = self.n
+        key = "sent" if n.sent else "released"
+        if not any(
+            t.request is not None for t in [self.entity_type, *self.s.ancestors(self.entity_type)]
+        ):
+            self.add(
+                "notification-when",
+                f"`{key}` is a request's, and `{self.entity_type.name}` isn't a request type.",
+                (*path, key),
+                hint="Declare `request:` on the type, or say another `when`.",
+            )
+            return
+        if not n.sent:
+            return
+        others = [
+            k
+            for k, given in (
+                ("fields", n.tell_fields),
+                ("creator", n.tell_creator),
+                ("watchers", n.tell_watchers),
+                ("actor", n.tell_actor),
+            )
+            if given
+        ]
+        if others or not n.tell_roles:
+            self.add(
+                "notification-recipients",
+                "A request sent tells its service, by the lab roles its people hold there: "
+                "name them in `roles`"
+                + (f", not {', '.join(f'`{k}`' for k in others)}." if others else "."),
+                ("tell",),
+                hint="The project asking knows it sent it: its people hear of it when its "
+                "results are released (`released: true`).",
+            )
 
     def referenced(self, ref: str, name: str, path: Path) -> Field | None:
         """``ref.name``: a field of the record a reference of the record names."""

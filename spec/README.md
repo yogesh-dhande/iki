@@ -525,7 +525,13 @@ notifications:
   optionally `to` and `from` a value or values, for state, enum and bool
   fields (`notification-values`, `unknown-state`). The field can be a
   referenced record's, `ref.field` (`instrument.service`): every record
-  referring to the one that changed is told of, up to 1000.
+  referring to the one that changed is told of, up to 1000. A request type
+  ([Requests between projects](#requests-between-projects)) can also say
+  `sent: true`, as it's sent, which tells only `roles`, held in the
+  service's project; or `released: true`, as each result of it is released
+  back, which tells whom it names in the project that asked, of the
+  request and the result, if they can read both
+  ([ADR 0142](../docs/adr/0142-a-request-tells-its-service-and-the-project-that-asked.md)).
 - `where` keeps only the records a search's conditions find, on the
   type's own fields, as a component's `search` takes them
   ([Components that show many entities](#components-that-show-many-entities));

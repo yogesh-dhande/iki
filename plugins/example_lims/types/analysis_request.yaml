@@ -110,3 +110,26 @@ fields:
 display:
   title: "{{ title }}"
 due: needed_by
+# Whom a request tells (ADR 0129), as GitHub tells a repository's watchers of a new issue
+# and its author and subscribers as it's closed: the core's coordinators, who accept or
+# decline it, as it arrives; and whoever made it, or watches it, as its results come back.
+notifications:
+  received:
+    label: A request arrives
+    description: >-
+      The core's coordinators hear of each analysis request sent to it, to accept or
+      decline it.
+    when: { sent: true }
+    tell: { roles: [coordinator] }
+    message:
+      title: "{{ hrid }} arrived: {{ title }}"
+      body: "Needed by {{ needed_by or 'no date given' }}."
+  results_released:
+    label: Its results are released
+    description: >-
+      Whoever made an analysis request, and whoever watches it, hears as the core's QA
+      releases each of its results.
+    when: { released: true }
+    tell: { creator: true, watchers: true }
+    message:
+      title: "{{ hrid }} has results: {{ title }}"

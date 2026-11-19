@@ -353,12 +353,20 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
         },
         "when": {
-          "description": "What sends it: a record being made (`created: true`), or a field changing, optionally to or from some of its values.",
+          "description": "What sends it: a record being made (`created: true`), a field changing, optionally to or from some of its values, or for a request, its being sent to a service (`sent: true`) or one of its results released back (`released: true`).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "created": {
               "description": "When a record is made.",
+              "const": true
+            },
+            "sent": {
+              "description": "A request's: when it's sent to a service. It tells the service, by the lab roles its people hold there (`tell.roles`), and nobody of the project asking.",
+              "const": true
+            },
+            "released": {
+              "description": "A request's: when one of its results is released back to the project that asked, whose people it tells.",
               "const": true
             },
             "field": {

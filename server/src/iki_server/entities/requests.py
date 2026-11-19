@@ -45,7 +45,14 @@ from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import current_agent
 from iki_server.entities import registry
-from iki_server.entities.models import Entity, Intake, IntakeSource, ProjectLink, Request
+from iki_server.entities.models import (
+    Entity,
+    Intake,
+    IntakeSource,
+    ProjectLink,
+    Request,
+    Revision,
+)
 from iki_server.entities.values import Invalid, is_list_table, shape
 from iki_server.org import permissions
 from iki_server.org.models import Project
@@ -477,6 +484,10 @@ def submit(
         }
         log.record("request.submitted", actor=user, target=locked, project=asking, data=data)
         log.record("request.received", actor=user, target=locked, project=service, data=data)
+        # Linked into the service first, so its people can read what they're told of.
+        from iki_server.notifications import declared
+
+        declared.sent(locked, service, user, request.agent)
     return request
 
 
@@ -560,10 +571,11 @@ def check_result(
 # --- Results ------------------------------------------------------------------------------------
 
 
-def released(user: User | None, locked: Entity, field: str, state: str) -> None:
-    """A result the service just set to a released state goes back to the asking project:
-    linked into it for its request, audited, for good. Raises :class:`Refused` if the
-    service doesn't share its entities (ADR 0067)."""
+def released(user: User | None, locked: Entity, field: str, state: str, revision: Revision) -> None:
+    """A result the service just set to a released state, in ``revision``, goes back to the
+    asking project: linked into it for its request, audited, for good, and its people told
+    as the request's type says (ADR 0142). Raises :class:`Refused` if the service doesn't
+    share its entities (ADR 0067)."""
     from iki_server.entities import services
 
     spec = result_spec(locked.type)
@@ -600,6 +612,9 @@ def released(user: User | None, locked: Entity, field: str, state: str) -> None:
         project=asking,
         data={**data, "service": {"id": str(request.service_id), "name": request.service.name}},
     )
+    from iki_server.notifications import declared
+
+    declared.released(request.entity, locked, revision, user)
 
 
 def why_kept(link: ProjectLink) -> str | None:

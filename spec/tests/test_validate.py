@@ -2364,6 +2364,79 @@ def test_requests_and_results_are_checked(
     assert message in only(make(tmp_path, requests(request_, result_), ROLES), code)
 
 
+REQUEST_NOTIFICATIONS = """\
+notifications:
+  received:
+    label: A request arrives
+    when: { sent: true }
+    tell: { roles: [qa] }
+    message: { title: "{{ hrid }} arrived: {{ title }}" }
+  answered:
+    label: Its results are released
+    when: { released: true }
+    tell: { creator: true, watchers: true }
+"""
+
+
+def test_a_request_tells_its_service_and_who_asked(tmp_path: Path) -> None:
+    """ADR 0142: as it's sent, its service, by the lab roles held there; as a result of it
+    is released, the project that asked."""
+    result = make(tmp_path, requests(REQUEST + REQUEST_NOTIFICATIONS), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.types["acme/lab.AssayRequest"].notifications
+    assert (found["received"].sent, found["received"].released) == (True, False)
+    assert found["received"].tell_roles == ("acme/lab.qa",)
+    assert (found["answered"].sent, found["answered"].released) == (False, True)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "code", "message"),
+    [
+        (
+            "tell: { roles: [qa] }",
+            "tell: { roles: [qa], creator: true }",
+            "notification-recipients",
+            "by the lab roles its people hold there: name them in `roles`, not `creator`.",
+        ),
+        (
+            "tell: { roles: [qa] }",
+            "tell: { watchers: true }",
+            "notification-recipients",
+            "name them in `roles`, not `watchers`.",
+        ),
+        (
+            "when: { sent: true }",
+            "when: { sent: true, field: title }",
+            "notification-when",
+            "not `sent` and `field`",
+        ),
+        (
+            "when: { released: true }",
+            "when: { released: true, created: true }",
+            "notification-when",
+            "not `created` and `released`",
+        ),
+    ],
+)
+def test_a_requests_notifications_are_checked(
+    tmp_path: Path, old: str, new: str, code: str, message: str
+) -> None:
+    body = REQUEST + REQUEST_NOTIFICATIONS.replace(old, new, 1)
+    assert message in only(make(tmp_path, requests(body), ROLES), code)
+
+
+@pytest.mark.parametrize("event", ["sent", "released"])
+def test_only_a_request_is_sent_or_has_results_released(tmp_path: Path, event: str) -> None:
+    body = SAMPLE_TYPE + (
+        f"notifications:\n  it:\n    label: It\n    when: {{ {event}: true }}\n"
+        "    tell: { roles: [qa] }\n"
+    )
+    files = {**requests(), "types/sample.yaml": body}
+    found = only(make(tmp_path, files, ROLES), "notification-when")
+    assert f"`{event}` is a request's, and `Sample` isn't a request type." in found
+
+
 def test_a_request_types_subtypes_are_requests_with_its_service(tmp_path: Path) -> None:
     sub = """\
 apiVersion: iki/v1

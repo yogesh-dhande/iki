@@ -413,7 +413,7 @@ def write(
     if after:
         Entity.objects.filter(pk=locked.pk).update(locked_by=after)
     # A result released goes back to the project that asked for it (ADR 0132).
-    requests.released(user, locked, f.name, state)
+    requests.released(user, locked, f.name, state, revision)
     # Beside its history: the audit log is where QA reviews who released what.
     log.record(
         "entity.state_changed",

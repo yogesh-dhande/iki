@@ -38,3 +38,18 @@ fields:
       declined: { label: Declined, set_by: [qa], reason: required }
 display:
   title: "{{ title }}"
+# Whom a request tells (ADR 0129): the core's QA, as it arrives; and whoever asked for it,
+# or watches it, as its results come back.
+notifications:
+  received:
+    label: A request arrives
+    description: The core's QA hears of each request sent to it.
+    when: { sent: true }
+    tell: { roles: [qa] }
+    message:
+      title: "{{ hrid }} arrived: {{ title }}"
+  results_released:
+    label: Its results are released
+    description: Whoever made a request, and whoever watches it, hears as its results come back.
+    when: { released: true }
+    tell: { creator: true, watchers: true }

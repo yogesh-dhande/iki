@@ -595,6 +595,58 @@ def test_results_are_the_services_until_it_releases_them(lab: Lab) -> None:
     assert "released" in refused["detail"]
 
 
+def told(kind: str) -> list[tuple[str, str, str]]:
+    """Who was told of a request's notification (ADR 0142): each one's email, title and the
+    project it's in."""
+    from iki_server.notifications.models import Notification
+
+    return [
+        (n.recipient.email, n.title, n.project.name if n.project else "")
+        for n in Notification.objects.filter(kind=f"{ASK}.{kind}")
+        .select_related("recipient", "project")
+        .order_by("recipient__email")
+    ]
+
+
+def test_a_request_tells_its_service_as_it_arrives(lab: Lab) -> None:
+    """Declared by its type (ADR 0142), as GitHub tells a repository's watchers of a new
+    issue: the core's QA, in the core's project, and nobody of the project asking."""
+    made = sent(lab)
+    assert told("received") == [
+        ("core_qa@example.com", f"{made['hrid']} arrived: Purity of the kinases", "Protein Core")
+    ]
+    event = AuditEvent.objects.get(action="notification.sent", data__kind=f"{ASK}.received")
+    assert event.project == lab.core
+    assert [p["name"] for p in event.data["told"]] == ["Core Qa"]
+    assert "revision" not in event.data
+    # Told as anyone is of what a type declares: they can read it, in their inbox.
+    inbox = lab.api("core_qa").get("/notifications").json()["items"]
+    assert [(n["kind"], n["records"][0]["hrid"]) for n in inbox] == [
+        (f"{ASK}.received", made["hrid"])
+    ]
+
+
+def test_the_project_asking_is_told_as_its_results_are_released(lab: Lab) -> None:
+    """As GitHub tells an issue's author and subscribers it's closed: whoever made the
+    request, and whoever watches it, once they can read the result, and not before."""
+    first = sample(lab, "S-1")
+    made = sent(lab, first)
+    watch = lab.api("viewer").put(f"/entities/{made['id']}/watch", {"mode": "watching"})
+    assert watch.status_code == 200, watch.content
+    found = result(lab, made["id"], sample=first["id"], purity=97.5)
+    assert state(lab, "core_qa", found["id"], "review", "reviewed").status_code == 200
+    assert told("results_released") == []
+
+    assert state(lab, "core_qa", found["id"], "review", "released").status_code == 200
+    assert told("results_released") == [
+        ("editor@example.com", f"{made['hrid']}: Its results are released", "Kinase Atlas"),
+        ("viewer@example.com", f"{made['hrid']}: Its results are released", "Kinase Atlas"),
+    ]
+    event = AuditEvent.objects.get(action="notification.sent", data__kind=f"{ASK}.results_released")
+    assert str(event.target_id) == made["id"]
+    assert event.data["about"] == {"id": found["id"], "hrid": found["hrid"]}
+
+
 def test_a_service_that_doesnt_share_cant_release(lab: Lab) -> None:
     made = sent(lab)
     found = result(lab, made["id"])
