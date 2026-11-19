@@ -191,6 +191,152 @@ def test_a_drawing_whose_charges_dont_balance_says_so(tmp_path: Path) -> None:
     ]
 
 
+#: Sunitinib, as PubChem gives it (CID 5329102): C22H27FN4O2, 398.48 g/mol.
+SUNITINIB = r"CCN(CC)CCNC(=O)C1=C(NC(=C1C)/C=C\2/C3=C(C=CC(=C3)F)NC2=O)C"
+#: Metoprolol, as PubChem gives it in its tartrate (CID 441308).
+METOPROLOL = "CC(C)NCC(COC1=CC=C(C=C1)CCOC)O"
+#: Hydroxyzine pamoate, as PubChem gives it (CID 25096): C44H43ClN2O8, 763.3 g/mol.
+#: Pamoate isn't a salt the batch type has.
+HYDROXYZINE_PAMOATE = (
+    "C1CN(CCN1CCOCCO)C(C2=CC=CC=C2)C3=CC=C(C=C3)Cl."
+    "C1=CC=C2C(=C1)C=C(C(=C2CC3=C(C(=CC4=CC=CC=C43)C(=O)O)O)O)C(=O)O"
+)
+PAMOIC_ACID = "O=C(O)c1cc2ccccc2c(Cc2c(O)c(C(=O)O)cc3ccccc23)c1O"
+HYDROXYZINE = "OCCOCCN1CCN(C(c2ccccc2)c2ccc(Cl)cc2)CC1"
+
+
+def test_a_salt_is_known_whatever_stereochemistry_its_drawn_with(tmp_path: Path) -> None:
+    output = registered(
+        tmp_path,
+        # Sunitinib (S)-malate, as PubChem gives it (CID 6456015): C26H33FN4O7, 532.6 g/mol.
+        f"{SUNITINIB}.C([C@@H](C(=O)O)O)C(=O)O sunitinib malate\n"
+        # Milrinone lactate (CID 172293, C15H15N3O4, 301.30 g/mol), its lactate drawn (S).
+        "CC1=C(C=C(C(=O)N1)C#N)C2=CC=NC=C2.C[C@H](O)C(=O)O milrinone lactate\n"
+        # Metoprolol tartrate, two to one, as PubChem gives it (CID 441308: C34H56N2O12,
+        # 684.8 g/mol), with L-tartrate; then with D- and with meso-tartrate.
+        f"{METOPROLOL}.{METOPROLOL}.[C@@H]([C@H](C(=O)O)O)(C(=O)O)O metoprolol tartrate\n"
+        f"{METOPROLOL}.{METOPROLOL}.O=C(O)[C@@H](O)[C@H](O)C(=O)O metoprolol D-tartrate\n"
+        f"{METOPROLOL}.{METOPROLOL}.O=C(O)[C@@H](O)[C@@H](O)C(=O)O metoprolol meso-tartrate\n"
+        # Ondansetron hydrochloride dihydrate (CID 59774): C18H24ClN3O3, 365.9 g/mol.
+        "CC1=NC=CN1CC2CCC3=C(C2=O)C4=CC=CC=C4N3C.O.O.Cl ondansetron hydrochloride dihydrate\n"
+        # Sertraline hydrochloride (CID 63009): C17H18Cl3N, 342.7 g/mol.
+        "CN[C@H]1CC[C@H](C2=CC=CC=C12)C3=CC(=C(C=C3)Cl)Cl.Cl sertraline hydrochloride",
+        parent=True,
+        batches=True,
+    )
+    compounds = [c for c in output["creates"] if c["type"] == "iki/small_molecule.Compound"]
+    batches = [
+        c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
+    ]
+    forms = [
+        (
+            b.get("salt"),
+            b.get("salt_equivalents"),
+            b.get("solvate"),
+            b.get("solvate_equivalents"),
+            b.get("formula_weight"),
+        )
+        for b in batches
+    ]
+    # Each is what RDKit weighs the whole drawing at, for each parent, from IUPAC's
+    # standard atomic weights: PubChem's, to its one decimal.
+    assert forms == [
+        ("malate", 1.0, None, None, 532.569),
+        ("lactate", 1.0, None, None, 301.302),
+        ("tartrate", 0.5, None, None, 342.412),
+        ("tartrate", 0.5, None, None, 342.412),
+        ("tartrate", 0.5, None, None, 342.412),
+        ("hydrochloride", 1.0, "water", 2.0, 365.861),
+        ("hydrochloride", 1.0, None, None, 342.697),
+    ]
+    # The parent is the free base: sunitinib, not its malate.
+    assert compounds[0]["values"]["inchikey"] == "WINHZLLDWRZWRT-ATVHPVEESA-N"
+    # The three metoprolol tartrates are batches of one compound, each kept as drawn.
+    assert len({c["values"]["inchikey"] for c in compounds[2:5]}) == 1
+    assert [b["structure_as_drawn"].split(".")[-1] for b in batches[2:5]] == [
+        "O=C(O)[C@H](O)[C@@H](O)C(=O)O",
+        "O=C(O)[C@@H](O)[C@H](O)C(=O)O",
+        "O=C(O)[C@@H](O)[C@@H](O)C(=O)O",
+    ]
+    assert batches[0]["structure_as_drawn"].endswith(".O=C(O)C[C@H](O)C(=O)O")
+    said = [m["text"] for m in output["messages"]]
+    assert not [t for t in said if "formula weight" in t or "other parts" in t], said
+
+
+def test_a_part_iki_doesnt_know_leaves_its_batch_without_a_formula_weight(
+    tmp_path: Path,
+) -> None:
+    output = registered(tmp_path, f"{HYDROXYZINE_PAMOATE} hydroxyzine pamoate", parent=True)
+    # Without batches, there's no formula weight to leave out.
+    assert [m["text"] for m in output["messages"]] == [
+        "Line 1: It has other parts, which aren't salts or solvents Iki knows, so only its "
+        f"largest part was kept: {PAMOIC_ACID} left out.",
+        "Line 1: Its name, hydroxyzine pamoate, is its structure's as drawn, not its "
+        "parent's, so its compound wasn't given it.",
+    ]
+    output = registered(
+        tmp_path, f"{HYDROXYZINE_PAMOATE} hydroxyzine pamoate", parent=True, batches=True
+    )
+    compound, batch = output["creates"]
+    assert compound["values"]["smiles"] == HYDROXYZINE
+    # Hydroxyzine's 374.91 g/mol would be half the material's: no weight is given at all.
+    assert batch["values"] == {
+        "compound": {"$create": "line-1"},
+        "name": "hydroxyzine pamoate",
+        "structure_as_drawn": f"{PAMOIC_ACID}.{HYDROXYZINE}",
+    }
+    assert {
+        "level": "warning",
+        "text": f"Line 1: Its batch has no formula weight: {PAMOIC_ACID} is part of the "
+        "material, but not a salt or solvent Iki knows, so what it adds isn't known. Its "
+        "structure as drawn weighs 763.287 g/mol for each parent.",
+    } in output["messages"]
+
+
+def test_a_batch_recomputes_its_weight_only_when_all_its_material_is_known(
+    tmp_path: Path,
+) -> None:
+    sunitinib = r"CCN(CC)CCNC(=O)c1c(C)[nH]c(/C=C2\C(=O)Nc3ccc(F)cc32)c1C"
+    drawn = f"{PAMOIC_ACID}.{HYDROXYZINE}"
+
+    def batch(i: int, compound: str, **values: Any) -> dict[str, Any]:
+        return {**entity(i, **values), "included": {"compound": [entity(100 + i, smiles=compound)]}}
+
+    batches = [
+        # Its malate, drawn (S), is its salt: 532.569 g/mol, as registered.
+        batch(
+            1,
+            sunitinib,
+            structure_as_drawn=f"{sunitinib}.O=C(O)C[C@H](O)C(=O)O",
+            salt="malate",
+            salt_equivalents=1.0,
+        ),
+        # Its pamoate isn't a salt Iki knows: a weight it has is taken away, and none given.
+        batch(2, HYDROXYZINE, structure_as_drawn=drawn, formula_weight=374.912),
+        batch(3, HYDROXYZINE, structure_as_drawn=drawn),
+        # Registered whole, its compound is all of it.
+        batch(4, drawn, structure_as_drawn=drawn),
+    ]
+    result, output = script(tmp_path, "descriptors.py", {"inputs": {"batch": batches}}, "batches")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["updates"]["batch"] == [
+        {"entity": batches[0]["id"], "values": {"formula_weight": 532.569}},
+        {"entity": batches[1]["id"], "values": {"formula_weight": None}},
+        {"entity": batches[3]["id"], "values": {"formula_weight": 763.287}},
+    ]
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": f"X-{i} has no formula weight: its structure as drawn has {PAMOIC_ACID}, "
+            f"which is neither X-{100 + i} nor a salt or solvent Iki knows, so what it adds "
+            "to the material isn't known.",
+            "entity": batches[i - 1]["id"],
+        }
+        for i in (2, 3)
+    ]
+
+
 def test_a_charged_parents_batch_recomputes_to_the_same_weight(tmp_path: Path) -> None:
     def batch(i: int, smiles: str, **values: Any) -> dict[str, Any]:
         return {**entity(i, **values), "included": {"compound": [entity(100 + i, smiles=smiles)]}}
@@ -643,6 +789,33 @@ def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Pa
         "its salt field says potassium, but its structure, registered whole, is a sodium salt"
         in last_error(result)
     )
+
+
+def test_a_records_salt_is_known_whatever_its_stereochemistry(tmp_path: Path) -> None:
+    text = sdf_text(
+        # PubChem's sunitinib malate, its (S)-malate wedged in the molfile, and its Salt field.
+        (f"{SUNITINIB}.C([C@@H](C(=O)O)O)C(=O)O", "sunitinib malate", {"Salt": "malate"}),
+        (HYDROXYZINE_PAMOATE, "hydroxyzine pamoate", {}),
+    )
+    result, output = imported(tmp_path, text, parent=True, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    malate, pamoate = (
+        c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
+    )
+    assert (malate["salt"], malate["salt_equivalents"], malate["formula_weight"]) == (
+        "malate",
+        1.0,
+        532.569,
+    )
+    assert "formula_weight" not in pamoate
+    said = [m["text"] for m in output["messages"]]
+    assert not [t for t in said if t.startswith("Record 1") and "formula weight" in t]
+    assert (
+        f"Record 2 (hydroxyzine pamoate): Its batch has no formula weight: {PAMOIC_ACID} is "
+        "part of the material, but not a salt or solvent Iki knows, so what it adds isn't "
+        "known. Its structure as drawn weighs 763.287 g/mol for each parent."
+    ) in said
 
 
 def test_a_salts_ids_arent_given_to_its_parent(tmp_path: Path) -> None:

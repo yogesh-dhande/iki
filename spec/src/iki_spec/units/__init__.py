@@ -291,7 +291,9 @@ def _atom_symbol(code: str, table: _Table) -> str | None:
 
 
 def convert(value: float, source: str | Unit, target: str | Unit) -> float:
-    """Convert `value` between units. Raises UnitError if they measure different things."""
+    """Convert `value` between units. Raises UnitError if they measure different things,
+    or if the value has none in the target unit: past what a float holds (1 `10*400.g` in
+    `g`), or outside a special unit's function (0 `mol/L` has no `[pH]`)."""
     a = source if isinstance(source, Unit) else parse(source)
     b = target if isinstance(target, Unit) else parse(target)
     if not a.is_commensurable(b):
@@ -300,7 +302,23 @@ def convert(value: float, source: str | Unit, target: str | Unit) -> float:
             code=b.code,
             position=0,
         )
-    return b.from_base(a.to_base(value))
+    beyond = ""
+    try:
+        converted = b.from_base(a.to_base(value))
+    except OverflowError:
+        beyond = "a number"
+    except (ArithmeticError, ValueError):  # outside its function: a log of 0, say
+        beyond = "that unit"
+    else:
+        if math.isfinite(value) and not math.isfinite(converted):
+            beyond = "a number"
+    if beyond:
+        raise UnitError(
+            f"{value:g} `{a.code}` has no value in `{b.code}`: it's beyond what {beyond} can hold.",
+            code=b.code,
+            position=0,
+        )
+    return converted
 
 
 _ONE = Unit("1", Fraction(1), (0,) * len(BASE_UNITS))

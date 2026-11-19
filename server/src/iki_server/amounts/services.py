@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
+from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Any
 
@@ -23,7 +23,7 @@ from django.db import connection, transaction
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
-from iki_server.amounts.models import PLACES, Amount, Movement, MovementKind
+from iki_server.amounts.models import DIGITS, PLACES, Amount, Movement, MovementKind
 from iki_server.audit import log
 from iki_server.audit.log import current_agent, current_oauth_client, current_via
 from iki_server.core.ids import uuid7
@@ -43,6 +43,10 @@ class Wrong(Invalid):
 #: At most this many aliquots in one split.
 MAX_ALIQUOTS = 200
 _QUANTUM = Decimal(1).scaleb(-PLACES)
+#: The ledger's arithmetic, exact for its amounts: a sum, difference or product of two of
+#: them (40 digits each, 12 after the point) fits in twice the digits, so nothing is
+#: rounded as Python's default context (28 digits) would round it.
+_EXACT = Context(prec=2 * DIGITS, rounding=ROUND_HALF_EVEN)
 
 
 @dataclass(frozen=True)
@@ -166,7 +170,9 @@ def record(
 ) -> Movement:
     """Records how much a new record has: when it's created, or each aliquot of a split."""
     with transaction.atomic():
-        value = in_unit(entity, given, {})
+        # Its values as just saved: a mass given for a record kept by volume converts
+        # through the concentration it was created with.
+        value = in_unit(entity, given)
         wanted = spec(entity.type)
         assert wanted is not None  # noqa: S101
         Amount.objects.create(entity=entity, unit=wanted.unit, value=value)
@@ -189,7 +195,9 @@ def draw(user: User, entity: Entity, given: Given, *, reason: str = "") -> Movem
     with transaction.atomic():
         (amount,) = _locked([entity])
         change = _taking(entity, amount, given)
-        return _change(user, entity, amount, MovementKind.DRAWN, -change, given, reason)
+        return _change(
+            user, entity, amount, MovementKind.DRAWN, change.copy_negate(), given, reason
+        )
 
 
 def transfer(
@@ -224,7 +232,7 @@ def transfer(
             source,
             locked[source.pk],
             MovementKind.TRANSFERRED_OUT,
-            -out,
+            out.copy_negate(),
             given,
             reason,
             counterpart=target,
@@ -258,7 +266,8 @@ def adjust(user: User, entity: Entity, given: Given, *, reason: str) -> Movement
         (amount,) = _locked([entity])
         value = in_unit(entity, given)
         kind = MovementKind.RECORDED if fresh else MovementKind.ADJUSTED
-        return _change(user, entity, amount, kind, value - amount.value, given, reason)
+        change = _EXACT.subtract(value, amount.value)
+        return _change(user, entity, amount, kind, change, given, reason)
 
 
 @dataclass(frozen=True)
@@ -296,7 +305,7 @@ def split(
         (amount,) = _locked([source])
         current = services.current_values_of([source])[source.pk]
         one = in_unit(source, each, current)
-        total = one * count
+        total = _EXACT.multiply(one, count)
         _taking(source, amount, Given(total, amount.unit), values=current)
         base = _copied(source, current) if wanted.aliquots is None else {}
         operation = uuid7()
@@ -325,8 +334,8 @@ def split(
             source,
             amount,
             MovementKind.ALIQUOTED,
-            -total,
-            Given(each.value * count, each.unit),
+            total.copy_negate(),
+            Given(_EXACT.multiply(each.value, count), each.unit),
             reason,
             operation=operation,
         )
@@ -412,7 +421,7 @@ def _change(
     counterpart: Entity | None = None,
     operation: Any = None,  # noqa: ANN401 - a UUID
 ) -> Movement:
-    amount.value = amount.value + change
+    amount.value = _EXACT.add(amount.value, change)
     Amount.objects.filter(pk=amount.pk).update(value=amount.value, updated_at=Now())
     return _movement(
         user,
@@ -501,10 +510,8 @@ def _fields(entity_type: EntityType) -> dict[str, Any]:
 
 
 def _rounded(exact: Fraction) -> Decimal:
-    with localcontext() as context:
-        context.prec = 80
-        value = Decimal(exact.numerator) / Decimal(exact.denominator)
-        return value.quantize(_QUANTUM, rounding=ROUND_HALF_EVEN)
+    value = _EXACT.divide(Decimal(exact.numerator), Decimal(exact.denominator))
+    return value.quantize(_QUANTUM, rounding=ROUND_HALF_EVEN, context=_EXACT)
 
 
 def displayed(wanted: AmountSpec, value: Decimal) -> str | None:
@@ -521,5 +528,5 @@ def displayed(wanted: AmountSpec, value: Decimal) -> str | None:
 def shown(value: Decimal) -> str:
     """An amount as people read it, and as the API gives it: 25, not 25.000000000000 or
     2.5E+1."""
-    text = format(value.normalize(), "f")
+    text = format(value.normalize(_EXACT), "f")
     return "0" if text in ("-0", "") else text

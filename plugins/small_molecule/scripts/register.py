@@ -30,6 +30,7 @@ from chemistry import (
     name_left_out,
     run_input,
     standardise,
+    weight_withheld,
     write_output,
 )
 
@@ -97,7 +98,8 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
                 values["name"] = cut(name, LIMITS["name"])
             creates.add({"type": "iki/small_molecule.CompoundBatch", "values": values})
         left_out = name_left_out(registered, name, batches)
-        for warning in [*registered.warnings, *([left_out] if left_out else [])]:
+        withheld = weight_withheld(registered) if batches else None
+        for warning in [*registered.warnings, *(w for w in (left_out, withheld) if w)]:
             messages.add("warning", f"Line {number}: {warning}")
         taken = ", ".join(
             f"{getattr(registered, kind)} x{getattr(registered, kind + '_equivalents'):g}"
