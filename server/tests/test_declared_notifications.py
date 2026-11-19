@@ -371,7 +371,9 @@ def test_many_records_at_once_are_told_together_in_one_email(lab: World) -> None
 
 @pytest.mark.usefixtures("email_on")
 def test_emails_carry_no_values_only_what_it_is_and_a_link(lab: World) -> None:
-    done = submitted(lab, purity=42.0, notes="secret batch notes")
+    # A value with a decimal point: no UUID or HRID in the email's link has one, so "42."
+    # is the value however it's written (42.137, 42.14), and never a chance match.
+    done = submitted(lab, purity=42.137, notes="secret batch notes")
     send_emails()
     (message,) = [m for m in mail.outbox if m.to == ["admin@example.com"]]
     assert message.subject == f"[Example Bio] {done['hrid']}: Ready for review"
@@ -379,7 +381,7 @@ def test_emails_carry_no_values_only_what_it_is_and_a_link(lab: World) -> None:
     html = message.alternatives[0][0]
     assert isinstance(html, str)
     for text in (message.body, html):
-        assert "42" not in text and "Purity" not in text and "secret" not in text
+        assert "42." not in text and "Purity" not in text and "secret" not in text
         assert "Reviewers hear when an analyst submits" in text
         assert f"https://iki.example.com/entities/{done['id']}" in text
         assert "From Editor." in text
