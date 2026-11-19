@@ -179,7 +179,19 @@ table gives it in; AbM's and Kabat's CDR-H1 read in Chothia's numbering
 (H26-H35, H31-H35) are the same residues as in Kabat's (H26-H35B, H31-H35B).
 Chothia's are the wider set Martin's table gave until 2021, which SAbDab still
 uses; the table now gives a narrower consensus (H26-H32, H52-H56, H96-H101,
-L26-L32, L50-L52, L91-L96), which isn't implemented. A CDR keeps its endpoints'
+L26-L32, L50-L52, L91-L96), which isn't implemented, because no primary source
+defines it. It's Martin's own reading, from 28 June 2021, of the Chothia
+group's papers, which his table shows disagreeing on every loop: CDR-L1 is
+26-32, 26-33, 25-32 or 25-33, CDR-H2 53-55, 52a-55, 52-56 or 50-58, and CDR-H3
+95-101, 96-101, 95-102 or 92-104, from Chothia et al. 1986 (_Science_
+233:755-758) and Chothia and Lesk 1987 (_J Mol Biol_ 196:901-917) to
+Al-Lazikani et al. 1997 (_J Mol Biol_ 273:927-948) and Morea et al. 1998
+(_J Mol Biol_ 275:269-294). The consensus's own CDR-H2 is marked "possibly the
+most controversial: it's very clearly H52a-H55 in some of the papers", and its
+CDR-H1 in Kabat's numbering ends at H32, H33 or H34 depending on the loop's
+length. No paper gives the set as such (the earliest, 1986 and 1987, differ
+from it at CDR-H2: 53-55), so a result labelled with it couldn't be traced to
+a definition an auditor could look up. A CDR keeps its endpoints'
 insertions. Kabat's numbering has room for two at H35 (H35A, H35B), where
 Martin's table ends Kabat's CDR-H1; ANARCI numbers a longer CDR-H1's further
 residues H35C onwards, still before the conserved W36, and these are kept in

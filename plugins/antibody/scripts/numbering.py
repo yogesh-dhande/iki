@@ -37,9 +37,11 @@ Kabat's, AbM's and Contact's are as A. C. R. Martin tabulates them (bioinf.org.u
 "Antibody numbering and CDR definitions"; Martin, in Antibody Engineering vol. 2, 2010,
 Table 3.4). Chothia's are the wider set that table gave until 2021, and that SAbDab
 still uses; it now gives a narrower consensus (H26-H32, H52-H56, H96-H101; L26-L32,
-L50-L52, L91-L96). Martin's numbering differs from Chothia's only in framework, so its
-CDRs are Chothia's unless another is chosen; AHo's numbering (Honegger and Plückthun
-2001) defines no CDRs of its own, so its are IMGT's unless another is chosen.
+L50-L52, L91-L96), Martin's own reading of Chothia papers that disagree, which isn't
+implemented: no primary source defines it (the README says why). Martin's numbering
+differs from Chothia's only in framework, so its CDRs are Chothia's unless another is
+chosen; AHo's numbering (Honegger and Plückthun 2001) defines no CDRs of its own, so
+its are IMGT's unless another is chosen.
 """
 
 from __future__ import annotations
