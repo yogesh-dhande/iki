@@ -88,7 +88,8 @@ custom_build(
     'deploy/dev/build-server.sh $EXPECTED_REF',
     deps=[
         'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli', 'codegen',
-        'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE', 'spec/src',
+        'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE', 'spec/backend',
+        'spec/src',
         # The web app, built in the image's own stage.
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
         # iki-wasm, built in the image's own stage, and for `iki deploy build` (ADR 0127).

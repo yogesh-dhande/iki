@@ -15,6 +15,13 @@ dependencies = [
   "wasmtime>=50.0.1",
 ]
 
+# uv_build, after scripts/build-wasm.sh: a wheel can't be built without iki-wasm, nor with a
+# stale one (backend/iki_spec_build.py).
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]
-build-backend = "uv_build"
+build-backend = "iki_spec_build"
+backend-path = ["backend"]
+
+[tool.uv.build-backend]
+# The backend, so a wheel builds from the source distribution too.
+source-include = ["backend/iki_spec_build.py"]

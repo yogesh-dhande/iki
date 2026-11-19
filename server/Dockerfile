@@ -67,6 +67,8 @@ COPY pyproject.toml uv.lock LICENSE NOTICE ./
 COPY server/pyproject.toml server/README.md server/LICENSE server/NOTICE server/
 COPY cli/pyproject.toml cli/README.md cli/LICENSE cli/NOTICE cli/
 COPY spec/pyproject.toml spec/README.md spec/LICENSE spec/NOTICE spec/
+# iki-spec's build backend, which builds its wheel only with iki-wasm in it.
+COPY spec/backend spec/backend
 COPY codegen/pyproject.toml codegen/README.md codegen/LICENSE codegen/NOTICE codegen/
 COPY sdk/python/pyproject.toml sdk/python/README.md sdk/python/LICENSE sdk/python/NOTICE sdk/python/
 RUN --mount=type=cache,target=/root/.cache/uv \

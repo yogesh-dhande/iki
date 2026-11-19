@@ -131,6 +131,7 @@ files = [
   "cli/tests",
   "spec/src",
   "spec/tests",
+  "spec/backend",
   "codegen/src",
   "codegen/tests",
   "sdk/python/src",

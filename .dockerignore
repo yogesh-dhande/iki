@@ -12,6 +12,7 @@
 !spec/README.md
 !spec/LICENSE
 !spec/NOTICE
+!spec/backend/
 !spec/src/
 !codegen/pyproject.toml
 !codegen/README.md
