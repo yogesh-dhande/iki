@@ -102,13 +102,19 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
 
 
 def _names_people(plugin: Plugin) -> bool:
-    """Whether any of the plugin's tables has a field naming a person."""
+    """Whether any of the plugin's tables has a field naming a person: a list's items and a
+    row's fields (ADR 0137) included."""
     fields = [f for t in plugin.types.values() for f in t.fields.values()]
     fields += [f for e in plugin.extensions for f in e.fields.values()]
-    return any(
-        not f.removed and (f.type == "person" or (f.items is not None and f.items.type == "person"))
-        for f in fields
-    )
+    return any(not f.removed and _holds_people(f) for f in fields)
+
+
+def _holds_people(f: Field) -> bool:
+    if f.type == "person":
+        return True
+    if f.items is None:
+        return False
+    return _holds_people(f.items) or any(_holds_people(c) for c in f.items.fields.values())
 
 
 def _in_order(plugin: Plugin) -> list[EntityType]:

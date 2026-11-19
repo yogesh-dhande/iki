@@ -582,8 +582,9 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     )
     if revision is None:
         raise Problem(404, f"{entry.hrid} has no revision {number}.")
-    fields = shape(entry.type).entry_fields()
-    values = {n: v for n, v in services.values_at(entry, number).items() if n in fields}
+    # Fields since removed are read back too, as history keeps them (ADR 0035).
+    fields = shape(entry.type).entry_fields(removed=True)
+    values = services.revision_values(entry, number, fields)
     changes = {n: c for n, c in services.changes(entry, revision).items() if n in fields}
     wanted = _ids_in(fields, values)
     for name, (before, after) in changes.items():

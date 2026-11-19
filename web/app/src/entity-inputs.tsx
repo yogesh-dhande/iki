@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -500,6 +501,34 @@ function withChosen(found: Picked[], chosen: Picked | null): Picked[] {
 }
 
 /**
+ * Escape in a picker's box, as in WAI-ARIA's combo box pattern and GitHub's and Slack's
+ * pickers: with the list open, it closes the list and keeps what's typed; with it closed,
+ * it puts back what's chosen (its label), or clears the box if nothing is, as leaving the
+ * box does. Either way the key goes no further, so a dialog the picker is in stays open;
+ * once there's nothing to undo, it does, and closes the dialog. React Aria's own Escape
+ * would put the chosen value back at once, and with nothing chosen, close a list that
+ * opened again straight away for the text still in the box.
+ */
+function withEscape(
+  state: ComboBoxState<Picked>,
+  shown: string,
+  onKeyDown: ((event: KeyboardEvent<HTMLInputElement>) => void) | undefined,
+) {
+  return (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape" && (state.isOpen || state.inputValue !== shown)) {
+      event.preventDefault();
+      event.stopPropagation();
+      // Closed as it is: what's typed stays, and typing more opens it again.
+      if (state.isOpen) state.toggle();
+      // Committed: `onChange` gets what's chosen, or nothing, and the box shows it.
+      else state.revert();
+      return;
+    }
+    onKeyDown?.(event);
+  };
+}
+
+/**
  * What a picker's list says under its options: that it's searching, until the answer for
  * the text in the box comes (it never shows another text's answer meanwhile), that the
  * search failed, or that nothing matches. A status, kept in place while the list is open,
@@ -595,10 +624,14 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
       if (value === "") onChange(null);
     },
     value: picked?.id ?? null,
+    // On choosing, and on committing (Escape with the list closed, or leaving the box):
+    // the box shows what's chosen, or nothing, never text that chose nothing.
     onChange: (key: Key | null) => {
       const chosen = items.find((i) => i.id === key) ?? null;
       onChange(chosen);
-      if (chosen) setTyping({ text: pickedLabel(chosen), over: chosen.id });
+      setTyping(
+        chosen ? { text: pickedLabel(chosen), over: chosen.id } : { text: "", over: undefined },
+      );
     },
     menuTrigger: "focus" as const,
     allowsEmptyCollection: true,
@@ -624,7 +657,13 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
       <div className="combobox">
         {/* Named by its <label for>, not aria-labelledby too: in Firefox, working out a name
             through aria-labelledby (as axe does) and then changing the form crashed the page. */}
-        <input {...inputProps} aria-labelledby={undefined} ref={inputRef} spellCheck={false} />
+        <input
+          {...inputProps}
+          onKeyDown={withEscape(state, picked ? pickedLabel(picked) : "", inputProps.onKeyDown)}
+          aria-labelledby={undefined}
+          ref={inputRef}
+          spellCheck={false}
+        />
         {state.isOpen ? (
           <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
             <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
@@ -855,10 +894,13 @@ export function PersonPicker({
       if (next === "") onChange(null);
     },
     value: value?.id ?? null,
+    // As a reference's (see RefInput): the box shows who's chosen, or nothing.
     onChange: (key: Key | null) => {
       const chosen = items.find((i) => i.id === key) ?? null;
       onChange(chosen);
-      if (chosen) setTyping({ text: personText(chosen), over: chosen.id });
+      setTyping(
+        chosen ? { text: personText(chosen), over: chosen.id } : { text: "", over: undefined },
+      );
     },
     menuTrigger: "focus" as const,
     allowsEmptyCollection: true,
@@ -883,6 +925,7 @@ export function PersonPicker({
         {/* Named by its <label for>, as references' are (see RefInput). */}
         <input
           {...inputProps}
+          onKeyDown={withEscape(state, value ? personText(value) : "", inputProps.onKeyDown)}
           aria-labelledby={undefined}
           ref={inputRef}
           spellCheck={false}

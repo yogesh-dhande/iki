@@ -158,9 +158,7 @@ describe("typing rows in", () => {
     // The new row's first field has the focus, and its picker opens: once it has, close it.
     const picker = await screen.findByRole("combobox", { expanded: true });
     await user.keyboard("{Escape}");
-    await waitFor(() => {
-      expect(picker).toHaveAttribute("aria-expanded", "false");
-    });
+    expect(picker).toHaveAttribute("aria-expanded", "false");
     const row = screen.getByRole("group", { name: "Components, row 1" });
     // Copies starts at its default; Role is chosen.
     expect(within(row).getByRole("textbox", { name: /Copies/ })).toHaveValue("1");
@@ -191,9 +189,7 @@ describe("typing rows in", () => {
     // The new row's first field has the focus, and its picker opens: once it has, close it.
     const picker = await screen.findByRole("combobox", { expanded: true });
     await user.keyboard("{Escape}");
-    await waitFor(() => {
-      expect(picker).toHaveAttribute("aria-expanded", "false");
-    });
+    expect(picker).toHaveAttribute("aria-expanded", "false");
     const row = screen.getByRole("group", { name: "Components, row 1" });
     await user.type(within(row).getByRole("combobox", { name: /Part/ }), "hea");
     await user.click(await screen.findByRole("option", { name: /Heavy/ }));

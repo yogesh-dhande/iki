@@ -11,9 +11,10 @@ locally to the protein as tblastn does: BLOSUM62, a gap opening penalty of 11 an
 extension penalty of 1. Its best frame is kept if the alignment's expected value, by
 BLASTP's statistics for those scores (lambda 0.267, K 0.041), is under 0.001: a read
 that's mostly vector still aligns where it holds the protein's code, and one that
-doesn't hold it is left out, saying so. What's left of the read on either side is then
-aligned in the other frames of its strand: a part that aligns there means the read's
-frame shifted, and the run names where.
+doesn't hold it is left out, saying so (a warning for each reason, naming the reads, and
+each read, with why, in the artifact `left_out.tsv`). What's left of the read on either
+side is then aligned in the other frames of its strand: a part that aligns there means
+the read's frame shifted, and the run names where.
 
 The alignment's first row is the protein, headed by its HRID; each read's row follows,
 headed by its name, its strand and frame, as its translation lies on the protein.
@@ -41,6 +42,7 @@ stop. A read can't tell whether a recoding codon was read through, only that it'
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -73,6 +75,8 @@ MAX_CELLS = 100_000_000
 MAX_PARTS = 4
 #: The most differences the run lists.
 MAX_LISTED = 100
+#: The longest message a run may give (the run-output schema's limit).
+MAX_TEXT = 2000
 #: The residues an ambiguous one in the protein stands for (IUPAC-IUB).
 STANDS_FOR = {"B": "DN", "Z": "EQ", "J": "IL", "X": "ACDEFGHIKLMNPQRSTVWYUO"}
 #: The bases each IUPAC code stands for (IUBMB, 1985).
@@ -198,6 +202,63 @@ def spans(found: list[tuple[int, int]]) -> str:
 
 def percent(part: int, whole: int) -> float:
     return round(100 * part / whole, 1) if whole else 0.0
+
+
+@dataclass
+class Left:
+    """A read left out, and why: as said of it alone, and as said of several left out for
+    the same reason (``reason``), with what's particular to it among them (``detail``)."""
+
+    read: Read
+    alone: str
+    reason: str
+    detail: str = ""
+
+
+def short(text: str) -> str:
+    """``text``, cut to fit in one of a run's messages."""
+    return text if len(text) <= MAX_TEXT else text[: MAX_TEXT - 1] + "…"
+
+
+def fitted(head: str, items: list[str], tail: str = ".", sep: str = "; ") -> str:
+    """``head``, then as many of ``items`` as fit in one message (and at most MAX_LISTED),
+    then how many more there are, then ``tail``."""
+    reserve = len(f"{sep}and {len(items):,} more")
+    room = MAX_TEXT - len(head) - len(tail) - reserve
+    shown: list[str] = []
+    for item in items[:MAX_LISTED]:
+        if len(sep.join([*shown, item])) > room:
+            break
+        shown.append(item)
+    if items and not shown:
+        shown = [items[0][: max(room - 1, 0)] + "…"]
+    text = head + sep.join(shown)
+    if len(shown) < len(items):
+        text += f"{sep}and {len(items) - len(shown):,} more"
+    return text + tail
+
+
+def left_out(left: list[Left], out_dir: Path) -> list[str]:
+    """What the run says of the reads it left out: a warning for each reason, however many
+    reads it left out for it, and each read, with why, in ``left_out.tsv``."""
+    if not left:
+        return []
+    with (out_dir / "left_out.tsv").open("w", newline="", encoding="utf-8") as kept:
+        table = csv.writer(kept, delimiter="\t", lineterminator="\n")
+        table.writerow(["read", "file", "why"])
+        table.writerows([each.read.name, each.read.source, each.alone] for each in left)
+    by_reason: dict[str, list[Left]] = {}
+    for each in left:
+        by_reason.setdefault(each.reason, []).append(each)
+    said: list[str] = []
+    for reason, those in by_reason.items():
+        if len(those) == 1:
+            said.append(short(those[0].alone))
+            continue
+        names = [e.read.name + (f" ({e.detail})" if e.detail else "") for e in those]
+        head = f"{len(those):,} reads {reason}, so they're left out: "
+        said.append(fitted(head, names, ". left_out.tsv lists each, with why.", ", "))
+    return said
 
 
 # The protein's own.
@@ -556,9 +617,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     if not reads:
         fail("These files hold no reads.")
     messages: list[dict[str, Any]] = []
-
-    def warn(text: str) -> None:
-        messages.append({"level": "warning", "text": text})
+    left: list[Left] = []
 
     scorer = aligner()
     placed: list[Placed] = []
@@ -568,22 +627,29 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             start, end = mott(read.quality)
             read.bases, read.quality = read.bases[start:end], read.quality[start:end]
             if not read.bases:
-                warn(f"{read.name} has no bases good enough to keep: it's left out.")
+                alone = f"{read.name} has no bases good enough to keep: it's left out."
+                left.append(Left(read, alone, "have no bases good enough to keep"))
                 continue
         if len(read.bases) > MAX_READ:
-            warn(f"{read.name} has {len(read.bases):,} bases, over {MAX_READ:,}: it's left out.")
+            alone = f"{read.name} has {len(read.bases):,} bases, over {MAX_READ:,}: it's left out."
+            count = f"{len(read.bases):,} bases"
+            left.append(Left(read, alone, f"have over {MAX_READ:,} bases", count))
             continue
         try:
             found = place(read, protein, scorer)
         except ValueError as error:
-            warn(f"{read.name} is left out: {error}.")
+            left.append(
+                Left(read, f"{read.name} is left out: {error}.", "can't be aligned", str(error))
+            )
             continue
         if found is None:
-            warn(f"{read.name} doesn't code for any of {hrid} in any frame. It's left out.")
+            alone = f"{read.name} doesn't code for any of {hrid} in any frame. It's left out."
+            left.append(Left(read, alone, f"don't code for any of {hrid} in any frame"))
             continue
         placed.append(found)
     if not placed:
         fail(f"None of the reads code for any of {hrid}.")
+    messages.extend({"level": "warning", "text": text} for text in left_out(left, out_dir))
 
     size = len(protein)
     most = [0] * size
@@ -632,7 +698,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     )
     if missing:
         coverage += f" Not covered: {spans(ranges(missing))}."
-    messages.insert(0, {"level": "info", "text": coverage})
+    messages.insert(0, {"level": "info", "text": short(coverage)})
 
     seen: dict[str, tuple[int, list[str]]] = {}
     for each in placed:
@@ -641,12 +707,8 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             shown.append(each.read.name + (f" Q{quality}" if quality is not None else ""))
     listed = sorted(seen.items(), key=lambda item: (item[1][0], item[0]))
     if listed:
-        text = "; ".join(
-            f"{name} ({', '.join(showing)})" for name, (_, showing) in listed[:MAX_LISTED]
-        )
-        if len(listed) > MAX_LISTED:
-            text += f"; and {len(listed) - MAX_LISTED} more"
-        messages.insert(1, {"level": "info", "text": f"Differences from {hrid}: {text}."})
+        named = [f"{name} ({', '.join(showing)})" for name, (_, showing) in listed]
+        messages.insert(1, {"level": "info", "text": fitted(f"Differences from {hrid}: ", named)})
     else:
         none = f"No differences from {hrid} where the reads cover it."
         messages.insert(1, {"level": "info", "text": none})
@@ -660,10 +722,11 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             2,
             {
                 "level": "info",
-                "text": "Codons too ambiguous to tell (such as NNN) say nothing there, so they "
-                "don't cover it: "
-                + "; ".join(f"{where} ({name})" for where, name in unsure[:MAX_LISTED])
-                + ".",
+                "text": fitted(
+                    "Codons too ambiguous to tell (such as NNN) say nothing there, so they "
+                    "don't cover it: ",
+                    [f"{where} ({name})" for where, name in unsure],
+                ),
             },
         )
     messages.append({"level": "info", "text": TWO_FILES})

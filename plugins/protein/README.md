@@ -152,7 +152,8 @@ does: BLOSUM62, a gap opening penalty of 11 and an extension penalty of 1.
 The best frame is kept if the alignment's expected value, by BLASTP's
 statistics for those scores (λ 0.267, K 0.041), is under 0.001, so a read
 that's partly vector aligns where it holds the protein's code, and one that
-doesn't code for it is left out, saying so. What's left of the read either
+doesn't code for it is left out, saying so (a warning for each reason, naming
+the reads, and each read, with why, in the run's artifact `left_out.tsv`). What's left of the read either
 side is aligned in its strand's other frames: a part that aligns there means
 the frame shifted, and the run names where (`K120fs`). The run lists each
 difference in the protein's numbering, as HGVS names them in one-letter

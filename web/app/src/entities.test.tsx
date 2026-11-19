@@ -413,6 +413,100 @@ describe("a project's entities", () => {
     });
   });
 
+  it("saves the search the grid runs, its words as conditions, and opens it as it was", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const lineage = {
+      exact_type: false,
+      type: "iki/protein.Protein",
+      archived: false,
+      q: "abl",
+      where: {
+        all: [
+          { field: "name", op: "contains", value: "kinase" },
+          { all: [{ field: "downstream", op: "of", value: "DNR-000001" }] },
+        ],
+      },
+    };
+    const saved = (name: string, query: unknown) => ({
+      id: `00000000-0000-7000-8000-0000000a000${String(name.length % 10)}`,
+      project: KINASE.id,
+      name,
+      query,
+      shared: false,
+      created_by: { id: ME.id, name: ME.name },
+      created_at: "2026-03-14T09:00:00Z",
+      updated_at: "2026-03-14T09:00:00Z",
+      can: { change: true, delete: true },
+    });
+    answer("GET /api/v1/saved-searches", [saved("From the donor", lineage)]);
+    answer("POST /api/v1/saved-searches", respond(201, saved("Kinases", lineage)));
+    const filters = encodeURIComponent(
+      JSON.stringify([{ field: "name", op: "contains", value: "kinase" }]),
+    );
+    const { router, user } = await renderApp(
+      `/projects/kinase-atlas/entities/?type=iki/protein.Protein&q=downstream:DNR-000001%20abl&filters=${filters}`,
+    );
+    await screen.findByRole("navigation", { name: "Saved searches" });
+    await user.click(screen.getByRole("button", { name: "Save this search" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Save this search" });
+    await user.type(within(dialog).getByLabelText("Name"), "Kinases");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved “Kinases”.");
+    // What it keeps is what the grid ran, which the API runs the same.
+    const kept = nth(calls("POST", "/api/v1/saved-searches"), 0).body as { query: unknown };
+    expect(kept.query).toEqual(lineage);
+    const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
+    expect(ran).toEqual({ ...lineage, limit: 100, project: KINASE.id });
+
+    await user.click(screen.getByRole("link", { name: "From the donor" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        type: "iki/protein.Protein",
+        q: "abl downstream:DNR-000001",
+        filters: [{ field: "name", op: "contains", value: "kinase" }],
+      });
+    });
+  });
+
+  it("doesn't open a saved search the grid would run as another", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const made = (name: string, query: unknown) => ({
+      id: `00000000-0000-7000-8000-0000000a00${String(name.length).padStart(2, "0")}`,
+      project: KINASE.id,
+      name,
+      query,
+      shared: true,
+      created_by: { id: ME.id, name: ME.name },
+      created_at: "2026-03-14T09:00:00Z",
+      updated_at: "2026-03-14T09:00:00Z",
+      can: { change: false, delete: false },
+    });
+    answer("GET /api/v1/saved-searches", [
+      // Sequences, and not their subtypes: the grid shows a type's subtypes too.
+      made("Plain sequences", { type: "iki/core.Sequence", exact_type: true }),
+      // Text that the search box would read as a lineage condition.
+      made("Notes naming a donor", { exact_type: false, q: "downstream:DNR-000001" }),
+      made("Lineage", {
+        exact_type: false,
+        where: { all: [{ all: [{ field: "downstream", op: "of", value: "DNR-000001" }] }] },
+      }),
+    ]);
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
+    const saved = await screen.findByRole("navigation", { name: "Saved searches" });
+    expect(within(saved).queryByRole("link", { name: "Plain sequences" })).toBeNull();
+    expect(within(saved).getByText("Plain sequences")).toHaveAttribute(
+      "title",
+      "Made with the API: the grid can’t show its conditions.",
+    );
+    expect(within(saved).queryByRole("link", { name: "Notes naming a donor" })).toBeNull();
+    expect(within(saved).getByRole("link", { name: "Lineage" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("q=downstream%3ADNR-000001"),
+    );
+  });
+
   it("says when a search can't be run", async () => {
     onProject();
     answer(

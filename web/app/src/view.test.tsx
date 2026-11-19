@@ -174,6 +174,31 @@ describe("saving a view", () => {
     });
   });
 
+  it("keeps its dialog open while Escape closes the picker's list and clears what it typed", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET]));
+    answer("POST /api/v1/entities/search", { items: [], next_cursor: null });
+    answer("GET /api/v1/entities", {
+      items: [entity({ id: PROTEIN_ID, hrid: "PRT-000001" })],
+      next_cursor: null,
+    });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    await user.click(await screen.findByRole("button", { name: "Save view" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Save this view" });
+    const add = within(dialog).getByRole("combobox", { name: /^Add another entity/ });
+    await user.type(add, "abl");
+    await user.keyboard("{Escape}");
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    expect(add).toHaveValue("abl");
+    expect(dialog).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(add).toHaveValue("");
+    expect(dialog).toBeInTheDocument();
+    // Nothing left to undo in the box: Escape closes the dialog.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("lists every view it's in, saying what else a view shows", async () => {
     onTypes();
     answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET]));
@@ -233,6 +258,103 @@ describe("saving a view", () => {
         ],
       },
     });
+  });
+
+  it("lists views of its registry entry, which a view of a registered record holds", async () => {
+    onTypes();
+    const ENTRY_ID = "0190f5c2-0000-7000-8000-00000000e0a1";
+    answer(
+      "GET /api/v1/entities/DNA-000001",
+      entity({
+        ...plasmid(3, [TET]),
+        entry: {
+          id: ENTRY_ID,
+          hrid: "DNA-000001",
+          registry: { id: "0190f5c2-0000-7000-8000-0000000000r1", name: "Main", slug: "main" },
+          revision: 1,
+          superseded: null,
+        },
+      }),
+    );
+    answer("POST /api/v1/entities/search", {
+      items: [
+        entity({
+          hrid: "VIEW-000002",
+          type: "iki/core.View",
+          values: {
+            name: "tet for the report",
+            targets: [ENTRY_ID],
+            target_revisions: [2],
+            viewers: ["sequence"],
+          },
+        }),
+        entity({
+          hrid: "VIEW-000003",
+          type: "iki/core.View",
+          owner_project: {
+            id: "0190f5c2-0000-7000-8000-0000000000p9",
+            name: "Structural Biology",
+            slug: "structural-biology",
+          },
+          values: {
+            name: "Their figure",
+            targets: [ENTRY_ID],
+            target_revisions: [5],
+            viewers: ["sequence"],
+          },
+        }),
+      ],
+      next_cursor: null,
+    });
+    await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const ours = (await screen.findByRole("link", { name: "tet for the report" })).closest("li");
+    expect(ours).toHaveTextContent(/revision 2 · /);
+    // Another project's view pins its own record of the entry, at that record's revision.
+    const theirs = screen.getByRole("link", { name: "Their figure" }).closest("li");
+    expect(theirs).toHaveTextContent("revision 5 in Structural Biology");
+    const [search] = calls("POST", "/api/v1/entities/search");
+    expect(search?.body).toMatchObject({
+      where: { all: [{ field: "targets", op: "has", value: ENTRY_ID }, {}] },
+    });
+  });
+
+  it("reads on past views of it in other viewers, and lists older views on asking", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET]));
+    const view = (n: number, viewers: string[]) =>
+      entity({
+        id: `0190f5c2-0000-7000-8000-${String(n).padStart(12, "0")}`,
+        hrid: `VIEW-${String(n).padStart(6, "0")}`,
+        type: "iki/core.View",
+        values: {
+          name: `View ${String(n)}`,
+          targets: [PLASMID_ID, PROTEIN_ID],
+          target_revisions: [1, 1],
+          viewers,
+        },
+      });
+    // The newest 50 show it in the alignment viewer, and the protein in this one.
+    const elsewhere = Array.from({ length: 50 }, (_, i) => view(i + 1, ["alignment", "sequence"]));
+    const here = Array.from({ length: 51 }, (_, i) => view(i + 51, ["sequence", "sequence"]));
+    answer("POST /api/v1/entities/search", ({ body }: { body: { cursor?: string } }) => {
+      if (!body.cursor) return { items: elsewhere, next_cursor: "2" };
+      if (body.cursor === "2") return { items: here.slice(0, 50), next_cursor: "3" };
+      return { items: here.slice(50), next_cursor: null };
+    });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    expect(await screen.findByRole("link", { name: "View 51" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View 101" })).not.toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Show older" }));
+    expect(await screen.findByRole("link", { name: "View 101" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show older" })).not.toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search").map((c) => c.body)).toMatchObject([
+      {},
+      { cursor: "2" },
+      { cursor: "3" },
+    ]);
   });
 });
 

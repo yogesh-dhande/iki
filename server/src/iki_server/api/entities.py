@@ -2290,8 +2290,9 @@ def get_revision(
     )
     if revision is None:
         raise Problem(404, f"{entity.hrid} has no revision {number}.")
-    fields = shape(entity.type).fields()
-    values = {n: v for n, v in services.values_at(entity, number).items() if n in fields}
+    # Fields since removed are read back too, as history keeps them (ADR 0035).
+    fields = shape(entity.type).fields(removed=True)
+    values = services.revision_values(entity, number, fields)
     changes = {n: c for n, c in services.changes(entity, revision).items() if n in fields}
     wanted = _ids_in(fields, values)
     for name, (before, after) in changes.items():

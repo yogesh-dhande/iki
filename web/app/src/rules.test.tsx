@@ -487,7 +487,8 @@ describe("finding what rules caught", () => {
     expect(nth(rows, 2)).toHaveTextContent("Breaks: Expires after it's made");
     expect(calls("POST", "/api/v1/entities/search").at(-1)?.body).toMatchObject({
       type: "acme/lab.Lot",
-      where: { all: [{ field: "held", op: "is_set", value: true }] },
+      // The search box's words, as a group of their own.
+      where: { all: [{ all: [{ field: "held", op: "is_set", value: true }] }] },
     });
   });
 

@@ -114,13 +114,22 @@ class Shape:
     def has_entries(self) -> bool:
         return any(p.entry for p in self.parts)
 
-    def fields(self) -> dict[str, Field]:
-        """The fields entities of this type have now, parents' first."""
-        return {n: f for part in self.parts for n, f in part.fields.items() if not f.removed}
+    def fields(self, *, removed: bool = False) -> dict[str, Field]:
+        """The fields entities of this type have now, parents' first; with ``removed``, and
+        those they had, which their history keeps."""
+        return {
+            n: f for part in self.parts for n, f in part.fields.items() if removed or not f.removed
+        }
 
-    def entry_fields(self) -> dict[str, Field]:
+    def entry_fields(self, *, removed: bool = False) -> dict[str, Field]:
         """Those of :meth:`fields` its registry entries hold."""
-        return {n: f for p in self.parts if p.entry for n, f in p.fields.items() if not f.removed}
+        return {
+            n: f
+            for p in self.parts
+            if p.entry
+            for n, f in p.fields.items()
+            if removed or not f.removed
+        }
 
     def part_of(self, name: str) -> Part:
         return next(p for p in self.parts if name in p.fields)

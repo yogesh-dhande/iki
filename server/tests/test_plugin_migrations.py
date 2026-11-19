@@ -746,6 +746,109 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     ]
 
 
+def test_a_type_whose_only_people_are_in_rows_loads(lab: Path, database: str) -> None:
+    """A person in a row (ADR 0137) is a column naming a user, as a type's own field is."""
+    write_sample(
+        lab,
+        (
+            "  temperature: { type: quantity, unit: Cel }\n",
+            "  temperature: { type: quantity, unit: Cel }\n"
+            "  weighings:\n"
+            "    type: list\n"
+            "    items:\n"
+            "      type: row\n"
+            "      fields:\n"
+            "        mass: { type: quantity, unit: mg, min: 0, required: true }\n"
+            "        weighed_by: { type: person, required: true }\n",
+        ),
+    )
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_plugin_acme__lab.models import Sample, Sample_weighings
+        analyst = User.objects.create_user("analyst@example.com", "Bench Analyst")
+        sample = Sample.objects.create(
+            type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1",
+            mass=1.5, count=3, old="x", temperature=20.0,
+        )
+        Sample_weighings.objects.create(entity=sample, position=0, mass=12.5, weighed_by=analyst)
+        result = Sample_weighings.objects.get().weighed_by.email
+        """,
+    )
+    assert result == "analyst@example.com"
+
+
+def test_a_removed_fields_values_and_changes_are_read_back_at_earlier_revisions(
+    lab: Path, database: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    sync(out, database)
+    orm(
+        out,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import ProjectMembership, ProjectRole
+        user = User.objects.create_user("analyst@example.com", "Bench Analyst")
+        ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.EDITOR)
+        values = {"name": "S1", "mass": 1.5, "count": 3, "old": "lot 7", "temperature": 20.0}
+        saved = services.create(user, "acme/lab.Sample", project, values)
+        services.update(user, saved.entity, {"old": "lot 8"}, expected_revision=1)
+        result = None
+        """,
+    )
+
+    write_sample(lab, ("old: { type: string }", "old: { type: string, removed: true }"))
+    made("lab", "--name", "remove_old", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    sync(out, database)
+    # The world is made already: this reads what's there.
+    script = textwrap.dedent(
+        """
+        import django, json
+        django.setup()
+        from api_client import Api
+        from browser import Browser
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.entities.models import Entity
+        sample = Entity.objects.get(hrid="SMP-000001")
+        user = User.objects.get(email="analyst@example.com")
+        # A revision after the field was removed doesn't have it.
+        services.update(user, sample, {"name": "S1b"}, expected_revision=2)
+        browser = Browser()
+        browser.force_login(user)
+        api = Api(browser)
+        result = {
+            n: (lambda r: [r.status_code, r.json()["values"], r.json()["changes"]])(
+                api.get(f"/entities/SMP-000001/revisions/{n}")
+            )
+            for n in (1, 2, 3)
+        }
+        print(json.dumps(result))
+        """
+    )
+    read = django(out, database, "-c", script)
+    assert read.returncode == 0, read.stdout + read.stderr
+    result = json.loads(read.stdout.strip().splitlines()[-1])
+    first, second, third = result["1"], result["2"], result["3"]
+    assert first[0] == second[0] == third[0] == 200
+    assert first[1]["old"] == "lot 7"
+    assert second[1]["old"] == "lot 8"
+    assert second[2] == {"old": {"before": "lot 7", "after": "lot 8"}}
+    assert "old" not in third[1]
+    assert third[2] == {"name": {"before": "S1", "after": "S1b"}}
+
+
 def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
     lab: Path, database: str
 ) -> None:

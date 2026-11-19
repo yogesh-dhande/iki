@@ -411,6 +411,62 @@ describe("choosing a reference as it's typed", () => {
     ).toBe(ABL2.id);
   });
 
+  it("closes the list on Escape, keeping what's typed, then clears it on Escape again", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl");
+    await release("abl");
+    expect(await screen.findByRole("option", { name: /ABL1 kinase/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    // Closed, and it stays closed: the text in the box doesn't open it again.
+    expect(source).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(source).toHaveValue("abl");
+    expect(source).toHaveFocus();
+    // Nothing was chosen, so there's nothing to put back: the box is cleared.
+    await user.keyboard("{Escape}");
+    expect(source).toHaveValue("");
+    expect(source).toHaveAttribute("aria-expanded", "false");
+    // Typing opens it again.
+    await user.type(source, "abl");
+    expect(source).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("puts back the chosen record on Escape, or on leaving the box", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl2");
+    await release("abl2");
+    await user.click(await screen.findByRole("option", { name: /ABL2 kinase/ }));
+    expect(source).toHaveValue("ABL2 kinase (PRT-000002)");
+    await user.type(source, "egf", {
+      initialSelectionStart: 0,
+      initialSelectionEnd: "ABL2 kinase (PRT-000002)".length,
+    });
+    await user.keyboard("{Escape}");
+    expect(source).toHaveAttribute("aria-expanded", "false");
+    expect(source).toHaveValue("egf");
+    await user.keyboard("{Escape}");
+    expect(source).toHaveValue("ABL2 kinase (PRT-000002)");
+    expect(source).toHaveAttribute("aria-expanded", "false");
+
+    await user.type(source, "egf", {
+      initialSelectionStart: 0,
+      initialSelectionEnd: "ABL2 kinase (PRT-000002)".length,
+    });
+    await user.tab();
+    expect(source).toHaveValue("ABL2 kinase (PRT-000002)");
+    expect(source).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("clears typed text that chose nothing when the box is left", async () => {
+    const { user, source, release } = await openSource();
+    await user.type(source, "abl");
+    await release("abl");
+    await user.tab();
+    expect(source).toHaveValue("");
+    expect(source).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("keeps the chosen record first, where it is, as answers come", async () => {
     const { user, source, release } = await openSource();
     await user.type(source, "abl2");

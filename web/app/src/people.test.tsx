@@ -6,12 +6,12 @@
 
 import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { ME as SEARCHER, searchWords, validateFilters } from "./filters";
 import { narrowNameable } from "./people";
-import { answer, calls, ME, page, type Sent } from "./test-server";
+import { answer, calls, FakeEventSource, ME, page, type Sent } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000e601";
 const ANA = "00000000-0000-7000-8000-0000000000a1";
@@ -240,6 +240,24 @@ describe("suggesting people as they're typed", () => {
     expect(picker).toHaveValue("Bo Chen (bo@example.com)");
   });
 
+  it("closes on Escape, keeping what's typed, and clears it on leaving if nobody's chosen", async () => {
+    onSample();
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, (call: Sent) =>
+      narrowNameable([ana, bo, cy], "", call.query.get("q") ?? ""),
+    );
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
+    await user.type(picker, "bo");
+    expect(await screen.findByRole("option", { name: /Bo Chen/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(picker).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(picker).toHaveValue("bo");
+    await user.tab();
+    expect(picker).toHaveValue("");
+    expect(picker).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("says it's searching, rather than show people another text found", async () => {
     onSample();
     const many = Array.from({ length: 20 }, (_, i) => ({
@@ -324,6 +342,40 @@ describe("My work", () => {
     expect(list).toHaveTextContent("Open as Reviewer");
     await user.click(within(list).getByRole("button", { name: "Take SMP-000001 as Reviewer" }));
     expect(await screen.findByText("SMP-000001 is yours, as Reviewer.")).toBeInTheDocument();
+  });
+
+  describe("after events were missed", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each(["resync", "ready"])(
+      "reads it again on %s, so work reassigned meanwhile goes",
+      async (event) => {
+        FakeEventSource.opened = [];
+        vi.stubGlobal("EventSource", FakeEventSource);
+        withTypes();
+        answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+        answer("GET /api/v1/projects", page([KINASE]));
+        let work = [{ entity: sample(), fields: ["analyst"], due: null }];
+        answer("GET /api/v1/me/work", () => page(work));
+        await renderApp("/work/");
+        const list = await screen.findByRole("list", { name: "Your work" });
+        expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+        const stream = FakeEventSource.current();
+        expect(stream).toBeDefined();
+
+        // Reassigned while the server dropped this tab's events (or its stream was down):
+        // no `work` event comes.
+        work = [];
+        act(() => {
+          stream?.send(event, event === "ready" ? { unread: 0 } : {});
+        });
+        expect(
+          await screen.findByRole("heading", { name: "Nothing’s assigned to you" }),
+        ).toBeInTheDocument();
+      },
+    );
   });
 
   it("says when nothing is yours", async () => {
