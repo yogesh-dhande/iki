@@ -160,14 +160,15 @@ class Remote:
 
 @pytest.fixture
 def serving() -> Iterator[Callable[..., int]]:
-    """Starts a proxy in a thread of its own; returns its port."""
+    """Starts a proxy in a thread of its own; returns its port. Each proxy's event loop is
+    closed once it has stopped, with its tasks, async generators and executor threads."""
     stops: list[tuple[asyncio.AbstractEventLoop, asyncio.Event, threading.Thread]] = []
 
     def start(**options: Any) -> int:
         proxy = egress_proxy.Proxy(**options)
         bound: list[int] = []
+        loops: list[asyncio.AbstractEventLoop] = []
         ready = threading.Event()
-        loop = asyncio.new_event_loop()
         stop = asyncio.Event()
 
         def on_ready(port: int) -> None:
@@ -175,27 +176,24 @@ def serving() -> Iterator[Callable[..., int]]:
             ready.set()
 
         def run() -> None:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                proxy.serve(
-                    "127.0.0.1",
-                    0,
-                    stop=stop,
-                    grace=1,
-                    ready=on_ready,
-                )
-            )
+            # The runner closes its loop on the way out, as asyncio.run does.
+            with asyncio.Runner() as runner:
+                loops.append(runner.get_loop())
+                runner.run(proxy.serve("127.0.0.1", 0, stop=stop, grace=1, ready=on_ready))
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
         assert ready.wait(10)
-        stops.append((loop, stop, thread))
+        stops.append((loops[0], stop, thread))
         return bound[0]
 
     yield start
     for loop, stop, thread in stops:
-        loop.call_soon_threadsafe(stop.set)
+        with contextlib.suppress(RuntimeError):  # it stopped already: it's closed
+            loop.call_soon_threadsafe(stop.set)
         thread.join(10)
+        assert not thread.is_alive(), "the proxy didn't stop"
+        assert loop.is_closed()
 
 
 def connect(port: int, head: str) -> tuple[socket.socket, bytes]:
