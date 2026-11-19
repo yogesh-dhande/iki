@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/complex
+version: 0.1.0
+title: Complexes
+description: >-
+  Protein complexes of any parts, by their parts and how many copies of each,
+  with their Complex Portal IDs; and every complex's formula and masses, of any
+  type, from its parts' sequences and formulas, with its bonds.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/complex
+dependencies:
+  iki/protein: { types: { ProteinStructure: ">=2" } }

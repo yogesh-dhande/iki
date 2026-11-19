@@ -7,8 +7,8 @@ YAML, so every rule `iki plugin validate` enforces holds for them.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Iterator, Mapping
-from dataclasses import dataclass, field, fields
+from collections.abc import Collection, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 from iki_spec import naming
@@ -165,6 +165,9 @@ class Field:
     #: A row's enum field whose value is its role, and what each role takes.
     by: str | None = None
     roles: dict[str, RowRole] = field(default_factory=dict)
+    #: A row whose roles are every role it may have: a subtype's (ADR 0164), or those of a
+    #: row whose role is a string. A row of an enum's other roles takes any number.
+    closed: bool = False
 
     @property
     def is_rows(self) -> bool:
@@ -255,6 +258,11 @@ class Field:
             if data.get("type") == "row" and isinstance(data.get("identity"), list)
             else (),
             by=data.get("by") if data.get("type") == "row" else None,
+            # A role that's a string has only the roles named (ADR 0164).
+            closed=data.get("type") == "row"
+            and bool(data.get("roles"))
+            and isinstance((data.get("fields") or {}).get(data.get("by")), dict)
+            and (data.get("fields") or {})[data["by"]].get("type") == "string",
             roles={
                 n: RowRole.from_manifest(n, r, plugin=plugin)
                 for n, r in (data.get("roles") or {}).items()
@@ -292,6 +300,39 @@ def split_entry(
     record = {n: f for n, f in fields.items() if not in_entry(f, identity)}
     entry = {n: f for n, f in fields.items() if in_entry(f, identity)}
     return record, entry
+
+
+def refined(f: Field, roles: Mapping[str, RowRole]) -> Field:
+    """A list of rows ``f`` as a subtype that refines it has it (ADR 0164): with its roles
+    the subtype's, which are every role its rows may have."""
+    assert f.items is not None  # noqa: S101 - only lists of rows are refined
+    return replace(f, items=replace(f.items, roles=dict(roles), closed=True))
+
+
+def refinement(lineage: Sequence[EntityType], name: str) -> dict[str, RowRole] | None:
+    """The roles a list of rows ``name`` has in the first of ``lineage`` (a type, then its
+    ancestors, nearest first) as the nearest type below the one declaring it refines it
+    (ADR 0164), or None where none does."""
+    for t in lineage:
+        if name in t.fields:
+            return None
+        if name in t.refines:
+            return t.refines[name]
+    return None
+
+
+def included_reference(fields: Mapping[str, Field], name: str) -> Field | None:
+    """What an action's input includes by ``name`` (ADR 0105): one of its type's
+    references, or a list of them, or a reference of a list's rows, ``components.part``
+    (ADR 0161), as a list of references, one per row. None for a name it hasn't."""
+    if "." not in name:
+        return fields.get(name)
+    rows, _, cell = name.partition(".")
+    f = fields.get(rows)
+    if f is None or not f.is_rows or f.items is None or cell not in f.items.fields:
+        return None
+    item = f.items.fields[cell]
+    return Field(name=name, type="list", label=f"{f.label}: {item.label}", items=item)
 
 
 def lab_role_name(role: str, plugin: str) -> str:
@@ -733,6 +774,10 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: What each list of rows it inherits takes, by the list's name (ADR 0164): every role
+    #: its rows may have, each with how many and what its references may refer to, within
+    #: what its ancestor's say. Its subtypes have these unless they name their own.
+    refines: dict[str, dict[str, RowRole]] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1489,6 +1534,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "result": _result(v.get("result")),
                         # ...or amounts (ADR 0139).
                         "amount": Amount(**v["amount"]) if v.get("amount") else None,
+                        # ...or refined rows (ADR 0164).
+                        "refines": {
+                            n: {r: _row_role(x) for r, x in roles.items()}
+                            for n, roles in (v.get("refines") or {}).items()
+                        },
                     }
                 )
                 for k, v in data["types"].items()
@@ -1722,12 +1772,13 @@ def _field(data: dict[str, Any]) -> Field:
             "fields": {n: _field(c) for n, c in (data.get("fields") or {}).items()},
             "identity": tuple(data.get("identity") or ()),
             "by": data.get("by"),
-            "roles": {
-                n: RowRole(**{**r, "to": {c: tuple(t) for c, t in (r.get("to") or {}).items()}})
-                for n, r in (data.get("roles") or {}).items()
-            },
+            "roles": {n: _row_role(r) for n, r in (data.get("roles") or {}).items()},
         }
     )
+
+
+def _row_role(data: dict[str, Any]) -> RowRole:
+    return RowRole(**{**data, "to": {c: tuple(t) for c, t in (data.get("to") or {}).items()}})
 
 
 def _rule(data: dict[str, Any]) -> Rule:

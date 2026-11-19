@@ -1,7 +1,8 @@
 """The entities a run reads through its inputs' references (ADR 0105).
 
-An action's input can ``include`` reference fields of its type, such as an antibody's
-``heavy_chain`` and ``light_chain``. When a run is launched, each input entity's references
+An action's input can ``include`` reference fields of its type, such as a structure's
+``chains``, or a list of rows' references, such as a complex's ``components.part`` (ADR
+0161). When a run is launched, each input entity's references
 are pinned, as its inputs are: the entity each names, at the revision it has then. The run
 reads them at those revisions, under each input entity's ``included``, whatever changes
 after. A run reads only what its launcher can read and what's in its project, so the
@@ -22,7 +23,7 @@ from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
 from iki_server.runs.models import ActionRun, RunInclusion
-from iki_spec.model import Action
+from iki_spec.model import Action, included_reference
 
 
 @dataclass(frozen=True)
@@ -65,11 +66,17 @@ def resolve(
             fields = shape(entity.type).fields()
             values = values_at(entity, entity.revision)
             for reference in put.include:
-                f = fields.get(reference)
+                f = included_reference(fields, reference)
                 if f is None:
                     continue
-                value = to_json(f, values.get(reference))
-                ids = value if isinstance(value, list) else [] if value is None else [value]
+                if "." in reference:
+                    # A list of rows' references (ADR 0161): each row's, in order.
+                    rows_name, _, cell = reference.partition(".")
+                    rows = to_json(fields[rows_name], values.get(rows_name)) or []
+                    ids = [row[cell] for row in rows if row.get(cell) is not None]
+                else:
+                    value = to_json(f, values.get(reference))
+                    ids = value if isinstance(value, list) else [] if value is None else [value]
                 wanted += [
                     (name, position, reference, index, UUID(str(i)), entity)
                     for index, i in enumerate(ids)

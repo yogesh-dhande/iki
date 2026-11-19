@@ -9,6 +9,9 @@ on every create and edit, so they hold for the web, the API, MCP and runs alike:
   that entity has, in a viewer its type has, with what that viewer keeps.
 - ``iki/core.App`` (ADR 0090) has a spec whose panels, props and expressions work for
   the person saving it (see :mod:`iki_server.entities.app_specs`).
+- ``iki/core.Complex`` (ADR 0161) lists each part once, with its copies, each a registry
+  entry; and each of its bonds joins two residues there are, of copies it has, a disulfide
+  two cysteines, each residue in one bond at most.
 
 Subtypes follow their parents' rules.
 """
@@ -194,9 +197,116 @@ def _app(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     return {"spec": found} if found else {}
 
 
+#: What a disulfide joins, at each end.
+CYSTEINE = "C"
+
+
+def _complex(user: User, values: Mapping[str, Any], project: Project) -> Errors:
+    components: list[Mapping[str, Any]] = list(values.get("components") or [])
+    bonds: list[Mapping[str, Any]] = list(values.get("bonds") or [])
+    ids = {row["part"] for row in components if row.get("part") is not None}
+    ids |= {row[end] for row in bonds for end in ("part", "partner") if row.get(end) is not None}
+    found: dict[Any, Entity] = {e.pk: e for e in Entity.objects.filter(pk__in=ids)}
+    errors: Errors = {}
+    copies: dict[Any, int] = {}
+    for index, row in enumerate(components):
+        part = found.get(row.get("part"))
+        if part is None:
+            continue  # The reference's own check says so.
+        if part.pk in copies:
+            errors[f"components/{index}/part"] = [
+                f"lists {part.hrid} again: give each part once, with how many copies of it "
+                "there are."
+            ]
+            continue
+        copies[part.pk] = int(row.get("copies") or 1)
+        if part.registry_id is None:
+            errors[f"components/{index}/part"] = [
+                f"{part.hrid} is a project's own record, not a registered molecule: a "
+                "complex is made of registry entries, such as proteins and compounds."
+            ]
+    residues = _residues([found[i] for i in copies if i in found])
+    taken: dict[tuple[Any, int, int], int] = {}
+    for index, row in enumerate(bonds):
+        problems: dict[str, list[str]] = {}
+        ends = []
+        for end, copy, residue in (
+            ("part", "copy", "residue"),
+            ("partner", "partner_copy", "partner_residue"),
+        ):
+            part = found.get(row.get(end))
+            if part is None:
+                continue
+            if part.pk not in copies:
+                problems[end] = [f"{part.hrid} isn't one of its parts."]
+                continue
+            which, at = int(row.get(copy) or 1), int(row.get(residue) or 0)
+            if which > copies[part.pk]:
+                n = copies[part.pk]
+                problems[copy] = [
+                    f"{part.hrid} has {n} cop{'y' if n == 1 else 'ies'} in it, so there's no "
+                    f"copy {which}."
+                ]
+                continue
+            sequence = residues.get(part.pk)
+            if sequence is not None and at > len(sequence):
+                problems[residue] = [
+                    f"{part.hrid} has {len(sequence)} residues, so there's no residue {at}."
+                ]
+                continue
+            disulfide = row.get("kind") == "disulfide"
+            if disulfide and sequence is not None and sequence[at - 1] != CYSTEINE:
+                problems[residue] = [
+                    f"{part.hrid}'s residue {at} is {sequence[at - 1]}, and a disulfide "
+                    "joins two cysteines (C)."
+                ]
+                continue
+            ends.append((part, which, at, residue))
+        if len(ends) == 2 and ends[0][:3] == ends[1][:3]:
+            problems["partner_residue"] = ["is the residue it starts from: a bond joins two."]
+        elif len(ends) == 2:
+            for part, which, at, residue in ends:
+                other = taken.get((part.pk, which, at))
+                if other is not None:
+                    problems[residue] = [
+                        f"{part.hrid}'s residue {at} (copy {which}) is bonded already, in bond "
+                        f"{other + 1}."
+                    ]
+                else:
+                    taken[(part.pk, which, at)] = index
+        for name, messages in problems.items():
+            errors[f"bonds/{index}/{name}"] = messages
+    return errors
+
+
+def _residues(parts: list[Entity]) -> dict[Any, str]:
+    """Each part's residues, upper case and without a terminal stop, read from the field its
+    type's sequence viewer shows; none for a part without one, such as a compound."""
+    from iki_server.entities.services import current_values_of
+
+    fields: dict[Any, str] = {}
+    for part in parts:
+        entity_type = registry.types().get(part.type)
+        if entity_type is None:
+            continue
+        shown = next((v.sequence for v in registry.viewers(entity_type) if v.sequence), None)
+        if shown:
+            fields[part.pk] = shown
+    if not fields:
+        return {}
+    values = current_values_of([p for p in parts if p.pk in fields])
+    out: dict[Any, str] = {}
+    for pk, name in fields.items():
+        text = (values.get(pk) or {}).get(name)
+        if isinstance(text, str):
+            out[pk] = text.upper().rstrip("*")
+    return out
+
+
 RULES: dict[str, Rule] = {
     "iki/core.App": Rule(("spec",), _app),
     "iki/core.Collection": Rule(("members", "search"), _collection),
+    "iki/core.Complex": Rule(("components", "bonds"), _complex),
     "iki/core.View": Rule(("targets", "target_revisions", "viewers", "state"), _view),
 }
 

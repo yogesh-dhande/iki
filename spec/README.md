@@ -63,10 +63,10 @@ parts are 2 to 30 lower-case letters, digits and single underscores, starting
 with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
-  `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid` and
-  `iki/example_lims`. No other plugin may use it, or a namespace starting with
-  `iki_` (`reserved-namespace`), and a lockfile takes an `iki/...` plugin only
-  from Iki's repository.
+  `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
+  `iki/complex` and `iki/example_lims`. No other plugin may use it, or a
+  namespace starting with `iki_` (`reserved-namespace`), and a lockfile takes
+  an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
   (`Protein`, or in full, `acme/proteins.Protein`). Anything of another
   plugin's is named in full: `iki/dna.DNASequence`, `iki/protein.translate`,
@@ -173,8 +173,11 @@ A field marked `registry` is the entry's, the same for every project:
   registered against, such as a HELM monomer's structure: a wrong one is
   superseded ([ADR 0143](../docs/adr/0143-a-registry-fact-can-be-fixed.md)).
 
-Only the type that declares the identity, or an extension of it, has registry
-fields, and they refer only to other entries. Everything else (a
+Only the type that declares the identity, its subtypes (each with its own
+entry table, which extends its parent's:
+[ADR 0165](../docs/adr/0165-a-subtype-of-a-registered-type-has-registry-fields-of-its-own.md)),
+or an extension of them, has registry fields, and they refer only to other
+entries. Everything else (a
 project's notes, a LIMS ID, the database accession it came from, as one
 molecule is several databases' records:
 [ADR 0154](../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md))
@@ -205,9 +208,9 @@ type that declares the identity. Each value is encoded by its field's type:
 | `file`                   | The SHA-256 of the file's content, in hex |
 | `list`                   | Its items, each encoded, sorted           |
 
-An optional field without a value is `null`. An antibody is its heavy chain
-and its light chain, which a single-domain antibody hasn't got:
-`{"type":"iki/antibody.Antibody","v":2,"values":{"heavy_chain":"…","light_chain":null}}`.
+An optional field without a value is `null`. A construct that's its backbone
+and its insert, which an empty vector hasn't got:
+`{"type":"acme/lab.Construct","v":2,"values":{"backbone":"…","insert":null}}`.
 Every identity has at least one required field.
 
 Identities read a value as what it is, not as it's written (ADR 0138):
@@ -791,34 +794,27 @@ Each row's fields are fields as a type's are, with a `label`,
 states. A row's fields can't be named `entity`, `position`, `id` or `pk`.
 
 ```yaml
-components:
+additions:
   type: list
   items:
     type: row
     fields:
-      part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
-      chain: { type: string, max_length: 10 }
-      role: { type: enum, values: [heavy, light, linker], required: true }
-    identity: [part, role]
-    by: role
+      material: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
+      amount: { type: quantity, unit: ug, min: 0 }
+      kind: { type: enum, values: [buffer, protein, dna], required: true }
+    by: kind
     roles:
-      heavy: { min: 2, max: 2, to: { part: Protein } }
-      light: { label: Light chain, min: 2, max: 2, to: { part: Protein } }
-      linker: { max: 1, to: { part: acme/dna.DNASequence } }
+      protein: { min: 1, to: { material: Protein } }
+      dna: { max: 1, to: { material: acme/dna.DNASequence } }
 ```
 
-A bispecific antibody's chains, a row per chain: a light chain both arms
-share is two rows of the same protein. Give a row a count of copies as well
-and one set of chains could be written two ways (one row of two copies, or
-two rows of one), which an identity would tell apart. Such a list is an
-inventory of chains: it says which, not which pairs with which, so a type
-that registers assemblies, where mispaired chains are another molecule, makes
-each row the unit that pairs (an arm's heavy and light chain).
-
-`by` names the row's required enum field holding each row's role, and
-`roles` says, per role, how many rows take it (`min`, `max`; `max: 0`
+`by` names the row's required enum or string field holding each row's role,
+and `roles` says, per role, how many rows take it (`min`, `max`; `max: 0`
 forbids it) and what each of the row's references may refer to in that
-role, among the types the field names. A record that doesn't fit is
+role, among the types the field names. An enum's values that `roles`
+doesn't name take any count. A string's roles, if it has any, are every role
+a row may have: a row with another is refused, saying which it may have
+([ADR 0164](../docs/adr/0164-a-subtype-says-which-roles-its-rows-take.md)). A record that doesn't fit is
 refused when it's saved, each problem pointing at its row and field
 (`#/values/components/1/part`). Anything subtler than a role's count and
 types is a rule's. `identity` names the row fields that tell two rows
@@ -833,6 +829,39 @@ Search takes `has` with an object of row fields, which one row must all
 match: `{field: components, op: has, value: {part: PRT-000001, role:
 heavy}}`, or `components.part:PRT-000001 components.role:heavy` in the
 web app's search box.
+
+**A subtype refines an inherited list's roles** (ADR 0164): `refines` names
+a list of rows an ancestor declares and gives the roles the subtype's rows
+take, all they may have, each no wider than its parent's (a role its `by`
+field takes, a count within its parent's, types among those its parent
+refers to: `refines-wider`). So one list, declared once, serves every
+subtype: each saves, checks and shows its own roles, and search and the
+graph read the one table.
+
+```yaml
+extends: iki/core.Complex
+refines:
+  components:
+    roles:
+      heavy: { label: Heavy chain, min: 1, max: 1, to: { part: iki/protein.Protein } }
+      light: { label: Light chain, max: 1, to: { part: iki/protein.Protein } }
+```
+
+**Complexes** are `iki/core.Complex`'s
+([ADR 0161](../docs/adr/0161-a-complex-is-its-parts-and-their-copies.md)),
+abstract, which every complex type extends: an antibody, a protein complex,
+or a lab's own. Its `components`
+are rows of a `part` (any registry entry), its `copies` and its `role` (a
+string), and its identity is its parts and their copies, whatever their
+roles or order, so one molecule is one entry whichever type registered it.
+Each part is given once, with its copies. Its `bonds`, a registry fact, are
+rows of a bond (`disulfide`, `isopeptide`, `thioether` or `other`) between a
+residue of one copy of a part and one of another (`part`, `copy`, `residue`,
+`partner`, `partner_copy`, `partner_residue`, each from 1), checked against
+the parts' sequences: a disulfide's two residues are cysteines, and no
+residue is in two bonds. Its formula, average and monoisotopic masses and
+chain count are derived from its parts and copies, each cysteine's thiol
+free (the complex plugin computes them for every type).
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `helm`,
@@ -992,8 +1021,9 @@ on it. The validator checks that:
 
 A run's input carries references as IDs. An input can `include` some of its
 type's references, or lists of them, and the run reads the entities they name
-too, under each input entity's `included`, by reference: an antibody's
-`heavy_chain` and `light_chain`, or a structure's `chains`. Like the inputs,
+too, under each input entity's `included`, by reference: a structure's
+`chains`, or a list of rows' references, each row's in the rows' order, such
+as a complex's `components.part` (ADR 0161). Like the inputs,
 they're pinned when the run is launched, at the revisions they have then, and
 the run keeps them. Whoever launches it must be able to read them, and they
 must be in its project, which the launch can add them to as it does inputs.
@@ -2154,8 +2184,9 @@ expect:
   the server packs runs.
 - For an input that includes references, an entity's `included` gives the
   entities each names, in the same form:
-  `included: { heavy_chain: [{ values: { sequence: EVQ… } }] }`. Each gets
-  an ID, which the reference holds.
+  `included: { chains: [{ values: { sequence: EVQ… } }] }`. Each gets
+  an ID, which the reference holds; for a list of rows' references
+  (`components.part`), each row's, in order.
 - `files` names files in the plugin. A value or param uses one as
   `{"$file": "name"}`.
 - `expect.output` is compared by what it gives: every key in a mapping,

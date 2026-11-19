@@ -2329,6 +2329,13 @@ TRASTUZUMAB_VL = (
     "DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYY"
     "CQQHYTTPPTFGQGTKVEIK"
 )
+
+
+#: Trastuzumab's Fv as the complex plugin computes it from its variable domains (each
+#: cysteine's thiol free): formula, average and monoisotopic masses, chain count, and
+#: molar absorbance at 280 nm (Pace's, as Biopython's ProtParam gives its chains: 35,410
+#: and 14,440).
+FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.46, 24845.1689, 2, 49850)
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
@@ -2586,6 +2593,19 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
             f"iki/antibody.number_chains ran ANARCI in a pod of its own ({run['hrid']}): "
             f"{chain['hrid']} is a {kind} chain, CDR3 {cdr3}, {v_gene} ({identity}%)"
         )
+    # The complex plugin computes each new complex's composition once its Admin turns its
+    # trigger on in the project (ADR 0080), as they would in the web app.
+    enabled = api_call(
+        alice,
+        "POST",
+        f"/projects/{project['id']}/triggers/iki/complex.compute_new_complex_composition/enable",
+        {},
+    )
+    if enabled.status_code != 200:
+        fail(
+            f"turning on iki/complex.compute_new_complex_composition answered HTTP "
+            f"{enabled.status_code}: {enabled.text[:300]}"
+        )
     # Its variable domains alone, numbered first: an Fv, with no constant region, so no
     # isotype.
     params = {"name": "Trastuzumab", "format": "fv", "target": "HER2"}
@@ -2600,10 +2620,17 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
         fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
     antibody = record(alice, effects[0]["entity"])["values"]
-    if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["format"]) != (
-        entry_of(heavy),
-        entry_of(light),
+    # Its chains are its parts, one copy of each for an Fv (ADR 0161), and its bonds each
+    # variable domain's own disulfide, C22-C96 and C23-C88 (KEGG DRUG D03257's).
+    wanted = [
+        {"part": entry_of(heavy), "copies": 1, "role": "heavy"},
+        {"part": entry_of(light), "copies": 1, "role": "light"},
+    ]
+    own = [(b["part"], b["residue"], b["partner_residue"]) for b in antibody.get("bonds") or []]
+    if (antibody["components"], antibody["format"], own) != (
+        wanted,
         "fv",
+        [(entry_of(heavy), 22, 96), (entry_of(light), 23, 88)],
     ):
         fail(f"{effects[0]['hrid']} is {antibody}")
     ok(
@@ -2612,6 +2639,73 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
+    complexes(alice, project, effects[0])
+
+
+def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
+    """Complexes (ADR 0161): the Fv's composition computed by the complex plugin's trigger;
+    the Fv found by searching iki/core.Complex; and its chains, registered again as a
+    protein complex, found to be the antibody already."""
+    composed(alice, fv)
+    found = api_call(
+        alice,
+        "POST",
+        "/entities/search",
+        {"type": "iki/core.Complex", "project": project["id"], "limit": 100},
+    )
+    if found.status_code != 200:
+        fail(f"searching complexes answered HTTP {found.status_code}: {found.text[:300]}")
+    hrids = {item["hrid"] for item in found.json()["items"]}
+    if fv["hrid"] not in hrids:
+        fail(f"searching iki/core.Complex found {sorted(hrids)}")
+    ok(f"searching iki/core.Complex found {fv['hrid']}, an iki/antibody.Antibody")
+    # The Fv's parts and copies, as a protein complex: one molecule is one entry.
+    antibody = record(alice, fv["entity"])["values"]
+    again = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/complex.ProteinComplex",
+            "project": project["id"],
+            "values": {"name": "Trastuzumab Fv", "components": antibody["components"]},
+        },
+    )
+    problems = [] if again.status_code != 422 else again.json().get("errors") or []
+    if not any("registered already, as a iki/antibody.Antibody" in p["detail"] for p in problems):
+        fail(
+            f"the Fv's chains as a protein complex answered {again.status_code}: {again.text[:300]}"
+        )
+    ok(f"the Fv's chains as a protein complex are {fv['hrid']}, registered already as an antibody")
+
+
+def composed(alice: requests.Session, fv: dict[str, Any]) -> None:
+    """The Fv's composition, which iki/complex.compute_composition's trigger computes when
+    it's registered (ADR 0161)."""
+    formula, weight, monoisotopic, chains, absorbance = FV_COMPOSITION
+    deadline = time.monotonic() + 180
+    got: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        got = record(alice, fv["entity"])["values"]
+        if got.get("molecular_formula"):
+            break
+        time.sleep(2)
+    if (
+        got.get("molecular_formula"),
+        got.get("molecular_weight"),
+        got.get("monoisotopic_mass"),
+        got.get("chain_count"),
+        got.get("extinction_coefficient_reduced"),
+    ) != (formula, weight, monoisotopic, chains, absorbance):
+        fail(
+            f"{fv['hrid']}'s composition is {got}, not {formula}, {weight} u, {chains} chains, "
+            f"{absorbance} L/(mol.cm)"
+        )
+    ok(
+        f"iki/complex.compute_composition's trigger computed {fv['hrid']}: {formula}, "
+        f"{weight:,} u average, {monoisotopic:,} u monoisotopic, {chains} chains, "
+        f"{absorbance:,} L/(mol.cm) at 280 nm"
+    )
 
 
 #: What iki/antibody.find_liabilities finds in trastuzumab's chains, on their IMGT numbering:
@@ -2693,8 +2787,8 @@ def predicted(
         fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
     read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
     wanted = {
-        ("heavy_chain", heavy["id"], revisions[heavy["id"]]),
-        ("light_chain", light["id"], revisions[light["id"]]),
+        ("components.part", heavy["id"], revisions[heavy["id"]]),
+        ("components.part", light["id"], revisions[light["id"]]),
     }
     if read != wanted:
         fail(f"{run['hrid']} read {read} through its input, not {wanted}")

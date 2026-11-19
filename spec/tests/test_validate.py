@@ -490,6 +490,163 @@ def test_rows_roles_name_the_rows_fields(tmp_path: Path) -> None:
     ]
 
 
+STRING_ROWS = """\
+parts:
+  type: list
+  items:
+    type: row
+    fields:
+      part: { type: ref, to: [Assay, Batch], required: true }
+      role: { type: string, pattern: "^[a-z]+$", max_length: 20, default: part, required: true }
+    by: role
+    roles:
+      heavy: { min: 1, max: 2, to: { part: Assay } }
+"""
+
+
+def test_a_rows_role_can_be_a_string_and_then_its_roles_are_all_it_takes(tmp_path: Path) -> None:
+    """ADR 0164: a role held by a string, whose roles, if it has any, are every role a row
+    may have; without any, a row may have any role its pattern takes."""
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    result = make(tmp_path, fields(STRING_ROWS) + "---\n" + batch)
+    assert codes(result) == []
+    assert result.plugin is not None
+    row = result.plugin.types["acme/lab.Assay"].fields["parts"].items
+    assert row is not None
+    assert (row.by, row.closed) == ("role", True)
+    # A role its pattern refuses can't be one.
+    bad = make(tmp_path, fields(STRING_ROWS.replace("heavy: {", "Heavy: {")) + "---\n" + batch)
+    assert codes(bad) == ["unknown-row-role"]
+    # Without roles, it's open.
+    open_ = make(tmp_path, fields(STRING_ROWS.split("    roles:")[0]) + "---\n" + batch)
+    assert codes(open_) == []
+    assert open_.plugin is not None
+    items = open_.plugin.types["acme/lab.Assay"].fields["parts"].items
+    assert items is not None and items.closed is False
+
+
+SUBTYPE = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Pair
+extends: Assay
+schema_version: 1
+hrid: { prefix: PAI }
+refines:
+  parts:
+    roles:
+      heavy: { min: 1, max: 1, to: { part: Assay } }
+      light: { max: 1, to: { part: Batch } }
+"""
+
+
+def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
+    """ADR 0164: a subtype says which roles its inherited rows take, and they're all its
+    rows may have, each no wider than its parent's."""
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    base = fields(STRING_ROWS.split("    roles:")[0]).replace(
+        "hrid: { prefix: ASY }\n", "abstract: true\n"
+    )
+
+    def made(subtype: str) -> Result:
+        return make(
+            tmp_path,
+            {"types/assay.yaml": base, "types/batch.yaml": batch, "types/pair.yaml": subtype},
+        )
+
+    result = made(SUBTYPE)
+    assert codes(result) == []
+    assert result.plugin is not None
+    pair = result.plugin.types["acme/lab.Pair"]
+    assert list(pair.refines["parts"]) == ["heavy", "light"]
+    assert pair.refines["parts"]["light"].to == {"part": ("acme/lab.Batch",)}
+    # It survives the manifest.
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+    # A role the parent's role field can't hold.
+    assert codes(made(SUBTYPE.replace("light: {", "Light: {"))) == ["unknown-row-role"]
+    # Its own field, a field that isn't rows, or one it hasn't.
+    own = (
+        SUBTYPE
+        + "fields:\n  extra: { type: list, items: { type: row, fields: { x: { type: int } } } }\n"
+    )
+    assert codes(made(own.replace("  parts:\n    roles:", "  extra:\n    roles:"))) == [
+        "refines-own-field"
+    ]
+    assert codes(made(SUBTYPE.replace("  parts:\n", "  nothing:\n"))) == ["refines-not-rows"]
+    # Wider than its parent's: a type the parent's cell doesn't refer to.
+    thing = TYPE.replace("Assay", "Thing").replace("ASY", "THG")
+    wider = make(
+        tmp_path,
+        {
+            "types/assay.yaml": base,
+            "types/batch.yaml": batch,
+            "types/thing.yaml": thing,
+            "types/pair.yaml": SUBTYPE.replace("to: { part: Batch }", "to: { part: Thing }"),
+        },
+    )
+    assert codes(wider) == ["row-role-type-not-allowed"]
+    # And a subtype of the subtype is no wider than it.
+    deeper = SUBTYPE.replace("name: Pair", "name: Single").replace(
+        "extends: Assay", "extends: Pair"
+    )
+    deeper = deeper.replace("PAI", "SNG").replace(
+        "light: { max: 1, to: { part: Batch } }", "light: { max: 2 }"
+    )
+    nested = make(
+        tmp_path,
+        {
+            "types/assay.yaml": base,
+            "types/batch.yaml": batch,
+            "types/pair.yaml": SUBTYPE,
+            "types/single.yaml": deeper,
+        },
+    )
+    assert codes(nested) == ["refines-wider"]
+
+
+def test_an_input_includes_a_rows_references(tmp_path: Path) -> None:
+    """ADR 0161: `parts.part` includes each row's reference; a cell that isn't one, or a
+    field that isn't rows, can't be."""
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+
+    def action(include: str) -> list[str]:
+        text = f"""\
+apiVersion: iki/v1
+kind: Action
+name: weigh
+inputs:
+  assay: {{ type: Assay, include: [{include}] }}
+effects:
+  creates: [{{ type: Batch, cardinality: one }}]
+runs_on: {{ tier: backend, environment: tools }}
+command: [python, ./weigh.py]
+"""
+        env = """\
+apiVersion: iki/v1
+kind: Environment
+name: tools
+tiers: [backend]
+resources: { cpu: 0.25, memory: 128Mi }
+python: { version: "3.12", requirements: requirements.txt }
+"""
+        result = make(
+            tmp_path,
+            {
+                "types/assay.yaml": fields(STRING_ROWS),
+                "types/batch.yaml": batch,
+                "actions/weigh.yaml": text,
+                "environments/tools.yaml": env,
+                "weigh.py": "",
+                "requirements.txt": "",
+            },
+        )
+        return codes(result)
+
+    assert action("parts.part") == []
+    assert action("parts.role") == ["include-not-reference"]
+    assert action("parts.nothing") == ["include-unknown-field"]
+
+
 def test_settings_cant_be_rows(tmp_path: Path) -> None:
     result = make(
         tmp_path,
@@ -996,8 +1153,8 @@ def test_core_entity_needs_no_dependency(tmp_path: Path) -> None:
     result = make(tmp_path, fields("x: { type: ref, to: iki/core.Sample }\n"))
     provides = (
         "In this version, core provides `iki/core.Alignment`, `iki/core.App`, "
-        "`iki/core.Collection`, `iki/core.Entity`, `iki/core.Organism`, `iki/core.Sequence`, "
-        "`iki/core.View`."
+        "`iki/core.Collection`, `iki/core.Complex`, `iki/core.Entity`, `iki/core.Organism`, "
+        "`iki/core.Sequence`, `iki/core.View`."
     )
     assert provides in only(result, "unknown-type")
 

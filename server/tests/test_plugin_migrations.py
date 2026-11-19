@@ -240,7 +240,9 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_bispecific__history",
         "acme__protein_bispecific__entry",
         "acme__protein_bispecific__entry__history",
-        "acme__protein_bispecific__entry__components",
+        # Its components are iki/core.Complex's, in the core's table (ADR 0161); its arms,
+        # a fact of its own entry, are its own (ADR 0165).
+        "acme__protein_bispecific__entry__arms",
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_batch",

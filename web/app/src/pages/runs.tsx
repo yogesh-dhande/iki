@@ -846,10 +846,18 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
   );
 }
 
-/** A reference's name as a label: `heavy_chain` is "Heavy chain". */
+/**
+ * A reference's name as a label: `heavy_chain` is "Heavy chain", and a list of rows'
+ * `components.part` is "Components · Part" (ADR 0161).
+ */
 function referenceLabel(field: string) {
-  const words = field.replaceAll("_", " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return field
+    .split(".")
+    .map((name) => {
+      const words = name.replaceAll("_", " ");
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    })
+    .join(" · ");
 }
 
 function approvalText(approval: Approval) {

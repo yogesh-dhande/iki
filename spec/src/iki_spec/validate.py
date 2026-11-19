@@ -14,7 +14,7 @@ from __future__ import annotations
 import dataclasses
 import keyword
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path as FilePath
 from typing import Any
@@ -53,6 +53,7 @@ from iki_spec.model import (
     Plugin,
     RequestSpec,
     ResultSpec,
+    RowRole,
     State,
     Track,
     Trigger,
@@ -62,6 +63,7 @@ from iki_spec.model import (
     matches_format,
     names_people,
     qualify,
+    refinement,
     split_entry,
 )
 from iki_spec.problems import Path, Problem, Severity
@@ -728,6 +730,15 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         if isinstance(body.get("result"), dict)
         else None,
         amount=_amount(body.get("amount"), plugin),
+        refines={
+            name: {
+                role: RowRole.from_manifest(role, r, plugin=plugin)
+                for role, r in (body_refines.get("roles") or {}).items()
+                if isinstance(r, dict)
+            }
+            for name, body_refines in (body.get("refines") or {}).items()
+            if isinstance(body_refines, dict)
+        },
     )
 
 
@@ -1227,6 +1238,7 @@ class _Semantics:
         for name, f in entity_type.fields.items():
             self.field(f, source, ("fields", name), siblings=names)
         self.identity(entity_type, source, every)
+        self.refines(entity_type, source)
         if entity_type.display_title is not None:
             present = {n: f for n, f in names.items() if not f.removed}
             self.title(entity_type.display_title, source, present)
@@ -1962,24 +1974,18 @@ class _Semantics:
                 "and light chains).",
             )
         entry = set(entity_type.identity)
+        inherited = next((a for a in self.ancestors(entity_type) if a.identity), None)
         for name, f in entity_type.fields.items():
-            if f.registry is not None and not entity_type.identity:
-                inherited = next((a for a in self.ancestors(entity_type) if a.identity), None)
+            # A subtype of a registered type has registry fields of its own (ADR 0165).
+            if f.registry is not None and not entity_type.identity and inherited is None:
                 self.add(
                     "registry-without-identity",
                     f"`{name}` is marked `registry: {f.registry}`, but `{entity_type.name}` "
-                    + (
-                        f"gets its identity from `{inherited.qualified_name}`."
-                        if inherited is not None
-                        else "has no identity, so it has no registry entries."
-                    ),
+                    "has no identity, so it has no registry entries.",
                     source,
                     ("fields", name, "registry"),
                     key=True,
-                    hint="Registry fields belong to the type that declares the identity, or an "
-                    "extension of it (ADR 0115)."
-                    if inherited is not None
-                    else "Give the type an `identity`, or leave `registry` off.",
+                    hint="Give the type an `identity`, or leave `registry` off.",
                 )
                 continue
             if name in entry or f.registry is not None:
@@ -2039,8 +2045,10 @@ class _Semantics:
         targets += [t for c in cells if c.type == "ref" for t in c.to]
         for target in targets:
             found = self.types.get(target)
-            if found is None:
-                continue  # reported as an unknown reference
+            if found is None or target == naming.ENTITY:
+                # Unknown ones are reported as such; `iki/core.Entity` in an entry is any
+                # entry, as the database holds it (ADR 0161).
+                continue
             if not any(t.identity for t in [found, *self.ancestors(found)]):
                 self.add(
                     "registry-refers-to-record",
@@ -2569,10 +2577,11 @@ class _Semantics:
         if row.by is None:
             return
         by = row.fields.get(row.by)
-        if by is None or by.type != "enum":
+        if by is None or by.type not in ("enum", "string"):
             self.add(
                 "row-role-not-enum",
-                f"`by` names the row's field that holds its role, an enum, and `{row.by}` "
+                f"`by` names the row's field that holds its role, an enum or a string, and "
+                f"`{row.by}` "
                 + ("isn't one of its fields." if by is None else f"is a {by.type} field."),
                 source,
                 (*path, "by"),
@@ -2587,9 +2596,25 @@ class _Semantics:
                 (*path, "fields", row.by, "required"),
                 hint="Add `required: true`.",
             )
-        for name, role in row.roles.items():
-            at = (*path, "roles", name)
-            if name not in by.values:
+        self.row_roles(row, by, row.roles, source, (*path, "roles"))
+
+    def row_roles(
+        self,
+        row: Field,
+        by: Field,
+        roles: Mapping[str, RowRole],
+        source: Document,
+        path: Path,
+        within: Mapping[str, RowRole] | None = None,
+        *,
+        entries: bool = False,
+    ) -> None:
+        """What each role of a list's rows takes: a role its ``by`` field can hold, at most
+        as many rows as it can have, and references within the row's (and, for a subtype's
+        refinement, ``within`` its ancestor's roles: ADR 0164)."""
+        for name, role in roles.items():
+            at = (*path, name)
+            if by.type == "enum" and name not in by.values:
                 self.add(
                     "unknown-row-role",
                     f"`{name}` isn't one of `{row.by}`'s values.",
@@ -2597,6 +2622,25 @@ class _Semantics:
                     at,
                     key=True,
                     hint=f"Its values are: {', '.join(by.values)}.",
+                )
+            elif by.type == "string" and value_problems(by, name):
+                self.add(
+                    "unknown-row-role",
+                    f"`{name}` isn't a value `{row.by}` can hold: "
+                    + " ".join(value_problems(by, name)),
+                    source,
+                    at,
+                    key=True,
+                )
+            above = within.get(name) if within is not None else None
+            if within is not None and above is None:
+                self.add(
+                    "refines-unknown-role",
+                    f"`{name}` isn't one of the roles this type's parent gives its rows.",
+                    source,
+                    at,
+                    key=True,
+                    hint=f"Its roles are: {', '.join(within)}." if within else None,
                 )
             if role.min is not None and role.max is not None and role.min > role.max:
                 self.add(
@@ -2621,12 +2665,21 @@ class _Semantics:
                 for index, target in enumerate(types):
                     where = (*at, "to", cell_name, *((index,) if len(types) > 1 else ()))
                     named = self.reference(target, source, where)
-                    if named is None or naming.ENTITY in ref.to:
+                    if named is None:
                         continue
+                    if entries and not any(t.identity for t in [named, *self.ancestors(named)]):
+                        self.add(
+                            "registry-refers-to-record",
+                            f"`{target}`'s entities are each project's own records, and these "
+                            "rows are part of the identity, which refers only to entries.",
+                            source,
+                            where,
+                            hint="Name types with an identity (ADR 0115).",
+                        )
                     lineage = {named.qualified_name} | {
                         a.qualified_name for a in self.ancestors(named)
                     }
-                    if not lineage & set(ref.to):
+                    if naming.ENTITY not in ref.to and not lineage & set(ref.to):
                         self.add(
                             "row-role-type-not-allowed",
                             f"`{target}` isn't one of the types `{cell_name}` refers to "
@@ -2634,6 +2687,83 @@ class _Semantics:
                             source,
                             where,
                         )
+                    elif (
+                        above is not None
+                        and cell_name in above.to
+                        and not lineage & set(above.to[cell_name])
+                    ):
+                        self.add(
+                            "refines-wider",
+                            f"`{target}` isn't one of the types a {name} row's "
+                            f"`{cell_name}` refers to in this type's parent "
+                            f"({', '.join(above.to[cell_name])}), or one of their subtypes.",
+                            source,
+                            where,
+                            hint="A subtype narrows what its parent's rows take.",
+                        )
+            if above is not None:
+                for bound, mine, theirs in (
+                    ("min", role.min, above.min),
+                    ("max", role.max, above.max),
+                ):
+                    wider = theirs is not None and (
+                        mine is None or (mine < theirs if bound == "min" else mine > theirs)
+                    )
+                    if wider:
+                        self.add(
+                            "refines-wider",
+                            f"A {name} row's `{bound}` is {theirs} in this type's parent, and a "
+                            "subtype narrows what its parent's rows take"
+                            + (f", so its `{bound}` can't be {mine}." if mine is not None else "."),
+                            source,
+                            (*at, bound) if mine is not None else at,
+                            hint=f"Give `{bound}: {theirs}`, or one within it.",
+                        )
+
+    def refines(self, entity_type: EntityType, source: Document) -> None:
+        """A subtype's roles for lists of rows it inherits (ADR 0164): each a list of rows
+        with roles by a field, the roles each one its rows may have, within its ancestors'."""
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        for name, roles in entity_type.refines.items():
+            at: Path = ("refines", name)
+            if name in entity_type.fields:
+                self.add(
+                    "refines-own-field",
+                    f"`{name}` is this type's own field: give its roles there.",
+                    source,
+                    at,
+                    key=True,
+                )
+                continue
+            owner = next((t for t in lineage[1:] if name in t.fields), None)
+            f = owner.fields[name] if owner is not None else None
+            if f is None or not f.is_rows or f.items is None or f.items.by is None:
+                self.add(
+                    "refines-not-rows",
+                    f"`refines` gives the roles of a list of rows this type inherits, with "
+                    f"roles by one of its fields, and `{name}` "
+                    + (
+                        "isn't a field of its parents."
+                        if f is None
+                        else "isn't a list of rows."
+                        if not f.is_rows
+                        else "has no `by`."
+                    ),
+                    source,
+                    at,
+                    key=True,
+                )
+                continue
+            row = f.items
+            by = row.fields.get(row.by) if row.by else None
+            if by is None:
+                continue  # reported on the type that declares it
+            above = refinement(lineage[1:], name)
+            if above is None and row.roles:
+                above = row.roles
+            identity_owner = next((t for t in lineage if t.identity), None)
+            entries = identity_owner is not None and name in identity_owner.identity
+            self.row_roles(row, by, roles, source, (*at, "roles"), within=above, entries=entries)
 
     def targets(self, f: Field, source: Document, path: Path) -> None:
         """A reference's types (ADR 0136): each one the plugin can name, and none of them

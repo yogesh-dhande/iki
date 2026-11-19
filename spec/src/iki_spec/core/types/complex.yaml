@@ -1,0 +1,173 @@
+# Molecules held together as one (ADR 0161): an antibody's chains, hemoglobin's chains and
+# hemes, a receptor bound to its ligand, or any protein complex. Plugins add
+# the types (iki/complex.ProteinComplex, of any parts; iki/antibody.Antibody, of a heavy
+# and a light chain), each saying in `refines` which parts it takes, so searching
+# iki/core.Complex finds every kind at once, and `components.part` finds the complexes a
+# molecule is part of.
+apiVersion: iki/v1
+kind: EntityType
+name: Complex
+label: Complex
+label_plural: Complexes
+abstract: true
+schema_version: 1
+description: >-
+  Molecules held together as one: an antibody's chains, hemoglobin's chains
+  and hemes, a receptor bound to its ligand, or any other complex. It's
+  its parts and how many copies of each, whatever their order, so one set of
+  parts is one registry entry, whichever type of complex registered it.
+# Its parts and their copies (ADR 0138's sets of parts): not their roles, which each
+# type of complex names its own way, so a protein complex of the same parts as an antibody
+# is that antibody.
+identity: [components]
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  components:
+    type: list
+    label: Parts
+    required: true
+    immutable: true
+    min_items: 1
+    max_items: 100
+    description: >-
+      What it's made of: each part once, with how many copies of it the complex
+      has, and its role in it. An IgG is its heavy chain, two copies, and its
+      light chain, two copies.
+    items:
+      type: row
+      fields:
+        part:
+          type: ref
+          to: iki/core.Entity
+          required: true
+          description: >-
+            A molecule it's made of, as its registry entry: a protein, a nucleic
+            acid, a small molecule, or a complex of its own.
+        copies:
+          type: int
+          min: 1
+          max: 10000
+          default: 1
+          required: true
+          description: How many of it the complex has.
+        role:
+          type: string
+          pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+          max_length: 40
+          default: part
+          required: true
+          description: >-
+            What the part is in it, such as heavy, light or antigen. A type of
+            complex says which roles its parts may have.
+      identity: [part, copies]
+      by: role
+  bonds:
+    type: list
+    registry: fact
+    label: Bonds
+    max_items: 1000
+    description: >-
+      The covalent bonds between its parts' residues, such as the disulfides
+      between an antibody's chains, or within a part, if they're wanted too. Each
+      names its two residues by their part, which copy of it (from 1), and where
+      they are in its sequence (from 1). A registry fact: given once, then
+      changed only by its registrars.
+    items:
+      type: row
+      fields:
+        kind:
+          type: enum
+          values: [disulfide, isopeptide, thioether, other]
+          default: disulfide
+          required: true
+          description: >-
+            disulfide two cysteines, isopeptide a lysine's side chain to another
+            residue (a sortase or SpyTag link), thioether a cysteine's sulfur to a
+            carbon, and other anything else.
+        part: { type: ref, to: iki/core.Entity, required: true, description: One residue's part. }
+        copy:
+          { type: int, min: 1, max: 10000, default: 1, required: true, description: Which copy. }
+        residue:
+          { type: int, min: 1, required: true, description: Where it is in the part's sequence. }
+        partner:
+          { type: ref, to: iki/core.Entity, required: true, description: The other residue's part. }
+        partner_copy:
+          {
+            type: int,
+            min: 1,
+            max: 10000,
+            default: 1,
+            required: true,
+            label: Partner's copy,
+            description: Which copy of it.,
+          }
+        partner_residue:
+          {
+            type: int,
+            min: 1,
+            required: true,
+            label: Partner's residue,
+            description: Where it is in its sequence.,
+          }
+  # What its parts and copies make it, whatever its type (computed by the complex plugin's
+  # compute_composition): its registry entry's, as they come from its identity alone, so
+  # its parts as they are, each cysteine's thiol free. Its bonds are a registry fact that
+  # may be corrected, so what they take off (two hydrogens for each disulfide) is worked
+  # out where they're shown rather than kept here to go stale.
+  molecular_formula:
+    type: string
+    registry: derived
+    label: Molecular formula
+    pattern: "^([A-Z][a-z]?[0-9]*)+$"
+    max_length: 255
+    computed: true
+    description: >-
+      Its parts' formulas, each times its copies, in Hill order (C, then H,
+      then the rest alphabetically): a protein's from its residues and water,
+      another part's as its entry gives it. Each cysteine's thiol free, before
+      its disulfides.
+  molecular_weight:
+    type: quantity
+    registry: derived
+    label: Molecular weight
+    unit: u
+    display_unit: ku
+    computed: true
+    indexed: true
+    min: 0
+    description: >-
+      Its average mass, from its formula and IUPAC's standard atomic weights,
+      each cysteine's thiol free: each disulfide takes 2.016 u off.
+  monoisotopic_mass:
+    type: quantity
+    registry: derived
+    label: Monoisotopic mass
+    unit: u
+    computed: true
+    min: 0
+    description: >-
+      Its mass from each element's most abundant isotope (AME2020), each
+      cysteine's thiol free: each disulfide takes 2.01565 u off.
+  chain_count:
+    type: int
+    registry: derived
+    label: Chains
+    computed: true
+    min: 0
+    description: How many polymer chains it has, counting each copy, its parts' own included.
+  extinction_coefficient_reduced:
+    type: quantity
+    registry: derived
+    label: Extinction coefficient (reduced)
+    unit: L/(mol.cm)
+    computed: true
+    min: 0
+    description: >-
+      Its molar absorbance at 280 nm in water, each cysteine's thiol free (Pace
+      et al., 1995): 5,500 for each tryptophan in its parts and 1,490 for each
+      tyrosine, each times its copies, or a part complex's own. Each disulfide
+      makes a cystine, 125 more. None if a part isn't a protein or a complex
+      with one, as Pace's values weigh only those.
+display:
+  title: "{{ name or hrid }}"

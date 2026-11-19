@@ -3268,8 +3268,10 @@ class RoleIn(TypedDict):
 
 
 class RowOut(TypedDict):
-    #: The row field, an enum, that holds each row's role.
+    #: The row field, an enum or a string, that holds each row's role.
     by: str | None
+    #: Whether each row's role must be one of `roles`: a subtype's, which refines its parent's rows (ADR 0164), or one held by a string field. Otherwise a role `roles` doesn't name takes any count.
+    closed: bool
     #: Each row's fields, in order.
     fields: list[FieldOut]
     #: For a list in its type's identity (ADR 0138): the row fields that tell two rows apart. Empty: all of them.
@@ -3284,7 +3286,7 @@ class RowRoleOut(TypedDict):
     max: int | None
     #: The fewest rows with this role, or null for none.
     min: int | None
-    #: The role: one of the row's `by` field's values.
+    #: The role: a value of the row's `by` field.
     name: str
     #: For each of the row's references, by name: the types a row with this role may refer to, each with its subtypes.
     to: dict[str, list[str]]
@@ -4620,7 +4622,7 @@ class WalkParams(TypedDict):
 class WalkStepOut(TypedDict):
     #: Where this step reaches. Downstream, it depends on the step before (or the root); upstream, the step before depends on it.
     entity: GraphEntityOut
-    #: A reference's field; a run's input (`antibody.heavy_chain` for what it included); a file param; empty for a record.
+    #: A reference's field; a run's input (`antibody.components.part` for what it included); a file param; empty for a record.
     field: str
     #: For a file edge, the file, if you can read it.
     file: WalkFileOut | None

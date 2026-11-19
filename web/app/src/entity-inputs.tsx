@@ -165,7 +165,7 @@ function RowInput(props: InputProps) {
         <FieldInput
           {...props}
           key={cell.name}
-          field={cell}
+          field={roleChoice(field, cell)}
           type={schema}
           draft={row.cells[cell.name] ?? null}
           error={path ? errors?.[`${path}/${cell.name}`] : undefined}
@@ -180,6 +180,21 @@ function RowInput(props: InputProps) {
       ))}
     </fieldset>
   );
+}
+
+/**
+ * A row's role, where its roles are every role it may have (ADR 0164: a subtype's, or a
+ * string's that names them): a choice of them, by their labels, rather than text to type.
+ */
+function roleChoice(field: FieldDef, cell: FieldDef): FieldDef {
+  const row = field.row;
+  if (!row?.closed || row.by !== cell.name || cell.type !== "string") return cell;
+  return {
+    ...cell,
+    type: "enum",
+    values: row.roles.map((r) => r.name),
+    states: row.roles.map((r) => ({ name: r.name, label: r.label })) as FieldDef["states"],
+  };
 }
 
 function TextInput(props: InputProps) {

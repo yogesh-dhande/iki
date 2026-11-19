@@ -12,7 +12,7 @@ description: >-
   structure is made from the antibody's chains as they were when it was
   launched.
 inputs:
-  antibody: { type: Antibody, schema: ">=1", include: [heavy_chain, light_chain] }
+  antibody: { type: Antibody, schema: ">=2", include: [components.part] }
 effects:
   creates:
     - type: iki/protein.ProteinStructure
