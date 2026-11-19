@@ -10,7 +10,7 @@
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
 import type { Entity } from "./entities";
@@ -260,35 +260,62 @@ export interface SavedView {
   index: number;
 }
 
-/** The saved views an entity is in, shown in a viewer, newest first. */
-export const savedViewsQuery = (entity: Entity, viewer: ViewerName) =>
-  queryOptions({
+/** Saved views the tab lists at a time, and candidates read from the server at a time. */
+export const SAVED_VIEWS_PAGE = 50;
+
+/** A page of the saved views an entity is in, and where the next page starts. */
+export interface SavedViewsPage {
+  views: SavedView[];
+  next_cursor: string | undefined;
+}
+
+/**
+ * The saved views an entity is in, shown in a viewer, newest first, a page at a time.
+ *
+ * A view of a record of a type with an identity holds its registry entry (ADR 0115), so the
+ * entity's entry is what its targets are matched with. The server finds views that show the
+ * entity in some viewer and something in this one; a view of it in one viewer and of
+ * something else in this one isn't a view of it here, so candidates are read until a page
+ * of views of it here is full, or there are none left.
+ */
+export const savedViewsQuery = (entity: Entity, viewer: ViewerName) => {
+  const target = entity.entry?.id ?? entity.id;
+  return infiniteQueryOptions({
     queryKey: ["views", entity.id, viewer],
-    queryFn: async (): Promise<SavedView[]> => {
-      const found = unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
-            type: VIEW_TYPE,
-            where: {
-              all: [
-                { field: "targets", op: "has", value: entity.id },
-                { field: "viewers", op: "has", value: viewer },
-              ],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }): Promise<SavedViewsPage> => {
+      const views: SavedView[] = [];
+      let cursor = pageParam;
+      do {
+        const found = unwrap(
+          await iki.POST("/api/v1/entities/search", {
+            body: {
+              type: VIEW_TYPE,
+              where: {
+                all: [
+                  { field: "targets", op: "has", value: target },
+                  { field: "viewers", op: "has", value: viewer },
+                ],
+              },
+              sort: { field: "created_at", descending: true },
+              limit: SAVED_VIEWS_PAGE,
+              exact_type: true,
+              ...(cursor ? { cursor } : {}),
             },
-            sort: { field: "created_at", descending: true },
-            limit: 50,
-            exact_type: true,
-          },
-        }),
-      ).items;
-      // A view of it in one viewer and of something else in this one isn't a view of it here.
-      return found.flatMap((view) => {
-        const targets = viewTargets(view);
-        const index = targets.findIndex((t) => t.id === entity.id && t.viewer === viewer);
-        return index >= 0 ? [{ view, targets, index }] : [];
-      });
+          }),
+        );
+        for (const view of found.items) {
+          const targets = viewTargets(view);
+          const index = targets.findIndex((t) => t.id === target && t.viewer === viewer);
+          if (index >= 0) views.push({ view, targets, index });
+        }
+        cursor = found.next_cursor ?? undefined;
+      } while (cursor && views.length < SAVED_VIEWS_PAGE);
+      return { views, next_cursor: cursor };
     },
+    getNextPageParam: (last) => last.next_cursor,
   });
+};
 
 /** Names and numbers in a list, as a sentence says them: "A", "A and B", "A, B and C". */
 export function listed(items: string[]): string {

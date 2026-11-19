@@ -7,7 +7,7 @@
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
@@ -46,7 +46,9 @@ export function SavedViews({
   viewer: AnyViewer;
   capture: RefObject<Capture | null>;
 }) {
-  const views = useQuery(savedViewsQuery(entity, viewer.viewer));
+  const views = useInfiniteQuery(savedViewsQuery(entity, viewer.viewer));
+  const saved = views.data?.pages.flatMap((p) => p.views) ?? [];
+  const here = entity.owner_project?.id;
   return (
     <section className="saved-views" aria-labelledby="saved-views-title">
       <div className="section-header">
@@ -55,22 +57,39 @@ export function SavedViews({
         </h2>
         {entity.can.edit ? <SaveView entity={entity} viewer={viewer} capture={capture} /> : null}
       </div>
-      {views.data?.length ? (
-        <ul className="saved-view-list">
-          {views.data.map((saved) => (
-            <li key={saved.view.id}>
-              <Link to="/entities/$ref/" params={{ ref: saved.view.hrid }}>
-                {saved.view.title}
-              </Link>{" "}
-              <span className="muted">
-                revision {String(saved.targets[saved.index]?.revision ?? "")}
-                {saved.targets.length > 1 ? ` · ${withOthers(saved)}` : ""}
-                {saved.view.created_by ? ` · ${saved.view.created_by.name}` : ""} ·{" "}
-                <Time value={saved.view.created_at} />
-              </span>
-            </li>
-          ))}
-        </ul>
+      {saved.length ? (
+        <>
+          <ul className="saved-view-list">
+            {saved.map((one) => (
+              <li key={one.view.id}>
+                <Link to="/entities/$ref/" params={{ ref: one.view.hrid }}>
+                  {one.view.title}
+                </Link>{" "}
+                <span className="muted">
+                  revision {String(one.targets[one.index]?.revision ?? "")}
+                  {/* A registry entry's view pins its own project's record of it (ADR 0115). */}
+                  {one.view.owner_project && one.view.owner_project.id !== here
+                    ? ` in ${one.view.owner_project.name}`
+                    : ""}
+                  {one.targets.length > 1 ? ` · ${withOthers(one)}` : ""}
+                  {one.view.created_by ? ` · ${one.view.created_by.name}` : ""} ·{" "}
+                  <Time value={one.view.created_at} />
+                </span>
+              </li>
+            ))}
+          </ul>
+          {views.hasNextPage ? (
+            <p>
+              <Button
+                busy={views.isFetchingNextPage}
+                busyText="Loading…"
+                onClick={() => void views.fetchNextPage()}
+              >
+                Show older
+              </Button>
+            </p>
+          ) : null}
+        </>
       ) : views.isSuccess ? (
         <p className="muted">
           None yet. A saved view keeps what the viewer shows, on this revision, for figures and
