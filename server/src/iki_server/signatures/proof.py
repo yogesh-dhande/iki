@@ -5,8 +5,11 @@ A signature is Ed25519, by the deployment's signing key, over a **document**: ca
 JSON (RFC 8785) naming the record, its revision, the change to its state it signs for,
 what the signature means, who signed, when, and how they signed in again. The document
 names the SHA-256 of the record's **content** at that revision: canonical JSON too, of its
-values as its history keeps them. So a signature can't be moved to another record or
-revision, and a changed value, by any path, no longer matches what was signed.
+values as its history keeps them, and each quantity's unit. So a signature can't be moved
+to another record or revision, and a changed value, by any path, no longer matches what
+was signed. What a plugin's migration did to that history since, renaming a field or
+converting a quantity to another unit (ADR 0148), :func:`migrated` does to the content, so
+it's compared with the history as it's kept now.
 
 Canonical JSON is RFC 8785's (JCS): object keys sorted by their UTF-16 code units, no
 whitespace, strings as ECMAScript's ``JSON.stringify`` writes them, and numbers as
@@ -20,7 +23,7 @@ import binascii
 import hashlib
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -29,8 +32,9 @@ from iki_server.bundles import keys
 
 #: The format of what a signature signs.
 DOCUMENT_FORMAT = "iki/signature/v1"
-#: The format of a record's content, whose SHA-256 the document names.
-CONTENT_FORMAT = "iki/signed-content/v1"
+#: The format of a record's content, whose SHA-256 the document names: v2 names each
+#: quantity's unit (ADR 0148).
+CONTENT_FORMAT = "iki/signed-content/v2"
 
 
 class NotCanonical(ValueError):  # noqa: N818 - reads as "the JSON is not canonical"
@@ -121,6 +125,7 @@ def content(
     revision: int,
     entry: Mapping[str, Any] | None,
     values: Mapping[str, Any],
+    units: Mapping[str, str],
     files: Mapping[str, str],
 ) -> dict[str, Any]:
     """A record's content at a revision, as a signature binds it.
@@ -128,19 +133,83 @@ def content(
     ``values``: each field's value as its history keeps it (a reference or file by its
     ID, a time in ISO 8601), removed fields' included, keyed by field name. Empty ones
     (null, an empty list) are left out, so a field a plugin adds later, empty at the
-    signed revision, doesn't change what was signed. ``files``: the SHA-256 of each file
-    the values name, by ID. ``entry``: for a record of a registry entry, the entry's ID
-    and revision, whose values are among ``values``.
+    signed revision, doesn't change what was signed. ``units``: the UCUM unit each
+    quantity among them is kept in, so 1.5 reads as the 1.5 g it was. ``files``: the
+    SHA-256 of each file the values name, by ID. ``entry``: for a record of a registry
+    entry, the entry's ID and revision, whose values are among ``values``.
     """
+    kept = {k: v for k, v in values.items() if v is not None and v != []}
     return {
         "format": CONTENT_FORMAT,
         "record": record,
         "type": type_name,
         "revision": revision,
         "entry": dict(entry) if entry is not None else None,
-        "values": {k: v for k, v in values.items() if v is not None and v != []},
+        "values": kept,
+        "units": {k: u for k, u in units.items() if k in kept},
         "files": dict(files),
     }
+
+
+class Unexplained(ValueError):  # noqa: N818 - reads as "the content's units are unexplained"
+    """Migrations' changes that don't follow from what was signed: a conversion from a unit
+    the field wasn't in."""
+
+
+def migrated(signed: Mapping[str, Any], changes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """``signed`` content as its record's history keeps it after ``changes``: what plugins'
+    migrations did to that history since it was signed (ADR 0148), in the order they did
+    it. A field renamed is named anew; a quantity converted is converted as the migration
+    converted it, ``new = old * scale + offset``, so it's the same double; a type renamed
+    is named anew. Raises :class:`Unexplained` for a conversion from a unit the field
+    wasn't in."""
+    values = dict(signed.get("values") or {})
+    units = dict(signed.get("units") or {})
+    out = dict(signed)
+    for change in changes:
+        kind = change.get("kind")
+        if kind == "rename":
+            old, new = change["from"], change["to"]
+            if old in values:
+                values[new] = values.pop(old)
+            if old in units:
+                units[new] = units.pop(old)
+        elif kind == "convert":
+            name = change["field"]
+            if name not in values:
+                continue
+            if units.get(name) != change["from_unit"]:
+                raise Unexplained(
+                    f"`{name}` was signed in {units.get(name) or 'no unit'}, but a migration "
+                    f"converted it from {change['from_unit']}."
+                )
+            scale, offset = float(change["scale"]), float(change["offset"])
+            value = values[name]
+            values[name] = (
+                [None if v is None else v * scale + offset for v in value]
+                if isinstance(value, list)
+                else value * scale + offset
+            )
+            units[name] = change["to_unit"]
+        elif kind == "retype" and out.get("type") == change["from"]:
+            out["type"] = change["to"]
+    out["values"] = values
+    out["units"] = units
+    return out
+
+
+def described(changes: Sequence[Mapping[str, Any]]) -> str:
+    """What migrations did since, for people: "`name` renamed `title`, `mass` converted
+    from g to mg"."""
+    said = []
+    for c in changes:
+        if c.get("kind") == "rename":
+            said.append(f"`{c['from']}` renamed `{c['to']}`")
+        elif c.get("kind") == "convert":
+            said.append(f"`{c['field']}` converted from {c['from_unit']} to {c['to_unit']}")
+        elif c.get("kind") == "retype":
+            said.append(f"its type renamed {c['to']}")
+    return ", ".join(said)
 
 
 # --- Checking -----------------------------------------------------------------------------------
@@ -220,6 +289,9 @@ def check_content(document: Mapping[str, Any], content_text: str) -> Check:
 
 
 def differences(signed: Mapping[str, Any], now: Mapping[str, Any]) -> list[str]:
-    """The fields whose values differ between two contents' ``values``, sorted."""
-    a, b = signed.get("values") or {}, now.get("values") or {}
-    return sorted(k for k in a.keys() | b.keys() if canonical(a.get(k)) != canonical(b.get(k)))
+    """The fields whose values, or units, differ between two contents, sorted."""
+    out = set()
+    for part in ("values", "units"):
+        a, b = signed.get(part) or {}, now.get(part) or {}
+        out |= {k for k in a.keys() | b.keys() if canonical(a.get(k)) != canonical(b.get(k))}
+    return sorted(out)

@@ -623,11 +623,17 @@ class _Writer:
         were signed, by the keys its source trusts: each checked before it's kept, so an
         import never brings one that doesn't verify."""
         from iki_server.signatures import proof, signing_keys
+        from iki_server.signatures import services as signature_services
         from iki_server.signatures.models import Signature, Withdrawal
 
         listed = {k["key"]: k["deployment"] for k in self.bundle.manifest.get("signing_keys", [])}
         trusted = {**signing_keys.trusted(), **listed}
         renamed = {str(k): str(v) for k, v in self.renamed.items()}
+        # What migrations here do to its record's history from now on, it's read through,
+        # signed by this deployment's own key (ADR 0148): made now, if it has none yet.
+        seen = signature_services.history_seen()
+        if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
+            signing_keys.current()
         for line in self.bundle.lines("signatures.ndjson"):
             if line["record"] not in planned or Signature.objects.filter(pk=line["id"]).exists():
                 continue
@@ -666,6 +672,8 @@ class _Writer:
                 deployment=line["deployment"],
                 bundle_import=self.made,
                 renamed={k: renamed[k] for k in sorted(names)},
+                history_seen=seen,
+                migrated=list(line.get("since") or []),
             )
             if line["withdrawn"] is not None:
                 w = line["withdrawn"]

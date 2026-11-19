@@ -75,6 +75,18 @@ def _unseal(sealed: str) -> tuple[str, str] | None:
     return public, deployment
 
 
+def mine() -> set[str]:
+    """This deployment's own keys, current and retired, whose private halves decrypt to
+    them: what signs what only this deployment does, such as its migrations' changes to
+    kept history (ADR 0148)."""
+    return {
+        key.public
+        for key in SigningKey.objects.all()
+        if (private := _private(key.pk, key.private_encrypted)) is not None
+        and keys.public_text(private) == key.public
+    }
+
+
 def trusted() -> dict[str, str]:
     """Every key this deployment trusts for signatures, with the deployment it signs for:
     its own whose private halves decrypt to them, and others' that unseal."""

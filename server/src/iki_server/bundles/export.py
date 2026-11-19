@@ -145,7 +145,7 @@ def write(
         files = list(File.objects.filter(id__in=found.files).select_related("blob"))
         signed = list(
             Signature.objects.filter(entity_id__in=found.entities)
-            .select_related("withdrawal")
+            .select_related("withdrawal", "entity")
             .order_by("entity_id", "signed_at", "pk")
         )
         withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
@@ -616,7 +616,8 @@ def _withdrawal_of(signature: Signature) -> Withdrawal | None:
 
 def _signature(s: Signature) -> dict[str, Any]:
     """An electronic signature (ADR 0126), as it was signed: ``iki bundle verify`` checks
-    it against the bundle's own history, offline."""
+    it against the bundle's own history, offline, through ``since``: what plugins'
+    migrations did to its record's history after it was signed (ADR 0148)."""
     withdrawn = _withdrawal_of(s)
     return {
         "id": str(s.pk),
@@ -634,6 +635,7 @@ def _signature(s: Signature) -> dict[str, Any]:
         "document": s.document,
         "signature": proof.b64(bytes(s.signature)),
         "content": s.content,
+        "since": _since(s),
         "withdrawn": (
             {
                 "by": str(withdrawn.by_id),
@@ -644,6 +646,19 @@ def _signature(s: Signature) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _since(s: Signature) -> list[dict[str, Any]]:
+    """What migrations did to its record's history since it was signed (ADR 0148). Only
+    what came with it, if a change recorded here since isn't one this deployment signed:
+    the bundle's history then fails its check, as the record's does here."""
+    from iki_server.signatures import proof
+    from iki_server.signatures import services as signatures
+
+    try:
+        return signatures.since(s, s.entity)
+    except proof.Unexplained:
+        return list(s.migrated or [])
 
 
 def _signing_keys(signed: list[Signature]) -> list[dict[str, str]]:

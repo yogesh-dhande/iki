@@ -17,6 +17,82 @@ from django.db.migrations.state import ProjectState
 UNLOCKED_SETTING = "iki.unlocked"
 
 
+def record_change(
+    schema_editor: BaseDatabaseSchemaEditor,
+    app_label: str,
+    kind: str,
+    name: str,
+    to: str,
+    *,
+    part: str = "",
+    backwards: bool = False,
+    units: tuple[str, str] = ("", ""),
+    conversion: tuple[float, float] | None = None,
+) -> None:
+    """Records a change a migration makes to values kept history holds (ADR 0148), in
+    ``iki_history_change``, in the migration's transaction: signed by this deployment's
+    signing key, if it has one yet, as an electronic signature is (ADR 0126)."""
+    from django.utils import timezone
+
+    from iki_server.bundles import keys
+    from iki_server.core import crypto
+    from iki_server.plugins.models import HistoryChange
+    from iki_spec import naming
+
+    scale, offset = conversion if conversion is not None else (None, None)
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT nextval(pg_get_serial_sequence('iki_history_change', 'id'))")
+        (number,) = cursor.fetchone()
+        # The signing key, read as it's kept: this runs before later migrations of the
+        # signatures app may have.
+        cursor.execute(
+            "SELECT public, private_encrypted FROM iki_signing_key WHERE retired_at IS NULL"
+        )
+        signing = cursor.fetchone()
+    change = HistoryChange(
+        pk=number,
+        plugin=naming.plugin_of_label(app_label) or app_label,
+        backwards=backwards,
+        kind=kind,
+        part=part,
+        name=name,
+        to=to,
+        from_unit=units[0],
+        to_unit=units[1],
+        scale=scale,
+        offset=offset,
+        made_at=timezone.now(),
+    )
+    key, signature = "", b""
+    if signing is not None:
+        private = keys.private_key(crypto.decrypt(signing[1]))
+        if keys.public_text(private) != signing[0]:
+            raise crypto.DecryptionError(
+                "This deployment's signing key doesn't decrypt with IKI_ENCRYPTION_KEYS."
+            )
+        key, signature = signing[0], keys.sign(private, change.signed())
+    schema_editor.execute(
+        'INSERT INTO iki_history_change (id, plugin, backwards, kind, part, name, "to",'
+        ' from_unit, to_unit, scale, "offset", made_at, key, signature)'
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        [
+            change.pk,
+            change.plugin,
+            backwards,
+            kind,
+            part,
+            name,
+            to,
+            *units,
+            scale,
+            offset,
+            change.made_at,
+            key,
+            signature,
+        ],
+    )
+
+
 @contextmanager
 def unlocked(schema_editor: BaseDatabaseSchemaEditor) -> Iterator[None]:
     schema_editor.execute("SELECT set_config(%s, 'on', true)", [UNLOCKED_SETTING])
@@ -430,6 +506,59 @@ class RenameStateField(_StateOperation):
         return f"rename_states_{self.model_name.lower()}_{self.new_name}"
 
 
+class RecordRename(migrations.operations.base.Operation):
+    """Records, after a history table's field is renamed, that it was (ADR 0148): a
+    signature made before reads its record's history by the field's new name. Django's
+    ``RenameField`` renames the column; this only records it, forwards and back."""
+
+    reversible = True
+
+    def __init__(self, model_name: str, old_name: str, new_name: str, part: str) -> None:
+        self.model_name = model_name
+        self.old_name = old_name
+        self.new_name = new_name
+        #: The part of a type the table holds, as its shape names it: ``acme/lab.Sample``.
+        self.part = part
+
+    def state_forwards(self, app_label: str, state: ProjectState) -> None:
+        pass
+
+    def database_forwards(
+        self,
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        from_state: ProjectState,
+        to_state: ProjectState,
+    ) -> None:
+        record_change(
+            schema_editor, app_label, "rename", self.old_name, self.new_name, part=self.part
+        )
+
+    def database_backwards(
+        self,
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        from_state: ProjectState,
+        to_state: ProjectState,
+    ) -> None:
+        record_change(
+            schema_editor,
+            app_label,
+            "rename",
+            self.new_name,
+            self.old_name,
+            part=self.part,
+            backwards=True,
+        )
+
+    def describe(self) -> str:
+        return f"Record that {self.model_name}.{self.old_name} is now {self.new_name}"
+
+    @property
+    def migration_name_fragment(self) -> str:
+        return f"record_rename_{self.model_name.lower()}_{self.new_name}"
+
+
 class ConvertUnit(migrations.operations.base.Operation):
     """Converts a quantity's stored values when its canonical unit changes.
 
@@ -448,6 +577,7 @@ class ConvertUnit(migrations.operations.base.Operation):
         to_unit: str,
         scale: float,
         offset: float = 0.0,
+        part: str = "",
     ) -> None:
         self.model_name = model_name
         self.name = name
@@ -455,6 +585,9 @@ class ConvertUnit(migrations.operations.base.Operation):
         self.to_unit = to_unit
         self.scale = scale
         self.offset = offset
+        #: For a history table: the part of a type it holds, as its shape names it
+        #: (``acme/lab.Sample``), so the conversion is recorded for signatures (ADR 0148).
+        self.part = part
 
     def state_forwards(self, app_label: str, state: ProjectState) -> None:
         pass
@@ -466,7 +599,14 @@ class ConvertUnit(migrations.operations.base.Operation):
         from_state: ProjectState,
         to_state: ProjectState,
     ) -> None:
-        self._convert(app_label, schema_editor, to_state, self.scale, self.offset)
+        self._convert(
+            app_label,
+            schema_editor,
+            to_state,
+            (self.from_unit, self.to_unit),
+            self.scale,
+            self.offset,
+        )
 
     def database_backwards(
         self,
@@ -475,16 +615,39 @@ class ConvertUnit(migrations.operations.base.Operation):
         from_state: ProjectState,
         to_state: ProjectState,
     ) -> None:
-        self._convert(app_label, schema_editor, to_state, 1 / self.scale, -self.offset / self.scale)
+        self._convert(
+            app_label,
+            schema_editor,
+            to_state,
+            (self.to_unit, self.from_unit),
+            1 / self.scale,
+            -self.offset / self.scale,
+            backwards=True,
+        )
 
     def _convert(
         self,
         app_label: str,
         schema_editor: BaseDatabaseSchemaEditor,
         state: ProjectState,
+        units: tuple[str, str],
         scale: float,
         offset: float,
+        *,
+        backwards: bool = False,
     ) -> None:
+        if self.part:
+            record_change(
+                schema_editor,
+                app_label,
+                "convert",
+                self.name,
+                self.name,
+                part=self.part,
+                backwards=backwards,
+                units=units,
+                conversion=(scale, offset),
+            )
         model = state.apps.get_model(app_label, self.model_name)
         field: Any = model._meta.get_field(self.name)
         table, column = (schema_editor.quote_name(n) for n in (model._meta.db_table, field.column))
@@ -539,7 +702,7 @@ class RenameEntityType(migrations.operations.base.Operation):
         from_state: ProjectState,
         to_state: ProjectState,
     ) -> None:
-        self._rename(schema_editor, self.old_name, self.new_name)
+        self._rename(app_label, schema_editor, self.old_name, self.new_name)
 
     def database_backwards(
         self,
@@ -548,10 +711,19 @@ class RenameEntityType(migrations.operations.base.Operation):
         from_state: ProjectState,
         to_state: ProjectState,
     ) -> None:
-        self._rename(schema_editor, self.new_name, self.old_name)
+        self._rename(app_label, schema_editor, self.new_name, self.old_name, backwards=True)
 
     @staticmethod
-    def _rename(schema_editor: BaseDatabaseSchemaEditor, old: str, new: str) -> None:
+    def _rename(
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        old: str,
+        new: str,
+        *,
+        backwards: bool = False,
+    ) -> None:
+        # Signatures name the type they signed (ADR 0148).
+        record_change(schema_editor, app_label, "retype", old, new, backwards=backwards)
         schema_editor.execute("UPDATE iki_entity SET type = %s WHERE type = %s", [new, old])
 
     def describe(self) -> str:

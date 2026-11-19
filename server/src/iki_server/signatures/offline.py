@@ -9,9 +9,11 @@ each of ``signatures.ndjson``'s lines against the bundle itself:
 - the content kept with it is the one its document names, by SHA-256, for its record
   and revision;
 - the bundle's own history of the record, at that revision, holds that content: each of
-  the record's own fields, and the SHA-256 of each file they name. A record of a registry
-  entry's entry fields are bound by the signature alone: the bundle has the entry as it
-  is now, not at the revision signed;
+  the record's own fields, and the SHA-256 of each file they name, once what plugins'
+  migrations did to that history since it was signed (``since``: fields renamed,
+  quantities converted, ADR 0148) is done to the content. A record of a registry entry's
+  entry fields are bound by the signature alone: the bundle has the entry as it is now,
+  not at the revision signed;
 - if a revision of the record carries it, that revision is the one after it and sets
   the state it signed for.
 
@@ -127,7 +129,17 @@ def _history_check(
     own: dict[str, Any] = {}
     for _, values in latest.values():
         own.update(values)
-    signed = _parsed(line["content"])
+    since = line.get("since") or []
+    try:
+        signed = proof.migrated(_parsed(line["content"]), since)
+    except proof.Unexplained as unexplained:
+        return proof.Check(
+            "record",
+            False,
+            f"The bundle's history of revision {revision} isn't what was signed: {unexplained}",
+        )
+    except (ValueError, TypeError, KeyError):
+        signed = {}
     signed_values = signed.get("values") or {}
     held = {k: v for k, v in own.items() if v is not None and v != []}
     mine = {k: v for k, v in signed_values.items() if k in own}
@@ -150,7 +162,14 @@ def _history_check(
             + " changed.",
         )
     return proof.Check(
-        "record", True, f"The bundle's history of revision {revision} holds what was signed."
+        "record",
+        True,
+        f"The bundle's history of revision {revision} holds what was signed"
+        + (
+            f", as plugins' migrations have kept it since: {proof.described(since)}."
+            if since
+            else "."
+        ),
     )
 
 

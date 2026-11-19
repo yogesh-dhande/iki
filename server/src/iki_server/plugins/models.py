@@ -1,5 +1,6 @@
 """What the migrate Job keeps about plugins between deploys (ADR 0034)."""
 
+import datetime as dt
 from typing import ClassVar
 
 from django.conf import settings
@@ -123,3 +124,111 @@ class PluginPurge(models.Model):
     @property
     def pending(self) -> bool:
         return self.cancelled_at is None and self.done_at is None
+
+
+class HistoryChange(models.Model):
+    """A change a plugin's migration made to values kept history holds (ADR 0148): a field
+    renamed, a quantity converted to a new unit, or a type renamed. ``ConvertUnit``,
+    ``RecordRename`` and ``RenameEntityType`` add one each, forwards or back, in the
+    migration's own transaction, so an electronic signature made before reads its record's
+    history through what was done since, and still finds what was signed. Only migrations
+    write them, and nothing changes or deletes one. Each is signed by the deployment's
+    signing key (ADR 0126), as signatures are, so the database alone can't add one that a
+    signature is read through."""
+
+    #: The format of what a change's signature signs.
+    FORMAT = "iki/history-change/v1"
+
+    APPEND_ONLY = True
+
+    class Kind(models.TextChoices):
+        RENAME = "rename", "A field renamed"
+        CONVERT = "convert", "A quantity converted to another unit"
+        RETYPE = "retype", "A type renamed"
+
+    id = models.BigAutoField(primary_key=True)
+    #: The plugin whose migration made it: ``acme/lab``.
+    plugin = models.CharField(max_length=100)
+    #: Whether it was made by reversing a migration.
+    backwards = models.BooleanField(default=False)
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    #: The table whose fields changed, by what it holds, as a type's shape names its parts:
+    #: ``acme/lab.Sample``, ``acme/lims:acme/lab.Sample``, ``acme/lab.Sample#entry``. Empty
+    #: for a type renamed.
+    part = models.CharField(max_length=255, blank=True, default="")
+    #: The field (or type) as it was named, and as it's named after.
+    name = models.CharField(max_length=255)
+    to = models.CharField(max_length=255)
+    #: A conversion's units, and how it converted: ``new = old * scale + offset``.
+    from_unit = models.CharField(max_length=100, blank=True, default="")
+    to_unit = models.CharField(max_length=100, blank=True, default="")
+    scale = models.FloatField(null=True, blank=True)
+    offset = models.FloatField(null=True, blank=True)
+    made_at = models.DateTimeField(db_default=Now())
+    #: Ed25519 over :meth:`signed`, by the key named, which was this deployment's signing
+    #: key then; empty if it had none yet, when no signature here could be read through it.
+    key = models.CharField(max_length=64, blank=True, default="")
+    signature = models.BinaryField(blank=True, default=b"")
+
+    class Meta:
+        db_table = "iki_history_change"
+        db_table_comment = (
+            "What plugin migrations did to kept history: fields renamed, units converted, "
+            "types renamed (ADR 0148)."
+        )
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(kind__in=["rename", "convert", "retype"]),
+                name="iki_history_change_kind",
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="convert")
+                | Q(scale__isnull=False, offset__isnull=False, from_unit__gt="", to_unit__gt=""),
+                name="iki_history_change_conversion",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.plugin}: {self.kind} {self.name} → {self.to}"
+
+    def signed(self) -> bytes:
+        """What its signature signs: canonical JSON (RFC 8785) of it, its ID included."""
+        from iki_server.signatures import proof
+
+        return proof.canonical_bytes(
+            {
+                "format": self.FORMAT,
+                "id": self.pk,
+                "plugin": self.plugin,
+                "backwards": self.backwards,
+                "kind": self.kind,
+                "part": self.part,
+                "name": self.name,
+                "to": self.to,
+                "from_unit": self.from_unit,
+                "to_unit": self.to_unit,
+                "scale": self.scale,
+                "offset": self.offset,
+                "made_at": self.made_at.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            }
+        )
+
+    def change(self) -> dict[str, object]:
+        """As a signature reads it, and a bundle carries it: what was done, by which
+        plugin's migration, when."""
+        out: dict[str, object] = {
+            "kind": self.kind,
+            "plugin": self.plugin,
+            "at": self.made_at.date().isoformat(),
+        }
+        if self.kind == self.Kind.CONVERT:
+            out.update(
+                field=self.name,
+                from_unit=self.from_unit,
+                to_unit=self.to_unit,
+                scale=self.scale,
+                offset=self.offset,
+            )
+        else:
+            out.update({"from": self.name, "to": self.to})
+        return out
