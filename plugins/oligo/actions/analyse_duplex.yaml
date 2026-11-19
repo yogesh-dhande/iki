@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: analyse_duplex
+label: Find a duplex's region and overhangs
+description: >-
+  A duplex's region, overhangs and mismatches, from its strands' bases
+  antiparallel, and its formula and molecular weight, its strands' together.
+inputs:
+  duplex: { type: Duplex, schema: ">=1" }
+  strands:
+    type: Oligonucleotide
+    schema: ">=1"
+    cardinality: many
+    max: 2
+    label: Its strands
+effects:
+  updates:
+    - input: duplex
+      fields:
+        - duplex_length
+        - mismatches
+        - sense_overhang_5
+        - sense_overhang_3
+        - antisense_overhang_5
+        - antisense_overhang_3
+        - pairing
+        - molecular_formula
+        - molecular_weight
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, analyse]
+deterministic: true
+timeout: 10m

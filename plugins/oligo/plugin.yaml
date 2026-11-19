@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/oligo
+version: 0.1.0
+title: Oligonucleotides
+description: >-
+  Modified oligonucleotides by their HELM: antisense oligonucleotides, siRNA strands and
+  duplexes, primers and probes with their modifications, and the registry of monomers
+  they're made of, with molecular weight, formula and extinction from the monomers.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/oligo

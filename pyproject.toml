@@ -84,8 +84,9 @@ select = [
   "ANN",           # annotations everywhere
   "TC004",         # a type-only import used at runtime: Python 3.12 evaluates annotations
 ]
-# UI copy uses typographic apostrophes and quotes, and en dashes for ranges (12–40).
-allowed-confusables = ["’", "“", "”", "–"]
+# UI copy uses typographic apostrophes and quotes, en dashes for ranges (12–40), and
+# primes for a nucleotide's carbons (5′ to 3′, 2′-O-methyl).
+allowed-confusables = ["’", "“", "”", "–", "′"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S105", "S106", "ANN"]

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_monomer_library
+label: Register the HELM monomer library
+description: >-
+  Registers every monomer of the library the plugin ships: natural DNA and RNA,
+  2′-MOE, LNA, ENA, (S)-cEt, 2′-OMe and 2′-F sugars, phosphate and
+  phosphorothioate (undefined, Rp and Sp), 5-methylcytosine, and 6-FAM, Cy3, Cy5,
+  BHQ-1, BHQ-2, biotin-TEG, amino C6, cholesterol-TEG, triantennary GalNAc and a C3
+  spacer, from the Pistoia Alliance's HELM monomer sets. One registered already is
+  found again; one registered with another structure fails the run, saying which.
+effects:
+  creates:
+    - { type: Monomer, cardinality: many }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, library]
+deterministic: true
+timeout: 10m

@@ -1,0 +1,108 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Duplex
+label: Duplex
+label_plural: Duplexes
+schema_version: 1
+description: >-
+  Two oligonucleotide strands annealed: an siRNA's sense and antisense strands, by
+  their registry entries. Its strands are its identity, by role, in either order, so
+  listing the antisense first is the same duplex; the same two strands with their roles
+  swapped is another, since which strand guides the silencing is part of its design.
+  Its duplex region and overhangs are found from its strands' bases.
+hrid: { prefix: DUP }
+identity: [strands]
+fields:
+  strands:
+    type: list
+    min_items: 2
+    max_items: 2
+    required: true
+    immutable: true
+    items:
+      type: row
+      fields:
+        role: { type: enum, values: [sense, antisense], required: true }
+        strand: { type: ref, to: Oligonucleotide, required: true }
+      by: role
+      identity: [role, strand]
+      roles:
+        sense: { label: Sense strand, min: 1, max: 1 }
+        antisense: { label: Antisense strand, min: 1, max: 1 }
+    description: >-
+      Its sense (passenger) strand and its antisense (guide) strand, each 5′ to 3′.
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  duplex_length:
+    type: quantity
+    registry: derived
+    unit: "{bp}"
+    computed: true
+    indexed: true
+    min: 0
+    description: >-
+      Its base pairs: the longest stretch where the strands, antiparallel, pair as
+      Watson and Crick do (A with T or U, G with C), a G·U wobble counted as a
+      mismatch.
+  mismatches:
+    type: int
+    registry: derived
+    computed: true
+    min: 0
+    description: Mismatches and G·U wobbles inside its duplex region.
+  sense_overhang_5:
+    {
+      type: int,
+      registry: derived,
+      label: Sense 5′ overhang,
+      computed: true,
+      description: "Nucleotides of the sense strand past the duplex at its 5′ end.",
+    }
+  sense_overhang_3:
+    {
+      type: int,
+      registry: derived,
+      label: Sense 3′ overhang,
+      computed: true,
+      description: "Nucleotides of the sense strand past the duplex at its 3′ end.",
+    }
+  antisense_overhang_5:
+    {
+      type: int,
+      registry: derived,
+      label: Antisense 5′ overhang,
+      computed: true,
+      description: "Nucleotides of the antisense strand past the duplex at its 5′ end.",
+    }
+  antisense_overhang_3:
+    {
+      type: int,
+      registry: derived,
+      label: Antisense 3′ overhang,
+      computed: true,
+      description: "Nucleotides of the antisense strand past the duplex at its 3′ end: 2 for a classic siRNA.",
+    }
+  pairing:
+    type: json
+    registry: derived
+    computed: true
+    description: >-
+      The two strands' bases aligned antiparallel, and which positions of each pair:
+      what its Duplex tab draws.
+  molecular_formula:
+    type: string
+    registry: derived
+    max_length: 1000
+    computed: true
+    description: Its two strands' formulas together, as the free acid.
+  molecular_weight:
+    type: quantity
+    registry: derived
+    unit: g/mol
+    computed: true
+    indexed: true
+    min: 0
+    description: Its two strands' weights together, as the free acid.
+display:
+  title: "{{ name or hrid }}"

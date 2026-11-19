@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: chemistry
+label: Chemistry
+description: >-
+  The oligonucleotide's nucleotides 5′ to 3′, each its base, sugar and linker, the
+  modified ones marked, and the groups at its ends; and each position in a table.
+module: ./components/chemistry.js
+element: oligo-chemistry
+slots: [{ slot: entity.tab, type: Oligonucleotide }]

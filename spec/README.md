@@ -63,7 +63,7 @@ parts are 2 to 30 lower-case letters, digits and single underscores, starting
 with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
-  `iki/antibody`, `iki/small_molecule` and `iki/example_lims`. No other
+  `iki/antibody`, `iki/small_molecule`, `iki/oligo` and `iki/example_lims`. No other
   plugin may use it, or a namespace starting with `iki_`
   (`reserved-namespace`), and a lockfile takes an `iki/...` plugin only from
   Iki's repository.

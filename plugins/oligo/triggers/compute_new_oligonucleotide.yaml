@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_oligonucleotide
+label: Compute each new oligonucleotide's properties
+description: >-
+  Computes an oligonucleotide's properties from the monomers it lists when it's
+  registered other than by this plugin's actions, such as from its form or the API.
+  They're its registry entry's, which every project with a record of it shares.
+  Runs that compute them only fill in fields, so they never fire it again.
+on: entity.registered
+type: Oligonucleotide
+run: compute_oligonucleotide

@@ -21,6 +21,7 @@ FIRST_PARTY = {
     PLUGINS / "protein": (PLUGINS / "dna",),
     PLUGINS / "antibody": (PLUGINS / "dna", PLUGINS / "protein"),
     PLUGINS / "small_molecule": (),
+    PLUGINS / "oligo": (),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
@@ -52,6 +53,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "protein",
         PLUGINS / "antibody",
         PLUGINS / "small_molecule",
+        PLUGINS / "oligo",
         TEMPLATE,
         "--output",
         out,
@@ -246,6 +248,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         ]
     }
     for app in (
+        "iki__oligo",
         "iki__small_molecule",
         "iki__antibody",
         "acme__example",
@@ -257,7 +260,8 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         database,
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
-        "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%')",
+        "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
+        "OR tablename LIKE 'oligo%%')",
     )
     assert left == [(0,)]
 
@@ -327,3 +331,91 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
     ori = {"type": "rep_origin", "start": 3, "end": 6, "strand": "forward"}
     assert result["features"] == [[ori], [ori]]
     assert result["submitted"] == [None, {"bases": "CCGATTAAGT"}, {"bases": "AATCGGACTT"}]
+
+
+def test_an_oligonucleotide_is_its_canonical_helm(tmp_path: Path, database: str) -> None:
+    """61e, ADR 0144 and 0147: one HELM written two ways is one registry entry, in any
+    project; a 5′-biotin primer is another oligonucleotide from the plain one; a search by
+    bases finds both, and Sequence's searches find them. A duplex is its strands by role,
+    in either order."""
+    out = tmp_path / "build"
+    built = iki("plugin", "build", PLUGINS / "oligo", "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import search, services
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+        alice = User.objects.create_user("alice@example.com")
+        other = Project.objects.create(team=team, name="Probes")
+        for p in (project, other):
+            ProjectMembership.objects.create(project=p, user=alice, role=ProjectRole.EDITOR)
+
+        def make(where, helm, bases):
+            # Its bases are computed by a run: registered here as one would.
+            return services.create(
+                alice, "iki/oligo.Oligonucleotide", where, {"helm": helm, "bases": bases},
+                by_run=True,
+            )
+
+        biotin = (
+            "RNA1{P.[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)}|CHEM1{[5BioTEG]}"
+            "$RNA1,CHEM1,1:R1-1:R1$$$V2.0"
+        )
+        # The same molecule: the conjugate first, its brackets and an annotation kept.
+        written = (
+            'CHEM1{[5BioTEG]}|RNA1{[P].[dR]([A])P.[dR](C)P.[dR](G)P.[dR](T)}"5′-biotin"'
+            "$CHEM1,RNA1,1:R1-1:R1$$$V2.0"
+        )
+        first = make(project, biotin, "ACGT")
+        again = make(other, written, "ACGT")
+        plain = make(project, "RNA1{[dR](A)P.[dR](C)P.[dR](G)P.[dR](T)}$$$$V2.0", "ACGT")
+        other_bases = make(project, "RNA1{[dR](T)P.[dR](T)P.[dR](T)}$$$$V2.0", "TTT")
+        try:
+            make(project, "RNA1{[dR](A)P.[dR](C)", "AC")
+            bad = None
+        except services.Invalid as invalid:
+            bad = invalid.errors
+
+        def found(type_name, where):
+            s = search.Search(type=type_name, project=project.pk, where=where)
+            return sorted(str(e.pk) for e in search.queryset(alice, s))
+
+        by_bases = found(
+            "iki/oligo.Oligonucleotide", {"field": "bases", "op": "contains", "value": "acg"}
+        )
+        sequences = found("iki/core.Sequence", None)
+
+        def duplex(rows):
+            return services.create(alice, "iki/oligo.Duplex", project, {"strands": rows}).entity
+        s, a = str(plain.entity.entry_id), str(other_bases.entity.entry_id)
+        one = duplex([{"role": "sense", "strand": s}, {"role": "antisense", "strand": a}])
+        two = duplex([{"role": "antisense", "strand": a}, {"role": "sense", "strand": s}])
+        swapped = duplex([{"role": "sense", "strand": a}, {"role": "antisense", "strand": s}])
+
+        result = {
+            "entries": [str(x.entity.entry_id) for x in (first, again, plain)],
+            "registered": [x.registered for x in (first, again, plain)],
+            "by_bases": by_bases,
+            "expected_by_bases": sorted(str(x.entity.pk) for x in (first, plain)),
+            "sequences": sequences,
+            "expected_sequences": sorted(str(x.entity.pk) for x in (first, plain, other_bases)),
+            "bad": bad,
+            "duplexes": [str(d.entry_id) for d in (one, two, swapped)],
+        }
+        """,
+    )
+    first, again, plain = result["entries"]
+    assert first == again != plain
+    assert result["registered"] == [True, False, True]
+    assert result["by_bases"] == result["expected_by_bases"]
+    assert result["sequences"] == result["expected_sequences"]
+    assert list(result["bad"]) == ["helm"]
+    assert "isn't HELM" in result["bad"]["helm"][0]
+    one, two, swapped = result["duplexes"]
+    assert one == two != swapped

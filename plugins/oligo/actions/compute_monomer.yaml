@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_monomer
+label: Check a monomer's structure
+description: >-
+  Checks a monomer's structure: its SMILES reads, its attachment points are capped
+  with a hydrogen or a hydroxyl, and a sugar, base or linker has those it joins
+  at. Computes its structure key, attachment points, formula and molecular weight.
+  One that fails is named, and nothing of it is computed.
+inputs:
+  monomer: { type: Monomer, schema: ">=1" }
+effects:
+  updates:
+    - input: monomer
+      fields: [structure, attachments, molecular_formula, molecular_weight]
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, monomers]
+deterministic: true
+batchable: 100
+timeout: 10m

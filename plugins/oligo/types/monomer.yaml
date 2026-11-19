@@ -1,0 +1,143 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Monomer
+label: Monomer
+label_plural: Monomers
+schema_version: 1
+description: >-
+  A HELM monomer: a sugar, base, linker or chemical group, by its polymer type and
+  symbol, as HELM names it ([MOE], [sP], [5FAM]). Its structure is fixed once it's
+  registered (ADR 0145): every oligonucleotide made of it was weighed from it, so a
+  wrong one is superseded by a registrar, never changed. The plugin seeds the registry
+  from the Pistoia Alliance's HELM monomer library; a lab registers its own.
+hrid: { prefix: MON }
+identity: [polymer_type, symbol]
+fields:
+  polymer_type:
+    type: enum
+    values: [RNA, CHEM, PEPTIDE]
+    label: Polymer type
+    required: true
+    immutable: true
+    indexed: true
+    description: >-
+      The HELM polymer it's a monomer of: RNA (nucleotides, DNA's too), CHEM (a
+      chemical group joined to a polymer) or PEPTIDE.
+  symbol:
+    type: string
+    max_length: 100
+    pattern: "^[^\\s$|{}.,:+\"'()\\[\\]*]+$"
+    required: true
+    immutable: true
+    indexed: true
+    description: >-
+      Its ID in HELM, such as MOE or 5meC, written in brackets when it's longer
+      than one character: RNA1{[MOE]([5meC])[sP]}. Symbols are compared exactly,
+      case and all.
+  name:
+    type: string
+    registry: fact
+    max_length: 255
+    pattern: "^[A-Za-z0-9][^\\t\\r\\n]*$"
+    indexed: true
+    description: What it is, such as 2′-O-Methoxyethylribose.
+  role:
+    type: enum
+    registry: fact
+    values: [sugar, base, linker, modifier]
+    required: true
+    immutable: true
+    indexed: true
+    description: >-
+      What it is in a nucleotide: a sugar (with R1 at its 5′, R2 at its 3′ and R3
+      where its base joins), a base (joined at R1), a linker between sugars (a
+      phosphate or phosphorothioate), or a modifier: anything else, such as a dye
+      or a conjugate.
+  natural_analogue:
+    type: string
+    registry: fact
+    max_length: 10
+    pattern: "^[A-Za-z0-9]+$"
+    immutable: true
+    indexed: true
+    description: >-
+      The natural monomer it stands in for, as HELM's libraries give it: R for a
+      sugar, P for a linker, the base's letter for a base (C for 5-methylcytosine).
+      A base sequence reads its bases by it.
+  smiles:
+    type: string
+    registry: fact
+    label: Structure (SMILES)
+    max_length: 20000
+    # SMILES's characters: atoms, bonds, branches, rings, stereo and maps.
+    pattern: "^[A-Za-z0-9@+\\-\\[\\]()=#$:.%/\\\\]+$"
+    required: true
+    immutable: true
+    description: >-
+      Its structure as it is unjoined, in SMILES with each attachment point's cap
+      atom mapped as HELM's libraries map them: [H:1] for a hydrogen, [OH:3] for a
+      hydroxyl. Joining an attachment point takes its cap off. Ribose is
+      O[C@H]1[C@H]([OH:3])O[C@H](CO[H:1])[C@H]1O[H:2].
+  extinction_260:
+    type: quantity
+    registry: fact
+    unit: L/(mol.cm)
+    label: ε260
+    min: 0
+    immutable: true
+    description: >-
+      A modifier's own molar extinction coefficient at 260 nm, which an
+      oligonucleotide's adds; 0 for one that doesn't absorb there. Bases don't have
+      one: a strand's is from its nearest neighbours.
+  extinction_source:
+    type: string
+    registry: fact
+    label: ε260 source
+    max_length: 500
+    pattern: "^[A-Za-z0-9][^\\t\\r\\n]*$"
+    description: Where its ε260 is from, such as its supplier's catalogue.
+  source:
+    type: string
+    registry: fact
+    max_length: 500
+    pattern: "^[A-Za-z0-9][^\\t\\r\\n]*$"
+    description: >-
+      Where its structure is from: a monomer library and its version, a supplier,
+      or the lab.
+  structure:
+    type: string
+    registry: derived
+    label: Structure key
+    max_length: 64
+    pattern: "^[0-9a-f]{64}$"
+    computed: true
+    unique: true
+    indexed: true
+    description: >-
+      The SHA-256 of its polymer type and its structure as RDKit's canonical SMILES,
+      with each attachment point as [*:n]: the same for one structure however it's
+      drawn, so two symbols can't name one monomer.
+  attachments:
+    type: list
+    registry: derived
+    items: { type: string, max_length: 10 }
+    max_items: 10
+    computed: true
+    description: Its attachment points and their caps, such as R1 (H).
+  molecular_formula:
+    type: string
+    registry: derived
+    max_length: 200
+    computed: true
+    description: Its formula unjoined, with its caps, in Hill order.
+  molecular_weight:
+    type: quantity
+    registry: derived
+    unit: g/mol
+    computed: true
+    min: 0
+    description: Its average molecular weight unjoined, with its caps.
+  description: { type: text, max_length: 10000 }
+display:
+  title: "{{ name or symbol }}"

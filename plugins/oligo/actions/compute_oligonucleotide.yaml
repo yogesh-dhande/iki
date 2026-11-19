@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_oligonucleotide
+label: Compute an oligonucleotide's properties
+description: >-
+  An oligonucleotide's bases, length, formula, molecular weight, monoisotopic mass,
+  ε260 and modifications, computed from the structures of the monomers it lists,
+  for one registered other than by this plugin's actions, such as from its form or
+  the API. It fails, saying which, if its HELM names a monomer it doesn't list.
+inputs:
+  oligonucleotide: { type: Oligonucleotide, schema: ">=1", include: [monomers] }
+effects:
+  updates:
+    - input: oligonucleotide
+      fields:
+        - bases
+        - length
+        - molecular_formula
+        - molecular_weight
+        - monoisotopic_mass
+        - extinction_260
+        - extinction_note
+        - modifications
+        - positions
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/oligos.py, compute]
+deterministic: true
+batchable: 100
+timeout: 10m

@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: duplex
+label: Pairing
+description: >-
+  The duplex's two strands antiparallel, the sense strand 5′ to 3′ over the antisense
+  strand 3′ to 5′, with each base pair, mismatch and overhang.
+module: ./components/duplex.js
+element: oligo-duplex
+slots: [{ slot: entity.tab, type: Duplex }]
