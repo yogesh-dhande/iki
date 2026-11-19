@@ -40,11 +40,6 @@ export function workStates(type: EntityType | undefined, entity: Entity): string
   });
 }
 
-/** Whether a field names people: one (`person`), or a list of them. */
-export function namesPeople(field: Pick<FieldDef, "type" | "items">): boolean {
-  return field.type === "person" || (field.type === "list" && field.items === "person");
-}
-
 /** How many people a picker asks the server for at most. */
 const NAMEABLE_LIMIT = 20;
 

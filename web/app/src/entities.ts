@@ -364,11 +364,6 @@ export function validateNewEntitySearch(search: Record<string, unknown>): NewEnt
 
 // --- Reading values ---------------------------------------------------------------
 
-/** Fields people see: computed ones too, since actions set them. */
-export function shownFields(type: EntityType): FieldDef[] {
-  return type.fields;
-}
-
 /** Drops floating-point noise from a conversion (52.341000000000001 → 52.341). */
 function clean(value: number): number {
   return Number(value.toPrecision(12));

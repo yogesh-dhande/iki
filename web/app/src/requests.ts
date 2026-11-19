@@ -221,8 +221,3 @@ export function listed(words: readonly string[]): string {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1] ?? ""}`;
 }
-
-/** The project a side's fields are: the service's name once it's sent. */
-export function serviceName(sides: Pick<RequestSides, "service">): string {
-  return sides.service?.name ?? "The service";
-}

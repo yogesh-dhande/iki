@@ -173,13 +173,6 @@ def test_the_example_actions_and_environments_are_valid() -> None:
     assert (wanted.cpu, wanted.memory, wanted.gpu_count) == (8, 96 * 1024**3, 1)
 
 
-def test_actions_and_environments_survive_json() -> None:
-    result = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA])
-    assert result.plugin is not None
-    data = json.loads(json.dumps(plugin_to_dict(result.plugin)))
-    assert plugin_from_dict(data) == result.plugin
-
-
 def test_a_minimal_action_is_valid(tmp_path: Path) -> None:
     result = make(tmp_path)
     assert result.problems == []

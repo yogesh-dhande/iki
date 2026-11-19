@@ -87,23 +87,6 @@ def can_govern(user: User) -> bool:
     return permissions.can(user, Action.ORG_WEBHOOKS_MANAGE)
 
 
-def can_see(user: User, webhook: Webhook) -> bool:
-    return can_manage(user, webhook) or can_govern(user)
-
-
-def manageable(user: User) -> QuerySet[Webhook]:
-    """The webhooks this person manages: their projects', and the org's if Org Admin."""
-    projects = [
-        p.pk
-        for p in permissions.visible_projects(user).select_related("team")
-        if permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, p)
-    ]
-    found = Q(project__in=projects)
-    if can_govern(user):
-        found |= Q(project__isnull=True)
-    return Webhook.objects.filter(found)
-
-
 # --- Changes -------------------------------------------------------------------------
 
 

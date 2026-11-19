@@ -43,6 +43,25 @@ def test_iki_specs_package_is_built_by_its_own_backend() -> None:
     assert "backend/iki_spec_build.py" in config["tool"]["uv"]["build-backend"]["source-include"]
 
 
+def test_iki_wasm_is_only_ever_built() -> None:
+    """Every copy of iki-wasm is a build's (scripts/build-wasm.sh, the images'). One committed
+    would be a module no build replaces, shipped beside the one that's run."""
+    root = SPEC.parent
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - argv built here
+            ["git", *args],  # noqa: S607 - git from the PATH
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert git("ls-files", "*.wasm").stdout.split() == []
+    for left in ("spec/src/iki_spec/iki_wasm.wasm", "server/src/iki_server/iki_wasm.wasm"):
+        assert git("check-ignore", "--quiet", "--no-index", left).returncode == 0, left
+
+
 def test_from_a_checkout_it_builds_iki_wasm_first(tmp_path: Path) -> None:
     wasm = "spec/src/iki_spec/iki_wasm.wasm"
     project = checkout(tmp_path, f'cd "$(dirname "$0")/.." && printf wasm > {wasm}')

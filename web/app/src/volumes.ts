@@ -37,14 +37,6 @@ export function setupsQuery(environment: string) {
   });
 }
 
-export function setupQuery(ref: string) {
-  return queryOptions({
-    queryKey: [...VOLUMES, "build", ref],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/compute/setups/{ref}", { params: { path: { ref } } })),
-  });
-}
-
 export async function readSetupLog(ref: string, offset: number) {
   return unwrap(
     await iki.GET("/api/v1/compute/setups/{ref}/log", {

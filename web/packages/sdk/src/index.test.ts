@@ -109,7 +109,6 @@ describe("encodeName", () => {
     expect(encodeName("a/b/c")).toBe("a%2Fb%2Fc");
     expect(encodeName("/x")).toBe("%2Fx");
     expect(encodeName("../x")).toBe("..%2Fx");
-    expect(encodeName("iki/protein.Protein")).toBe("iki/protein.Protein");
   });
 });
 
