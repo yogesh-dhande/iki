@@ -1834,6 +1834,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
     kept as artifacts (ADR 0068), downloaded from where Iki's URL sends a browser. The
     chains, for aligned_many."""
     chains = []
+    human = organism(alice, project, 9606, "Homo sapiens")
     for name, sequence in (("HBA_HUMAN", HBA), ("HBB_HUMAN", HBB)):
         made = api_call(
             alice,
@@ -1842,7 +1843,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
             {
                 "type": "iki/protein.Protein",
                 "project": project["id"],
-                "values": {"name": name, "sequence": sequence, "organism": "Homo sapiens"},
+                "values": {"name": name, "sequence": sequence, "organism": human},
             },
         )
         if made.status_code not in (200, 201):
@@ -2014,6 +2015,29 @@ def save_app(
     )
 
 
+def organism(alice: requests.Session, project: dict[str, Any], taxon: int, name: str) -> str:
+    """The organism with that NCBI Taxonomy ID (ADR 0140), registered in the project the first
+    time, so a sequence's organism is a reference to it, and running the seed again reuses it."""
+    search = {
+        "type": "iki/core.Organism",
+        "project": project["id"],
+        "limit": 1,
+        "where": {"field": "taxon_id", "op": "eq", "value": taxon},
+    }
+    found = api_call(alice, "POST", "/entities/search", search).json().get("items", [])
+    if found:
+        return str(found[0]["id"])
+    values = {"taxon_id": taxon, "scientific_name": name}
+    body = {"type": "iki/core.Organism", "project": project["id"], "values": values}
+    made = api_call(alice, "POST", "/entities", body)
+    if made.status_code not in (200, 201):
+        fail(
+            f"registering {name} (taxon {taxon}) answered HTTP {made.status_code}: "
+            f"{made.text[:300]}"
+        )
+    return str(made.json()["id"])
+
+
 def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     """An app (ADR 0090): a grid of the globins, the one picked in the sequence viewer, and
     a line of text, bound by expressions the server checks with iki-wasm in its pod."""
@@ -2115,7 +2139,7 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
                 "component": "iki.text",
                 "props": {
                     "text": "{{ entity.values.name }} has {{ size(entity.values.sequence) }} "
-                    "residues. Others from {{ entity.values.organism }}:"
+                    "residues. Others from the same organism:"
                 },
             },
             {
@@ -2359,7 +2383,11 @@ def aligned_many(
         {
             "type": "iki/protein.Protein",
             "project": project["id"],
-            "values": {"name": "MB_HUMAN", "sequence": MB, "organism": "Homo sapiens"},
+            "values": {
+                "name": "MB_HUMAN",
+                "sequence": MB,
+                "organism": organism(alice, project, 9606, "Homo sapiens"),
+            },
         },
     )
     if made.status_code not in (200, 201):
