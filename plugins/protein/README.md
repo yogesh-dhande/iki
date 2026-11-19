@@ -21,8 +21,9 @@ of proteins, two or many.
   - Its identity is its file, registered as a protein's is. Its method,
     resolution and chains are its entry's, and so is its PDB ID, a registry
     fact only its registrars change once it's set.
-  - It keeps its PDB ID, title, method, resolution and first release, and the
-    protein each of its chains is (`chains`, in the order of `chain_ids`).
+  - It keeps its PDB ID, title, method, resolution and, for a PDB entry, its
+    first release, and the protein each of its chains is (`chains`, in the
+    order of `chain_ids`).
   - DSSP gives each chain's secondary structure, residue by residue, the
     shares of its residues in helices and strands, and its solvent-accessible
     surface, and keeps its annotated mmCIF (`dssp`).
@@ -66,7 +67,7 @@ they list none.
   its link, when it was fetched and its SHA-256. It reaches only
   `rest.uniprot.org`, through the deployment's egress proxy.
 - **`fetch_structures`**: fetches PDB entries by ID (up to 100, such as
-  `4HHB`) from RCSB in mmCIF, and registers each as a structure, with the
+  `4HHB`, or wwPDB's extended form, `pdb_00004hhb`) from RCSB in mmCIF, and registers each as a structure, with the
   proteins its chains are. Each records the entry, its revision, its link,
   when it was fetched and the file's SHA-256. It reaches only
   `files.rcsb.org`.
@@ -210,7 +211,18 @@ Each protein (an mmCIF entity of type `polypeptide(L)`) takes its full
 sequence (SEQRES, or the residues it has where a file gives none, as
 predictions often do), and its name, organism, gene and UniProt accession
 where the file gives them. Chains of the same protein refer to the same
-`Protein`, the registry's entry for its sequence if it has one already. Other polymers
+`Protein`, the registry's entry for its sequence if it has one already. A
+chimeric chain, whose segments wwPDB maps to different UniProt entries or
+organisms (2RH1's β2-adrenergic receptor with T4 lysozyme in its third loop:
+P07550 at residues 8–237 and 398–500, P00720 at 238–397), is none of them: its
+protein gets no accession, organism or gene, its description lists each with
+its residues, and the run says so. A PDB ID is kept as its four characters
+(`4HHB`), the same entry's extended ID (`pdb_00004hhb`) included; an entry with
+only an extended ID keeps that (`PDB_10021ABC`). A structure's release is its
+PDB entry's first revision; a file that isn't a PDB entry's, such as an
+AlphaFold DB model, has none, as its revisions are the model's. A resolution
+is read as CIF writes numbers, with any standard uncertainty in brackets left
+off (`2.10(5)` is 2.10 Å). Other polymers
 (DNA, RNA, D-peptides) and ligands are left out, and the run says so. A file
 with no protein chains, or that isn't mmCIF or PDB, fails the run, which says
 why. An entry the PDB doesn't have, or has made obsolete, fails the fetch.
@@ -234,12 +246,18 @@ A sequence record doesn't say how its sequence was made, so proteins imported
 from FASTA or fetched from UniProt say nothing of it.
 
 DSSP reads each file as the import did, so each chain's letters line up with
-its protein's sequence: H, G and I are helices (alpha, 3-10, pi), P a
+its protein's sequence; a PDB file reaches it as the mmCIF gemmi makes of it,
+with each residue's place in its sequence (`label_seq_id`), so a chain
+numbered from 101, with insertion codes (52A) or with residues missing gets
+its letters on its own residues. The image's check compares them with what
+mkdssp gives reading the PDB file itself: H, G and I are helices (alpha, 3-10, pi), P a
 polyproline II helix, E a strand in a sheet, B an isolated bridge, T a turn, S
 a bend, `-` none, and `?` a residue without coordinates. The helix share
 counts H, G and I, and the strand share E and B, over residues with
 coordinates. The accessible surface is the sum of the residues', as DSSP
-reports it, with the chains together. DSSP takes residues' chemistry from
+reports it, with the chains together. A residue DSSP gives no accessibility
+(`?`) has no measured area, so the surface is then left out, and the run says
+how many had none; mkdssp 4.4.10 writes every residue's or none. DSSP takes residues' chemistry from
 the wwPDB's Chemical Component Dictionary in the image (the PDBj snapshot of
 2026-01-01), so a structure with a residue newer than that fails its own run,
 which names the residue.

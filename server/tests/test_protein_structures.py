@@ -260,11 +260,9 @@ def test_a_modelcif_file_says_what_made_the_model_and_how_sure_it_is(tmp_path: P
     }
     assert "made" not in protein["origin"]
     values = structure["values"]
-    assert (values["method"], values["chain_ids"], values["released"]) == (
-        "predicted",
-        ["A"],
-        "2021-12-09",
-    )
+    assert (values["method"], values["chain_ids"]) == ("predicted", ["A"])
+    # Its revisions (2021-12-09 first) are the model's: there's no PDB entry to release.
+    assert "released" not in values and "pdb_id" not in values
     # AlphaFold, as its software group says; not DSSP, which only annotated it.
     assert structure["origin"]["made"] == {
         "kind": "computational",
@@ -272,6 +270,127 @@ def test_a_modelcif_file_says_what_made_the_model_and_how_sure_it_is(tmp_path: P
         "software": [{"name": "AlphaFold", "version": "2.0"}],
         "details": {"mean_plddt": 93.48},
     }
+
+
+#: 2RH1's chain A, as wwPDB annotates it: the β2-adrenergic receptor (UniProt P07550) with
+#: T4 lysozyme (P00720) in its third intracellular loop, and an N-terminal FLAG tag. Its
+#: sequence is cut to a residue of each segment; the ranges are the entry's.
+CHIMERA = """\
+data_2RH1
+_entry.id 2RH1
+_exptl.method 'X-RAY DIFFRACTION'
+_refine.ls_d_res_high 2.400
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer 'beta-2-adrenergic receptor/T4-lysozyme chimera'
+loop_
+_entity_poly.entity_id
+_entity_poly.type
+_entity_poly.pdbx_strand_id
+_entity_poly.pdbx_seq_one_letter_code_can
+1 'polypeptide(L)' A DMNK
+loop_
+_entity_src_gen.entity_id
+_entity_src_gen.pdbx_src_id
+_entity_src_gen.pdbx_beg_seq_num
+_entity_src_gen.pdbx_end_seq_num
+_entity_src_gen.pdbx_gene_src_gene
+_entity_src_gen.pdbx_gene_src_scientific_name
+1 1 8 237 'ADRB2, ADRB2R, B2AR / E' 'Homo sapiens'
+1 3 398 500 'ADRB2, ADRB2R, B2AR / E' 'Homo sapiens'
+1 2 238 397 'ADRB2, ADRB2R, B2AR / E' 'Enterobacteria phage T4'
+loop_
+_struct_ref.id
+_struct_ref.db_name
+_struct_ref.pdbx_db_accession
+_struct_ref.entity_id
+1 UNP P07550 1
+2 UNP P00720 1
+3 UNP P07550 1
+loop_
+_struct_ref_seq.align_id
+_struct_ref_seq.ref_id
+_struct_ref_seq.pdbx_strand_id
+_struct_ref_seq.seq_align_beg
+_struct_ref_seq.seq_align_end
+_struct_ref_seq.pdbx_db_accession
+_struct_ref_seq.db_align_beg
+_struct_ref_seq.db_align_end
+1 1 A 8 237 P07550 1 230
+2 2 A 238 397 P00720 2 161
+3 3 A 398 500 P07550 263 365
+"""
+
+
+def test_a_chimeric_chain_is_none_of_its_parts_and_says_which_residues_are_which(
+    tmp_path: Path,
+) -> None:
+    """wwPDB gives a chimera a reference and a source for each segment. 2RH1's last are
+    the receptor's, and its sources' last is T4's: neither is the whole chain."""
+    for text in (CHIMERA, CHIMERA.replace("1 1 UNP", "1 9 UNP")):
+        result, output = run(tmp_path, text, "2rh1.cif")
+        assert result.returncode == 0, result.stderr
+        protein = output["creates"][0]["values"]
+        assert protein == {
+            "name": "beta-2-adrenergic receptor/T4-lysozyme chimera",
+            "description": "Chain A of 2RH1, a chimera of UniProt P07550 (residues 8–237 "
+            "and 398–500) and P00720 (residues 238–397); from Homo sapiens (residues 8–237 "
+            "and 398–500) and Enterobacteria phage T4 (residues 238–397).",
+            "sequence": "DMNK",
+        }
+        assert {
+            "level": "info",
+            "text": "2RH1: chain A is a chimera of P07550 and P00720, so its protein has no "
+            "one UniProt accession, organism or gene: its description says which residues "
+            "are which.",
+        } in output["messages"]
+    # Reordered, the rows still name no one entry.
+    swapped = CHIMERA.replace("1 UNP P07550 1\n2 UNP P00720 1", "1 UNP P00720 1\n2 UNP P07550 1")
+    _, output = run(tmp_path, swapped, "2rh1.cif")
+    assert "uniprot_accession" not in output["creates"][0]["values"]
+
+
+def test_one_entry_in_several_segments_is_that_entry(tmp_path: Path) -> None:
+    text = CHIMERA.replace("P00720", "P07550").replace("Enterobacteria phage T4", "Homo sapiens")
+    _, output = run(tmp_path, text, "2rh1.cif")
+    protein = output["creates"][0]["values"]
+    assert (protein["uniprot_accession"], protein["organism"], protein["gene"]) == (
+        "P07550",
+        "Homo sapiens",
+        "ADRB2",
+    )
+    assert protein["description"] == "Chain A of 2RH1."
+
+
+def test_a_resolution_with_its_uncertainty_is_read_as_cif_writes_it(tmp_path: Path) -> None:
+    """CIF numbers may carry a standard uncertainty in brackets (2.10(5)), as gemmi reads
+    them; one that isn't a number is left out, and the run says so."""
+    _, output = run(tmp_path, MMCIF.replace("2.10\n", "2.10(5)\n"), "kinase.cif")
+    assert output["creates"][-1]["values"]["resolution"] == 2.1
+    result, output = run(tmp_path, MMCIF.replace("2.10\n", "high\n"), "kinase.cif")
+    assert result.returncode == 0, result.stderr
+    assert "resolution" not in output["creates"][-1]["values"]
+    assert {
+        "level": "info",
+        "text": "1ABC: its resolution, high, isn't a number, so it was left out.",
+    } in output["messages"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "kept"),
+    [("pdb_00001abc", "1ABC"), ("PDB_10021ABC", "PDB_10021ABC"), ("not-an-id", None)],
+)
+def test_a_file_with_an_extended_pdb_id_keeps_it(
+    tmp_path: Path, entry: str, kept: str | None
+) -> None:
+    """wwPDB's extended IDs: an entry's pdb_0000 form is its four-character ID."""
+    _, output = run(tmp_path, MMCIF.replace("_entry.id 1ABC", f"_entry.id {entry}"), "x.cif")
+    values = output["creates"][-1]["values"]
+    assert values.get("pdb_id") == kept
+    # Only a PDB entry has a release.
+    assert values.get("released") == ("2020-01-15" if kept else None)
 
 
 def test_a_modelcif_file_without_chain_ids_takes_its_residues(tmp_path: Path) -> None:
@@ -394,6 +513,21 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
     assert output["metrics"] == {"structures": 2}
 
 
+def test_fetches_an_entry_by_its_extended_pdb_id(tmp_path: Path, rcsb: Any) -> None:
+    """pdb_00001abc is 1ABC (wwPDB's extended IDs), so it's fetched, and kept, once."""
+    rcsb.fake.entries["PDB_10021ABC"] = MMCIF.replace("_entry.id 1ABC", "_entry.id pdb_10021abc")
+    output = fetched(tmp_path, rcsb, "pdb_00001abc 1ABC pdb_10021abc")
+    assert rcsb.fake.asked == [
+        "https://files.rcsb.org/download/1ABC.cif.gz",
+        "https://files.rcsb.org/download/PDB_10021ABC.cif.gz",
+    ]
+    structures = [c for c in output["creates"] if c["type"].endswith("Structure")]
+    assert [(s["values"]["pdb_id"], s["origin"]["id"]) for s in structures] == [
+        ("1ABC", "1ABC"),
+        ("PDB_10021ABC", "PDB_10021ABC"),
+    ]
+
+
 def test_waits_and_asks_again_when_rcsb_is_busy(tmp_path: Path, rcsb: Any) -> None:
     rcsb.fake.failures = [503, 429]
     output = fetched(tmp_path, rcsb, "1ABC")
@@ -410,7 +544,8 @@ def test_waits_and_asks_again_when_rcsb_is_busy(tmp_path: Path, rcsb: Any) -> No
             "::error The PDB has no entry 9ZZZ: it may have been made obsolete. Search for "
             "it at https://www.rcsb.org.",
         ),
-        ("1ABC hemoglobin", "::error HEMOGLOBIN isn't a PDB ID, such as 4HHB."),
+        ("1ABC hemoglobin", "::error HEMOGLOBIN isn't a PDB ID, such as 4HHB or pdb_00004hhb."),
+        ("pdb_1abc", "::error PDB_1ABC isn't a PDB ID, such as 4HHB or pdb_00004hhb."),
         (" ", "::error Give at least one PDB ID, such as 4HHB."),
     ],
 )

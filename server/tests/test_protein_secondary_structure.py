@@ -6,6 +6,7 @@ mkdssp is in the plugin's image, not here: these tests put a stand-in on the PAT
 writes what mkdssp writes for a made-up structure, or fails as it does. The image's own
 check and the dev cluster's end-to-end run the real one."""
 
+import importlib
 import json
 import os
 import subprocess
@@ -80,7 +81,7 @@ _dssp_struct_summary.accessibility
 1XYZ A 4 TRP G 5.0
 1XYZ C 1 MET E 50.0
 1XYZ C 2 LYS B 20.0
-1XYZ C 3 VAL T ?
+1XYZ C 3 VAL T 4.25
 """
 
 FAKE = """\
@@ -101,7 +102,11 @@ Path(sys.argv[-1]).write_text(os.environ["ANNOTATED"])
 
 
 def run(
-    tmp_path: Path, files: dict[str, str], chains: dict[str, list[str]], mode: str = "ok"
+    tmp_path: Path,
+    files: dict[str, str],
+    chains: dict[str, list[str]],
+    mode: str = "ok",
+    annotated: str = ANNOTATED,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
@@ -131,7 +136,7 @@ def run(
             "IKI_OUT_DIR": str(out_dir),
             "CALLED": str(tmp_path / "called"),
             "MODE": mode,
-            "ANNOTATED": ANNOTATED,
+            "ANNOTATED": annotated,
         },
         capture_output=True,
         text=True,
@@ -157,7 +162,8 @@ def test_each_chain_gets_a_letter_per_residue_and_the_structure_its_shares(
     # 3 of 7 placed residues in helices (H, G), 2 in strands (E, B).
     assert values["helix_fraction"] == 42.9
     assert values["strand_fraction"] == 28.6
-    assert values["accessible_surface_area"] == 235.8
+    # 120.5 + 30.0 + 10.25 + 5.0 + 50.0 + 20.0 + 4.25 Å².
+    assert values["accessible_surface_area"] == 240.0
     assert values["dssp"] == {"$file": "PST-000001-dssp.cif", "media_type": "chemical/x-mmcif"}
     assert (tmp_path / "out" / "PST-000001-dssp.cif").read_text() == ANNOTATED
     called = (tmp_path / "called").read_text().split()
@@ -178,6 +184,26 @@ def test_chains_come_in_the_order_of_chain_ids_and_a_missing_one_is_said(
     assert "Chain Z isn't in DSSP's output: it has no secondary structure." in texts
 
 
+def test_a_residue_without_accessibility_leaves_the_surface_unsummed(tmp_path: Path) -> None:
+    """A residue mkdssp gives no accessibility (?) has no measured area: summing the others
+    would report too small a surface as the structure's. The shares don't need it."""
+    annotated = ANNOTATED.replace("1XYZ C 3 VAL T 4.25\n", "1XYZ C 3 VAL T ?\n")
+
+    _, output = run(
+        tmp_path, {"1xyz.cif": STRUCTURE}, {"1xyz.cif": ["A", "B"]}, annotated=annotated
+    )
+
+    (update,) = output["updates"]["structure"]
+    values = update["values"]
+    assert "accessible_surface_area" not in values
+    assert (values["helix_fraction"], values["strand_fraction"]) == (42.9, 28.6)
+    note = (
+        "DSSP gave no accessibility for 1 of the 7 residues it assigned, so the accessible "
+        "surface isn't summed."
+    )
+    assert {"level": "info", "text": note, "entity": "e1"} in output["messages"]
+
+
 def test_a_pdb_file_reaches_dssp_as_the_mmcif_the_import_read(tmp_path: Path) -> None:
     pdb = "ATOM      1  CA  MET A   1       0.000   0.000   0.000  1.00 90.00           C\nEND\n"
 
@@ -187,6 +213,35 @@ def test_a_pdb_file_reaches_dssp_as_the_mmcif_the_import_read(tmp_path: Path) ->
     assert update["values"]["secondary_structure"] == ["-HHG"]
     given = (tmp_path / "called").read_text().split()[-2]
     assert given.endswith(".cif")
+
+
+def test_a_pdb_file_reaches_dssp_with_each_residue_in_its_place(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """mkdssp places residues by their label_seq_id, and numbers them by their authors'
+    numbers without one: mkdssp 4.4.10 gave a PDB file numbered from 101 no secondary
+    structure at all, and one with an insertion code (104A) or a gap its letters shifted.
+    The image's check runs the real mkdssp on such files (images/structure-tools)."""
+    monkeypatch.syspath_prepend(str(SCRIPT.parent))
+    monkeypatch.delitem(sys.modules, "structures", raising=False)
+    structures = importlib.import_module("structures")
+
+    numbers = [(101, ""), (102, ""), (104, ""), (104, "A"), (105, "")]
+    pdb = tmp_path / "upload.pdb"
+    pdb.write_text(
+        "\n".join(
+            f"ATOM  {i:5d}  CA  ALA A{n:4d}{code or ' '}   {3.8 * i:8.3f}   0.000   0.000"
+            "  1.00 20.00           C"
+            for i, (n, code) in enumerate(numbers, start=1)
+        )
+        + "\nEND\n"
+    )
+
+    block = structures.block_of(pdb)
+
+    table = block.find("_atom_site.", ["auth_seq_id", "pdbx_PDB_ins_code", "label_seq_id"])
+    placed = [(int(r[0]), r[1].strip("?"), r[2]) for r in table]
+    assert placed == [(n, code, str(i)) for i, (n, code) in enumerate(numbers, start=1)]
 
 
 @pytest.mark.parametrize(

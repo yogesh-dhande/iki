@@ -1291,14 +1291,24 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
     _s3_bucket: str,
 ) -> None:
     """Two structures in one view (ADR 0110): each its own component in Mol*'s scene,
-    superposed on the first, and saved with how it was moved."""
+    superposed on the first, and saved with how it was moved. The first has crambin's
+    first six residues and the moved one all ten, so the fit is over the six paired."""
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
 
     admin = world.users["admin"]
     crambin = Path(__file__).parent / "data" / "crambin.pdb"
+    first = tmp_path / "crambin.pdb"
+    first.write_text(
+        "\n".join(
+            line
+            for line in crambin.read_text().splitlines()
+            if not line.startswith(("ATOM", "HETATM")) or int(line[22:26]) <= 6
+        )
+        + "\n"
+    )
     made = []
-    for path in (crambin, _moved_pdb(crambin, tmp_path / "moved.pdb", 10.0)):
+    for path in (first, _moved_pdb(crambin, tmp_path / "moved.pdb", 10.0)):
         file = _stored_file(world, _s3_endpoint, _s3_bucket, path, "chemical/x-pdb")
         made.append(
             entities.create(
@@ -1328,13 +1338,13 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
     page.get_by_role("button", name="Superpose on first").click()
     said = page.locator(".messages").get_by_text(re.compile(r"^moved"))
     said.wait_for(timeout=60_000)
-    assert said.inner_text() == "moved: RMSD 0.00 Å over 10 residues."
+    assert said.inner_text() == "moved: RMSD 0.00 Å over 6 residues."
     page.get_by_role("button", name="Save the view").click()
     page.get_by_text(f"Saved {hrid}, revision 2.").wait_for()
     (saved,) = entities.current_values_of([Entity.objects.get(pk=view.pk)]).values()
     first, moved = saved["state"]["targets"]
     assert first == {"label": "first", "colour": "#0072b2"}
-    assert moved["superposed"] == {"onto": 0, "rmsd": 0.0, "residues": 10}
+    assert moved["superposed"] == {"onto": 0, "rmsd": 0.0, "residues": 6}
     # Moved back the 10 Å it was moved along x.
     assert abs(moved["transform"][12] + 10.0) < 0.01, moved["transform"]
     assert_clean(page)

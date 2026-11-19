@@ -39,7 +39,10 @@ keeps the feature it showed and the alignment viewer where its cursor was,
 as before. The structure viewer keeps, for each structure, its colour,
 whether it's hidden, how it was moved (a 4×4 matrix, as Mol\* keeps it),
 what it was superposed on and how closely (RMSD over how many residues), and
-the residues selected, as ranges of each chain's author numbering. Its
+the residues selected, as ranges of each chain's author numbering, each end
+with its insertion code if it has one (`start_insertion`, `end_insertion`):
+35, 35A and 35B are three residues, as wwPDB's `pdbx_PDB_ins_code` makes them,
+so a range is restored by number and then code. Its
 camera is the scene's, in `state.camera`. Any entity can have a `label`,
 such as apo or holo. Saving keeps the matrix rather than redoing the
 superposition, so a view opens exactly as it was saved. The rule on
@@ -52,7 +55,8 @@ they did.
 superpose its structures on the first. The frame pairs each one's first
 polymer chain with the first one's by aligning their sequences, and fits
 their α carbons (Mol\*'s `alignAndSuperpose`), then moves it. The page says
-the RMSD over how many residues for each, and saving keeps it. A structure
+the RMSD over how many residues for each, the pairs the fit used, not either
+chain's length, and saving keeps it. A structure
 with no polymer chain, such as a ligand's conformers, isn't moved and the
 page says so. Moves made with Mol\*'s own controls are saved the same way,
 since the frame reads each structure's transform, whatever made it.

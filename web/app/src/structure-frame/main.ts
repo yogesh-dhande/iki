@@ -16,11 +16,9 @@ import { Mat4, Vec3 } from "molstar/lib/mol-math/linear-algebra.js";
 import {
   QueryContext,
   StructureElement,
-  StructureProperties,
   StructureSelection,
   type Structure,
 } from "molstar/lib/mol-model/structure.js";
-import { alignAndSuperpose } from "molstar/lib/mol-model/structure/structure/util/superposition.js";
 import type { StructureRef } from "molstar/lib/mol-plugin-state/manager/structure/hierarchy-state.js";
 import { StructureSelectionQueries } from "molstar/lib/mol-plugin-state/helpers/structure-selection-query.js";
 import { StateTransforms } from "molstar/lib/mol-plugin-state/transforms.js";
@@ -36,6 +34,7 @@ import { Script } from "molstar/lib/mol-script/script.js";
 import { Color } from "molstar/lib/mol-util/color/index.js";
 import dark from "molstar/build/viewer/theme/dark.css?inline";
 import light from "molstar/build/viewer/theme/light.css?inline";
+import { fit as fitted, MAX_SPANS, spansOf, spanTest, type Span } from "./residues";
 
 type Format = "mmcif" | "pdb";
 
@@ -47,12 +46,6 @@ interface Camera {
   fov?: number;
   radius?: number;
   mode?: "perspective" | "orthographic";
-}
-
-interface Span {
-  chain: string;
-  start: number;
-  end: number;
 }
 
 /** One structure of the scene, as the page gives it. */
@@ -77,9 +70,6 @@ type Ask =
   | { superpose: { onto: number } }
   | { colour: { index: number; colour: string | null } }
   | { hidden: { index: number; hidden: boolean } };
-
-/** At most this many ranges of residues are kept of a structure's selection. */
-const MAX_SPANS = 500;
 
 let shown: PluginContext | null = null;
 /** Each structure's root in Mol*'s state, in the order the page gave them. */
@@ -188,42 +178,17 @@ async function colour(plugin: PluginContext, structure: StructureRef, value: str
       }));
 }
 
-/** Residues selected in a structure, as ranges of each chain's authors' numbering. */
+/** Residues selected in a structure, as ranges of each chain's authors' numbering, with
+ * their insertion codes (see ./residues). */
 function selectionOf(plugin: PluginContext, data: Structure): Span[] {
   const loci = plugin.managers.structure.selection.getLoci(data);
   if (!StructureElement.Loci.is(loci) || StructureElement.Loci.isEmpty(loci)) return [];
-  const residues = new Map<string, Set<number>>();
-  StructureElement.Loci.forEachLocation(loci, (location) => {
-    const chain = StructureProperties.chain.auth_asym_id(location);
-    const seq = StructureProperties.residue.auth_seq_id(location);
-    const seen = residues.get(chain) ?? new Set<number>();
-    seen.add(seq);
-    residues.set(chain, seen);
-  });
-  const spans: Span[] = [];
-  for (const [chain, numbers] of residues) {
-    const sorted = [...numbers].sort((a, b) => a - b);
-    for (const n of sorted) {
-      const last = spans[spans.length - 1];
-      if (last?.chain === chain && last.end === n - 1) last.end = n;
-      else spans.push({ chain, start: n, end: n });
-    }
-  }
-  return spans.slice(0, MAX_SPANS);
+  return spansOf(loci);
 }
 
 function select(plugin: PluginContext, data: Structure, spans: Span[]): void {
   if (!spans.length) return;
-  const groups = spans.map((s) =>
-    MS.struct.generator.atomGroups({
-      "chain-test": MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), s.chain]),
-      "residue-test": MS.core.rel.inRange([
-        MS.struct.atomProperty.macromolecular.auth_seq_id(),
-        s.start,
-        s.end,
-      ]),
-    }),
-  );
+  const groups = spans.slice(0, MAX_SPANS).map(spanTest);
   const selection = Script.getStructureSelection(MS.struct.combinator.merge(groups), data);
   plugin.managers.structure.selection.fromLoci(
     "add",
@@ -245,7 +210,8 @@ function chainOf(data: Structure): StructureElement.Loci | null {
 type Result = { index: number; rmsd: number; residues: number } | { index: number; failed: string };
 
 /** Superposes each other shown structure on the one at `onto`, by their first chains,
- * paired by aligning their sequences, as Mol*'s own superposition does. */
+ * paired by aligning their sequences, as Mol*'s own superposition does, over as many
+ * residues as were paired. */
 async function superpose(plugin: PluginContext, onto: number): Promise<Result[]> {
   const pivot = structureAt(plugin, onto);
   const pivotData = pivot?.cell.obj?.data;
@@ -267,14 +233,13 @@ async function superpose(plugin: PluginContext, onto: number): Promise<Result[]>
       results.push({ index, failed: "it has no chain to superpose by" });
       continue;
     }
-    const [fit] = alignAndSuperpose([reference, chain]);
+    const fit = fitted(reference, chain);
     if (!fit || !Number.isFinite(fit.rmsd)) {
       results.push({ index, failed: "its sequence doesn't align with the other's" });
       continue;
     }
     await move(plugin, structure, Mat4.mul(Mat4(), placed, fit.bTransform));
-    const residues = OrderedSet.size(chain.elements[0]?.indices ?? OrderedSet.Empty);
-    results.push({ index, rmsd: Math.round(fit.rmsd * 100) / 100, residues });
+    results.push({ index, rmsd: Math.round(fit.rmsd * 100) / 100, residues: fit.residues });
   }
   plugin.managers.camera.reset();
   return results;

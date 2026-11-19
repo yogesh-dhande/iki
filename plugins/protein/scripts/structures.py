@@ -7,11 +7,18 @@ run: all or nothing. A structure file is read with gemmi, as mmCIF (it starts wi
 `data_`) or PDB format:
 
 - the structure's name (its PDB ID, or the file's name), title, method, resolution,
-  first release and chains;
+  chains and, for a PDB entry, when it was first released (its first revision's date);
 - for each protein in it (an mmCIF entity of type polypeptide(L)), its full sequence
   (SEQRES, or the residues it has where a file gives none), name, organism, gene and
   UniProt accession. Chains of the same protein refer to the same Protein, which is
-  reused if Iki already has its sequence.
+  reused if Iki already has its sequence. A chimeric chain, whose segments are
+  different UniProt entries or come from different organisms (such as 2RH1's
+  β2-adrenergic receptor with T4 lysozyme in its third loop), is none of them: it gets
+  no accession, organism or gene, and its description says which residues are which.
+
+A PDB ID is its four characters (1CRN) or wwPDB's extended form (pdb_00001crn, as
+`_database_2` gives it). An extended ID of an entry that has a four-character one is the
+same entry, so it's kept as that (1CRN), whichever was given.
 
 Other polymers (DNA, RNA, D-peptides) and ligands are left out, and the run says so.
 
@@ -61,6 +68,10 @@ MODEL_ID = re.compile(r"^AF-[A-Z0-9]{1,40}(-F[0-9]{1,4})?$")
 #: Naming the plugin, as AlphaFold DB's file server refuses some clients' own (curl's).
 USER_AGENT = "iki-protein"
 PDB_ID = re.compile(r"^[0-9][A-Z0-9]{3}$")
+#: wwPDB's extended PDB ID, upper-cased, as the structure's `pdb_id` field stores it: pdb_,
+#: five digits and three letters or digits, as wwPDB's FAQ gives it (pdb_00001abc). An entry
+#: with a four-character ID has pdb_0000 before it.
+EXTENDED_PDB_ID = re.compile(r"^PDB_[0-9]{4}[0-9][A-Z0-9]{3}$")
 UNIPROT = re.compile(
     r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-[0-9]+)?$"
 )
@@ -159,6 +170,21 @@ def rows(block: gemmi.cif.Block, category: str, tags: list[str]) -> list[dict[st
     return out
 
 
+def _number(text: str) -> float | None:
+    """A CIF number, as CIF writes them: 2.10, or 2.10(5) with its standard uncertainty in
+    brackets, which is left off. None for one that isn't a number."""
+    value = gemmi.cif.as_number(text) if text else math.nan
+    return value if math.isfinite(value) else None
+
+
+def pdb_id(text: str) -> str:
+    """The PDB ID `text` is, as Iki keeps it, or empty: 1CRN for 1crn and pdb_00001crn."""
+    word = text.strip().upper()
+    if EXTENDED_PDB_ID.match(word) and word.startswith("PDB_0000") and PDB_ID.match(word[8:]):
+        return word[8:]
+    return word if PDB_ID.match(word) or EXTENDED_PDB_ID.match(word) else ""
+
+
 def _is_mmcif(path: Path) -> bool:
     with path.open("rb") as given:
         for raw in given:
@@ -192,6 +218,11 @@ def block_of(path: Path) -> gemmi.cif.Block:
             if chain is not None:
                 entity.full_sequence = [r.name for r in chain.get_polymer()]
     structure.deduplicate_entities()
+    # Each residue's place in its entity's sequence (label_seq_id): without it, mkdssp
+    # numbers residues by their authors' numbers, and a chain numbered from 101, or with
+    # an insertion code (52A), or a gap where a file has no SEQRES, comes back with its
+    # secondary structure on the wrong residues, or none.
+    structure.assign_label_seq_id()
     return structure.make_mmcif_document().sole_block()
 
 
@@ -338,18 +369,97 @@ def _chain_order(chain: str) -> tuple[int, str]:
     return (len(chain), chain)
 
 
+#: Residues of an entity's sequence, from and to (from 1), or None where a file doesn't say.
+Span = tuple[int, int] | None
+
+
+def _span(begin: str, end: str) -> Span:
+    try:
+        first, last = int(begin), int(end)
+    except ValueError:
+        return None
+    return (first, last) if 0 < first <= last else None
+
+
+def _spans(spans: list[Span]) -> str:
+    """Spans as a list: 8–237 and 398–500."""
+    shown = [f"{a}–{b}" if a != b else str(a) for a, b in sorted(s for s in spans if s)]
+    return shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
+
+
+def _sourced(sources: dict[str, list[Span]], what: str) -> str:
+    """Each source with the residues it's for: UniProt P07550 (residues 8–237 and
+    398–500) and P00720 (residues 238–397)."""
+    parts = [
+        f"{name} (residues {_spans(spans)})" if any(spans) else name
+        for name, spans in sources.items()
+    ]
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    return f"{what} {listed}"
+
+
+def _organisms(
+    block: gemmi.cif.Block, targets: list[dict[str, str]]
+) -> dict[str, dict[str, list[Span]]]:
+    """Each entity's source organisms, with the residues each is for: from where the gene
+    was cloned (`_entity_src_gen`), or else the natural source, the synthetic one, or a
+    ModelCIF file's target. A chimera has a row for each of its segments."""
+    out: dict[str, dict[str, list[Span]]] = {}
+    for category, tag in (
+        ("_entity_src_gen.", "pdbx_gene_src_scientific_name"),
+        ("_entity_src_nat.", "pdbx_organism_scientific_name"),
+        ("_pdbx_entity_src_syn.", "organism_scientific"),
+    ):
+        found: dict[str, dict[str, list[Span]]] = {}
+        for row in rows(
+            block, category, ["entity_id", f"?{tag}", "?pdbx_beg_seq_num", "?pdbx_end_seq_num"]
+        ):
+            if row[tag]:
+                spans = found.setdefault(row["entity_id"], {}).setdefault(row[tag], [])
+                spans.append(_span(row["pdbx_beg_seq_num"], row["pdbx_end_seq_num"]))
+        for entity, named in found.items():
+            out.setdefault(entity, named)
+    for target in targets:
+        if target["organism_scientific"]:
+            out.setdefault(target["target_entity_id"], {target["organism_scientific"]: [None]})
+    return out
+
+
+def _accessions(
+    block: gemmi.cif.Block, targets: list[dict[str, str]]
+) -> dict[str, dict[str, list[Span]]]:
+    """Each entity's UniProt entries, with the residues each is aligned to: the PDB's
+    references (`_struct_ref`, aligned by `_struct_ref_seq`), or a ModelCIF file's target.
+    wwPDB gives a chimera a reference for each segment (2RH1: P07550, P00720, P07550)."""
+    aligned: dict[str, list[Span]] = {}
+    for row in rows(block, "_struct_ref_seq.", ["ref_id", "?seq_align_beg", "?seq_align_end"]):
+        span = _span(row["seq_align_beg"], row["seq_align_end"])
+        if span not in aligned.setdefault(row["ref_id"], []):
+            aligned[row["ref_id"]].append(span)
+    out: dict[str, dict[str, list[Span]]] = {}
+    for row in rows(block, "_struct_ref.", ["entity_id", "db_name", "?id", "?pdbx_db_accession"]):
+        accession = row["pdbx_db_accession"]
+        if row["db_name"] == "UNP" and UNIPROT.match(accession):
+            spans = out.setdefault(row["entity_id"], {}).setdefault(accession, [])
+            spans.extend(s for s in aligned.get(row["id"], [None]) if s not in spans)
+    for target in targets:
+        accession = target["db_accession"]
+        if target["db_name"] == "UNP" and UNIPROT.match(accession):
+            out.setdefault(target["target_entity_id"], {accession: [None]})
+    return out
+
+
 def read(path: Path, label: str, prefix: str) -> Read:
     """The structure in a file, with the proteins its chains are. Keys start with
     `prefix`, so several structures' creates can go in one output."""
     block = block_of(path)
     notes: list[str] = []
-    entry = _text(block, "_entry.id").upper()
-    pdb_id = entry if PDB_ID.match(entry) else ""
+    entry = pdb_id(_text(block, "_entry.id"))
     method_names = [r["method"].upper() for r in rows(block, "_exptl.", ["method"])]
     method = next((METHODS.get(m, "other") for m in method_names), "")
     if not method and rows(block, "_ma_model_list.", ["model_id"]):
         method = "predicted"  # a ModelCIF file's model, without _exptl
-    resolution = next(
+    given = next(
         (
             _text(block, tag)
             for tag in (
@@ -361,6 +471,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
         ),
         "",
     )
+    resolution = _number(given)
     revisions = rows(
         block,
         "_pdbx_audit_revision_history.",
@@ -378,29 +489,15 @@ def read(path: Path, label: str, prefix: str) -> Read:
         "_ma_target_ref_db_details.",
         ["target_entity_id", "?db_name", "?db_accession", "?organism_scientific", "?gene_name"],
     )
-    organisms = {
-        **{t["target_entity_id"]: t["organism_scientific"] for t in targets},
-        **_by_entity(block, "_pdbx_entity_src_syn.", "?organism_scientific"),
-        **_by_entity(block, "_entity_src_nat.", "?pdbx_organism_scientific_name"),
-        **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_scientific_name"),
-    }
+    organisms = _organisms(block, targets)
     genes = {
         **{t["target_entity_id"]: t["gene_name"] for t in targets},
         **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene"),
     }
-    accessions = {
-        **{
-            t["target_entity_id"]: t["db_accession"]
-            for t in targets
-            if t["db_name"] == "UNP" and UNIPROT.match(t["db_accession"])
-        },
-        **{
-            r["entity_id"]: r["pdbx_db_accession"]
-            for r in rows(block, "_struct_ref.", ["entity_id", "db_name", "?pdbx_db_accession"])
-            if r["db_name"] == "UNP" and UNIPROT.match(r["pdbx_db_accession"])
-        },
-    }
-    shown = pdb_id or label
+    accessions = _accessions(block, targets)
+    shown = entry or label
+    if given and resolution is None:
+        notes.append(f"{shown}: its resolution, {given}, isn't a number, so it was left out.")
     proteins: list[Chains] = []
     listed_elsewhere = strands(block)
     for row in rows(block, "_entity_poly.", ["entity_id", "type", "?pdbx_strand_id"]):
@@ -426,13 +523,29 @@ def read(path: Path, label: str, prefix: str) -> Read:
         many = "Chains" if len(chains) > 1 else "Chain"
         description = f"{many} {listed} of {shown}."
         gene = genes.get(entity, "").split(",")[0].strip()
+        accession = accessions.get(entity, {})
+        organism = organisms.get(entity, {})
+        if len(accession) > 1 or len(organism) > 1:
+            # A chimera: no one entry, organism or gene is the whole of it.
+            said = [
+                _sourced(found, what)
+                for found, what in ((accession, "UniProt"), (organism, "from"))
+                if found
+            ]
+            description = f"{many} {listed} of {shown}, a chimera of {'; '.join(said)}."
+            notes.append(
+                f"{shown}: chain {listed} is a chimera of "
+                f"{' and '.join(accession or organism)}, so its protein has no one UniProt "
+                "accession, organism or gene: its description says which residues are which."
+            )
+            accession, organism, gene = {}, {}, ""
         values = {
             "name": names.get(entity, "") or f"{shown} chain {chains[0] if chains else entity}",
             "description": description,
             "sequence": sequence,
-            "organism": organisms.get(entity, ""),
+            "organism": next(iter(organism), ""),
             "gene": gene,
-            "uniprot_accession": accessions.get(entity, ""),
+            "uniprot_accession": next(iter(accession), ""),
         }
         proteins.append(
             Chains(f"{prefix}{entity}", _fit(values, f"{shown} chain {listed}", notes), chains)
@@ -442,16 +555,18 @@ def read(path: Path, label: str, prefix: str) -> Read:
     pairs = sorted(
         ((chain, p) for p in proteins for chain in p.ids), key=lambda pair: _chain_order(pair[0])
     )
+    # A PDB entry's first revision is its release. Another file's revisions, such as an
+    # AlphaFold DB model's, are its own, not a PDB entry's.
     released = min((r["revision_date"] for r in revisions if r["revision_date"]), default="")
     structure = {
-        "name": pdb_id or label,
+        "name": entry or label,
         "description": _text(block, "_struct.title"),
-        "pdb_id": pdb_id,
+        "pdb_id": entry,
         "method": method,
-        "resolution": float(resolution) if resolution else None,
+        "resolution": resolution,
         "chains": [{"$create": p.key} for _, p in pairs],
         "chain_ids": [chain for chain, _ in pairs],
-        "released": released,
+        "released": released if entry else "",
     }
     latest = max(
         (
@@ -548,13 +663,15 @@ def from_file(run: dict[str, Any]) -> None:
 
 
 def pdb_ids(text: str) -> list[str]:
-    """The PDB IDs in `text`, in order, each once, upper-cased."""
-    found = list(dict.fromkeys(w.upper() for w in re.split(r"[\s,;]+", text) if w))
-    if not found:
+    """The PDB IDs in `text`, in order, each once, as Iki keeps them: 4HHB for 4hhb and its
+    extended form, pdb_00004hhb."""
+    words = [w for w in re.split(r"[\s,;]+", text) if w]
+    if not words:
         raise UnreadableError("Give at least one PDB ID, such as 4HHB.")
-    for word in found:
-        if not PDB_ID.match(word):
-            raise UnreadableError(f"{word} isn't a PDB ID, such as 4HHB.")
+    for word in words:
+        if not pdb_id(word):
+            raise UnreadableError(f"{word.upper()} isn't a PDB ID, such as 4HHB or pdb_00004hhb.")
+    found = list(dict.fromkeys(pdb_id(w) for w in words))
     if len(found) > MAX_ENTRIES:
         raise UnreadableError(
             f"That's {len(found):,} entries, more than the {MAX_ENTRIES} one run fetches: "
@@ -606,24 +723,24 @@ def fetch(run: dict[str, Any]) -> None:
     notes: list[str] = []
     try:
         asked = pdb_ids(run["params"]["pdb_ids"])
-        for done, pdb_id in enumerate(asked, start=1):
+        for done, entry in enumerate(asked, start=1):
             if done > 1:
                 time.sleep(PAUSE)
-            path = out_dir / f"{pdb_id}.cif"
+            path = out_dir / f"{entry}.cif"
             missing = (
-                f"The PDB has no entry {pdb_id}: it may have been made obsolete. "
+                f"The PDB has no entry {entry}: it may have been made obsolete. "
                 "Search for it at https://www.rcsb.org."
             )
-            download(DOWNLOAD.format(pdb_id), path, pdb_id, "RCSB", missing, gunzip=True)
+            download(DOWNLOAD.format(entry), path, entry, "RCSB", missing, gunzip=True)
             retrieved = datetime.now(UTC).isoformat(timespec="seconds")
             try:
-                structure = read(path, pdb_id, f"{pdb_id}-")
+                structure = read(path, entry, f"{entry}-")
             except UnreadableError as why:
-                raise UnreadableError(f"{pdb_id}: {why}") from None
+                raise UnreadableError(f"{entry}: {why}") from None
             origin: dict[str, Any] = {
                 "source": "RCSB PDB",
-                "id": pdb_id,
-                "url": ENTRY.format(pdb_id),
+                "id": entry,
+                "url": ENTRY.format(entry),
                 "retrieved_at": retrieved,
                 "sha256": _sha256(path),
             }

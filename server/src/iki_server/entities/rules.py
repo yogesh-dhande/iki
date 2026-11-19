@@ -176,7 +176,12 @@ def _view_state(shown: list[Any], viewers: list[str], state: Mapping[str, Any]) 
                 "entity in the structure viewer."
             )
         spans = [s for s in item.get("selection") or [] if isinstance(s, Mapping)]
-        if any(s.get("start", 0) > s.get("end", 0) for s in spans):
+        # A residue is its number and insertion code: 35A comes after 35 and before 35B.
+        if any(
+            (s.get("start", 0), s.get("start_insertion", ""))
+            > (s.get("end", 0), s.get("end_insertion", ""))
+            for s in spans
+        ):
             problems.append(f"{entity.hrid}’s selection has a range that ends before it starts.")
     return problems
 

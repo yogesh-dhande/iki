@@ -29,7 +29,10 @@ fields:
     max_length: 12
     indexed: true
     pattern: "^([0-9][A-Z0-9]{3}|PDB_[0-9]{4}[0-9][A-Z0-9]{3})$"
-    description: Its PDB entry, such as 4HHB.
+    description: >-
+      Its PDB entry, such as 4HHB, or an entry that has only wwPDB's extended
+      ID, such as PDB_10021ABC. An entry with both is kept as its four
+      characters: PDB_00004HHB is 4HHB.
   method:
     type: enum
     registry: derived
@@ -59,7 +62,9 @@ fields:
   released:
     type: date
     registry: fact
-    description: When its PDB entry was first released.
+    description: >-
+      When its PDB entry was first released: its first revision's date. A
+      structure with no PDB entry, such as a prediction, has none.
   secondary_structure:
     type: list
     registry: derived

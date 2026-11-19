@@ -159,7 +159,11 @@ fields:
                   rmsd: { type: number, minimum: 0 }
                   residues: { type: integer, minimum: 0 }
               selection:
-                description: The residues selected, as ranges of each chain's author numbering.
+                description: >-
+                  The residues selected, as ranges of each chain's author numbering:
+                  from `start` to `end`, each with its insertion code if it has one
+                  (`start_insertion`, `end_insertion`), so 35A is a residue of its own,
+                  apart from 35 and 35B.
                 type: array
                 maxItems: 500
                 items:
@@ -170,6 +174,8 @@ fields:
                     chain: { type: string, minLength: 1, maxLength: 8 }
                     start: { type: integer }
                     end: { type: integer }
+                    start_insertion: { type: string, pattern: "^[A-Za-z0-9]$" }
+                    end_insertion: { type: string, pattern: "^[A-Za-z0-9]$" }
       allOf:
         - if: { properties: { version: { const: 1 } } }
           then: { not: { required: [targets] } }

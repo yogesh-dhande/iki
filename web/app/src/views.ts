@@ -45,12 +45,18 @@ export interface Position {
   row: number;
 }
 
-/** Residues of a chain, by its authors' numbering, from `start` to `end`. */
+/** Residues of a chain, by its authors' numbering, from `start` to `end`, each with its
+ * insertion code if it has one (35A is `start: 35, start_insertion: "A"`). */
 export interface Span {
   chain: string;
   start: number;
   end: number;
+  start_insertion?: string;
+  end_insertion?: string;
 }
+
+/** An insertion code, as PDB files give them: one letter or digit. */
+const INSERTION = /^[A-Za-z0-9]$/;
 
 /** What a structure was superposed on (another entity's index) and how closely. */
 export interface Superposed {
@@ -171,14 +177,28 @@ export function readSelection(value: unknown): Span[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((span: unknown) => {
     if (typeof span !== "object" || span === null) return [];
-    const { chain, start, end } = span as Record<string, unknown>;
+    const { chain, start, end, start_insertion, end_insertion } = span as Record<string, unknown>;
+    const code = (c: unknown) =>
+      c === undefined ? "" : typeof c === "string" && INSERTION.test(c) ? c : null;
+    const from = code(start_insertion);
+    const to = code(end_insertion);
     return typeof chain === "string" &&
       chain &&
       chain.length <= 8 &&
       Number.isInteger(start) &&
       Number.isInteger(end) &&
-      (start as number) <= (end as number)
-      ? [{ chain, start: start as number, end: end as number }]
+      from !== null &&
+      to !== null &&
+      ((start as number) < (end as number) || (start === end && from <= to))
+      ? [
+          {
+            chain,
+            start: start as number,
+            end: end as number,
+            ...(from ? { start_insertion: from } : {}),
+            ...(to ? { end_insertion: to } : {}),
+          },
+        ]
       : [];
   });
 }

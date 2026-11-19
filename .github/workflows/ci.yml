@@ -527,12 +527,15 @@ jobs:
             docker build -f "$DIR/Dockerfile" -t "$IMAGE:ci" "$PLUGIN"
           fi
       - name: Runs as non-root, and its tools work
+        # The plugin's scripts are there too, for a check that runs them on the image's tools.
         env:
           IMAGE: ${{ matrix.image }}
+          PLUGIN: ${{ matrix.plugin }}
           DIR: ${{ matrix.dir }}
         run: |
           test "$(docker run --rm --entrypoint id "$IMAGE:ci" -u)" != "0"
-          docker run --rm --network none -v "$PWD/$DIR:/check:ro" "$IMAGE:ci" python -I /check/check.py
+          docker run --rm --network none -v "$PWD/$DIR:/check:ro" -v "$PWD/$PLUGIN/scripts:/scripts:ro" \
+            "$IMAGE:ci" python -I /check/check.py
       - name: Install Grype and Syft (pinned, checksum verified)
         run: scripts/ci/install-tools.sh grype syft
       - name: Vulnerability scan (fails on fixable high/critical)

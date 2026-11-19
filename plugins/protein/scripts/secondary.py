@@ -8,6 +8,16 @@ that, for each chain in chain_ids, a letter per residue of its sequence, and ove
 them: the shares in helices (H, G, I) and strands (E, B), and the summed accessibility.
 The annotated file is kept too.
 
+A residue DSSP gives no accessibility for (`?`) has no measured area, so a sum without
+it would be too small: the surface is left out, and the run says how many residues had
+none. mkdssp 4.4 writes every residue's accessibility or none (`writeSummary` in
+libdssp's dssp-io.cpp writes it when the structure's accessible surface is above zero),
+so the shares are counted the same either way.
+
+A PDB-format file reaches mkdssp as the mmCIF gemmi makes of it, with each residue's
+place in its entity's sequence (label_seq_id), so a chain numbered from 101, or with
+insertion codes, gets its letters on its own residues.
+
 A structure mkdssp can't annotate fails its own run, saying why: most often a residue
 newer than the dictionary, which the run names.
 """
@@ -89,7 +99,7 @@ def summarize(annotated: Path, chain_ids: list[str]) -> tuple[dict[str, Any], li
         assigned.setdefault(key, (code if code in CODES else "-", row["accessibility"]))
     notes: list[str] = []
     strings: list[str] = []
-    counted = helix = strand = 0
+    counted = helix = strand = unmeasured = 0
     area = 0.0
     for chain in chain_ids:
         asym = asym_of.get(chain)
@@ -106,8 +116,11 @@ def summarize(annotated: Path, chain_ids: list[str]) -> tuple[dict[str, Any], li
             counted += 1
             helix += code in HELIX
             strand += code in STRAND
-            if accessibility:
-                area += float(accessibility)
+            measured = structures._number(accessibility)
+            if measured is None:
+                unmeasured += 1
+            else:
+                area += measured
         strings.append("".join(letters))
         if letters and all(code == "?" for code in letters):
             notes.append(
@@ -117,7 +130,13 @@ def summarize(annotated: Path, chain_ids: list[str]) -> tuple[dict[str, Any], li
     if counted:
         values["helix_fraction"] = round(100 * helix / counted, 1)
         values["strand_fraction"] = round(100 * strand / counted, 1)
-        values["accessible_surface_area"] = round(area, 1)
+        if unmeasured:
+            notes.append(
+                f"DSSP gave no accessibility for {unmeasured} of the {counted} residues it "
+                "assigned, so the accessible surface isn't summed."
+            )
+        else:
+            values["accessible_surface_area"] = round(area, 1)
     return values, notes
 
 

@@ -249,6 +249,32 @@ def test_several_entities_each_have_a_revision_a_viewer_and_state(world: World) 
     assert "targets" in errors(create(editor, world.project, too_many, "iki/core.View"))
 
 
+def test_a_selection_keeps_residues_insertion_codes(world: World) -> None:
+    """35, 35A and 35B are three residues (wwPDB's pdbx_PDB_ins_code), as in Kabat's
+    numbering of a long CDR-H1: a view keeps 35A alone, and a range runs in their order."""
+    editor = api_as(world)
+    apo, holo = two_structures(world)
+
+    def selecting(*spans: dict[str, Any]) -> dict[str, Any]:
+        values = superposed(apo, holo)
+        values["state"]["targets"][1]["selection"] = list(spans)
+        return values
+
+    only = {"chain": "H", "start": 35, "start_insertion": "A", "end": 35, "end_insertion": "A"}
+    made = create(editor, world.project, selecting(only), "iki/core.View")
+    assert made.status_code == 201, made.content
+    read = editor.get(f"/entities/{made.json()['hrid']}").json()
+    assert read["values"]["state"]["targets"][1]["selection"] == [only]
+    onward = {"chain": "H", "start": 35, "end": 35, "end_insertion": "B"}
+    assert create(editor, world.project, selecting(onward), "iki/core.View").status_code == 201
+    backward = {"chain": "H", "start": 35, "start_insertion": "B", "end": 35, "end_insertion": "A"}
+    assert errors(create(editor, world.project, selecting(backward), "iki/core.View")) == {
+        "state": f"{holo.hrid}’s selection has a range that ends before it starts."
+    }
+    two = {**only, "start_insertion": "AB"}
+    assert "state" in errors(create(editor, world.project, selecting(two), "iki/core.View"))
+
+
 def test_only_someone_who_can_read_every_entity_it_shows_reads_a_view(world: World) -> None:
     """A view of what someone can't read doesn't exist for them: not its page, not in a
     search, not as what refers to an entity they can read (ADR 0110)."""
