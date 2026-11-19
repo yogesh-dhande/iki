@@ -4,12 +4,22 @@ Iki's DNA plugin: DNA sequences and primers, and sequencing reads aligned to
 them.
 
 - **`iki/dna.DNASequence`** (`DNA-000001`): a plasmid, gene, construct or genome.
-  - Its identity is its bases and topology (linear or circular): each
-    sequence is registered once in a registry (ADR 0115), with one ID, and
-    registering it again, in any project, finds that entry. A project that
-    hadn't got it gets its own record of it; one that had finds its record.
-    Its length and GC content are the entry's, and so is its accession, a
-    registry fact only its registrars change once it's set.
+  - Its identity is its bases, topology (linear or circular) and
+    strandedness (double or single): each sequence is registered once in a
+    registry (ADR 0115), with one ID, and registering it again, in any
+    project, finds that entry. A circular sequence is found from any of its
+    rotations, and a double-stranded one from either strand, as its reverse
+    complement ([ADR 0138](../../docs/adr/0138-an-identity-reads-sequences-and-sets-of-parts-as-what-they-are.md)).
+    A single-stranded one is found only by its own bases, as its reverse
+    complement is another molecule, and the same bases single- and
+    double-stranded are two sequences. A project that hadn't got it gets its
+    own record of it; one that had finds its record. Its length and GC
+    content are the entry's.
+  - Each project's record keeps the accession it came from
+    ([ADR 0154](../../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md)):
+    one molecule is in several databases' records, as pUC19 is GenBank's
+    L09137.2 and M77789.2, and each import or fetch keeps the record it read
+    as its origin.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
   - Its length and GC content are computed by the plugin's
@@ -72,7 +82,12 @@ makes is recorded as made with it
   traces, one read each, named by their file, or FASTQ or FASTA files, named
   by their records, up to 1,000 reads in all. It keeps `alignment.fasta` as an
   artifact, which is also the alignment's file: in a read's row, `-` is a
-  deletion and `.` a place it has no observation of, beyond its ends.
+  deletion and `.` a place it has no observation of, beyond its ends. That
+  `.` is Iki's: other tools reading aligned FASTA take it for a base (Biopython
+  counts a mismatch), so the run keeps `alignment-standard.fasta` too, with `-`
+  for both, as they expect. There a `-` can't say whether a read has a deletion
+  or no observation, so each read's header says where it lies on the sequence
+  (`; on DNA-000001 101–300`), in both files.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
@@ -87,8 +102,10 @@ GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
 LOCUS's molecule type says the strandedness: `ss-DNA` and RNA records
 (`mRNA`, `rRNA` and the like) are single-stranded, `ds-DNA` and `ds-RNA`
-double, and plain `DNA` doesn't say, so it's left at the default, double. An
-mRNA is kept as its bases in GenBank's T alphabet, as a cDNA is. Each
+double, and plain `DNA` doesn't say, so it's left at the default, double. A
+mixed-stranded record (`ms-DNA`, partly single and partly double) fails the
+import, saying which: as either, it would be registered as another molecule.
+An mRNA is kept as its bases in GenBank's T alphabet, as a cDNA is. Each
 feature keeps its type, where it lies, strand, name (its `/label`, `/gene`,
 `/locus_tag` or `/product`) and qualifiers. Where it lies is its first and
 last base, and, for a location with several parts (`join(…)`) or between two
@@ -97,16 +114,27 @@ strand: the viewer draws and counts those, not what lies between them, so
 `join(2..4,10..12)` is six bases and `5^6` none. A join's parts are kept in
 the order they're read (a reverse-strand join's last first); a feature with
 parts on both strands is `mixed`; one crosses a circle's origin only when
-that's the shorter way round its parts. Such locations, and fuzzy ends (`<1`,
-`>99`), keep GenBank's own text in a `location` qualifier too; a record
-registered from another origin or the other strand has its features, their
-parts and that text placed along its entry's sequence (ADR 0138). Features on
+that's the shorter way round its parts. An `order(…)` (its parts found in
+that order, nothing said of joining them) rather than a `join(…)` is kept as
+`operator: order`, and partial ends (`<2..>9`: ends beyond the bases they
+name, as INSDC writes them) as `partial_start` and `partial_end` on its parts,
+so the viewer writes them so, and gives such a feature's length as "at least"
+the bases annotated. Such locations keep GenBank's own text in a `location`
+qualifier too; a record registered from another origin or the other strand
+has its features, their parts and that text placed along its entry's sequence
+(ADR 0138), partial ends on the ends they were on and an order's parts never
+made one. Features on
 other records, or whose location isn't on the sequence, are left out, and
 the run says so. The organism is the taxon its source feature names
 (`/db_xref="taxon:9606"`), an `iki/core.Organism` the import makes the first
 time it meets it
-([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
-A record without one has no organism, and the run says so. FASTA records give a name (the header's first word) and a
+([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)),
+its name and taxon read together from that feature. A record with several
+source features (stretches from several organisms) is of the one INSDC marks
+as its main organism, `/focus` or `/transgenic`, or else of the one that spans
+the whole record; the others are kept as features, named by their organism.
+When none is, its organism is left out and the run says why. A record without
+a taxon has no organism, and the run says so. FASTA records give a name (the header's first word) and a
 description (the rest), and an accession where the header has one
 (`L09137.2`, NCBI's `gb|L09137.2|`, or a RefSeq one such as
 `ref|NZ_CP009273.1|`). FASTA doesn't say whether a sequence is circular, so

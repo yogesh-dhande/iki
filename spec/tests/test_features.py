@@ -356,6 +356,97 @@ def test_fuzzy_ends_stay_on_the_ends_they_were_on() -> None:
     )
 
 
+def test_a_partial_end_stays_on_the_end_it_was_on_in_the_features_parts() -> None:
+    """VP1 from a partial clone, <1,499..2,593 along SV40 (INSDC: its start lies beyond
+    base 1,499), given from the other strand, is complement(2,651..>3,745) there: placed
+    back, its part says its start is partial again, so the viewer writes it, and it isn't
+    taken for an exact one-part feature."""
+    text = given(SV40, 0, reverse=True)
+    placement = place("dna_sequence", text, SV40, circular=True, double=True)
+    assert placement == Placement(reverse=True)
+    vp1 = {
+        "type": "CDS",
+        "name": "VP1",
+        "start": 2651,
+        "end": 3745,
+        "strand": "reverse",
+        "parts": [{**part(2651, 3745, "reverse"), "partial_end": True}],
+        "qualifiers": {"location": "complement(2651..>3745)"},
+    }
+    back = place_feature(vp1, placement, len(text), circular=True)
+    assert back == {
+        "type": "CDS",
+        "name": "VP1",
+        "start": 1499,
+        "end": 2593,
+        "strand": "forward",
+        "parts": [{**part(1499, 2593), "partial_start": True}],
+        "qualifiers": {"location": "<1499..2593"},
+    }
+    assert read(back, SV40) == read(vp1, text)
+    assert translated(read(back, SV40)).startswith("MKMAPTKRKGSC")
+    # Rotated so its partial start is across the given origin: two parts there, each with
+    # its own end, and one again along the entry, the partial start on it.
+    text = given(SV40, 2000, reverse=False)
+    placement = place("dna_sequence", text, SV40, circular=True, double=True)
+    assert placement is not None
+    across = {
+        "type": "CDS",
+        "start": 1499 - 2000 + 5243,
+        "end": 593,
+        "strand": "forward",
+        "parts": [{**part(1499 - 2000 + 5243, 5243), "partial_start": True}, part(1, 593)],
+    }
+    assert place_feature(across, placement, len(text), circular=True) == {
+        "type": "CDS",
+        "start": 1499,
+        "end": 2593,
+        "strand": "forward",
+        "parts": [{**part(1499, 2593), "partial_start": True}],
+    }
+
+
+def test_an_orders_parts_are_never_made_one() -> None:
+    """INSDC's order(): its elements are found in that order, and nothing is said of
+    joining them. Given pBR322 from its base 4,001, two elements either side of that
+    origin, 4,300..4,361 and 1..10, are the entry's 3,939..4,000 and 4,001..4,010: two
+    still, though a join of them is one stretch."""
+    text = given(PBR322, 4000, reverse=False)
+    placement = place("dna_sequence", text, PBR322, circular=True, double=True)
+    # The entry's first base is its 362nd.
+    assert placement == Placement(offset=361)
+    parts = [part(4300, 4361), part(1, 10)]
+    ordered = {
+        "type": "misc_feature",
+        "start": 4300,
+        "end": 10,
+        "strand": "forward",
+        "operator": "order",
+        "parts": parts,
+        "qualifiers": {"location": "order(4300..4361,1..10)"},
+    }
+    back = place_feature(ordered, placement, len(text), circular=True)
+    assert back == {
+        **ordered,
+        "start": 3939,
+        "end": 4010,
+        "parts": [part(3939, 4000), part(4001, 4010)],
+        "qualifiers": {"location": "order(3939..4000,4001..4010)"},
+    }
+    assert read(back, PBR322) == read(ordered, text)
+    # A join of the same two is one stretch along the entry, so it lists no parts.
+    joined = {**ordered, "operator": "join", "qualifiers": {"location": "join(4300..4361,1..10)"}}
+    out = place_feature(joined, placement, len(text), circular=True)
+    assert out == {
+        "type": "misc_feature",
+        "start": 3939,
+        "end": 4010,
+        "strand": "forward",
+        "operator": "join",
+        "qualifiers": {"location": "3939..4010"},
+    }
+
+
 @pytest.mark.parametrize(
     "text",
     [

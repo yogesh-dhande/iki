@@ -216,6 +216,10 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__dna_dnasequence__history",
         "acme__dna_dnasequence__entry",
         "acme__dna_dnasequence__entry__history",
+        "acme__dna_plasmid",
+        "acme__dna_plasmid__history",
+        "acme__dna_plasmid__entry",
+        "acme__dna_plasmid__entry__history",
         "acme__protein_protein",
         "acme__protein_protein__history",
         "acme__protein_protein__entry",
@@ -386,7 +390,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:12] == [
+    assert report.splitlines()[:13] == [
         # The core plugin's alignments, apps, collections and views, which every deployment
         # has, beside the fixtures'.
         "  HRID sequence iki_hrid_aln",
@@ -398,6 +402,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_lot",
+        "  HRID sequence iki_hrid_pls",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",
         "  HRID sequence iki_hrid_smp",
@@ -1915,7 +1920,7 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
     assert query(database, "SELECT count(*) FROM acme__dna_dnasequence") == [(1,)]
 
     out = deployed(purged, database)
-    assert "Purged acme/dna: dropped 6 table(s); 2 entities keep their tombstones" in out
+    assert "Purged acme/dna: dropped 10 table(s); 2 entities keep their tombstones" in out
     assert "row(s) their entities had in other plugins' tables" in out
     left = "SELECT tablename FROM pg_tables WHERE tablename LIKE 'acme\\_\\_dna\\_%%'"
     assert query(database, left) == []

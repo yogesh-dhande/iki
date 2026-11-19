@@ -267,6 +267,35 @@ def call(base: str, reference: str) -> str:
     return "unresolved"
 
 
+#: What the run says of its two files.
+TWO_FILES = (
+    "In alignment.fasta, the alignment's file, a read's `.` is a place it has no observation "
+    "of, beyond its ends, and `-` a deletion. Other tools take `.` for a residue: give them "
+    "alignment-standard.fasta, which has `-` for both, and in each read's header where it "
+    "lies on the reference."
+)
+
+
+def write_alignments(out_dir: Path, rows: list[tuple[str, str]]) -> None:
+    """The alignment twice. ``alignment.fasta`` is Iki's, the alignment's file: in a read's
+    row, `.` is a place it has no observation of (beyond its ends), apart from `-`, a
+    deletion, which the alignment viewer and the run's coverage tell apart. Other tools
+    reading aligned FASTA take `.` for a residue, so ``alignment-standard.fasta`` has `-`
+    for both, as they expect, and each read's header says where it lies on the reference,
+    which is all a `-` there can't say."""
+    for name, written in (
+        ("alignment.fasta", rows),
+        ("alignment-standard.fasta", [(h, row.replace(".", "-")) for h, row in rows]),
+    ):
+        (out_dir / name).write_text(
+            "".join(
+                f">{header}\n" + "".join(f"{row[i : i + 60]}\n" for i in range(0, len(row), 60))
+                for header, row in written
+            ),
+            encoding="utf-8",
+        )
+
+
 def lies_across(each: Placed, k: int) -> bool:
     """Whether a read lies across the place just before position k, where others may have
     inserted: if not, it has no observation there, `.`, not a gap."""
@@ -438,14 +467,9 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         kept = f"bases {each.start + 1}–{each.end} of {len(read.bases)}"
         trimmed = f" (trimmed from {read.length})" if len(read.bases) != read.length else ""
         strand = "reverse complement" if each.reverse else "forward"
-        rows.append((f"{read.name} {strand}, {kept}{trimmed}, from {read.source}", row))
-    (out_dir / "alignment.fasta").write_text(
-        "".join(
-            f">{header}\n" + "".join(f"{row[i : i + 60]}\n" for i in range(0, len(row), 60))
-            for header, row in rows
-        ),
-        encoding="utf-8",
-    )
+        on = f"on {hrid} {spans(ranges(list(each.at)))}"
+        rows.append((f"{read.name} {strand}, {kept}{trimmed}, from {read.source}; {on}", row))
+    write_alignments(out_dir, rows)
 
     covered = sorted({spot for each in placed for spot in covered_by(each, reference)})
     found_ranges = ranges(covered)
@@ -495,6 +519,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             2 + bool(unsure),
             {"level": "info", "text": f"Where {hrid} is ambiguous, the reads have: {text}."},
         )
+    messages.append({"level": "info", "text": TWO_FILES})
     print(f"::progress {len(reads)}/{len(reads)} Aligned {len(placed)} of {len(reads)}", flush=True)
 
     name = (run["params"].get("name") or "").strip() or (

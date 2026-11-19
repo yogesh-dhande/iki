@@ -793,7 +793,14 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
         if create.key is not None:
             made[create.key] = entity_id
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
-            # The same record, made twice: the same identity, registered again.
+            # The same record, made twice: the same identity, registered again. Where this
+            # one came from is kept too: one molecule is in several databases' records,
+            # each the source of what's known of it (ADR 0154).
+            if create.origin is not None:
+                again = ExternalOrigin.objects.create(
+                    run=run, entity_id=entity_id, revision=None, **create.origin
+                )
+                makings.record(run.pk, entity_id, (), again)
             continue
         revision = saved.revision.number if saved.revision is not None else None
         RunEffect.objects.create(

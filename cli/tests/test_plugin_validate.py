@@ -53,7 +53,7 @@ def test_validates_the_current_directory_by_default(
     monkeypatch.chdir(PLUGINS / "dna")
     assert main(["plugin", "validate"]) == 0
     assert (
-        "✓ acme/dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings, 0 actions, "
+        "✓ acme/dna 1.2.0 is valid: 3 entity types, 0 extensions, 2 settings, 0 actions, "
         "0 environments, 0 workflows, 0 triggers, 0 components." in capsys.readouterr().out
     )
 
@@ -146,7 +146,7 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert report["plugin"] == {
         "name": "acme/dna",
         "version": "1.2.0",
-        "types": ["acme/dna.DNASequence", "acme/dna.Sequence"],
+        "types": ["acme/dna.DNASequence", "acme/dna.Plasmid", "acme/dna.Sequence"],
         "extensions": [],
         "settings": ["max_sequence_length", "ncbi_email"],
         "actions": [],

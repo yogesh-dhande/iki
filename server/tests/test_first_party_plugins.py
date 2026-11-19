@@ -364,6 +364,101 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
     assert result["submitted"] == [None, {"bases": "CCGATTAAGT"}, {"bases": "AATCGGACTT"}]
 
 
+SEQUENCES = ROOT / "spec" / "tests" / "sequences"
+
+
+def fasta(accession: str) -> str:
+    return "".join((SEQUENCES / f"{accession}.fasta").read_text().splitlines()[1:])
+
+
+def test_one_molecule_in_several_databases_records_keeps_each_projects_accession(
+    tmp_path: Path, database: str
+) -> None:
+    """ADR 0154: an accession names the database record a sequence came from, and one
+    molecule is several records. pUC19 is GenBank's L09137.2 and M77789.2 (that one from
+    its other strand, from another origin), calmodulin UniProtKB's P0DP23 (CALM1) and
+    P0DP24 (CALM2), and histone H4 the human P62805 and the pig P62802. Each pair is one
+    registry entry, and registering the second is refused nowhere: each project's record
+    keeps the accession it gave."""
+    out = tmp_path / "build"
+    built = iki("plugin", "build", PLUGINS / "dna", PLUGINS / "protein", "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    calmodulin = (
+        "MADQLTEEQIAEFKEAFSLFDKDGDGTITTKELGTVMRSLGQNPTEAELQDMINEVDADGNGTIDFPEFLTMMARKMKDTDSEE"
+        "EIREAFRVFDKDGNGYISAAELRHVMTNLGEKLTDEEVDEMIREADIDGDGQVNYEEFVQMMTAK"
+    )
+    histone_h4 = (
+        "MSGRGKGGKGLGKGGAKRHRKVLRDNIQGITKPAIRRLARRGGVKRISGLIYEETRGVLKVFLENVIRDAVTYTEHAKRKTVT"
+        "AMDVVYALKRQGRTLYGFGG"
+    )
+    assert (len(calmodulin), len(histone_h4)) == (149, 103)
+    pairs = [
+        (
+            "iki/dna.DNASequence",
+            "accession",
+            {"topology": "circular"},
+            (fasta("L09137.2"), "L09137.2"),
+            (fasta("M77789.2"), "M77789.2"),
+        ),
+        (
+            "iki/protein.Protein",
+            "uniprot_accession",
+            {},
+            (calmodulin, "P0DP23"),
+            (calmodulin, "P0DP24"),
+        ),
+        (
+            "iki/protein.Protein",
+            "uniprot_accession",
+            {},
+            (histone_h4, "P62805"),
+            (histone_h4, "P62802"),
+        ),
+    ]
+    result = orm(
+        out,
+        database,
+        f"""
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+        alice = User.objects.create_user("alice@example.com")
+        other = Project.objects.create(team=team, name="Vectors")
+        for p in (project, other):
+            ProjectMembership.objects.create(project=p, user=alice, role=ProjectRole.EDITOR)
+
+        pairs = {pairs!r}
+        sequence = {{"iki/dna.DNASequence": "bases", "iki/protein.Protein": "sequence"}}
+        result = []
+        for type_name, field, extra, (first, one), (second, two) in pairs:
+            def make(where, given, accession):
+                values = {{sequence[type_name]: given, field: accession, **extra}}
+                return services.create(alice, type_name, where, values)
+
+            a = make(project, first, one)
+            b = make(other, second, two)
+            # The project that has it already, given its other record: its own, as it was.
+            again = make(project, second, two)
+            def accession(saved):
+                return services.current_values_of([saved.entity])[saved.entity.pk][field]
+            result.append({{
+                "entries": [str(s.entity.entry_id) for s in (a, b, again)],
+                "registered": [s.registered for s in (a, b)],
+                "reused": again.reused,
+                "accessions": [accession(s) for s in (a, b, again)],
+            }})
+        """,
+    )
+    for found, (_, _, _, (_, one), (_, two)) in zip(result, pairs, strict=True):
+        assert len(set(found["entries"])) == 1
+        assert found["registered"] == [True, False]
+        assert found["reused"] is True
+        assert found["accessions"] == [one, two, one]
+
+
 def test_an_oligonucleotide_is_its_canonical_helm(tmp_path: Path, database: str) -> None:
     """61e, ADR 0144 and 0147: one HELM written two ways is one registry entry, in any
     project; a 5′-biotin primer is another oligonucleotide from the plain one; a search by

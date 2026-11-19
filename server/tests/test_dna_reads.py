@@ -138,10 +138,10 @@ def run(
     return result, found
 
 
-def rows(tmp_path: Path) -> list[tuple[str, str]]:
+def rows(tmp_path: Path, name: str = "alignment.fasta") -> list[tuple[str, str]]:
     """The alignment's records: (header, row)."""
     out: list[tuple[str, str]] = []
-    for line in (tmp_path / "out" / "alignment.fasta").read_text().splitlines():
+    for line in (tmp_path / "out" / name).read_text().splitlines():
         if line.startswith(">"):
             out.append((line[1:], ""))
         else:
@@ -178,7 +178,8 @@ def test_a_trace_is_trimmed_aligned_and_its_difference_named(tmp_path: Path) -> 
     (ref_header, ref_row), (read_header, read_row) = rows(tmp_path)
     assert (ref_header, ref_row) == ("DNA-000001 pTEST", PLASMID)
     assert read_header == (
-        "clone1_M13F forward, bases 1–200 of 200 (trimmed from 216), from clone1_M13F.ab1"
+        "clone1_M13F forward, bases 1–200 of 200 (trimmed from 216), from clone1_M13F.ab1; "
+        "on DNA-000001 101–300"
     )
     # `.` where the read has no observation, beyond its ends.
     assert read_row == "." * 100 + "".join(read) + "." * 300
@@ -277,6 +278,21 @@ def test_a_read_across_a_circular_references_origin_aligns_in_one_piece(tmp_path
         "No differences from DNA-000001 where the reads cover it.",
     ]
     assert ", round the origin" in output["creates"][0]["values"]["method"]
+    # Aligned FASTA as other tools read it has no `.`: Biopython 1.88 takes one for a
+    # residue, so Iki's file reads as 400 mismatches. The standard file has `-` there, and
+    # the read's header says where on the plasmid it lies, which a `-` can't.
+    from Bio import Align
+
+    def counts(name: str) -> tuple[int, int, int]:
+        found = Align.read(tmp_path / "out" / name, "fasta").counts()  # type: ignore[no-untyped-call]
+        return found.identities, found.mismatches, found.gaps
+
+    assert counts("alignment.fasta") == (200, 400, 0)
+    assert counts("alignment-standard.fasta") == (200, 0, 400)
+    (_, _), (header, standard) = rows(tmp_path, "alignment-standard.fasta")
+    assert standard == PLASMID[:100] + "-" * 400 + PLASMID[-100:]
+    assert header.endswith("; on DNA-000001 1–100, 501–600")
+    assert texts(output)[-1].startswith("In alignment.fasta, the alignment's file, a read's `.`")
 
 
 def test_uncalled_bases_cover_nothing_and_hide_no_difference(tmp_path: Path) -> None:

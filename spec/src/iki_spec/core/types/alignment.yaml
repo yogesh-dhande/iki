@@ -39,7 +39,8 @@ fields:
       The alignment as FASTA, a record per row with gaps as - and . where the
       row has no observation (beyond a read's ends, say): a sequence in Iki is
       headed by its HRID, or HRID/start-end for part of it, anything else by
-      its own name.
+      its own name. The . is Iki's, which other tools reading aligned FASTA
+      take for a residue.
     media_types: [chemical/seq-aa-fasta, chemical/seq-na-fasta, text/plain]
     max_size: 1GiB
     required: true

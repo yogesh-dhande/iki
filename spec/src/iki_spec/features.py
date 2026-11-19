@@ -9,13 +9,18 @@ It's written as INSDC's feature table writes it along the entry's sequence:
 
 - Its parts keep the order they're read in (5' to 3' of the feature, so a reverse-strand
   join's last part first), and each part's strand flips with the strand it's read from.
-- A part across the entry's origin is two, ``join(x..L,1..y)``; two parts that were only
-  split by the given sequence's origin are one again. A feature that's then one part
-  from its start to its end lists none.
+- A part across the entry's origin is two, ``join(x..L,1..y)``; two parts of a join that
+  were only split by the given sequence's origin are one again. An ``order``'s parts
+  (``operator: order``: found in that order, nothing said of joining them) are never
+  made one. A feature that's then one part from its start to its end lists none, unless
+  an end is partial.
 - A site between two bases (``5^6``) stays between the same two bases.
+- A part's partial ends (``partial_start``, ``partial_end``: INSDC's ``<`` and ``>``, an
+  end beyond the base it names) stay on the ends they were on, which from the other
+  strand swap.
 - A ``location`` qualifier holding an INSDC location (a GenBank import's own text) is
-  written again along the entry's, its fuzzy ends (``<``, ``>``) kept on the ends they
-  were on. Text that isn't a location is left as it is.
+  written again along the entry's, its partial ends kept on the ends they were on. Text
+  that isn't a location is left as it is.
 """
 
 from __future__ import annotations
@@ -80,12 +85,14 @@ def place_feature(
     if placement.reverse and strand in _FLIPPED:
         out["strand"] = _FLIPPED[strand]
     given = _parts(feature, start, end, length)
+    ordered = feature.get("operator") == "order"
     if given is not None:
-        placed = _placed(given, placement, length, circular=circular)
+        placed = _placed(given, placement, length, circular=circular, ordered=ordered)
         (first, *rest) = placed
         if (
             not rest
             and not first.between
+            and not (first.fuzzy_start or first.fuzzy_end)
             and (first.start, first.end) == (bounds.start, bounds.end)
         ):
             out.pop("parts", None)
@@ -110,8 +117,9 @@ def place_location(text: str, placement: Placement, length: int, *, circular: bo
         return None
     if len(operators) > 1 or not all(_fits(s, length, circular=circular) for s in spans):
         return None
-    placed = _placed(spans, placement, length, circular=circular)
-    return _written(placed, operators.pop() if operators else "join")
+    operator = operators.pop() if operators else "join"
+    placed = _placed(spans, placement, length, circular=circular, ordered=operator == "order")
+    return _written(placed, operator)
 
 
 def _position(value: object, length: int) -> TypeGuard[int]:
@@ -135,7 +143,16 @@ def _parts(feature: dict[str, Any], start: int, end: int, length: int) -> list[_
         first, last = part.get("start"), part.get("end")
         if not _position(first, length) or not _position(last, length):
             return None
-        out.append(_Span(first, last, part.get("strand"), between=part.get("between") is True))
+        out.append(
+            _Span(
+                first,
+                last,
+                part.get("strand"),
+                between=part.get("between") is True,
+                fuzzy_start=part.get("partial_start") is True,
+                fuzzy_end=part.get("partial_end") is True,
+            )
+        )
     return out
 
 
@@ -145,15 +162,25 @@ def _part(span: _Span) -> dict[str, Any]:
         out["strand"] = span.strand
     if span.between:
         out["between"] = True
+    if span.fuzzy_start:
+        out["partial_start"] = True
+    if span.fuzzy_end:
+        out["partial_end"] = True
     return out
 
 
 def _placed(
-    spans: list[_Span], placement: Placement, length: int, *, circular: bool
+    spans: list[_Span],
+    placement: Placement,
+    length: int,
+    *,
+    circular: bool,
+    ordered: bool = False,
 ) -> list[_Span]:
-    """``spans``, in the order they're read, placed: joined where only the given origin
-    split them, moved, and split where the entry's origin does."""
-    if circular:
+    """``spans``, in the order they're read, placed: a join's joined where only the given
+    origin split them (an order's parts are each their own), moved, and split where the
+    entry's origin does."""
+    if circular and not ordered:
         spans = _joined(spans, length)
     moved = [_moved(span, placement, length) for span in spans]
     if not circular:

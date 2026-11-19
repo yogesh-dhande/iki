@@ -218,6 +218,34 @@ def test_imported_entities_keep_where_they_came_from(world: World) -> None:
     assert ExternalOrigin.objects.count() == 2
 
 
+#: Human calmodulin: CALM1 (UniProtKB P0DP23) and CALM2 (P0DP24) both encode these 149
+#: residues, as UniProt's entries give them.
+CALMODULIN = (
+    "MADQLTEEQIAEFKEAFSLFDKDGDGTITTKELGTVMRSLGQNPTEAELQDMINEVDADGNGTIDFPEFLTMMARKMKDTDSEE"
+    "EIREAFRVFDKDGNGYISAAELRHVMTNLGEKLTDEEVDEMIREADIDGDGQVNYEEFVQMMTAK"
+)
+
+
+def test_one_molecule_from_several_records_keeps_where_each_came_from(world: World) -> None:
+    """ADR 0154: two UniProtKB entries of one sequence, in one run, are one protein, and
+    both entries are its origins, each attributable to the run and its file."""
+    assert len(CALMODULIN) == 149
+    calm1, calm2 = (
+        {
+            "type": "acme/protein.Protein",
+            "values": {"name": name, "sequence": CALMODULIN},
+            "origin": {"name": accession, "url": f"https://rest.uniprot.org/uniprotkb/{accession}"},
+        }
+        for name, accession in (("CALM1", "P0DP23"), ("CALM2", "P0DP24"))
+    )
+    run, answer = imported(world, calm1, calm2)
+    assert answer["run_status"] == "succeeded", answer
+    (effect,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    origins = api_as(world, "viewer").get(f"/entities/{effect['hrid']}/origins").json()
+    assert sorted((o["id"], o["revision"]) for o in origins) == [("P0DP23", 1), ("P0DP24", None)]
+    assert {o["run"]["id"] for o in origins} == {run["id"]}
+
+
 def test_a_database_record_keeps_its_version_link_and_when_it_was_fetched(world: World) -> None:
     fetched = {
         "type": "acme/protein.Protein",

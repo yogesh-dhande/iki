@@ -230,6 +230,14 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     )
     imported = RunImport.objects.get(run_id=run["id"])
     assert (imported.created, imported.reused, imported.registered) == (2, 1, 2)
+    # Each line's origin is kept, the one that found its record again too (ADR 0154).
+    by = {
+        o.identifier: (o.entity_id, o.revision)
+        for o in ExternalOrigin.objects.filter(run_id=run["id"])
+    }
+    assert sorted(by) == ["A", "A again", "B", "C"]
+    assert by["A again"] == (by["A"][0], None)
+    assert (by["A"][1], by["B"][1], by["C"][1]) == (1, None, 1)
 
 
 def entry_of(sequence: str) -> Entity:
@@ -374,6 +382,110 @@ def test_a_project_that_keeps_its_entities_has_none_reused_or_referred_to(world:
             "entities with other projects.",
         }
     ]
+
+
+#: The first 60 bases of pUC19 (GenBank L09137.2), as a circle of its own.
+PUC19_START = "TCGCGCGTTTCGGTGATGACGGTGAAAACCTCTGACACATGCAGCTCCCGGAGACGGTCA"
+
+
+def plasmid(bases: str, name: str, file_id: str, *features: tuple[int, int]) -> dict[str, Any]:
+    return {
+        "type": "acme/dna.Plasmid",
+        "values": {
+            "name": name,
+            "bases": bases,
+            "topology": "circular",
+            "features": [
+                {"type": "misc_feature", "start": a, "end": b, "strand": "forward"}
+                for a, b in features
+            ],
+        },
+        "origin": origin(file_id, name),
+    }
+
+
+def test_lines_of_an_entry_spelled_otherwise_are_placed_along_it(world: World) -> None:
+    """ADR 0138, as a create makes a record: a line giving a plasmid registered elsewhere
+    from another origin has its features placed along the entry's bases, and its record's
+    first revision keeps the bases it gave."""
+    editor = api_as(world, "editor")
+    elsewhere = Project.objects.create(team=world.team, name="Plasmids")
+    ProjectMembership.objects.create(
+        project=elsewhere, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    for bases in ("AAGTCC", PUC19_START, "GATTACA"):
+        made = create(
+            editor, elsewhere, {"bases": bases, "topology": "circular"}, "acme/dna.Plasmid"
+        )
+        assert made.status_code == 201, made.content
+    # AAGTCC from its third base, GTCCAA: its bases 1 and 2 (GT) are the entry's 3 and 4.
+    small = "AAGTCC"[2:] + "AAGTCC"[:2]
+    # pUC19's from its 41st base: its 21..30 is the entry's 1..10, its 15..25 lies across
+    # the entry's origin (55..60, 1..5), and its 55..5 across its own, the entry's 35..45.
+    turn = 40
+    large = PUC19_START[turn:] + PUC19_START[:turn]
+    given = [(21, 30), (15, 25), (55, 5)]
+    run, _ = started(
+        world,
+        lambda f: lines(
+            plasmid(small, "Small", f, (1, 2)),
+            plasmid(large, "pUC19 start", f, *given),
+            # Spelled as its entry is: as given. And a new one, registered by its line.
+            plasmid("GATTACA", "As registered", f, (6, 2)),
+            plasmid("GATTACAGATTACAT", "New", f, (13, 2)),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+
+    records = {}
+    for effect in body["effects"]:
+        assert effect["kind"] == "created"
+        values = editor.get(f"/entities/{effect['entity']}").json()["values"]
+        records[values["name"]] = {
+            "bases": values["bases"],
+            "features": values["features"],
+            "first": Revision.objects.get(entity_id=effect["entity"], number=1).submitted,
+        }
+    assert len(records) == 4
+
+    def record(name: str) -> dict[str, Any]:
+        found: dict[str, Any] = records[name]
+        return found
+
+    def placed(start: int, end: int, length: int) -> tuple[int, int]:
+        # Base n of the line's rotation is the entry's base (n - 1 + turn) mod length + 1.
+        return ((start - 1 + turn) % length + 1, (end - 1 + turn) % length + 1)
+
+    def read(bases: str, start: int, end: int) -> str:
+        return bases[start - 1 : end] if start <= end else bases[start - 1 :] + bases[:end]
+
+    small_record = record("Small")
+    assert small_record["bases"] == "AAGTCC"
+    assert small_record["features"] == [
+        {"type": "misc_feature", "start": 3, "end": 4, "strand": "forward"}
+    ]
+    assert read("AAGTCC", 3, 4) == read(small, 1, 2) == "GT"
+    assert small_record["first"] == {"bases": small}
+
+    large_record = record("pUC19 start")
+    assert large_record["bases"] == PUC19_START
+    found = [(f["start"], f["end"]) for f in large_record["features"]]
+    assert found == [placed(a, b, len(PUC19_START)) for a, b in given]
+    assert found == [(1, 10), (55, 5), (35, 45)]
+    for (a, b), (c, d) in zip(given, found, strict=True):
+        assert read(large, a, b) == read(PUC19_START, c, d)
+    assert large_record["first"] == {"bases": large}
+    # A part across the entry's origin is two, as INSDC writes it.
+    assert large_record["features"][1]["parts"] == [
+        {"start": 55, "end": 60, "strand": "forward"},
+        {"start": 1, "end": 5, "strand": "forward"},
+    ]
+    for name, bases in (("As registered", "GATTACA"), ("New", "GATTACAGATTACAT")):
+        assert record(name)["bases"] == bases
+        assert record(name)["first"] is None
+    assert [(f["start"], f["end"]) for f in record("As registered")["features"]] == [(6, 2)]
+    assert [(f["start"], f["end"]) for f in record("New")["features"]] == [(13, 2)]
 
 
 def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -> None:

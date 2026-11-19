@@ -10,8 +10,13 @@ of proteins, two or many.
     registry (ADR 0115), with one ID, and registering it again, in any
     project, finds that entry. A project that hadn't got it gets its own
     record of it; one that had finds its record.
-  - It keeps its UniProt accession and gene where it has them, and the DNA
-    sequence it was translated from (`encoded_by`).
+  - Each project's record keeps the UniProt accession and gene it came from,
+    where it has them
+    ([ADR 0154](../../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md)):
+    one sequence is several genes' and species' UniProtKB entries, as
+    calmodulin is CALM1's P0DP23 and CALM2's P0DP24, and each import or fetch
+    keeps the entry it read as its origin. It keeps the DNA sequence it was
+    translated from (`encoded_by`) too.
   - Its length, molecular weight, isoelectric point, extinction coefficients,
     GRAVY, instability index and hydropathy along its sequence are computed by
     the plugin's actions. Its Sequence tab draws the hydropathy as a track.
@@ -125,7 +130,10 @@ they list none.
   ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)). It
   asks for 1 GiB of memory, and keeps `alignment.fasta` as an artifact, which
   is also the alignment's file: in a read's row, `-` is a deletion and `.` a
-  place it has no observation of, beyond its ends.
+  place it has no observation of, beyond its ends. Other tools reading aligned
+  FASTA take that `.` for a residue, so it keeps `alignment-standard.fasta` too,
+  with `-` for both, and each read's header, in both, says where it lies on the
+  protein (`; on PRT-000001 1–200`).
 
 Aligning reads to a protein: reads are read and trimmed as the dna plugin's
 `align_reads` does (the protein plugin has its own copy of that code, and a

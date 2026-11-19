@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Plasmid
+label: Plasmid
+extends: Sequence
+schema_version: 1
+description: >-
+  A circular sequence with features, as the fixtures have it: registered again
+  from another origin, it's found, and its features are placed along its entry's.
+hrid: { prefix: PLS }
+identity: [bases, topology]
+fields:
+  bases:
+    type: string
+    format: dna_sequence
+    topology: topology
+    required: true
+    immutable: true
+  topology:
+    { type: enum, values: [linear, circular], default: circular, required: true, immutable: true }
+  features:
+    type: json
+    schema:
+      type: array
+      items:
+        type: object
+        required: [type, start, end]
+        properties:
+          type: { type: string }
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1 }
+          strand: { enum: [forward, reverse, mixed, none] }
+display:
+  title: "{{ name or hrid }}"
+  viewers:
+    - { viewer: sequence, sequence: bases, features: features }
