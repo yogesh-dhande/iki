@@ -1,0 +1,273 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A plasmid is its sequence. Its identity is the DNA sequence's registry entry, so the
+# DNA plugin reads the molecule (circular, from any origin, on either strand: ADR 0138)
+# and this plugin never spells a plasmid's bases again.
+#
+# What a plasmid is, for everyone who holds it, is its entry's: its length, which follows
+# from the sequence alone, and the facts a registration team curates (its copy number,
+# the hosts it works in, what it is, its biosafety level). What depends on the choices a
+# run or a project made is each project's record's: the annotation, which depends on the
+# library and the identity a run asked for, as an antibody's numbering depends on its
+# scheme; and where the plasmid came from, under what agreement, in which strain.
+apiVersion: iki/v1
+kind: EntityType
+name: Plasmid
+label: Plasmid
+label_plural: Plasmids
+schema_version: 1
+description: >-
+  A plasmid or vector, by the circular DNA sequence that is it. Two plasmids of the same
+  sequence are the same plasmid, so registering one again finds its registry entry,
+  whatever origin or strand its sequence was read from. Its record says what the sequence
+  alone doesn't: how it's selected, where it replicates and at what copy number, the
+  hosts it works in, its promoters, its biosafety level, and where it came from.
+hrid: { prefix: PLS }
+identity: [sequence]
+fields:
+  sequence:
+    type: ref
+    to: iki/dna.DNASequence
+    required: true
+    immutable: true
+    description: >-
+      The circular, double-stranded DNA sequence that is this plasmid, by its registry
+      entry: its bases, topology, features and accession are the sequence's.
+  length:
+    type: quantity
+    registry: derived
+    unit: "{bp}"
+    computed: true
+    indexed: true
+    min: 0
+    description: Its base pairs, the sequence's length.
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  vector_type:
+    type: enum
+    registry: fact
+    indexed: true
+    values:
+      [
+        cloning,
+        bacterial_expression,
+        mammalian_expression,
+        yeast_expression,
+        insect_expression,
+        shuttle,
+        lentiviral,
+        retroviral,
+        aav,
+        adenoviral,
+        crispr,
+        reporter,
+        gateway_donor,
+        gateway_destination,
+        other,
+      ]
+    description: >-
+      What the vector is for. A registry fact: whoever registers it may set it, and then
+      only its registrars change it, with a reason.
+  hosts:
+    type: list
+    registry: fact
+    max_items: 7
+    items:
+      type: enum
+      values: [bacterial, yeast, mammalian, insect, plant, cell_free, viral]
+    description: >-
+      The hosts it replicates or is expressed in: bacterial for an E. coli plasmid,
+      viral for a vector packaged into virus particles, such as a lentiviral one.
+  copy_number:
+    type: enum
+    registry: fact
+    indexed: true
+    values: [high, low, single]
+    description: >-
+      How many copies a cell carries, as its origin keeps it: high for a pUC origin
+      (some hundreds), low for pBR322's or pSC101's, single for a yeast centromere
+      vector. It depends on the host and how it's grown, so it's curated, not computed.
+  biosafety_level:
+    type: enum
+    registry: fact
+    indexed: true
+    values: [bsl1, bsl2, bsl3, bsl4]
+    description: >-
+      The containment level the plasmid itself calls for, as its depositor or vendor
+      states it: BSL-1 for an E. coli cloning vector, BSL-2 for a lentiviral or
+      retroviral one. It isn't the lab's risk assessment of the work, which an
+      institutional committee makes: `biosafety_approval` names that.
+  replication_origins:
+    type: list
+    max_items: 10
+    items: { type: string, max_length: 60, pattern: "^[A-Za-z0-9][A-Za-z0-9 ()./+'-]{0,59}$" }
+    description: >-
+      Its origins of replication, as the annotation finds them: pMB1/pUC, f1, SV40, CEN6.
+  bacterial_resistance:
+    type: list
+    max_items: 8
+    items:
+      type: enum
+      values:
+        [
+          ampicillin,
+          kanamycin,
+          chloramphenicol,
+          tetracycline,
+          spectinomycin,
+          streptomycin,
+          gentamicin,
+          zeocin,
+        ]
+    description: The antibiotics it is selected with in bacteria, as the annotation finds them.
+  selection_markers:
+    type: list
+    max_items: 8
+    items:
+      type: enum
+      values:
+        [
+          neomycin_g418,
+          puromycin,
+          hygromycin,
+          blasticidin,
+          zeocin,
+          ura3,
+          leu2,
+          his3,
+          trp1,
+          lys2,
+          ade2,
+          dhfr,
+          gs,
+        ]
+    description: >-
+      What selects cells carrying it, beyond bacteria: a mammalian resistance marker, or
+      a yeast auxotrophic one, as the annotation finds them.
+  promoters:
+    type: list
+    max_items: 12
+    items: { type: string, max_length: 60, pattern: "^[A-Za-z0-9][A-Za-z0-9 ()./+'-]{0,59}$" }
+    description: "Its promoters, as the annotation finds them: T7, lac, CMV, SV40 early."
+  annotated_features:
+    type: json
+    computed: true
+    description: >-
+      The parts of the library found along its sequence, as a sequence viewer's features
+      (ADR 0085): each with where it lies, its strand, how much of the part matched, and
+      the INSDC record the part's bases are from.
+    schema:
+      type: array
+      maxItems: 2000
+      items:
+        type: object
+        additionalProperties: false
+        required: [type, name, start, end, strand]
+        properties:
+          type: { type: string, minLength: 1, maxLength: 64 }
+          name: { type: string, minLength: 1, maxLength: 200 }
+          start: { type: integer, minimum: 1 }
+          end:
+            type: integer
+            minimum: 1
+            description: Before start, it wraps the plasmid's origin.
+          strand: { enum: [forward, reverse] }
+          qualifiers:
+            type: object
+            maxProperties: 20
+            additionalProperties: { type: string, maxLength: 1000 }
+  annotated_with:
+    type: string
+    max_length: 200
+    computed: true
+    description: >-
+      Which library annotated it, and the identity a hit needed: "iki/plasmid features
+      1.0 (34 parts), at least 90% identity".
+  source:
+    type: enum
+    values: [in_house, addgene, vendor, collaborator, other]
+    indexed: true
+    description: Where this project's plasmid came from.
+  addgene_id:
+    type: string
+    max_length: 7
+    pattern: "^[1-9][0-9]{0,6}$"
+    indexed: true
+    link: "https://www.addgene.org/{value}/"
+    description: Its Addgene plasmid number, if it's from Addgene, such as 52961.
+  vendor: { type: string, max_length: 200 }
+  catalog_number: { type: string, max_length: 100, indexed: true }
+  depositor:
+    type: string
+    max_length: 200
+    description: Who deposited or made it, as its source names them.
+  received_on: { type: date, label: Received on }
+  growth_strain:
+    type: string
+    max_length: 100
+    description: >-
+      The strain it's propagated in, where it matters: Stbl3 for a vector with long
+      terminal repeats, ccdB Survival for a Gateway destination vector, DH5-alpha
+      otherwise.
+  growth_temperature:
+    type: quantity
+    unit: Cel
+    min: 0
+    max: 50
+    description: The temperature it's grown at, where it isn't 37 °C.
+  mta_required:
+    type: bool
+    label: Under an MTA
+    indexed: true
+    description: >-
+      Whether a material transfer agreement covers it. One that does limits what may be
+      done with it and with what's made from it.
+  mta_reference:
+    type: string
+    max_length: 100
+    indexed: true
+    label: MTA reference
+    description: The agreement's number in the lab's own records, or the provider's.
+  mta_provider: { type: string, max_length: 200, label: MTA provider }
+  mta_signed_on: { type: date, label: MTA signed on }
+  mta_restrictions:
+    type: text
+    max_length: 5000
+    label: MTA restrictions
+    description: >-
+      What the agreement limits: non-commercial use only, no passing it on, a
+      publication to acknowledge, results to share before publishing.
+  biosafety_approval:
+    type: string
+    max_length: 100
+    description: >-
+      The institutional biosafety approval that covers work with it, by its number: what
+      a committee decided, not what the plasmid is.
+# Kept at every save, however a record is written: by an action, through the API, by a
+# bulk import or in a bundle (ADR 0127).
+rules:
+  a_plasmid_is_circular:
+    label: A plasmid's sequence is circular
+    check: record.sequence.topology == "circular"
+    message: >-
+      A plasmid is a circular molecule, and {{ record.sequence }} is linear. Register a
+      linear construct as a DNA sequence, or register the circle it closes into.
+    fields: [sequence]
+  an_mta_is_named:
+    label: A plasmid under an MTA names the agreement
+    check: record.mta_reference != null
+    when: record.mta_required
+    message: >-
+      It's under a material transfer agreement, so name the agreement: whoever uses it
+      has to know which terms they're under.
+    fields: [mta_reference]
+  containment_is_approved:
+    label: A BSL-2 plasmid names its biosafety approval
+    check: record.biosafety_approval != null
+    when: record.biosafety_level in ["bsl2", "bsl3", "bsl4"]
+    message: >-
+      Work with a plasmid at this containment level needs an institutional biosafety
+      approval: name it.
+    fields: [biosafety_approval]
+display:
+  title: "{{ name or hrid }}"

@@ -22,6 +22,7 @@ FIRST_PARTY = {
     PLUGINS / "antibody": (PLUGINS / "dna", PLUGINS / "protein"),
     PLUGINS / "small_molecule": (),
     PLUGINS / "oligo": (),
+    PLUGINS / "plasmid": (PLUGINS / "dna",),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
@@ -54,6 +55,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "antibody",
         PLUGINS / "small_molecule",
         PLUGINS / "oligo",
+        PLUGINS / "plasmid",
         TEMPLATE,
         "--output",
         out,
@@ -248,6 +250,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         ]
     }
     for app in (
+        "iki__plasmid",
         "iki__oligo",
         "iki__small_molecule",
         "iki__antibody",
@@ -261,7 +264,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
         "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
-        "OR tablename LIKE 'oligo%%')",
+        "OR tablename LIKE 'oligo%%' OR tablename LIKE 'plasmid%%')",
     )
     assert left == [(0,)]
 

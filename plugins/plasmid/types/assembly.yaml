@@ -1,0 +1,178 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# How a construct was made: a backbone, the inserts that go into it, and the reaction
+# that joins them. It has no identity: one molecule can be made by several routes, and
+# two labs that clone the same plasmid each have their own plan, so an assembly is a
+# project's own record (ADR 0115).
+#
+# Its product is the DNA sequence the clone turned out to have, not the plasmid record:
+# the sequence is what a simulation can be compared with, and the plasmid registered from
+# that sequence is the same molecule, so a plan, the sequence it makes and the plasmid
+# that is it are one chain in the graph (ADR 0123). What the plan makes is a prediction,
+# which `assemble` registers as its own records made from the plan.
+apiVersion: iki/v1
+kind: EntityType
+name: Assembly
+label: Assembly
+label_plural: Assemblies
+schema_version: 1
+description: >-
+  A cloning plan: a backbone, the inserts going into it, and how they're joined
+  (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO).
+  Iki works out what the plan makes and checks it against the sequence the clone turned
+  out to have.
+hrid: { prefix: ASM }
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  method:
+    type: enum
+    required: true
+    indexed: true
+    values: [restriction_ligation, golden_gate, gibson, gateway_lr, gateway_bp, topo]
+    description: >-
+      How the parts are joined. Restriction-ligation, Golden Gate and Gibson are worked
+      out from the sequences; Gateway and TOPO are recorded, not simulated.
+  enzymes:
+    type: list
+    max_items: 6
+    items: { type: string, max_length: 20, pattern: "^[A-Za-z][A-Za-z0-9.-]{1,19}$" }
+    description: >-
+      The restriction enzymes the reaction cuts with, named as REBASE names them (EcoRI,
+      BamHI, BsaI, BsmBI). Each part is cut with all of them. A Gibson assembly whose
+      backbone is linearised by an enzyme names it too.
+  backbone:
+    type: ref
+    to: iki/dna.DNASequence
+    required: true
+    description: >-
+      The vector the inserts go into. For Gateway BP it's the donor vector, and for
+      Gateway LR the destination vector.
+  inserts:
+    type: list
+    max_items: 5
+    items: { type: ref, to: iki/dna.DNASequence }
+    description: >-
+      The fragments going into the backbone, each by its DNA sequence: a PCR product, a
+      synthesised fragment, or another plasmid a fragment is cut out of. For Gateway LR
+      it's the entry clone.
+  product:
+    type: ref
+    to: iki/dna.DNASequence
+    description: >-
+      The sequence the clone turned out to have, once it's known: what Iki checks the
+      plan against. Register the plasmid for it from the same sequence.
+  simulated_length:
+    type: quantity
+    unit: "{bp}"
+    computed: true
+    min: 0
+    description: The base pairs of the circle the plan makes, as Iki works it out.
+  matches_product:
+    type: bool
+    computed: true
+    label: Plan matches the product
+    description: >-
+      Whether what the plan makes is the same molecule as its product, read from any
+      origin and on either strand (ADR 0138).
+  junctions:
+    type: json
+    computed: true
+    description: >-
+      Each junction of the circle the plan makes: where it lies, which part meets which,
+      and the overhang or shared stretch that joins them.
+    schema:
+      type: array
+      maxItems: 50
+      items:
+        type: object
+        additionalProperties: false
+        required: [at, from, to]
+        properties:
+          at: { type: integer, minimum: 1 }
+          from: { type: string, maxLength: 200 }
+          to: { type: string, maxLength: 200 }
+          overhang: { type: string, maxLength: 100 }
+          overlap: { type: string, maxLength: 100 }
+          bases: { type: string, maxLength: 200 }
+          enzymes: { type: array, maxItems: 6, items: { type: string, maxLength: 20 } }
+  status:
+    type: state
+    initial: planned
+    label: Status
+    states:
+      planned:
+        label: Planned
+        description: Designed, not yet checked against a product.
+      checked:
+        label: Checked
+        set_by: [cloner, construct_reviewer]
+        description: What the plan makes is the sequence the clone has.
+        guards:
+          the_plan_matches:
+            check: record.matches_product == true
+            message: >-
+              Check the plan against its product first (Check an assembly), and it has to
+              match: what the plan makes isn't the product's sequence.
+      built:
+        label: Built
+        set_by: [cloner, construct_reviewer]
+        description: Transformed, picked and grown.
+        guards:
+          checked_first:
+            check: state.from == "checked"
+            message: An assembly is built from Checked, once its plan matches its product.
+      verified:
+        label: Verified
+        set_by: [construct_reviewer]
+        locks: true
+        reason: optional
+        description: >-
+          Someone other than whoever built it has seen that the clone's sequence is the
+          plan's product.
+        guards:
+          built_first:
+            check: state.from == "built"
+            message: An assembly is verified from Built.
+          four_eyes:
+            check: last.status.built == null || last.status.built.by != actor.person
+            message: You built it, so someone else verifies it.
+      abandoned:
+        label: Abandoned
+        set_by: [cloner, construct_reviewer]
+        reason: required
+        description: "Given up on: it didn't clone, or the design changed."
+notifications:
+  plan_doesnt_match:
+    label: The plan doesn't make the product
+    description: >-
+      Whoever recorded the plan hears when a check finds that what it makes isn't the
+      sequence the clone has.
+    when: { field: matches_product, to: false }
+    tell: { creator: true, watchers: true }
+    message:
+      title: "{{ hrid }}: the plan doesn't make its product"
+      body: "{{ name or 'The assembly' }} makes another molecule than {{ product }}."
+  verified:
+    label: Verified
+    description: Whoever recorded the plan hears when a reviewer verifies the construct.
+    when: { field: status, to: verified }
+    tell: { creator: true, watchers: true }
+rules:
+  enzymes_for_cutting:
+    label: Restriction-ligation and Golden Gate name their enzymes
+    check: size(record.enzymes) > 0
+    when: record.method in ["restriction_ligation", "golden_gate"]
+    message: >-
+      Cutting and ligating needs the enzymes: name each as REBASE does, such as EcoRI
+      and BamHI, or BsaI for Golden Gate.
+    fields: [enzymes]
+  a_product_is_circular:
+    label: A plasmid an assembly makes is circular
+    check: record.product.topology == "circular"
+    message: >-
+      An assembly closes a circle, and {{ record.product }} is linear: give the circular
+      sequence the clone has.
+    fields: [product]
+display:
+  title: "{{ name or hrid }}"

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/plasmid
+version: 0.1.0
+title: Plasmids and vectors
+description: >-
+  Plasmids and vectors by the circular sequence that is each one, with what the sequence
+  alone doesn't say: its selection markers, origins and copy number, the hosts it works
+  in, its promoters, its biosafety level, where it came from and the agreement it came
+  under; the cloning plans that make them, simulated and checked against the sequence
+  they give; and the common vector parts a plasmid is annotated from.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/plasmid
+dependencies:
+  iki/dna:
+    types:
+      DNASequence: ">=3"
+roles:
+  cloner:
+    label: Cloning scientist
+    description: Plans a construct, builds it, and records the sequence of what was built.
+  construct_reviewer:
+    label: Construct reviewer
+    description: >-
+      Checks that a construct's sequence is what was planned, and verifies it: someone
+      other than whoever built it.

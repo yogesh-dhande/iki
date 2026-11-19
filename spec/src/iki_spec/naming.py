@@ -98,6 +98,7 @@ FIRST_PARTY = frozenset(
         "iki/antibody",
         "iki/small_molecule",
         "iki/oligo",
+        "iki/plasmid",
         "iki/example_lims",
         "iki/example_models",
     }

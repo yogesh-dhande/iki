@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assemble
+label: Work out what an assembly makes
+description: >-
+  Works out the circle a cloning plan makes from its backbone and inserts, and registers
+  what it makes: the DNA sequence and the plasmid that is it, both made from the plan, so
+  a map and primers can be had before anything is cloned. What the clone turned out to
+  have is stated on the plan afterwards, and checked against this. For
+  restriction-ligation and Golden Gate it digests each part with the plan's enzymes and
+  ligates matching overhangs; for Gibson it joins parts that share their ends. A plan
+  that could make more than one circle makes none, and says which they are.
+inputs:
+  assembly: { type: Assembly, schema: ">=1", include: [backbone, inserts] }
+params:
+  min_overlap:
+    type: int
+    min: 10
+    max: 200
+    default: 15
+    label: Least Gibson overlap
+    description: The shortest stretch two fragments must share for a Gibson assembly to join them.
+  backbone_fragment:
+    type: enum
+    values: [longest, any]
+    default: longest
+    label: Which fragment of the backbone
+    description: >-
+      Which of the backbone's fragments goes into the reaction. By default its longest,
+      as a vector digest is purified down to the band cut out of the gel; `any` tries
+      every fragment of it, for a plan that keeps another one.
+effects:
+  creates:
+    - { type: iki/dna.DNASequence, derived_from: [assembly] }
+    - { type: Plasmid, derived_from: [assembly] }
+  updates:
+    - input: assembly
+      fields: [simulated_length, junctions]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, assemble]
+deterministic: true
+timeout: 30m

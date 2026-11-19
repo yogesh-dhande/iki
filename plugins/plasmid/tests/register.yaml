@@ -1,0 +1,31 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: a_plasmid_is_its_circular_double_stranded_sequence
+description: >-
+  Registering a plasmid from its bases makes two things: the circular, double-stranded DNA
+  sequence, and the plasmid that is it, which refers to that sequence. An Addgene number
+  given with it says where it came from.
+action: register_plasmid
+params:
+  bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC"
+  name: pTest
+  description: A circle to test with.
+  addgene_id: "52961"
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: sequence
+        values:
+          bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC"
+          topology: circular
+          strandedness: double
+          name: pTest
+      - type: iki/plasmid.Plasmid
+        values:
+          sequence: { $create: sequence }
+          name: pTest
+          description: A circle to test with.
+          addgene_id: "52961"
+          source: addgene

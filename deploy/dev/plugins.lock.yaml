@@ -11,6 +11,7 @@ plugins:
   - { name: iki/antibody, local: ../../plugins/antibody, state: active }
   - { name: iki/small_molecule, local: ../../plugins/small_molecule, state: active }
   - { name: iki/oligo, local: ../../plugins/oligo, state: active }
+  - { name: iki/plasmid, local: ../../plugins/plasmid, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims

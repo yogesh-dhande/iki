@@ -25,6 +25,12 @@ allow-dependencies-licenses:
   - pkg:pypi/psycopg-c
   - pkg:pypi/psycopg-pool
   - pkg:pypi/wasmtime
+  # biopython is under the Biopython License Agreement, which has no SPDX identifier, and
+  # numpy's expression names CC0-1.0 for two public-domain random-number routines; both
+  # have reviewed exceptions in osv-scanner.toml, and a plugin environment that installs
+  # either brings them into a pull request's diff.
+  - pkg:pypi/biopython
+  - pkg:pypi/numpy
 # Mirrors the time-limited exception in osv-scanner.toml.
 allow-ghsas:
   - GHSA-g3hv-75wg-m249

@@ -1,0 +1,94 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: parts_are_found_on_either_strand_and_round_the_origin
+description: >-
+  A circle built of four of the library's parts is annotated with all four, each where it
+  lies: the T7 promoter on the reverse strand, and the SV40 origin across the circle's
+  origin, where its end comes before its start. Each hit says how much of the part
+  matched and which INSDC record the part's bases are from, and what the parts say about
+  the plasmid fills its origins and promoters.
+action: annotate_plasmid
+inputs:
+  plasmid:
+    - values: {}
+      included:
+        sequence:
+          - values:
+              {
+                bases: "TCGGCCTCTGAGCTATTCCAGAAGTAGTGAGGAGGCTTTCAGTGAGACGATGGCAACCTACGTAACGCCGATTCGCCTATAGTGAGTCGTATTAACGAAATCTTATGACCTTTCTTCTAGATCTCGATTTGTTTGGGAATTGTGAGCGGATAACAATTCCGGTCCTGGAATGGGAACTCATACTGTACAATATCATCATCATCATCATCACCTTGACTAACAGTTAATCATCATAGAATGGACTAATTTTTTTTATTTATGCAGAGGCCGAGGCCGCC",
+                topology: circular,
+              }
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            length: 278
+            replication_origins: [SV40]
+            promoters: [T7]
+            bacterial_resistance: []
+            selection_markers: []
+            annotated_with: "iki/plasmid features 1.0 (34 parts), at least 90% identity"
+            annotated_features:
+              - type: promoter
+                name: T7 promoter
+                start: 76
+                end: 94
+                strand: reverse
+                qualifiers:
+                  label: T7 promoter
+                  role: promoter
+                  identity: 100.0%
+                  library: iki/plasmid features 1.0
+                  source: INSDC OL989372.1 4984..5002 (Cloning vector pET-28a-ZaTdT12)
+              - type: protein_bind
+                name: lac operator
+                start: 136
+                end: 160
+                strand: forward
+              - type: CDS
+                name: 6xHis
+                start: 194
+                end: 211
+                strand: forward
+              - type: rep_origin
+                name: SV40 ori
+                start: 241
+                end: 38
+                strand: forward
+                qualifiers:
+                  label: SV40 ori
+                  role: origin
+                  identity: 100.0%
+                  library: iki/plasmid features 1.0
+                  source: INSDC LT009457.1 533..608 (Lentiviral vector pLenti6-V5-Puro)
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_plasmid_with_none_of_the_librarys_parts
+description: >-
+  A circle with none of the library's parts is annotated with none, and says which library
+  looked: its lists are emptied rather than left as they were, so nothing from an earlier
+  annotation stays behind.
+action: annotate_plasmid
+inputs:
+  plasmid:
+    - values: { length: 60 }
+      included:
+        sequence:
+          - values:
+              {
+                bases: "ATATATATATATATATATATATATATATATATATATATATATATATATATATATATATAT",
+                topology: circular,
+              }
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            annotated_features: []
+            replication_origins: []
+            bacterial_resistance: []
+            selection_markers: []
+            promoters: []
