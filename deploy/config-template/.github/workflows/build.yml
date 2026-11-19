@@ -12,7 +12,9 @@ name: Build
 #
 # Secrets:
 # - PLUGIN_REPOS_TOKEN: read-only access to the plugin repositories the
-#   lockfiles name (a fine-grained token, or a GitHub App's).
+#   lockfiles name (a fine-grained token, or a GitHub App's). git is given it
+#   for this GitHub's https URLs only; a plugin on another host needs a
+#   credential helper of its own for that host, or an ssh URL and key.
 
 on:
   pull_request:
@@ -55,18 +57,21 @@ jobs:
             echo "server=$(yq -r .serverImage "$DEPLOYMENT/iki.yaml")"
             echo "worker=$(yq -r .workerImage "$DEPLOYMENT/iki.yaml")"
           } >> "$GITHUB_OUTPUT"
-      - name: Let git read the plugin repositories
-        env:
-          # Every pull request's build needs it; it only reads the plugins.
-          TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }} # zizmor: ignore[secrets-outside-env]
-        run: |
-          # git runs the helper, so $TOKEN expands then, not here.
-          # shellcheck disable=SC2016
-          git config --global credential.helper \
-            '!f() { echo username=x-access-token; echo "password=$TOKEN"; }; f'
       - name: Build and check the plugins
         env:
           VERSION: ${{ steps.iki.outputs.version }}
+          # Every pull request's build needs it; it only reads the plugins. Only this
+          # step has it, and git gives it only to this GitHub (below), never to
+          # another host a lockfile names.
+          PLUGIN_REPOS_TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }} # zizmor: ignore[secrets-outside-env]
+          # git's credential helper for this GitHub, for this step's git alone: it's
+          # in no config file, so no later step's git has it. git runs it when the
+          # host asks who's fetching, and only then reads the token.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: credential.${{ github.server_url }}.helper
+          GIT_CONFIG_VALUE_0: >-
+            !f() { if [ "$1" = get ] && [ -n "$PLUGIN_REPOS_TOKEN" ]; then
+            echo username=x-access-token; echo "password=$PLUGIN_REPOS_TOKEN"; fi; }; f
         run: |
           # Iki's own plugins come from the mirrors values.yaml names, if any (ADR 0114):
           # the server refuses plugins from any other.

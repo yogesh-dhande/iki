@@ -98,6 +98,9 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
 - Give CI read access to your plugin repositories as the
   `PLUGIN_REPOS_TOKEN` secret. A GitHub App's token or a fine-grained,
   read-only token is best. Plugins can only be fetched over https or ssh.
+  Only the step that fetches them has the token, and git gives it only to
+  this GitHub, never to another host a lockfile names, so put no credentials
+  in a lockfile's URLs (the build refuses them).
 - Protect `main`, and require the build to pass and a review, from the
   plugin's owners for its settings files if you use `CODEOWNERS`.
 - In each cluster, admit only images signed by this repository's workflow
