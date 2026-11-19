@@ -3158,6 +3158,17 @@
             "title": "Registered",
             "type": "boolean"
           },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestSidesOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type."
+          },
           "reused": {
             "description": "The project had a record of this identity already: it's returned as it is, unchanged.",
             "title": "Reused",
@@ -4151,6 +4162,17 @@
             "title": "Refs",
             "type": "object"
           },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestSidesOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type."
+          },
           "revision": {
             "description": "Its latest revision. Send it back as If-Match to change it.",
             "title": "Revision",
@@ -4380,6 +4402,28 @@
           "plugin": {
             "title": "Plugin",
             "type": "string"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestTypeOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its records are requests one project sends to another's service (ADR 0132): which fields the service writes, and which send records with it."
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultTypeOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its records are a request's results (ADR 0132), which the service owns and releases back to the asking project."
           },
           "rule_variables": {
             "anyOf": [
@@ -7319,6 +7363,67 @@
         "title": "InputOut",
         "type": "object"
       },
+      "IntakeIn": {
+        "properties": {
+          "from_registry": {
+            "default": false,
+            "title": "From Registry",
+            "type": "boolean"
+          },
+          "projects": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Projects",
+            "type": "array"
+          },
+          "types": {
+            "description": "Request types, qualified.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "title": "IntakeIn",
+        "type": "object"
+      },
+      "IntakeOut": {
+        "properties": {
+          "from_registry": {
+            "description": "Every project in its registry may send it these. Otherwise only `projects`.",
+            "title": "From Registry",
+            "type": "boolean"
+          },
+          "projects": {
+            "description": "The projects that may send it these, besides the whole registry.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "types": {
+            "description": "The request types it accepts, and their subtypes. Empty: it takes none.",
+            "items": {
+              "$ref": "#/components/schemas/RequestTypeRef"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "types",
+          "from_registry",
+          "projects"
+        ],
+        "title": "IntakeOut",
+        "type": "object"
+      },
       "InventoryOut": {
         "description": "A project webhook as Org Admins see it: where it sends, not what.",
         "properties": {
@@ -8295,6 +8400,17 @@
             },
             "title": "Repointed",
             "type": "array"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestSidesOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type."
           },
           "revision": {
             "description": "Its latest revision. Send it back as If-Match to change it.",
@@ -12849,6 +12965,224 @@
         "title": "ReproductionOut",
         "type": "object"
       },
+      "RequestOut": {
+        "description": "A request's two sides (ADR 0132).",
+        "properties": {
+          "asking_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project that owns and sent it."
+          },
+          "request": {
+            "$ref": "#/components/schemas/EntityOut"
+          },
+          "results": {
+            "description": "Its results that you can read: for the asking project, those the service released back; for the service, all of them.",
+            "items": {
+              "$ref": "#/components/schemas/EntityOut"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "sent": {
+            "description": "What it sent the service with it, that you can read: the records its `sends` fields named, now or when they were sent.",
+            "items": {
+              "$ref": "#/components/schemas/EntityOut"
+            },
+            "title": "Sent",
+            "type": "array"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project serving it; null before it's sent."
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "submitted_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "asking_project",
+          "service",
+          "submitted_at",
+          "submitted_by",
+          "sent",
+          "results"
+        ],
+        "title": "RequestOut",
+        "type": "object"
+      },
+      "RequestSidesOut": {
+        "description": "A request's two sides (ADR 0132): the project that asked, which owns it, and the\nservice it was sent to.",
+        "properties": {
+          "asking_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project that owns and sent it."
+          },
+          "sends": {
+            "description": "The fields whose records go to the service with it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sends",
+            "type": "array"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project serving it, once it's sent; null before."
+          },
+          "service_fields": {
+            "description": "The fields the service changes, and the state fields it sets. The rest are the asking project's.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Fields",
+            "type": "array"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "boolean"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "submitted_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "yours": {
+            "description": "The sides you may change it as: `asker`, as an Editor in its project, and `service`, as an Editor in the service's.",
+            "items": {
+              "enum": [
+                "asker",
+                "service"
+              ],
+              "type": "string"
+            },
+            "title": "Yours",
+            "type": "array"
+          }
+        },
+        "required": [
+          "asking_project",
+          "service",
+          "submitted",
+          "submitted_at",
+          "submitted_by",
+          "service_fields",
+          "sends",
+          "yours"
+        ],
+        "title": "RequestSidesOut",
+        "type": "object"
+      },
+      "RequestTypeOut": {
+        "description": "What makes a type's records requests between projects (ADR 0132).",
+        "properties": {
+          "sends": {
+            "description": "Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sends",
+            "type": "array"
+          },
+          "service_fields": {
+            "description": "The fields the service it's sent to changes, and the state fields it sets, with the lab roles its people hold in its project. The rest are the asking project's.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "service_fields",
+          "sends"
+        ],
+        "title": "RequestTypeOut",
+        "type": "object"
+      },
+      "RequestTypeRef": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Qualified: plugin.Type.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "RequestTypeRef",
+        "type": "object"
+      },
       "RerunIn": {
         "properties": {
           "consent": {
@@ -12869,6 +13203,36 @@
           }
         },
         "title": "RerunIn",
+        "type": "object"
+      },
+      "ResultTypeOut": {
+        "description": "What makes a type's records a request's results (ADR 0132).",
+        "properties": {
+          "of": {
+            "description": "Its reference to the request it's a result of.",
+            "title": "Of",
+            "type": "string"
+          },
+          "released_field": {
+            "description": "The service's state field that releases it.",
+            "title": "Released Field",
+            "type": "string"
+          },
+          "released_states": {
+            "description": "The states that send it back to the asking project, where it stays.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Released States",
+            "type": "array"
+          }
+        },
+        "required": [
+          "of",
+          "released_field",
+          "released_states"
+        ],
+        "title": "ResultTypeOut",
         "type": "object"
       },
       "RevisionDetailOut": {
@@ -15438,6 +15802,50 @@
         "title": "ServiceAccountPatch",
         "type": "object"
       },
+      "ServiceOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "types": {
+            "description": "The request types it takes from the project asking.",
+            "items": {
+              "$ref": "#/components/schemas/RequestTypeRef"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "description",
+          "types"
+        ],
+        "title": "ServiceOut",
+        "type": "object"
+      },
+      "ServicesFilters": {
+        "properties": {
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only services taking this request type (qualified), or a parent.",
+            "title": "Type"
+          }
+        },
+        "title": "ServicesFilters",
+        "type": "object"
+      },
       "SettingsIn": {
         "properties": {
           "kinds": {
@@ -17346,6 +17754,27 @@
           "structure"
         ],
         "title": "StructureViewerOut",
+        "type": "object"
+      },
+      "SubmitIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "service": {
+            "description": "The service's project: one `/services` lists.",
+            "format": "uuid",
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "title": "SubmitIn",
         "type": "object"
       },
       "SummaryOut": {
@@ -24297,6 +24726,64 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/request": {
+      "get": {
+        "description": "Who asked and who serves it, what it sent the service, and the results that came of\nit (ADR 0132): each only as far as you can read them. A record that isn't a request\nanswers 404.",
+        "operationId": "iki_server_api_requests_get_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A request's two sides",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/revisions": {
       "get": {
         "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it.",
@@ -24696,6 +25183,90 @@
         "summary": "Set one of a record's state fields",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/submit": {
+      "post": {
+        "description": "Sends the request (ADR 0132) to a service that takes it from its project: it's linked\ninto the service's project, with the records its `sends` fields name, which the service\ncan then read, and only those. It goes to one service, for good. It needs you as an\nEditor in its project, which must allow sharing its entities (ADR 0067). A service that\ndoesn't take it answers 404, as one that doesn't exist does. Send If-Match.",
+        "operationId": "iki_server_api_requests_submit_request",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Send a request to a service",
+        "tags": [
+          "requests"
         ]
       }
     },
@@ -27887,6 +28458,98 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/intake": {
+      "get": {
+        "description": "The request types it accepts, and who from (ADR 0132). Its members can read it.",
+        "operationId": "iki_server_api_requests_get_intake",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a project takes as a service",
+        "tags": [
+          "requests"
+        ]
+      },
+      "put": {
+        "description": "Its Admins choose the request types it accepts, from every project in its registry\n(`from_registry`) or from the projects they name, which they must be able to see.\nRequests already sent stay. Audited as `project.intake_changed`.",
+        "operationId": "iki_server_api_requests_put_intake",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntakeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose what a project takes as a service",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/members": {
       "get": {
         "description": "Each grant goes to one person (or service account) or to a whole team.",
@@ -28357,6 +29020,70 @@
         "summary": "Whom its records can name",
         "tags": [
           "work"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/services": {
+      "get": {
+        "description": "Each project that takes requests from this one (ADR 0132), of `type` if given, with\nthe request types it takes. Its members can read them: a service's name and description\nare what it shows those it serves.",
+        "operationId": "iki_server_api_requests_list_services",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only services taking this request type (qualified), or a parent.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only services taking this request type (qualified), or a parent.",
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ServiceOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The services a project may send requests to",
+        "tags": [
+          "requests"
         ]
       }
     },

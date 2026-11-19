@@ -569,6 +569,30 @@ class TypeNotification:
 
 
 @dataclass(frozen=True)
+class RequestSpec:
+    """What makes a type's records requests from one project to another's service (ADR
+    0132): which of its fields the service writes, and which send records with it."""
+
+    #: The fields the project serving it may change, and the state fields it may set: the
+    #: rest are the asking project's.
+    service_fields: tuple[str, ...] = ()
+    #: Its references (or lists of them) whose records go to the service with it.
+    sends: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ResultSpec:
+    """What makes a type's records the results of a request (ADR 0132): the service owns
+    them, and each goes back to the asking project once its state says it's released."""
+
+    #: Its reference to the request it's a result of.
+    of: str
+    #: The state field, and its states, in which it's released to the asking project.
+    released_field: str
+    released_states: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -594,6 +618,11 @@ class EntityType:
     #: Whom its records tell, and when (ADR 0129), by name. Subtypes' records tell what their
     #: ancestors' do too.
     notifications: dict[str, TypeNotification] = field(default_factory=dict)
+    #: Its records are requests between projects (ADR 0132). Subtypes have their
+    #: ancestor's.
+    request: RequestSpec | None = None
+    #: Its records are a request's results (ADR 0132).
+    result: ResultSpec | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -1268,6 +1297,8 @@ _DATACLASSES = (
     Rule,
     StateMove,
     TypeNotification,
+    RequestSpec,
+    ResultSpec,
     EntityType,
     Extension,
     Plugin,
@@ -1341,6 +1372,9 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "notifications": {
                             n: _notification(x) for n, x in (v.get("notifications") or {}).items()
                         },
+                        # ...or requests.
+                        "request": _request(v.get("request")),
+                        "result": _result(v.get("result")),
                     }
                 )
                 for k, v in data["types"].items()
@@ -1396,6 +1430,18 @@ def _notification(data: dict[str, Any]) -> TypeNotification:
             "tell_roles": tuple(data["tell_roles"]),
         }
     )
+
+
+def _request(data: dict[str, Any] | None) -> RequestSpec | None:
+    if data is None:
+        return None
+    return RequestSpec(service_fields=tuple(data["service_fields"]), sends=tuple(data["sends"]))
+
+
+def _result(data: dict[str, Any] | None) -> ResultSpec | None:
+    if data is None:
+        return None
+    return ResultSpec(**{**data, "released_states": tuple(data["released_states"])})
 
 
 def _component(data: dict[str, Any]) -> Component:

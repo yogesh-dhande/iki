@@ -54,7 +54,7 @@ from django.db.models.functions import Now
 from psycopg import sql
 
 from iki_server.audit import log as audit
-from iki_server.entities import breaches, constraints, hrids, registry, states, unique
+from iki_server.entities import breaches, constraints, hrids, registry, requests, states, unique
 from iki_server.entities.values import shape
 from iki_server.graph import edges
 from iki_server.plugins.models import PluginState
@@ -122,6 +122,7 @@ def sync(analyst_role: str | None = None) -> Report:
         )
         report.rules = constraints.install(cursor, constraints.wanted())
         report.guards = states.install_guards(cursor, states.guarded_tables())
+        report.guards += requests.install_guards(cursor, requests.guarded_tables())
         report.views = _views(cursor)
         report.plugins = _states()
         report.checked = breaches.recheck()

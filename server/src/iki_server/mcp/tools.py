@@ -638,6 +638,52 @@ def build() -> MCPServer:
             )
         )
 
+    @server.tool(annotations=READ, title="List the services a project may ask")
+    async def list_services(
+        project: Annotated[UUID, Field(description="The project asking: one of list_projects'.")],
+        type: Annotated[
+            str | None,
+            Field(description="Only services taking this request type (qualified)."),
+        ] = None,
+    ) -> CallToolResult:
+        """The other projects that take requests from this one (ADR 0132): core facilities
+        and other services, each with the request types it takes. A request type's records
+        (describe_entity_type's `request`) are made in the asking project with
+        create_entity, then sent to one of these with submit_request."""
+        query = {"type": type} if type is not None else None
+        return answer(
+            await call("GET", path("/projects/{id}/services", id=str(project)), query=query)
+        )
+
+    @server.tool(annotations=CHANGE, title="Send a request to a service")
+    async def submit_request(
+        ref: Ref,
+        revision: Revision,
+        service: Annotated[UUID, Field(description="The service's project, from list_services.")],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Sends a request (ADR 0132) to another project's service, for good: the service's
+        people can then read it and the records its `sends` fields name, such as its
+        samples, and they work it in their own fields and states. It can't be taken back,
+        so confirm the service and what the request sends with the person first. It needs
+        them as an Editor in the request's project."""
+        return answer(
+            await call(
+                "POST",
+                path("/entities/{ref}/submit", ref=ref),
+                body={"service": str(service), "reason": reason},
+                if_match=f'"{revision}"',
+            )
+        )
+
+    @server.tool(annotations=READ, title="Get a request's two sides")
+    async def get_request(ref: Ref) -> CallToolResult:
+        """A request between projects (ADR 0132): the project that asked and the service it
+        went to, what it sent the service, and the results that came of it, each as far as
+        the person can read them. The asking project sees only results the service
+        released back."""
+        return answer(await call("GET", path("/entities/{ref}/request", ref=ref)))
+
     @server.tool(annotations=READ, title="How to write an app")
     async def describe_apps() -> CallToolResult:
         """How to write an app (iki/core.App): a page of Iki's own components, an entities

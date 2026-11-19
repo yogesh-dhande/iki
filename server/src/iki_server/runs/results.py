@@ -559,7 +559,7 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
     user = check.run.requested_by
     for update in updates:
         entity = Entity.objects.select_for_update().get(pk=update.entity)
-        if not access.can_edit(user, entity):
+        if not access.can_edit(user, entity, acting_in=check.run.project):
             raise Rejected(
                 "not_allowed", f"{user.name} can no longer edit {entity.hrid}, which it updates."
             )
@@ -571,6 +571,7 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
                 expected_revision=entity.revision,
                 by_run=True,
                 hold_reason=holds.run_reason(check.run),
+                acting_in=check.run.project,
             )
         except Invalid as error:
             invalid(check, update.pointer, error)
@@ -688,7 +689,7 @@ def update_match(
             f"It matches {entity.hrid}, a {entity.type}, which isn't a {type_name}.",
         )
         return None
-    if not access.can_edit(user, entity):
+    if not access.can_edit(user, entity, acting_in=check.run.project):
         raise Rejected(
             "not_allowed", f"{user.name} can no longer edit {entity.hrid}, which it matches."
         )
@@ -700,6 +701,7 @@ def update_match(
             expected_revision=entity.revision,
             by_run=True,
             hold_reason=holds.run_reason(check.run),
+            acting_in=check.run.project,
         )
     except Invalid as error:
         invalid(check, at, error)

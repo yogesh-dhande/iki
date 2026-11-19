@@ -35,7 +35,7 @@ from iki_server.accounts.models import IdentityProvider, User
 from iki_server.audit import log
 from iki_server.audit.models import AuditEvent
 from iki_server.core.ids import uuid7
-from iki_server.entities import states
+from iki_server.entities import requests, states
 from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.values import Invalid, shape
 from iki_server.org import lab_roles, permissions
@@ -214,7 +214,7 @@ def slots(
     Core asks only that each is its signer's own act, by someone holding its role, on
     this revision: whether one person may give two, or in what order they're given, is
     the plugin's to say, as a rule on the change."""
-    owner = entity.owner_project
+    owner = requests.field_project(entity, change.field)
     counted: dict[int, Signature] = {}
     lapsed: dict[int, str] = {}
     for s in given:
@@ -244,7 +244,9 @@ def slots(
             why = f"{signature.signer.name or signature.signer.email} gave it."
         elif cant is not None and cant.startswith("Signatures are given by people"):
             why = cant
-        elif (base := states.refusal(user, entity, roles, change.to_label)) is not None:
+        elif (
+            base := states.refusal(user, entity, roles, change.to_label, field=change.field)
+        ) is not None:
             why = base[0]
         elif cant is not None:
             why = cant
@@ -343,7 +345,7 @@ def begin(
         else:
             raise Refused(f"Setting it to {change.to_label} has no signature {index}.")
         if slot.why_not is not None:
-            owner = locked.owner_project
+            owner = requests.field_project(locked, change.field)
             if owner is not None and _qualifies(user, owner, slot.roles):
                 raise Refused(slot.why_not)
             raise PermissionDenied(slot.why_not)

@@ -115,8 +115,8 @@ claude mcp add --transport http iki https://iki.example.com/mcp
 
 Its tools search and read entities with their provenance, history and
 lineage, and actions and runs with their logs. They also create, change,
-archive and restore entities, giving a reason for each change, and start and
-cancel runs. Everything an agent does is recorded as the person's, through
+archive and restore entities, giving a reason for each change, send requests
+to other projects' services (ADR 0132), and start and cancel runs. Everything an agent does is recorded as the person's, through
 the agent (ADR 0072): its client ID, the person's grant, its MCP session, and
 what it says it is. Iki gives each session an `Mcp-Session-Id`. An agent may
 say what model it is with the `Iki-Agent-Model` header, which works for the

@@ -24,6 +24,196 @@ from iki_server.files.models import File
 import iki_plugin_acme__dna.models
 
 
+class AssayRequest(Entity):
+    """Assay request (acme/protein.AssayRequest), schema version 1. Samples a project sends a core facility to measure (ADR 0132)."""
+
+    IKI_TYPE = 'acme/protein.AssayRequest'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    title = models.CharField(max_length=200)
+    protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    needed_by = models.DateField(null=True)
+    instructions = models.TextField(null=True)
+    priority = models.TextField(null=True, db_default='routine')
+    scheduled_on = models.DateField(null=True)
+    technician = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    core_notes = models.TextField(null=True)
+    standing = StateField(
+        states=['open', 'withdrawn'],
+        db_default='open',
+        db_comment='A state field (ADR 0125): one of open, withdrawn.',
+    )
+    status = StateField(
+        states=['submitted', 'accepted', 'delivered', 'declined'],
+        locking=['delivered'],
+        db_default='submitted',
+        db_comment='A state field (ADR 0125): one of submitted, accepted, delivered, declined.',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('title'), 1),
+                name='acme__protein_assayrequest__title__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(title__regex='[\\r\\n]'),
+                name='acme__protein_assayrequest__title__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('instructions'), 1),
+                name='acme__protein_assayrequest__instructions__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=Q(priority__in=['routine', 'urgent']),
+                name='acme__protein_assayrequest__priority__values',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('core_notes'), 1),
+                name='acme__protein_assayrequest__core_notes__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=Q(standing__in=['open', 'withdrawn']),
+                name='acme__protein_assayrequest__standing__known',
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=['submitted', 'accepted', 'delivered', 'declined']),
+                name='acme__protein_assayrequest__status__known',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                SearchVector('instructions', config='simple'),
+                name='instructio_fts_6d8ee9eeea08520',
+            ),
+            GinIndex(
+                SearchVector('core_notes', config='simple'),
+                name='core_notes_fts_78bb93fba8fb721',
+            ),
+        ]
+
+
+class AssayRequest_History(models.Model):
+    """The history of acme__protein_assayrequest: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'AssayRequest'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    title = models.TextField(null=True)
+    samples = ArrayField(models.UUIDField(), null=True)
+    protein = models.UUIDField(db_column='protein_id', null=True)
+    needed_by = models.DateField(null=True)
+    instructions = models.TextField(null=True)
+    priority = models.TextField(null=True)
+    scheduled_on = models.DateField(null=True)
+    technician = models.UUIDField(db_column='technician_id', null=True)
+    core_notes = models.TextField(null=True)
+    standing = models.TextField(null=True)
+    status = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest__history'
+
+
+class AssayRequest_samples(models.Model):
+    """The items of acme/protein.AssayRequest.samples, in order."""
+
+    IKI_LIST_OF = ('AssayRequest', 'samples')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'AssayRequest',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('Sample', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest__samples'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=20),
+                name='acme__protein_assayrequest__samples__position__max_items',
+            ),
+        ]
+
+
+class AssayResult(Entity):
+    """Assay result (acme/protein.AssayResult), schema version 1. What a core measured for an assay request, released back once reviewed (ADR 0132)."""
+
+    IKI_TYPE = 'acme/protein.AssayResult'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    request = models.ForeignKey('AssayRequest', models.PROTECT, related_name='+')
+    sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
+    purity = models.FloatField(null=True)
+    review = StateField(
+        states=['draft', 'reviewed', 'released'],
+        locking=['released'],
+        db_default='draft',
+        db_comment='A state field (ADR 0125): one of draft, reviewed, released.',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_assayresult'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(purity__gt=float('-inf'), purity__lt=float('inf')),
+                name='acme__protein_assayresult__purity__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__gte=0),
+                name='acme__protein_assayresult__purity__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__lte=100),
+                name='acme__protein_assayresult__purity__max',
+            ),
+            models.CheckConstraint(
+                condition=Q(review__in=['draft', 'reviewed', 'released']),
+                name='acme__protein_assayresult__review__known',
+            ),
+        ]
+
+
+class AssayResult_History(models.Model):
+    """The history of acme__protein_assayresult: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'AssayResult'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    request = models.UUIDField(db_column='request_id', null=True)
+    sample = models.UUIDField(db_column='sample_id', null=True)
+    purity = models.FloatField(null=True)
+    review = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_assayresult__history'
+
+
 class Batch(Entity):
     """Batch (acme/protein.Batch), schema version 1."""
 

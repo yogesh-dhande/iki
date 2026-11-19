@@ -518,6 +518,77 @@ notifications:
 Each person chooses, per notification, in Iki and by email, in Iki only, or
 off, everywhere or in one project; and can watch or mute a record.
 
+### Requests between projects
+
+A type's records can be requests one project sends to another's service,
+such as a core facility
+([ADR 0132](../docs/adr/0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md)).
+The project asking owns each and writes its fields; `service_fields` are
+the ones the service writes once it's sent, its state fields among them,
+which its people set with the lab roles they hold in its project. `sends`
+names the references whose records go to the service with it: the service
+reads those, and nothing else of the asking project's. A service's Admins
+choose which request types it takes, and from which projects in its
+registry.
+
+A type with `result` is a request's results: the service makes and owns
+them, and setting `released.field` to one of `released.states` sends one
+back to the asking project, for good. Until then that project can't see it.
+
+```yaml
+# types/analysis_request.yaml
+request:
+  service_fields: [status, priority, analyst, core_notes]
+  sends: [samples]
+fields:
+  title: { type: string, required: true, max_length: 200 }
+  samples: { type: list, items: { type: ref, to: Sample }, max_items: 50 }
+  priority: { type: enum, values: [routine, urgent], default: routine }
+  analyst: { type: person, role: analyst, assignment: { field: status, states: [accepted] } }
+  core_notes: { type: text }
+  status:
+    type: state
+    initial: submitted
+    states:
+      submitted: { label: Submitted, set_by: [coordinator] }
+      accepted: { label: Accepted, set_by: [coordinator] }
+      delivered: { label: Delivered, set_by: [qa], locks: true }
+
+# types/analysis_result.yaml
+result:
+  of: request
+  released: { field: review, states: [released] }
+fields:
+  request: { type: ref, to: AnalysisRequest, required: true, immutable: true }
+  purity: { type: float, min: 0, max: 100 }
+  review:
+    type: state
+    initial: draft
+    states:
+      draft: { label: Draft, set_by: [analyst] }
+      released: { label: Released, set_by: [qa], locks: true }
+```
+
+- A service field is one of the type's own fields (`unknown-field`,
+  `duplicate-field`, `service-field-inherited`). It isn't a reference or a
+  file (`service-field-refers`), which would reach into the service's
+  project; nor `unique` (`service-field-unique`), which would tell one side
+  what the other's records hold; nor `immutable` (`service-field-immutable`),
+  nor required without a default (`service-field-required`), as a request
+  is made without it.
+- `sends` names references, or lists of them (`unknown-field`,
+  `request-sends-not-a-reference`), and none of the service's
+  (`request-sends-service-field`).
+- A request or a result is one project's record, so it has no `identity`
+  (`request-with-identity`, `result-with-identity`), and a type isn't both
+  (`result-is-a-request`). A subtype of a request type is one, with its
+  service; it doesn't declare `request` again (`request-redeclared`).
+- A result's `of` is a required, immutable reference to a request type
+  (`result-of-not-a-request`, `result-of-changes`). `released.field` is
+  one of its state fields (`result-released-without-states`), and its
+  states are that field's (`unknown-state`), not its initial one
+  (`result-released-initial`).
+
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
@@ -1930,6 +2001,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
+| `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`                                                                                                                                                                             | Requests between projects       |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                              | Identities                      |

@@ -44,7 +44,7 @@ from django.db.models.functions import Cast
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import access, people, registry, states
+from iki_server.entities import access, people, registry, requests, states
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Part, Shape, shape, subtypes
 from iki_server.org import lab_roles, permissions
@@ -83,6 +83,15 @@ class Assignment:
     #: A list naming several people, rather than one.
     many: bool
     part: Part
+    #: A request's service field (ADR 0132): it names the service's people, with the roles
+    #: they hold in the service's project.
+    service: bool = False
+
+    @property
+    def project_column(self) -> str:
+        """Where a record's project for this field is: its own, or for a request's
+        service field, the service it was sent to."""
+        return "iki_request__service_id" if self.service else "owner_project_id"
 
     def counts(self, values: Mapping[str, Any]) -> bool:
         """Whether it counts for a record of these values: its state field is in one of
@@ -110,6 +119,7 @@ def of(type_name: str) -> tuple[Assignment, ...]:
                 states=f.assignment_states,
                 many=f.type == "list",
                 part=form.part_of(name),
+                service=requests.is_service_field(type_name, name),
             )
         )
     return tuple(out)
@@ -177,7 +187,7 @@ def _in_state(form: Shape, a: Assignment) -> Q:
 def _named(form: Shape, a: Assignment, persons: Sequence[uuid.UUID] | None, *, able: bool) -> Q:
     """Records whose field ``a`` names one of ``persons`` (anyone, if None) who could (or,
     ``able=False``, couldn't) be named there now."""
-    owner = OuterRef("owner_project_id")
+    owner = OuterRef(a.project_column)
     if a.many:
         items = a.part.list_model(a.name)._default_manager.filter(entity_id=OuterRef("pk"))
         if persons is not None:
@@ -354,6 +364,7 @@ def changed(
     for c in changes:
         a = assignments.get(c.field)
         counting = a is not None and a.counts(values)
+        told_in = (requests.field_project(entity, c.field) if a is not None else None) or project
         for kind, persons in (
             ("assignment.assigned", c.added),
             ("assignment.unassigned", c.removed),
@@ -363,8 +374,8 @@ def changed(
                 if kind == "assignment.assigned" and not counting:
                     # Theirs once its state field reaches a state it counts in: told then.
                     continue
-                key = (person, kind, project.pk)
-                told = current.told.setdefault(key, _Told(project, kind))
+                key = (person, kind, told_in.pk)
+                told = current.told.setdefault(key, _Told(told_in, kind))
                 told.records.append((entity, c.label))
     if own is None:
         _tell(current)
@@ -397,11 +408,12 @@ def became(
     own = _batch.get()
     current = own or _Batch(actor)
     for a in fields:
+        told_in = requests.field_project(entity, a.name) or project
         for person in _people_in(values.get(a.name)):
-            if not people.nameable(project, a.role).filter(pk=person).exists():
+            if not people.nameable(told_in, a.role).filter(pk=person).exists():
                 continue
-            key = (person, "assignment.ready", project.pk)
-            current.told.setdefault(key, _Told(project, "assignment.ready")).records.append(
+            key = (person, "assignment.ready", told_in.pk)
+            current.told.setdefault(key, _Told(told_in, "assignment.ready")).records.append(
                 (entity, a.label)
             )
             current.touched.add(person)
@@ -553,7 +565,7 @@ def open_work(
                 continue
             fields.append(a)
             nobody = ~_named(form, a, None, able=True)
-            found |= _in_state(form, a) & Q(owner_project_id__in=projects) & nobody
+            found |= _in_state(form, a) & Q(**{f"{a.project_column}__in": projects}) & nobody
         return (found if fields else Q(pk__in=[])), fields
 
     return _page(user, filters, cursor, limit, open_to_me, assigned_to=None)
@@ -583,7 +595,11 @@ def _page(
             .filter(condition)
         )
         if filters.projects:
-            found = found.filter(owner_project_id__in=filters.projects)
+            # A request's work is in the service it was sent to, too (ADR 0132).
+            found = found.filter(
+                Q(owner_project_id__in=filters.projects)
+                | Q(iki_request__service_id__in=filters.projects)
+            )
         if filters.states:
             own = form.fields()
             if any(
@@ -721,14 +737,18 @@ def stale_of(
     be named there now, and why."""
     out: dict[Any, list[Stale]] = {}
     wanted: dict[Any, list[tuple[Entity, Assignment, uuid.UUID]]] = defaultdict(list)
+    services = requests.services_of(entities)
     for entity in entities:
         if entity.owner_project_id is None:
             continue
         for a in of(entity.type):
             if not a.counts(values.get(entity.pk, {})):
                 continue
+            project_id = services.get(entity.pk) if a.service else entity.owner_project_id
+            if project_id is None:
+                continue
             for person in _people_in(values.get(entity.pk, {}).get(a.name)):
-                wanted[entity.owner_project_id].append((entity, a, person))
+                wanted[project_id].append((entity, a, person))
     if not wanted:
         return out
     projects = {p.pk: p for p in Project.objects.filter(pk__in=wanted)}
@@ -776,7 +796,7 @@ def check_people(user_ids: Iterable[Any]) -> int:
                         type=name, archived_at__isnull=True, purged_at__isnull=True
                     )
                     .filter(_in_state(form, a) & _named(form, a, [person.pk], able=False))
-                    .values_list("owner_project_id", flat=True)
+                    .values_list(a.project_column, flat=True)
                 )
                 for project_id in rows:
                     counts[project_id] += 1
@@ -818,16 +838,20 @@ def takeable(
     list: not them already). Lab-role work: a Viewer holding the role may. Not while a
     state locks it: its people are locked with its other values."""
     out: dict[Any, list[str]] = {}
+    services = requests.service_projects_of(entities)
     for entity in entities:
-        project = entity.owner_project
-        if entity.locked or entity.archived_at is not None or project is None:
+        owner = entity.owner_project
+        if entity.locked or entity.archived_at is not None or owner is None:
             continue
-        if not permissions.can(user, permissions.Action.PROJECT_SET_STATE, project):
-            continue
-        held = permissions.lab_roles(user, project)
         stale_fields = {s.field for s in stale.get(entity.pk, ())}
         found = []
         for a in of(entity.type):
+            project = services.get(entity.pk) if a.service else owner
+            if project is None or not permissions.can(
+                user, permissions.Action.PROJECT_SET_STATE, project
+            ):
+                continue
+            held = permissions.lab_roles(user, project)
             if a.role is None or a.role not in held or not a.counts(values.get(entity.pk, {})):
                 continue
             named = _people_in(values.get(entity.pk, {}).get(a.name))
@@ -852,9 +876,13 @@ def take(user: User, entity: Entity, name: str, *, expected_revision: int, reaso
     assignment = next((a for a in of(entity.type) if a.name == name), None)
     if assignment is None:
         raise Refused(f"{entity.hrid} has no assignment field `{name}`.")
-    project = entity.owner_project
-    if project is None:
+    if entity.owner_project is None:
         raise Refused(f"{entity.hrid} is a registry entry: its projects' records are assigned.")
+    project = requests.field_project(entity, name)
+    if project is None:
+        raise Refused(
+            f"{assignment.label} is the service's: it's taken once the request is submitted."
+        )
     if assignment.role is None:
         raise PermissionDenied(
             f"{assignment.label} isn't limited to a lab role: an Editor assigns it."
@@ -886,6 +914,7 @@ def take(user: User, entity: Entity, name: str, *, expected_revision: int, reaso
             {name: value},
             expected_revision=expected_revision,
             reason=reason or f"Took it as {assignment.label}.",
+            taking=True,
         )
 
 
@@ -1005,7 +1034,7 @@ def _cannot_reassign(user: User, entity: Entity, name: str) -> str | None:
     if not any(a.name == name for a in of(entity.type)):
         label = registry.types()[entity.type].label or entity.type
         return f"{label} records have no field `{name}` to assign."
-    owner = entity.owner_project
+    owner = requests.field_project(entity, name) if entity.owner_project else None
     if owner is None or not permissions.can(user, permissions.Action.PROJECT_EDIT, owner):
         return f"It needs you as an Editor in {owner.name if owner else 'its project'}."
     if entity.archived_at is not None:

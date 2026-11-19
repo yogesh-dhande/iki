@@ -1851,6 +1851,90 @@ def test_a_type_declares_its_notifications(tmp_path: Path) -> None:
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
+# --- Requests between projects (ADR 0132) ------------------------------------------------------
+
+REQUEST = """\
+apiVersion: iki/v1
+kind: EntityType
+name: AssayRequest
+schema_version: 1
+hrid: { prefix: REQ }
+request:
+  service_fields: [status, priority, scheduled_on, technician]
+  sends: [samples]
+fields:
+  title: { type: string, required: true, max_length: 200 }
+  samples: { type: list, items: { type: ref, to: Sample }, max_items: 96 }
+  needed_by: { type: date }
+  priority: { type: enum, values: [routine, urgent], default: routine }
+  scheduled_on: { type: date }
+  technician: { type: person, role: analyst, assignment: { field: status, states: [accepted] } }
+  status:
+    type: state
+    initial: submitted
+    states:
+      submitted: { label: Submitted, set_by: [qa] }
+      accepted: { label: Accepted, set_by: [analyst] }
+      delivered: { label: Delivered, set_by: [analyst], locks: true }
+"""
+RESULT = """\
+apiVersion: iki/v1
+kind: EntityType
+name: AssayResult
+schema_version: 1
+hrid: { prefix: RES }
+result:
+  of: request
+  released: { field: review, states: [released] }
+fields:
+  request: { type: ref, to: AssayRequest, required: true, immutable: true }
+  value: { type: float }
+  review:
+    type: state
+    initial: draft
+    states:
+      draft: { label: Draft, set_by: [analyst] }
+      released: { label: Released, set_by: [qa], locks: true }
+"""
+SAMPLE_TYPE = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+schema_version: 1
+hrid: { prefix: SAM }
+fields:
+  label: { type: string }
+"""
+#: The request's and result's references as a result names them.
+REQUEST_REF = "to: AssayRequest, required: true, immutable: true"
+
+
+def requests(request: str = REQUEST, result: str = RESULT) -> dict[str, str]:
+    return {
+        "types/request.yaml": request,
+        "types/result.yaml": result,
+        "types/sample.yaml": SAMPLE_TYPE,
+    }
+
+
+def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Path) -> None:
+    result = make(tmp_path, requests(), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    request = result.plugin.types["acme/lab.AssayRequest"].request
+    assert request is not None
+    assert request.service_fields == ("status", "priority", "scheduled_on", "technician")
+    assert request.sends == ("samples",)
+    found = result.plugin.types["acme/lab.AssayResult"].result
+    assert found is not None
+    assert (found.of, found.released_field, found.released_states) == (
+        "request",
+        "review",
+        ("released",),
+    )
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
 @pytest.mark.parametrize(
     ("old", "new", "code", "message"),
     [
@@ -1973,3 +2057,163 @@ notifications:
         1,
     )
     assert "registry" in only(make(tmp_path, text, ROLES), "notification-in-registry")
+
+
+@pytest.mark.parametrize(
+    ("request_", "result_", "code", "message"),
+    [
+        (
+            REQUEST.replace("[status, priority", "[status, prio"),
+            RESULT,
+            "unknown-field",
+            "`prio` isn't a field",
+        ),
+        (
+            REQUEST.replace("sends: [samples]", "sends: [title]"),
+            RESULT,
+            "request-sends-not-a-reference",
+            "a string field",
+        ),
+        (
+            REQUEST.replace("sends: [samples]", "sends: [samples, technician]"),
+            RESULT,
+            "request-sends-not-a-reference",
+            "a person field",
+        ),
+        (
+            REQUEST.replace("[status, priority,", "[status, samples, priority,").replace(
+                "sends: [samples]", "sends: []"
+            ),
+            RESULT,
+            "service-field-refers",
+            "the service sends what it makes back as results",
+        ),
+        (
+            REQUEST.replace("[status, priority,", "[status, title, priority,"),
+            RESULT,
+            "service-field-required",
+            "creates the request without the service's fields",
+        ),
+        (
+            REQUEST.replace("[status, priority,", "[status, code, priority,").replace(
+                "  needed_by:",
+                "  code: { type: string, unique: true, indexed: true, max_length: 40 }\n"
+                "  needed_by:",
+            ),
+            RESULT,
+            "service-field-unique",
+            "would learn what that project's other records hold",
+        ),
+        (
+            REQUEST.replace(
+                "scheduled_on: { type: date }", "scheduled_on: { type: date, immutable: true }"
+            ),
+            RESULT,
+            "service-field-immutable",
+            "no way to correct it",
+        ),
+        (
+            REQUEST.replace("request:\n", "identity: [title]\nrequest:\n").replace(
+                "required: true, max_length", "required: true, immutable: true, max_length"
+            ),
+            RESULT,
+            "request-with-identity",
+            "the asking project's own record",
+        ),
+        (
+            REQUEST,
+            RESULT.replace(
+                "released: { field: review, states: [released] }",
+                "released: { field: value, states: [x] }",
+            ),
+            "result-released-without-states",
+            "`value` isn't a state field",
+        ),
+        (
+            REQUEST,
+            RESULT.replace("states: [released] }", "states: [draft] }"),
+            "result-released-initial",
+            "they'd go back before anyone reviewed them",
+        ),
+        (
+            REQUEST,
+            RESULT.replace("states: [released] }", "states: [gone] }"),
+            "unknown-state",
+            "`gone`",
+        ),
+        (
+            REQUEST,
+            RESULT.replace(REQUEST_REF, "to: Sample, required: true, immutable: true"),
+            "result-of-not-a-request",
+            "must refer to a request type",
+        ),
+        (
+            REQUEST,
+            RESULT.replace(REQUEST_REF, "to: AssayRequest"),
+            "result-of-changes",
+            "a result is of one request, for good",
+        ),
+    ],
+)
+def test_requests_and_results_are_checked(
+    tmp_path: Path, request_: str, result_: str, code: str, message: str
+) -> None:
+    assert message in only(make(tmp_path, requests(request_, result_), ROLES), code)
+
+
+def test_a_request_types_subtypes_are_requests_with_its_service(tmp_path: Path) -> None:
+    sub = """\
+apiVersion: iki/v1
+kind: EntityType
+name: UrgentRequest
+schema_version: 1
+extends: AssayRequest
+hrid: { prefix: URQ }
+request:
+  service_fields: [status]
+"""
+    files = {**requests(), "types/urgent.yaml": sub}
+    assert "is a request type already" in only(make(tmp_path, files, ROLES), "request-redeclared")
+    files["types/urgent.yaml"] = sub.replace("request:\n  service_fields: [status]\n", "")
+    assert make(tmp_path, files, ROLES).problems == []
+
+
+def test_a_service_writes_only_the_request_types_own_fields(tmp_path: Path) -> None:
+    ticket = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Ticket
+schema_version: 1
+abstract: true
+fields:
+  notes: { type: text }
+"""
+    request = REQUEST.replace("schema_version: 1\n", "schema_version: 1\nextends: Ticket\n", 1)
+    request = request.replace("[status, priority,", "[status, notes, priority,")
+    files = {**requests(request), "types/ticket.yaml": ticket}
+    found = only(make(tmp_path, files, ROLES), "service-field-inherited")
+    assert "`notes` is `acme/lab.Ticket`'s field" in found
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        REQUEST.replace("sends: [samples]", "sends: samples"),
+        REQUEST.replace("sends: [samples]", "sends: [samples]\n  queue: true"),
+        REQUEST.replace("[status, priority, scheduled_on, technician]", "[status, status]"),
+    ],
+)
+def test_request_blocks_must_be_well_formed(tmp_path: Path, request_: str) -> None:
+    assert "schema" in codes(make(tmp_path, requests(request_), ROLES))
+
+
+@pytest.mark.parametrize(
+    "result_",
+    [
+        RESULT.replace("  released: { field: review, states: [released] }\n", ""),
+        RESULT.replace("states: [released] }", "states: [] }"),
+        RESULT.replace("  of: request\n", ""),
+    ],
+)
+def test_result_blocks_must_be_well_formed(tmp_path: Path, result_: str) -> None:
+    assert "schema" in codes(make(tmp_path, requests(result=result_), ROLES))

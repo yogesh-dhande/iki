@@ -185,7 +185,7 @@ def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, 
     for name, f in state_fields(entity.type).items():
         current = values.get(name)
         candidates = [st for st in f.states.values() if not st.removed and st.name != current]
-        whys = {st.name: _why_not_who(user, entity, st) for st in candidates}
+        whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
         conditions = _conditions(
             user, entity, name, [st for st in candidates if whys[st.name] is None], values
         )
@@ -206,7 +206,7 @@ def why_not(
 ) -> str | None:
     """Why ``user`` may not set ``f`` to ``state`` on the record now, or None if they may.
     Its current state isn't checked here: :func:`set_state` does that, under its lock."""
-    found = _why_not_who(user, entity, state)
+    found = _why_not_who(user, entity, f.name, state)
     if found is not None:
         return found[0]
     return condition(user, entity, f.name, state, values)
@@ -258,23 +258,31 @@ def _conditions(
     return out
 
 
-def _why_not_who(user: User, entity: Entity, state: State) -> tuple[str, bool] | None:
+def _why_not_who(user: User, entity: Entity, field: str, state: State) -> tuple[str, bool] | None:
     """Why not, before the record's conditions: it's signed for, or ``user`` may not."""
     if state.signatures:
         return "It’s set by signing for it: see its signatures.", False
-    return refusal(user, entity, state.set_by, state.label)
+    return refusal(user, entity, state.set_by, state.label, field=field)
 
 
 def refusal(
-    user: User, entity: Entity, roles: tuple[str, ...], label: str
+    user: User, entity: Entity, roles: tuple[str, ...], label: str, *, field: str
 ) -> tuple[str, bool] | None:
-    """Why ``user`` may not set one of the record's state fields to the state ``label``,
+    """Why ``user`` may not set the record's state field ``field`` to the state ``label``,
     as one of ``roles`` may, and whether it's for who they are (True) rather than the
     record's own condition (False); None if they may. A signature's signer is checked
-    with it too, holding the signature's ``roles`` (ADR 0126)."""
-    owner = entity.owner_project
-    if owner is None:
+    with it too, holding the signature's ``roles`` (ADR 0126). A request's service field
+    is set by the service's people, with the roles they hold there (ADR 0132)."""
+    from iki_server.entities import requests
+
+    if entity.owner_project is None:
         return "It's a registry entry: its projects' records have states, not it.", False
+    owner = requests.field_project(entity, field)
+    if owner is None:
+        return (
+            "It’s the service’s: the project the request is sent to sets it, once it’s submitted.",
+            False,
+        )
     if entity.purged_at is not None:
         return "Its plugin's data was purged.", False
     if entity.archived_at is not None:
@@ -350,7 +358,7 @@ def set_state(
                 + ("its signature is given" if count == 1 else f"its {count} signatures are given")
                 + ", each by a person who signs in again in Iki’s web app (21 CFR Part 11)."
             )
-        found = refusal(user, locked, target.set_by, target.label)
+        found = refusal(user, locked, target.set_by, target.label, field=field)
         if found is not None:
             why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
@@ -390,16 +398,22 @@ def write(
     fields = state_fields(locked.type)
     values = values_of(locked)
     current = values.get(f.name) or ""
+    from iki_server.entities import requests
+
     # The field changes while the record is unlocked, under its row's lock: the
     # database's guard refuses every change to a locked record, this one too.
     if locked.locked_by:
         Entity.objects.filter(pk=locked.pk).update(locked_by=[])
-    revision = services.state_changed(
-        user, locked, f, current, state, reason, signatures=signatures
-    )
+    # A request's state field is its side's to write (ADR 0132), checked by who set it.
+    with requests.writing(frozenset({requests.side_of(locked.type, f.name)})):
+        revision = services.state_changed(
+            user, locked, f, current, state, reason, signatures=signatures
+        )
     after = locking(fields, {**values, f.name: state})
     if after:
         Entity.objects.filter(pk=locked.pk).update(locked_by=after)
+    # A result released goes back to the project that asked for it (ADR 0132).
+    requests.released(user, locked, f.name, state)
     # Beside its history: the audit log is where QA reviews who released what.
     log.record(
         "entity.state_changed",

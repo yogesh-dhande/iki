@@ -183,6 +183,49 @@ def samples_assign(w: World) -> tuple[Any, ...]:
     return "/entities/assign", body
 
 
+def _service(w: World) -> Any:
+    """A core facility beside the project, taking its assay requests (ADR 0132)."""
+    from iki_server.entities import requests
+    from iki_server.org.models import Project
+
+    core = Project.objects.create(team=w.team, name="Protein Core")
+    requests.set_intake(
+        core,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=w.users["org_admin"],
+    )
+    return core
+
+
+def _assay_request(w: World) -> Any:
+    from iki_server.entities import services as entities
+
+    return entities.create(
+        w.users["editor"], "acme/protein.AssayRequest", w.project, {"title": "Purity"}
+    ).entity
+
+
+def request_submit(w: World) -> tuple[Any, ...]:
+    """Sending a request to a service that takes it: the asking project's Editors send it."""
+    core = _service(w)
+    found = _assay_request(w)
+    return f"/entities/{found.pk}/submit", {"service": str(core.pk)}, {"If-Match": '"1"'}
+
+
+def request_sides(w: World) -> tuple[Any, ...]:
+    from iki_server.entities import requests
+
+    core = _service(w)
+    found = _assay_request(w)
+    requests.submit(w.users["editor"], found, core, expected_revision=1)
+    return f"/entities/{found.pk}/request", None
+
+
+INTAKE = {"types": ["acme/protein.AssayRequest"], "from_registry": True, "projects": []}
+
+
 def _signature(w: World) -> Any:
     """The editor's signature setting a lot In review (ADR 0126)."""
     from test_signatures import lot, ready, signed
@@ -844,6 +887,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Reassigning many skips what you can't change, rather than refusing them all; what you
     # can't read is 404.
     ("POST", "/entities/assign", samples_assign, readers(200)),
+    # Requests between projects (ADR 0132): what a service takes is its Admins' to choose
+    # and its members' to read; a request is sent by its project's Editors.
+    ("GET", "/projects/{project_id}/intake", project("/intake"), visible(200, org_admin=403)),
+    ("PUT", "/projects/{project_id}/intake", project("/intake", INTAKE), visible(403, admin=200)),
+    ("GET", "/projects/{project_id}/services", project("/services"), visible(200, org_admin=403)),
+    ("POST", "/entities/{ref}/submit", request_submit, editors(200)),
+    ("GET", "/entities/{ref}/request", request_sides, readers(200)),
     # Whom its records can name is its data: an Org Admin sees the project, not its people.
     ("GET", "/projects/{project_id}/people", project("/people"), readers(200, org_admin=403)),
     # Each person's work is their own: there's always some, if only none.

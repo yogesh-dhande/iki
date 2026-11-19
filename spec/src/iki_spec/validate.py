@@ -48,6 +48,8 @@ from iki_spec.model import (
     Field,
     LabRole,
     Plugin,
+    RequestSpec,
+    ResultSpec,
     State,
     Track,
     Trigger,
@@ -703,6 +705,19 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             for n, x in (body.get("notifications") or {}).items()
             if isinstance(x, dict)
         },
+        request=RequestSpec(
+            service_fields=tuple(body["request"].get("service_fields") or ()),
+            sends=tuple(body["request"].get("sends") or ()),
+        )
+        if isinstance(body.get("request"), dict)
+        else None,
+        result=ResultSpec(
+            of=body["result"]["of"],
+            released_field=body["result"]["released"]["field"],
+            released_states=tuple(body["result"]["released"]["states"]),
+        )
+        if isinstance(body.get("result"), dict)
+        else None,
     )
 
 
@@ -1197,6 +1212,238 @@ class _Semantics:
         if entity_type.due is not None:
             self.due(entity_type, source, every)
         notifications.check(self, entity_type, source)
+        if entity_type.request is not None:
+            self.request(entity_type, source, every)
+        if entity_type.result is not None:
+            self.result(entity_type, source, every)
+
+    # Requests between projects (ADR 0132) -------------------------------------------------------
+
+    def request_of(self, entity_type: EntityType) -> EntityType | None:
+        """The type, of ``entity_type`` and its ancestors, that makes its records requests."""
+        return next(
+            (t for t in [entity_type, *self.ancestors(entity_type)] if t.request is not None),
+            None,
+        )
+
+    def request(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """A request type names the fields its service writes, and the references whose
+        records go with it."""
+        spec = entity_type.request
+        assert spec is not None  # noqa: S101 - only called with one
+        above = next((a for a in self.ancestors(entity_type) if a.request is not None), None)
+        if above is not None:
+            self.add(
+                "request-redeclared",
+                f"`{entity_type.name}` extends `{above.qualified_name}`, which is a request "
+                "type already: its subtypes are requests with its service's fields.",
+                source,
+                ("request",),
+                key=True,
+                hint="Leave `request` off. The subtype's own fields are the asking project's.",
+            )
+            return
+        if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
+            self.add(
+                "request-with-identity",
+                f"`{entity_type.name}` has an identity, so its records are registry entries' "
+                "records: a request is the asking project's own record of what it asks for.",
+                source,
+                ("request",),
+                key=True,
+                hint="Make the request a type of its own that refers to what it's about.",
+            )
+            return
+        if entity_type.result is not None:
+            self.add(
+                "result-is-a-request",
+                f"`{entity_type.name}` can't be both a request and a result: the asking "
+                "project owns a request, and the service its results.",
+                source,
+                ("result",),
+                key=True,
+            )
+        present = [n for n, (f, _) in every.items() if not f.removed]
+        seen: set[str] = set()
+        for index, name in enumerate(spec.service_fields):
+            at: Path = ("request", "service_fields", index)
+            if name in seen:
+                self.add("duplicate-field", f"`{name}` is named twice.", source, at)
+                continue
+            seen.add(name)
+            found = every.get(name)
+            if found is None or found[0].removed:
+                self.add(
+                    "unknown-field",
+                    f"`{name}` isn't a field of `{entity_type.name}`.",
+                    source,
+                    at,
+                    hint=schemas._did_you_mean(name, present),
+                )
+                continue
+            if name not in entity_type.fields:
+                self.add(
+                    "service-field-inherited",
+                    f"`{name}` is `{found[1].qualified_name}`'s field, and the fields a "
+                    "request's service writes are its type's own.",
+                    source,
+                    at,
+                    hint="Declare `request` on the type that has the field, or add the field "
+                    "to this type.",
+                )
+                continue
+            self.service_field(found[0], source, at)
+        for index, name in enumerate(spec.sends):
+            at = ("request", "sends", index)
+            found = every.get(name)
+            if found is None or found[0].removed:
+                self.add(
+                    "unknown-field",
+                    f"`{name}` isn't a field of `{entity_type.name}`.",
+                    source,
+                    at,
+                    hint=schemas._did_you_mean(name, present),
+                )
+                continue
+            f = found[0]
+            refers = f.type == "ref" or (
+                f.type == "list" and f.items is not None and f.items.type == "ref"
+            )
+            if not refers:
+                self.add(
+                    "request-sends-not-a-reference",
+                    f"`{name}` is a {f.type} field: a request sends the records its references "
+                    "name.",
+                    source,
+                    at,
+                    hint="Name a `ref` field, or a list of them, such as its samples.",
+                )
+            elif name in spec.service_fields:
+                self.add(
+                    "request-sends-service-field",
+                    f"`{name}` is one of the service's fields, but what a request sends is the "
+                    "asking project's.",
+                    source,
+                    at,
+                )
+
+    def service_field(self, f: Field, source: Document, at: Path) -> None:
+        """A field the service writes: the asking project creates the request without it, and
+        it can't name what's in either project."""
+        kind = f.items.type if f.type == "list" and f.items is not None else f.type
+        if kind in ("ref", "file"):
+            self.add(
+                "service-field-refers",
+                f"`{f.name}` is a {kind} field, and a request's references and files are the "
+                "asking project's: the service sends what it makes back as results.",
+                source,
+                at,
+                hint="Make a result type (`result: { of: … }`) for what the service sends back.",
+            )
+        elif f.required and not f.has_default and f.type != "state":
+            self.add(
+                "service-field-required",
+                f"`{f.name}` is required, but the asking project creates the request without "
+                "the service's fields.",
+                source,
+                at,
+                hint="Give it a `default`, or don't make it required.",
+            )
+        elif f.unique:
+            self.add(
+                "service-field-unique",
+                f"`{f.name}` is unique within the asking project, so the service setting it "
+                "would learn what that project's other records hold.",
+                source,
+                at,
+            )
+        elif f.immutable:
+            self.add(
+                "service-field-immutable",
+                f"`{f.name}` is immutable: the service would set it once, with no way to "
+                "correct it.",
+                source,
+                at,
+            )
+
+    def result(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """A result type names its reference to its request, and the states it's released
+        to the asking project in."""
+        spec = entity_type.result
+        assert spec is not None  # noqa: S101 - only called with one
+        present = [n for n, (f, _) in every.items() if not f.removed]
+        if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
+            self.add(
+                "result-with-identity",
+                f"`{entity_type.name}` has an identity, but a result is the service's own "
+                "record of what it did.",
+                source,
+                ("result",),
+                key=True,
+            )
+            return
+        found = every.get(spec.of)
+        if found is None or found[0].removed:
+            self.add(
+                "unknown-field",
+                f"`{spec.of}` isn't a field of `{entity_type.name}`.",
+                source,
+                ("result", "of"),
+                hint=schemas._did_you_mean(spec.of, present),
+            )
+        else:
+            f = found[0]
+            target = self.types.get(f.to) if f.type == "ref" and f.to else None
+            if f.type == "ref" and f.to and target is None:
+                pass  # reported with the field
+            elif target is None or self.request_of(target) is None:
+                self.add(
+                    "result-of-not-a-request",
+                    f"`{spec.of}` must refer to a request type, one with `request:`, as the "
+                    "request this is a result of.",
+                    source,
+                    ("result", "of"),
+                )
+            elif not (f.required and f.immutable):
+                self.add(
+                    "result-of-changes",
+                    f"`{spec.of}` must be `required` and `immutable`: a result is of one "
+                    "request, for good.",
+                    source,
+                    ("result", "of"),
+                )
+        found = every.get(spec.released_field)
+        state = found[0] if found is not None else None
+        if state is None or state.type != "state" or state.removed:
+            states = [n for n, (g, _) in every.items() if g.type == "state" and not g.removed]
+            self.add(
+                "result-released-without-states",
+                f"`{spec.released_field}` isn't a state field of `{entity_type.name}`: a "
+                "result goes back once the service's own state field says it's released.",
+                source,
+                ("result", "released", "field"),
+                hint=schemas._did_you_mean(spec.released_field, states)
+                if states
+                else "Add a `type: state` field for the service's review.",
+            )
+            return
+        names = set(state.live_states)
+        for index, name in enumerate(spec.released_states):
+            if name not in names:
+                self.state_ref(name, names, source, ("result", "released", "states", index))
+            elif name == state.initial:
+                self.add(
+                    "result-released-initial",
+                    f"`{name}` is where new results start, so they'd go back before anyone "
+                    "reviewed them.",
+                    source,
+                    ("result", "released", "states", index),
+                    hint="Release a result from a state the service sets after reviewing it.",
+                )
 
     def state_signatures(self, f: Field, state: State, source: Document, at: Path) -> None:
         """The electronic signatures setting a state needs (ADR 0126): who gives each, and

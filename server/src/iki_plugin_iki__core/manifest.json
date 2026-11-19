@@ -318,7 +318,9 @@
         "file": "types/alignment.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       },
       "iki/core.App": {
         "plugin": "iki/core",
@@ -782,7 +784,9 @@
         "file": "types/app.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       },
       "iki/core.Collection": {
         "plugin": "iki/core",
@@ -1031,7 +1035,9 @@
         "file": "types/collection.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       },
       "iki/core.Entity": {
         "plugin": "iki/core",
@@ -1051,7 +1057,9 @@
         "file": "types/entity.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       },
       "iki/core.Sequence": {
         "plugin": "iki/core",
@@ -1189,7 +1197,9 @@
         "file": "types/sequence.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       },
       "iki/core.View": {
         "plugin": "iki/core",
@@ -1957,7 +1967,9 @@
         "file": "types/view.yaml",
         "due": null,
         "rules": {},
-        "notifications": {}
+        "notifications": {},
+        "request": null,
+        "result": null
       }
     },
     "extensions": [],

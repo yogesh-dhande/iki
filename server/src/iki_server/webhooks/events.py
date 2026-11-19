@@ -142,6 +142,33 @@ _register(
     ),
     EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),
     EventType(
+        "request.submitted",
+        "Someone sends one of the project's requests to another project's service (ADR 0132): "
+        "`service`, and the records it sent.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "request.received",
+        "A request comes to the project, as a service, from another project (ADR 0132): "
+        "`asking_project`, and the records it sent.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "request.result_released",
+        "A service releases a result of one of the project's requests back to it (ADR 0132): "
+        "the result, its `request` and `service`.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "project.intake_changed",
+        "Someone changes the request types the project takes as a service, or who from (ADR 0132).",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True
     ),
     EventType(
@@ -410,7 +437,34 @@ def _assigned(event: AuditEvent, target: models.Model | None) -> tuple[str, dict
     }
 
 
+def _request(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    """A request sent, received, or a result released (ADR 0132): identifiers, never values."""
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    data: dict[str, Any] = {"entity": entity_data(target), "project": project_data(event.project)}
+    for key in ("service", "asking_project"):
+        if key in event.data:
+            data[key] = {"id": event.data[key]["id"], "name": event.data[key]["name"]}
+    if "sent" in event.data:
+        data["sent"] = [{"id": i} for i in event.data["sent"]]
+    if "request" in event.data:
+        data["request"] = {"id": event.data["request"], "hrid": event.data.get("request_hrid")}
+    return event.action, data
+
+
+def _intake(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    if not isinstance(target, Project):
+        return None
+    return event.action, {"project": project_data(target), "changes": event.data}
+
+
 FROM_AUDIT: dict[str, Builder] = {
+    "request.submitted": _request,
+    "request.received": _request,
+    "request.result_released": _request,
+    "project.intake_changed": _intake,
     "budget.threshold_reached": _budget,
     "entity.assigned": _assigned,
     "entity.linked": _entity_link,

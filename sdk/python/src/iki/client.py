@@ -35,14 +35,17 @@ if TYPE_CHECKING:
         EntityTypeOut,
         EntryOut,
         GraphOut,
+        IntakeOut,
         MeOut,
         NotificationOut,
         OriginOut,
         ProjectOut,
+        RequestOut,
         RevisionOut,
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        ServiceOut,
         SettingsOut,
         SignatureOut,
         SignaturesOut,
@@ -544,6 +547,39 @@ class Entities(_Part):
             ),
         )
 
+    def submit(
+        self,
+        ref: str,
+        service: str | Mapping[str, Any],
+        *,
+        revision: int,
+        reason: str = "",
+    ) -> EntityOut:
+        """Sends a request to another project's service (ADR 0132), for good: one that
+        :meth:`Projects.services` lists for its project. The service can then read it and
+        the records its ``sends`` fields name, such as its samples. ``revision`` as for
+        :meth:`update`::
+
+            core = iki.projects.services("kinase-atlas", type="iki/example_lims.AnalysisRequest")[0]
+            iki.entities.submit("REQ-000003", core["project"], revision=1, reason="Lot 12")
+        """
+        return cast(
+            "EntityOut",
+            self._client.request(
+                "POST",
+                _path("/entities/{ref}/submit", ref=ref),
+                json={"service": self._client._project_id(service), "reason": reason},
+                headers={"If-Match": f'"{revision}"'},
+            ),
+        )
+
+    def request(self, ref: str) -> RequestOut:
+        """A request's two sides (ADR 0132): who asked and who serves it, what it sent the
+        service, and the results that came of it, as far as you can read them."""
+        return cast(
+            "RequestOut", self._client.request("GET", _path("/entities/{ref}/request", ref=ref))
+        )
+
     def assign(
         self,
         refs: Sequence[str | Mapping[str, Any]],
@@ -1039,6 +1075,45 @@ class Projects(_Part):
                 _path("/projects/{id}/costs", id=found),
                 params={"by": by, "since": since, "until": until},
             ),
+        )
+
+    def services(self, project: str, *, type: str | None = None) -> builtins.list[ServiceOut]:
+        """The projects that take requests from this one (ADR 0132), of ``type`` if given:
+        where its requests can go, with the request types each takes."""
+        found = self._client._project_id(project)
+        return cast(
+            "builtins.list[ServiceOut]",
+            self._client.request(
+                "GET", _path("/projects/{id}/services", id=found), params={"type": type}
+            ),
+        )
+
+    def intake(self, project: str) -> IntakeOut:
+        """What a project takes as a service (ADR 0132): request types, and who from."""
+        found = self._client._project_id(project)
+        return cast(
+            "IntakeOut", self._client.request("GET", _path("/projects/{id}/intake", id=found))
+        )
+
+    def set_intake(
+        self,
+        project: str,
+        *,
+        types: Sequence[str],
+        from_registry: bool = False,
+        projects: Sequence[str | Mapping[str, Any]] = (),
+    ) -> IntakeOut:
+        """Chooses what a project takes as a service, as its Admin: the request types, from
+        every project in its registry or from ``projects`` alone."""
+        found = self._client._project_id(project)
+        body = {
+            "types": builtins.list(types),
+            "from_registry": from_registry,
+            "projects": [self._client._project_id(p) for p in projects],
+        }
+        return cast(
+            "IntakeOut",
+            self._client.request("PUT", _path("/projects/{id}/intake", id=found), json=body),
         )
 
 

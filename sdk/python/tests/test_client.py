@@ -360,6 +360,37 @@ def test_a_record_is_taken(fake: FakeIki, client: Client) -> None:
     assert json.loads(sent.content) == {"field": "qa", "reason": ""}
 
 
+def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, client: Client) -> None:
+    project, core = "0190d5a4-0000-7000-8000-000000000001", "0190d5a4-0000-7000-8000-000000000002"
+    listed: Any = [{"project": {"id": core, "name": "Core"}, "description": "", "types": []}]
+    fake.on("GET", f"/api/v1/projects/{project}/services", listed)
+    services = client.projects.services(project, type="iki/example_lims.AnalysisRequest")
+    assert services == listed
+    assert fake.sent("GET", f"/api/v1/projects/{project}/services")[0].url.params["type"] == (
+        "iki/example_lims.AnalysisRequest"
+    )
+    submitted = "/api/v1/entities/REQ-000001/submit"
+    fake.on("POST", submitted, entity("REQ-000001", title="Lot 12"))
+    client.entities.submit("REQ-000001", services[0]["project"], revision=2, reason="Lot 12")
+    sent = fake.sent("POST", submitted)[0]
+    assert sent.headers["If-Match"] == '"2"'
+    assert json.loads(sent.content) == {"service": core, "reason": "Lot 12"}
+    sides: Any = {"service": {"id": core}, "sent": [], "results": []}
+    fake.on("GET", "/api/v1/entities/REQ-000001/request", sides)
+    assert client.entities.request("REQ-000001") == sides
+    # A service's Admin chooses what it takes.
+    intake = {"types": [], "from_registry": True, "projects": []}
+    fake.on("PUT", f"/api/v1/projects/{core}/intake", intake)
+    client.projects.set_intake(core, types=["iki/example_lims.AnalysisRequest"], projects=[project])
+    assert fake.body("PUT", f"/api/v1/projects/{core}/intake") == {
+        "types": ["iki/example_lims.AnalysisRequest"],
+        "from_registry": False,
+        "projects": [project],
+    }
+    fake.on("GET", f"/api/v1/projects/{core}/intake", intake)
+    assert client.projects.intake(core) == intake
+
+
 def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:
     first, second = entity("SMP-000001"), entity("SMP-000002")
     fake.on("GET", "/api/v1/entities/SMP-000002", second)

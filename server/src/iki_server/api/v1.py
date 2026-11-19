@@ -29,6 +29,7 @@ from iki_server.api import (
     outside_apis,
     projects,
     registries,
+    requests,
     runs,
     searches,
     service_accounts,
@@ -70,6 +71,7 @@ for module in (
     # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.
     work,
     entities,
+    requests,
     graph,
     signatures,
     registries,

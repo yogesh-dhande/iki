@@ -52,6 +52,7 @@ from iki_server.entities import (
     holds,
     people,
     registry,
+    requests,
     schema,
     search,
     services,
@@ -345,6 +346,30 @@ class TypeNotificationOut(Schema):
     required: bool = Field(description="Whether nobody can turn it off in Iki.")
 
 
+class RequestTypeOut(Schema):
+    """What makes a type's records requests between projects (ADR 0132)."""
+
+    service_fields: list[str] = Field(
+        description="The fields the service it's sent to changes, and the state fields it "
+        "sets, with the lab roles its people hold in its project. The rest are the asking "
+        "project's."
+    )
+    sends: list[str] = Field(
+        description="Its references whose records go to the service with it, such as its "
+        "samples: what the service can read of the asking project."
+    )
+
+
+class ResultTypeOut(Schema):
+    """What makes a type's records a request's results (ADR 0132)."""
+
+    of: str = Field(description="Its reference to the request it's a result of.")
+    released_field: str = Field(description="The service's state field that releases it.")
+    released_states: list[str] = Field(
+        description="The states that send it back to the asking project, where it stays."
+    )
+
+
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -390,6 +415,16 @@ class EntityTypeOut(Schema):
     notifications: list[TypeNotificationOut] = Field(
         description="Whom its records tell, and when (ADR 0129): its own notifications and "
         "its parents'.",
+    )
+    request: RequestTypeOut | None = Field(
+        None,
+        description="Its records are requests one project sends to another's service (ADR "
+        "0132): which fields the service writes, and which send records with it.",
+    )
+    result: ResultTypeOut | None = Field(
+        None,
+        description="Its records are a request's results (ADR 0132), which the service owns "
+        "and releases back to the asking project.",
     )
 
 
@@ -570,6 +605,28 @@ class BreachOut(Schema):
     found_at: datetime
 
 
+class RequestSidesOut(Schema):
+    """A request's two sides (ADR 0132): the project that asked, which owns it, and the
+    service it was sent to."""
+
+    asking_project: ProjectRef | None = Field(description="The project that owns and sent it.")
+    service: ProjectRef | None = Field(
+        description="The project serving it, once it's sent; null before."
+    )
+    submitted: bool
+    submitted_at: datetime | None
+    submitted_by: UserOut | None
+    service_fields: list[str] = Field(
+        description="The fields the service changes, and the state fields it sets. The rest "
+        "are the asking project's."
+    )
+    sends: list[str] = Field(description="The fields whose records go to the service with it.")
+    yours: list[Literal["asker", "service"]] = Field(
+        description="The sides you may change it as: `asker`, as an Editor in its project, "
+        "and `service`, as an Editor in the service's."
+    )
+
+
 class EntityOut(Schema):
     id: UUID
     hrid: str
@@ -620,6 +677,11 @@ class EntityOut(Schema):
     breaches: list[BreachOut] = Field(
         default_factory=list,
         description="Rules it breaks that it was saved before (ADR 0127).",
+    )
+    request: RequestSidesOut | None = Field(
+        None,
+        description="For a request between projects (ADR 0132): the project that asks and the "
+        "service it's sent to, and whose each field is. Null for a record of another type.",
     )
     can: EntityCan
 
@@ -956,6 +1018,8 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
         "rule_variables": checking.record_variables(name) if checking.checks_of(name) else None,
         "notifications": declared.describe(entity_type),
+        "request": _request_type_out(name),
+        "result": _result_type_out(name),
     }
 
 
@@ -981,6 +1045,24 @@ def _rule_out(rule: Rule) -> dict[str, Any]:
         if rule.no_overlap
         else None,
         "while": {name: list(values) for name, values in rule.only_while},
+    }
+
+
+def _request_type_out(name: str) -> dict[str, Any] | None:
+    spec = requests.spec_of(name)
+    if spec is None:
+        return None
+    return {"service_fields": list(spec.service_fields), "sends": list(spec.sends)}
+
+
+def _result_type_out(name: str) -> dict[str, Any] | None:
+    spec = requests.result_spec(name)
+    if spec is None:
+        return None
+    return {
+        "of": spec.of,
+        "released_field": spec.released_field,
+        "released_states": list(spec.released_states),
     }
 
 
@@ -1168,6 +1250,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         )
     }
     editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
+    asked = requests.summaries(user, entities)
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
     entries = _entries_of(user, entities)
@@ -1210,8 +1293,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
+                "request": asked.get(entity.pk),
                 "can": {
-                    "edit": entity.owner_project_id in editable
+                    "edit": (
+                        bool(asked[entity.pk]["yours"])
+                        if entity.pk in asked
+                        else entity.owner_project_id in editable
+                    )
                     and entity.type not in frozen
                     and not entity.locked,
                     "states": _states_can(user, entity, values[entity.pk]),
@@ -1819,7 +1907,10 @@ def patch_entity(
     me = caller(request)
     entity = _find(me, ref)
     owner = services.owner_of(entity)
-    require(me, Action.PROJECT_EDIT, owner)
+    if payload.archived is not None or not requests.can_change(me, entity):
+        # A request's service changes only its own fields (ADR 0132): archiving is the
+        # asking project's.
+        require(me, Action.PROJECT_EDIT, owner)
     expected = _expected(if_match)
     try:
         with transaction.atomic():

@@ -60,11 +60,13 @@ from iki_server.entities import (
     holds,
     identity,
     registry,
+    requests,
     rules,
     states,
     unique,
 )
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
+from iki_server.entities.people import Namer
 from iki_server.entities.values import (
     FOREIGN_KEYS,
     Invalid,
@@ -615,6 +617,10 @@ def prepare(
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
             errors[name] = [STATE_SET_ALONE]
+        elif requests.is_service_field(type_name, name):
+            errors[name] = [
+                "is the service's: the project the request is sent to sets it, once it's submitted."
+            ]
         else:
             try:
                 given[name] = to_db(f, value, refs)
@@ -629,6 +635,8 @@ def prepare(
             given[name] = to_db(f, f.default, refs)
         if f.required and given.get(name) is None and name not in errors:
             errors[name] = ["is required."]
+    if not errors:
+        errors = requests.check_result(project, type_name, given)
     if not errors:
         errors = rules.check(user, entity_type, project, given.get)
     if errors:
@@ -672,13 +680,19 @@ def update(
     by_run: bool = False,
     group: str = "",
     hold_reason: str = "",
+    acting_in: Project | None = None,
+    taking: bool = False,
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
 
     ``by_run`` and ``hold_reason``: as for :func:`create`. ``group``: a bulk change it's
     part of, which the audit records of its assignments name (ADR 0122). The plugins'
-    rules checked are those reading a field it changes (ADR 0127).
+    rules checked are those reading a field it changes (ADR 0127). A request sent to a
+    service (ADR 0132) is changed by two sides, each only in its own fields: ``user``
+    writes as the sides they're an Editor of, or as ``acting_in``'s alone (a run in that
+    project). ``taking``: someone takes the record in an assignment field (ADR 0122), as
+    its lab role lets them.
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -708,13 +722,34 @@ def update(
         rows = Rows.of(instance)
         project = owner_of(locked)
         refs = access.refs_for(user, project)
-        errors: dict[str, list[str]] = {}
+        asked = requests.spec_of(locked.type) is not None
+        request = requests.of(locked) if asked else None
+        allowed = (
+            None
+            if not asked
+            else frozenset(requests.side_of(locked.type, n) for n in values)
+            if taking
+            else requests.sides(user, locked, request, acting_in=acting_in)
+        )
+        errors: dict[str, list[str]] = (
+            requests.refused_fields(locked, [n for n in values if n in fields], allowed, request)
+            if allowed is not None
+            else {}
+        )
+        # The service's fields name its people, in its project (ADR 0132, 0122).
+        service_refs = (
+            Refs(Entity.objects.none(), project=request.service.name, namer=Namer(request.service))
+            if request is not None
+            else refs
+        )
         new: dict[str, Any] = {}
         for_entry: dict[str, Any] = {}
         for name, value in values.items():
             f = fields.get(name)
             if f is None:
                 errors[name] = [f"{locked.type} has no field `{name}`."]
+                continue
+            if name in errors:
                 continue
             if name in kept:
                 errors[name] = [kept[name]]
@@ -744,11 +779,12 @@ def update(
                     else ["can't change once it's set."]
                 )
                 continue
+            using = service_refs if requests.is_service_field(locked.type, name) else refs
             try:
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
-                with refs.namer.keeping(_named_in(f, current)):
-                    converted = to_db(f, value, refs)
+                with using.namer.keeping(_named_in(f, current)):
+                    converted = to_db(f, value, using)
             except ValueError as error:
                 errors[name] = [str(error)]
                 continue
@@ -818,11 +854,15 @@ def update(
             return saved
         was = {n: rows.get(n) for n in new}
         before = {n: v for n, v in was.items() if names_people(fields[n])}
-        touched = _write(form, rows, new, instance.pk)
+        with requests.writing(allowed or frozenset()):
+            touched = _write(form, rows, new, instance.pk)
         revision = _revise(
             locked, RevisionKind.EDITED, sorted(new), user, reason, via="run" if by_run else None
         )
         _write_history(touched, rows, revision.number)
+        if request is not None:
+            # What it sends now goes to the service with it.
+            requests.send(user, locked, current_values(_specific(locked)))
         _use_files(fields, locked.pk, new, revision.number)
         assignments.changed(
             locked, revision, assignments.diff(locked.type, before, new), user, group=group
@@ -923,6 +963,8 @@ def link(user: User, entity: Entity, project: Project) -> bool:
             owner = owner_of(entity)
             if owner.registry_id != registry_of(project):
                 raise Refused(other_registry(entity, owner, project))
+            if owner.allow_sharing:
+                raise Refused(came_with_a_request(entity, project))
             raise Refused(not_shared(entity, owner))
         _, created = ProjectLink.objects.get_or_create(
             entity=entity, project=project, defaults={"linked_by": user}
@@ -967,6 +1009,13 @@ def not_shared(entity: Entity, owner: Project) -> str:
     )
 
 
+def came_with_a_request(entity: Entity, project: Project) -> str:
+    return (
+        f"{entity.hrid} can't be shared with {project.name}: you read it through a request "
+        "between projects, which shares it with that project alone (ADR 0132)."
+    )
+
+
 def other_registry(entity: Entity, owner: Project, project: Project) -> str:
     return (
         f"{entity.hrid} can't be shared with {project.name}: it's in another registry from "
@@ -975,10 +1024,15 @@ def other_registry(entity: Entity, owner: Project, project: Project) -> str:
 
 
 def unlink(user: User, entity: Entity, project: Project) -> bool:
-    """Takes the entity out of a project. True if it was there."""
+    """Takes the entity out of a project. True if it was there. What a request linked there
+    stays while the request needs it (ADR 0132)."""
     if project.pk == entity.owner_project_id:
         raise Refused("An entity always belongs to its owner project.")
     with transaction.atomic():
+        found = ProjectLink.objects.filter(entity=entity, project=project).first()
+        why = requests.why_kept(found) if found is not None else None
+        if why:
+            raise Refused(why)
         removed, _ = ProjectLink.objects.filter(entity=entity, project=project).delete()
         if removed:
             log.record("entity.unlinked", actor=user, target=entity, project=project)

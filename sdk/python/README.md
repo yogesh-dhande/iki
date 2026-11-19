@@ -124,6 +124,15 @@ iki.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
 iki.notifications.choose({"iki/example_lims.Sample.in_review": "off"}, project="stability")
 iki.notifications.watch("SAM-000013")  # or "muted", or "default"
 
+# Requests between projects (ADR 0132): sent to a core that takes them, for good,
+# with the samples it names. The core writes its own fields; you write yours.
+core = iki.projects.services("kinase-atlas", type="iki/example_lims.AnalysisRequest")[0]
+lot = {"title": "Lot 12", "samples": ["SAM-000012"]}
+asked = iki.entities.create("iki/example_lims.AnalysisRequest", lot, project="kinase-atlas")
+iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
+iki.entities.request(asked["hrid"])["results"]  # what the core released back
+queue = {"field": "sent_to", "op": "eq", "value": core["project"]["id"]}  # the core's queue
+
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from
 iki.entities.origins("DNA-000042")  # the database record or file it was imported from

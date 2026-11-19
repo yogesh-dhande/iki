@@ -90,6 +90,27 @@ It shows the parts of Iki such a plugin needs:
   they can read it, and not of their own change; emails say what happened
   and link to it, without its values.
 
+- **Requests to an analytical core**
+  ([ADR 0132](../../docs/adr/0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md)):
+  an **`AnalysisRequest`** (`REQ-…`) is a project's request to a core
+  facility to test samples of a protein. The project asking writes its
+  title, samples, analyses, the date it needs them by, and instructions,
+  then sends it to a core that takes analysis requests from it (a core's
+  Admins choose which projects, under Settings → Intake). It goes with its
+  samples and protein, and the core reads those and nothing else of the
+  project's. The core writes only its own fields: `status` (Submitted,
+  Accepted, In progress, Delivered or Declined), `priority`, `scheduled_on`,
+  `analyst` and `core_notes`, each set with the lab roles its people hold in
+  the core's project; the project asking sets everything else, and its own
+  `standing` (Open, or Withdrawn, with why). Neither side can write the
+  other's, through the API, a run, an import or SQL. The core's queue is
+  every request sent to it, in its grid, search (`sent_to`) and My work.
+- An **`AnalysisResult`** (`ANR-…`) is what the core measured, the core's
+  own: its analyst records it as a Draft, a reviewer sets it Reviewed, and
+  QA Released, signing for it (21 CFR Part 11). Released, it goes back to
+  the project that asked, locked, and stays there; until then that project
+  can't see it.
+
 - **Donors, and what's derived from them**: a `Donor` (by the study's
   pseudonymous code, never a name) gives `Sample`s, each sample `Aliquot`s,
   and each aliquot `Result`s, each naming the one before. A donor's

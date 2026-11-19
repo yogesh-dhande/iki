@@ -96,6 +96,63 @@
         "$ref": "#/$defs/notification"
       }
     },
+    "request": {
+      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too.",
+      "type": "object",
+      "properties": {
+        "service_fields": {
+          "description": "The fields the service writes, such as its status, schedule and priority: state fields it sets with the lab roles its own people hold, and other fields its Editors change. They can't be references or files, required without a default, unique or immutable.",
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        },
+        "sends": {
+          "description": "References (or lists of them) whose records go to the service with the request, such as its samples: the service can read them, and only them, as long as the request is there.",
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released.",
+      "type": "object",
+      "required": ["of", "released"],
+      "properties": {
+        "of": {
+          "description": "Its reference to the request it's a result of: a required, immutable `ref` to a request type.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "released": {
+          "description": "The state field, and its states, in which it goes back to the asking project. It stays there after, as a correction shows in its state and history.",
+          "type": "object",
+          "required": ["field", "states"],
+          "properties": {
+            "field": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "states": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "display": {
       "type": "object",
       "properties": {

@@ -229,6 +229,17 @@ class ProjectLink(models.Model):
         settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
     )
     linked_at = models.DateTimeField(db_default=Now())
+    #: The request it came with (ADR 0132): the request itself, sent to its service; a
+    #: record it sends; or a result released back to the asking project. Readable there,
+    #: but not passed on to other projects.
+    via_request = models.ForeignKey(
+        Entity,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        db_comment="The request it came with, if a request linked it here (ADR 0132).",
+    )
 
     class Meta:
         db_table = "iki_entity_project"
@@ -242,6 +253,91 @@ class ProjectLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.entity_id} in {self.project_id}"
+
+
+class Request(models.Model):
+    """A request its record's project sent to another project's service (ADR 0132).
+
+    The asking project owns the record and its own fields; the service may change only
+    the fields its type gives the service, and sees only what the request sends. Sent
+    once, to one service, for good: withdrawing or declining it is its type's states'.
+    """
+
+    entity = models.OneToOneField(
+        Entity, primary_key=True, on_delete=models.PROTECT, related_name="iki_request"
+    )
+    #: The project serving it, which it's linked into.
+    service = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The agent that submitted it for them, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    submitted_at = models.DateTimeField(db_default=Now())
+    #: The request's revision when it was sent.
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "iki_request"
+        db_table_comment = (
+            "Requests sent from their records' projects to other projects' services (ADR 0132)."
+        )
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["service", "submitted_at"], name="iki_request_queue"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} to {self.service_id}"
+
+
+class Intake(models.Model):
+    """What a project takes as a service (ADR 0132): the request types it accepts, and from
+    which projects in its registry. Its Admins set it."""
+
+    project = models.OneToOneField(
+        Project, primary_key=True, on_delete=models.CASCADE, related_name="iki_intake"
+    )
+    #: The request types it accepts, by qualified name; their subtypes too.
+    types = ArrayField(models.CharField(max_length=112), default=list, blank=True)
+    #: Every project in its registry may ask; otherwise only those in ``sources``.
+    from_registry = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_intake"
+        db_table_comment = "The request types each service project accepts (ADR 0132)."
+
+    def __str__(self) -> str:
+        return f"intake of {self.project_id}"
+
+
+class IntakeSource(models.Model):
+    """A project a service accepts requests from (ADR 0132)."""
+
+    id = models.BigAutoField(primary_key=True)
+    intake = models.ForeignKey(Intake, on_delete=models.CASCADE, related_name="sources")
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="+")
+
+    class Meta:
+        db_table = "iki_intake_source"
+        db_table_comment = "The projects each service accepts requests from (ADR 0132)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["intake", "project"], name="iki_intake_source_once"),
+            models.CheckConstraint(
+                condition=~Q(intake_id=models.F("project_id")), name="iki_intake_not_itself"
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["project"], name="iki_intake_source_by_project"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project_id} asks {self.intake_id}"
 
 
 class AppDraft(models.Model):

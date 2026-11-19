@@ -1196,6 +1196,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A request's two sides
+         * @description Who asked and who serves it, what it sent the service, and the results that came of
+         *     it (ADR 0132): each only as far as you can read them. A record that isn't a request
+         *     answers 404.
+         */
+        get: operations["iki_server_api_requests_get_request"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/revisions": {
         parameters: {
             query?: never;
@@ -1289,6 +1311,30 @@ export interface paths {
          *     for it. Send If-Match with the ETag you read.
          */
         post: operations["iki_server_api_entities_set_entity_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a request to a service
+         * @description Sends the request (ADR 0132) to a service that takes it from its project: it's linked
+         *     into the service's project, with the records its `sends` fields name, which the service
+         *     can then read, and only those. It goes to one service, for good. It needs you as an
+         *     Editor in its project, which must allow sharing its entities (ADR 0067). A service that
+         *     doesn't take it answers 404, as one that doesn't exist does. Send If-Match.
+         */
+        post: operations["iki_server_api_requests_submit_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2226,6 +2272,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a project takes as a service
+         * @description The request types it accepts, and who from (ADR 0132). Its members can read it.
+         */
+        get: operations["iki_server_api_requests_get_intake"];
+        /**
+         * Choose what a project takes as a service
+         * @description Its Admins choose the request types it accepts, from every project in its registry
+         *     (`from_registry`) or from the projects they name, which they must be able to see.
+         *     Requests already sent stay. Audited as `project.intake_changed`.
+         */
+        put: operations["iki_server_api_requests_put_intake"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/members": {
         parameters: {
             query?: never;
@@ -2360,6 +2432,28 @@ export interface paths {
          *     placeholders can't be named. Best matches first. It needs you to read the project.
          */
         get: operations["iki_server_api_work_nameable"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The services a project may send requests to
+         * @description Each project that takes requests from this one (ADR 0132), of `type` if given, with
+         *     the request types it takes. Its members can read them: a service's name and description
+         *     are what it shows those it serves.
+         */
+        get: operations["iki_server_api_requests_list_services"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5436,6 +5530,8 @@ export interface components {
              * @description A new registry entry was made for it. False when the identity was registered already, by any project: then the project gets a record of that entry.
              */
             registered: boolean;
+            /** @description For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type. */
+            request?: components["schemas"]["RequestSidesOut"] | null;
             /**
              * Reused
              * @description The project had a record of this identity already: it's returned as it is, unchanged.
@@ -5912,6 +6008,8 @@ export interface components {
             refs: {
                 [key: string]: components["schemas"]["RefOut"];
             };
+            /** @description For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type. */
+            request?: components["schemas"]["RequestSidesOut"] | null;
             /**
              * Revision
              * @description Its latest revision. Send it back as If-Match to change it.
@@ -6021,6 +6119,10 @@ export interface components {
             notifications: components["schemas"]["TypeNotificationOut"][];
             /** Plugin */
             plugin: string;
+            /** @description Its records are requests one project sends to another's service (ADR 0132): which fields the service writes, and which send records with it. */
+            request?: components["schemas"]["RequestTypeOut"] | null;
+            /** @description Its records are a request's results (ADR 0132), which the service owns and releases back to the asking project. */
+            result?: components["schemas"]["ResultTypeOut"] | null;
             /**
              * Rule Variables
              * @description What its rules' `check` reads, as the schemas iki-wasm evaluates them against: so a form checks them as you type, as the server will.
@@ -7455,6 +7557,39 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** IntakeIn */
+        IntakeIn: {
+            /**
+             * From Registry
+             * @default false
+             */
+            from_registry: boolean;
+            /** Projects */
+            projects?: string[];
+            /**
+             * Types
+             * @description Request types, qualified.
+             */
+            types?: string[];
+        };
+        /** IntakeOut */
+        IntakeOut: {
+            /**
+             * From Registry
+             * @description Every project in its registry may send it these. Otherwise only `projects`.
+             */
+            from_registry: boolean;
+            /**
+             * Projects
+             * @description The projects that may send it these, besides the whole registry.
+             */
+            projects: components["schemas"]["ProjectRef"][];
+            /**
+             * Types
+             * @description The request types it accepts, and their subtypes. Empty: it takes none.
+             */
+            types: components["schemas"]["RequestTypeRef"][];
+        };
         /**
          * InventoryOut
          * @description A project webhook as Org Admins see it: where it sends, not what.
@@ -7945,6 +8080,8 @@ export interface components {
              * @description The project's records whose references to the superseded entry now name its replacement.
              */
             repointed: components["schemas"]["RefOut"][];
+            /** @description For a request between projects (ADR 0132): the project that asks and the service it's sent to, and whose each field is. Null for a record of another type. */
+            request?: components["schemas"]["RequestSidesOut"] | null;
             /**
              * Revision
              * @description Its latest revision. Send it back as If-Match to change it.
@@ -9904,6 +10041,87 @@ export interface components {
              */
             more_differences: number;
         };
+        /**
+         * RequestOut
+         * @description A request's two sides (ADR 0132).
+         */
+        RequestOut: {
+            /** @description The project that owns and sent it. */
+            asking_project: components["schemas"]["ProjectRef"] | null;
+            request: components["schemas"]["EntityOut"];
+            /**
+             * Results
+             * @description Its results that you can read: for the asking project, those the service released back; for the service, all of them.
+             */
+            results: components["schemas"]["EntityOut"][];
+            /**
+             * Sent
+             * @description What it sent the service with it, that you can read: the records its `sends` fields named, now or when they were sent.
+             */
+            sent: components["schemas"]["EntityOut"][];
+            /** @description The project serving it; null before it's sent. */
+            service: components["schemas"]["ProjectRef"] | null;
+            /** Submitted At */
+            submitted_at: string | null;
+            submitted_by: components["schemas"]["UserOut"] | null;
+        };
+        /**
+         * RequestSidesOut
+         * @description A request's two sides (ADR 0132): the project that asked, which owns it, and the
+         *     service it was sent to.
+         */
+        RequestSidesOut: {
+            /** @description The project that owns and sent it. */
+            asking_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Sends
+             * @description The fields whose records go to the service with it.
+             */
+            sends: string[];
+            /** @description The project serving it, once it's sent; null before. */
+            service: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Service Fields
+             * @description The fields the service changes, and the state fields it sets. The rest are the asking project's.
+             */
+            service_fields: string[];
+            /** Submitted */
+            submitted: boolean;
+            /** Submitted At */
+            submitted_at: string | null;
+            submitted_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Yours
+             * @description The sides you may change it as: `asker`, as an Editor in its project, and `service`, as an Editor in the service's.
+             */
+            yours: ("asker" | "service")[];
+        };
+        /**
+         * RequestTypeOut
+         * @description What makes a type's records requests between projects (ADR 0132).
+         */
+        RequestTypeOut: {
+            /**
+             * Sends
+             * @description Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.
+             */
+            sends: string[];
+            /**
+             * Service Fields
+             * @description The fields the service it's sent to changes, and the state fields it sets, with the lab roles its people hold in its project. The rest are the asking project's.
+             */
+            service_fields: string[];
+        };
+        /** RequestTypeRef */
+        RequestTypeRef: {
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Qualified: plugin.Type.
+             */
+            name: string;
+        };
         /** RerunIn */
         RerunIn: {
             /**
@@ -9917,6 +10135,27 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * ResultTypeOut
+         * @description What makes a type's records a request's results (ADR 0132).
+         */
+        ResultTypeOut: {
+            /**
+             * Of
+             * @description Its reference to the request it's a result of.
+             */
+            of: string;
+            /**
+             * Released Field
+             * @description The service's state field that releases it.
+             */
+            released_field: string;
+            /**
+             * Released States
+             * @description The states that send it back to the asking project, where it stays.
+             */
+            released_states: string[];
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
@@ -11080,6 +11319,25 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** ServiceOut */
+        ServiceOut: {
+            /** Description */
+            description: string;
+            project: components["schemas"]["ProjectRef"];
+            /**
+             * Types
+             * @description The request types it takes from the project asking.
+             */
+            types: components["schemas"]["RequestTypeRef"][];
+        };
+        /** ServicesFilters */
+        ServicesFilters: {
+            /**
+             * Type
+             * @description Only services taking this request type (qualified), or a parent.
+             */
+            type?: string | null;
+        };
         /** SettingsIn */
         SettingsIn: {
             /**
@@ -12037,6 +12295,20 @@ export interface components {
              * @enum {string}
              */
             viewer: "structure";
+        };
+        /** SubmitIn */
+        SubmitIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Service
+             * Format: uuid
+             * @description The service's project: one `/services` lists.
+             */
+            service: string;
         };
         /** SummaryOut */
         SummaryOut: {
@@ -15160,6 +15432,30 @@ export interface operations {
             };
         };
     };
+    iki_server_api_requests_get_request: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_list_revisions: {
         parameters: {
             query?: {
@@ -15286,6 +15582,36 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["StateIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_requests_submit_request: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitIn"];
             };
         };
         responses: {
@@ -16656,6 +16982,54 @@ export interface operations {
             };
         };
     };
+    iki_server_api_requests_get_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_requests_put_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntakeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeOut"];
+                };
+            };
+        };
+    };
     iki_server_api_projects_list_members: {
         parameters: {
             query?: {
@@ -16834,6 +17208,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NameableOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_requests_list_services: {
+        parameters: {
+            query?: {
+                /** @description Only services taking this request type (qualified), or a parent. */
+                type?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceOut"][];
                 };
             };
         };

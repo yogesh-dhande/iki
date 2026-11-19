@@ -162,6 +162,9 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "update_entity",
         "set_entity_archived",
         "set_entity_state",
+        "list_services",
+        "submit_request",
+        "get_request",
         "describe_apps",
         "check_app",
         "create_app",
@@ -195,6 +198,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "update_entity",
         "set_entity_archived",
         "set_entity_state",
+        "submit_request",
         "run_action",
         "run_batch",
         "cancel_run",
@@ -741,6 +745,61 @@ async def test_agents_set_records_states(world: World) -> None:
         )
     )
     assert "(409" in refused and "is locked by its Status (Reviewed)" in refused
+
+
+async def test_agents_send_requests_to_services(world: World) -> None:
+    """ADR 0132: an agent finds the services its person's project may ask, and sends a
+    request there, on the record as the agent's, on the person's behalf."""
+    from iki_server.entities import requests
+    from iki_server.entities.models import Request
+
+    def service() -> Project:
+        core = Project.objects.create(team=world.team, name="Protein Core")
+        requests.set_intake(
+            core,
+            types=["acme/protein.AssayRequest"],
+            from_registry=True,
+            sources=[],
+            by=world.users["admin"],
+        )
+        return core
+
+    core = await sync_to_async(service)()
+    token = await token_for(world)
+    listed = data(await tool(token, "list_services", project=str(world.project.pk)))
+    assert [s["project"]["name"] for s in listed] == ["Protein Core"]
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.AssayRequest",
+            project=str(world.project.pk),
+            values={"title": "Purity"},
+            reason="",
+        )
+    )
+    sent = data(
+        await tool(
+            token,
+            "submit_request",
+            ref=made["hrid"],
+            revision=1,
+            service=str(core.pk),
+            reason="Q4 batch",
+        )
+    )
+    assert sent["request"]["service"]["name"] == "Protein Core"
+    sides = data(await tool(token, "get_request", ref=made["hrid"]))
+    assert (sides["service"]["name"], sides["sent"], sides["results"]) == ("Protein Core", [], [])
+    found = await sync_to_async(Request.objects.select_related("agent", "submitted_by").get)()
+    assert found.submitted_by == world.users["editor"]
+    assert found.agent is not None
+    again = error(
+        await tool(
+            token, "submit_request", ref=made["hrid"], revision=1, service=str(core.pk), reason="x"
+        )
+    )
+    assert "(409" in again
 
 
 async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:

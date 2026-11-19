@@ -4,7 +4,8 @@ A search names a type, and its conditions name that type's fields: its own,
 its parents', and those extensions add. Entities of every subtype match too,
 since each type's table holds its subtypes' rows. Without a type (or with
 ``iki/core.Entity``), only the columns every entity has can be named: ``hrid``,
-``type``, ``owner_project``, ``created_by``, ``created_at``, ``updated_at``,
+``type``, ``owner_project``, ``sent_to`` (the project a request was sent to, ADR
+0132), ``created_by``, ``created_at``, ``updated_at``,
 ``archived_at``, and ``made``: how it was made (ADR 0106), matched with ``has``
 against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
 A state field (ADR 0125) is searched as an enum of its states, by name.
@@ -125,6 +126,8 @@ _BUILT_IN = {
     "hrid": Column("hrid", "string", "hrid"),
     "type": Column("type", "type", "type"),
     "owner_project": Column("owner_project", "project", "owner_project_id"),
+    # The service a request was sent to (ADR 0132): its queue is ``sent_to`` eq its project.
+    "sent_to": Column("sent_to", "project", "iki_request__service_id"),
     "created_by": Column("created_by", "user", "created_by_id"),
     "created_at": Column("created_at", "datetime", "created_at"),
     "updated_at": Column("updated_at", "datetime", "updated_at"),

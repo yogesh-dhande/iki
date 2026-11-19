@@ -60,6 +60,8 @@ BUILT_IN: Mapping[str, str] = {
     "hrid": "string",
     "type": "type",
     "owner_project": "project",
+    # The project a request was sent to (ADR 0132); unset for one not sent, or not a request.
+    "sent_to": "project",
     "created_by": "user",
     "created_at": "datetime",
     "updated_at": "datetime",

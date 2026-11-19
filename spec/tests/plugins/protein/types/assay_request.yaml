@@ -1,0 +1,40 @@
+apiVersion: iki/v1
+kind: EntityType
+name: AssayRequest
+label: Assay request
+schema_version: 1
+description: Samples a project sends a core facility to measure (ADR 0132).
+hrid: { prefix: ARQ }
+# The core's fields: its status, schedule, priority, technician and notes. The rest are
+# the asking project's.
+request:
+  service_fields: [status, priority, scheduled_on, technician, core_notes]
+  sends: [samples, protein]
+fields:
+  title: { type: string, required: true, max_length: 200 }
+  samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
+  protein: { type: ref, to: Protein }
+  needed_by: { type: date }
+  instructions: { type: text }
+  priority: { type: enum, values: [routine, urgent], default: routine }
+  scheduled_on: { type: date }
+  technician: { type: person, role: analyst, assignment: { field: status, states: [accepted] } }
+  core_notes: { type: text }
+  # The asking project's: whether it still wants it.
+  standing:
+    type: state
+    initial: open
+    states:
+      open: { label: Open, set_by: [analyst] }
+      withdrawn: { label: Withdrawn, set_by: [analyst], reason: required }
+  # The core's: where the work is.
+  status:
+    type: state
+    initial: submitted
+    states:
+      submitted: { label: Submitted, set_by: [qa] }
+      accepted: { label: Accepted, set_by: [analyst] }
+      delivered: { label: Delivered, set_by: [qa], locks: true }
+      declined: { label: Declined, set_by: [qa], reason: required }
+display:
+  title: "{{ title }}"

@@ -21,7 +21,8 @@ its files (ADR 0066).
 **Sharing** an entity with another project (linking it in, or referring to it
 from that project's entities) takes its own project's leave:
 :func:`shareable_into` (ADR 0067). Projects in different registries share
-nothing (ADR 0115).
+nothing (ADR 0115). What a request linked into a project (ADR 0132) is read
+there, and never passed on from there.
 
 A **registry entry** (ADR 0115) belongs to no project: it's readable by whoever
 can read a record of it, and nobody else, so its ID alone grants nothing. The
@@ -177,8 +178,18 @@ def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: AN
     already in it, and those whose project allows sharing and is in its registry (ADR
     0115). Others behave, for it, as if the user couldn't read them."""
     here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
+    # Read only through what a request linked (ADR 0132): readable, but not passed on.
+    own_way = ProjectLink.objects.filter(
+        entity=OuterRef("pk"),
+        project__in=readable_projects(user).values("pk"),
+        via_request__isnull=True,
+    )
     return visible(user).filter(
-        Q(owner_project__allow_sharing=True, owner_project__registry_id=project.registry_id)
+        Q(
+            Exists(own_way),
+            owner_project__allow_sharing=True,
+            owner_project__registry_id=project.registry_id,
+        )
         | Q(owner_project=project)
         | Exists(here)
     )
@@ -244,10 +255,16 @@ def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401
     return visible(user).filter(pk=entity.pk).exists()
 
 
-def can_edit(user: Any, entity: Entity) -> bool:  # noqa: ANN401
+def can_edit(user: Any, entity: Entity, *, acting_in: Project | None = None) -> bool:  # noqa: ANN401
     """Whether the user may change a record: Editor in its project. Nobody edits a registry
-    entry so: its facts are its registrars' (ADR 0115)."""
+    entry so: its facts are its registrars' (ADR 0115). A request sent to a service (ADR
+    0132) is changed by either side, each in its own fields: ``acting_in``, as that
+    project's alone (a run in it)."""
     if entity.owner_project_id is None:
         return False
+    from iki_server.entities import requests
+
+    if requests.spec_of(entity.type) is not None:
+        return bool(requests.sides(user, entity, requests.of(entity), acting_in=acting_in))
     owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
     return permissions.can(user, Action.PROJECT_EDIT, owner)
