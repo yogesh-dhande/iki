@@ -22,6 +22,12 @@ installs, each pinned to a git commit::
 A purged plugin (ADR 0092) has only its name: the deploy drops its tables.
 A plugin in Iki's own namespace, ``iki``, comes from Iki's repository (ADR 0113).
 
+A lockfile holds no credentials (ADR 0034): it's committed to the config
+repository, and copied into the server image and onto its Plugins page. A
+``git`` URL with a user, token or password in it, or a query, is refused
+before anything else is checked, so no message repeats it. Credentials go
+to git's credential helper, as the config template's CI sets up.
+
 ``iki deploy build`` fetches each plugin at its commit, checks it with the
 others and with its settings, and compiles them for the server image. A
 commit, unlike a branch or tag, can't change under a deployment, so the same
@@ -31,9 +37,11 @@ lockfile always builds the same plugins.
 from __future__ import annotations
 
 import posixpath
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from iki_spec import API_VERSION, naming, schemas
 from iki_spec.problems import Path as DocPath
@@ -48,7 +56,10 @@ __all__ = [
     "LockedPlugin",
     "load_lock",
     "lock_to_dict",
+    "redact_credentials",
     "repository",
+    "url_credentials",
+    "without_credentials",
 ]
 
 FILENAME = "plugins.lock.yaml"
@@ -111,6 +122,7 @@ class _Problems:
         *,
         hint: str | None = None,
         key: bool = False,
+        hide_source: bool = False,
     ) -> None:
         self.problems.append(
             Problem(
@@ -121,6 +133,7 @@ class _Problems:
                 location=document.locate(path, key=key) if document else None,
                 path=path,
                 hint=hint,
+                extra={"hide_source": True} if hide_source else {},
             )
         )
 
@@ -161,6 +174,8 @@ def load_lock(file: Path, name: str | None = None) -> LockResult:
             ("kind",) if kind else (),
             hint=f"Start it with `apiVersion: {API_VERSION}` and `kind: {KIND}`.",
         )
+        return LockResult(None, problems.problems)
+    if _check_credentials(data, document, problems):
         return LockResult(None, problems.problems)
     for issue in schemas.check("plugin-lock", data):
         hint = issue.hint
@@ -271,6 +286,80 @@ def _check_source(
             (*at, "path"),
             hint="Give it relative to the repository's root, without `..`.",
         )
+
+
+def _check_credentials(data: dict[str, Any], document: Document, problems: _Problems) -> bool:
+    """Refuses every ``git`` URL with credentials in it, without repeating them; whether any."""
+    entries = data.get("plugins")
+    found = False
+    for index, entry in enumerate(entries if isinstance(entries, list) else []):
+        git = entry.get("git") if isinstance(entry, dict) else None
+        what = url_credentials(git) if isinstance(git, str) else None
+        if what is None:
+            continue
+        found = True
+        name = entry.get("name")
+        problems.add(
+            "git-credentials",
+            f"The git URL of {name if isinstance(name, str) else f'plugins[{index}]'} has "
+            f"{what} in it. A lockfile is committed, and copied into the server image, so it "
+            "holds no credentials.",
+            document,
+            ("plugins", index, "git"),
+            # The line itself holds them, so it isn't quoted under the message.
+            hide_source=True,
+            hint="Write the repository's URL without them, and give them to git's credential "
+            "helper instead, as the config template's CI does with its PLUGIN_REPOS_TOKEN "
+            "secret.",
+        )
+    return found
+
+
+def url_credentials(url: str) -> str | None:
+    """What in a git URL could be a credential (``"a user or token"``, ``"a password"``, ``"a
+    query or fragment"``), or None. An ssh user, such as ``git@``, isn't one."""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None  # not a URL urllib reads; git and the schema refuse it
+    if parts.scheme.lower() not in ("http", "https", "ssh"):
+        return None  # scp-like ssh, git@host:path, has no place for a password
+    if parts.password is not None:
+        return "a password"
+    if parts.username is not None and parts.scheme.lower() != "ssh":
+        return "a user or token"
+    if parts.query or parts.fragment or "?" in url or "#" in url:
+        return "a query or fragment"
+    return None
+
+
+def without_credentials(url: str) -> str:
+    """``url`` as it may be shown or recorded: an https URL without its user, token, query or
+    fragment, and an ssh URL without its password. A URL without any is returned as it is."""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return redact_credentials(url)
+    scheme = parts.scheme.lower()
+    if url_credentials(url) is None:
+        return url
+    host = parts.hostname or ""
+    host = f"[{host}]" if ":" in host else host
+    netloc = f"{host}:{parts.port}" if parts.port else host
+    if scheme == "ssh" and parts.username:
+        netloc = f"{parts.username}@{netloc}"
+    return urlunsplit(parts._replace(netloc=netloc, query="", fragment=""))
+
+
+#: A user, token or password before a URL's host, as text such as git's own messages has it.
+_USERINFO = re.compile(
+    r"(?i)\b(https?://)[^\s/@'\"`<>]+@|\b(ssh://[^\s/@:'\"`<>]*):[^\s/@'\"`<>]*@"
+)
+
+
+def redact_credentials(text: str) -> str:
+    """``text`` with any URL's user, token or password taken out."""
+    return _USERINFO.sub(lambda m: m.group(1) or f"{m.group(2)}@", text)
 
 
 def _check_first_party(

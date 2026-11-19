@@ -141,7 +141,9 @@ def test_gits_own_config_cant_quietly_send_ikis_repository_elsewhere(
 @pytest.mark.parametrize(
     ("url", "why"),
     [
-        ("https://x:token@git.acme.example/iki.git", "has credentials in it"),
+        ("https://x:ghp_EXAMPLE0SECRET@git.acme.example/iki.git", "has a password in it"),
+        ("https://ghp_EXAMPLE0SECRET@git.acme.example/iki.git", "has a user or token in it"),
+        ("ssh://git:ghp_EXAMPLE0SECRET@git.acme.example/iki.git", "has a password in it"),
         ("http://git.acme.example/iki.git", "isn't an https or ssh"),
         ("ext::sh -c touch% /tmp/x", "isn't an https or ssh"),
         ("https://git.acme.example/iki.git?ref=main", "has a query or fragment"),
@@ -156,7 +158,9 @@ def test_a_mirror_is_an_https_or_ssh_url_without_credentials(
 ) -> None:
     monkeypatch.setattr(fetch, "PROTOCOLS", ("https", "ssh"))
     assert build(tmp_path, "a" * 40, url) == 1
-    assert why in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert why in err
+    assert "ghp_EXAMPLE0SECRET" not in err
 
 
 def test_check_mirror_takes_ssh_in_both_forms() -> None:

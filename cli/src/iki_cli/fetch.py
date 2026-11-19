@@ -12,6 +12,8 @@ Git is run defensively:
   run commands or read this machine's files.
 - Never prompting: a build in CI fails rather than hanging on a password.
   Credentials come from git's usual helpers, such as the one CI sets up.
+  A URL with credentials in it is refused, and none reaches a message:
+  every URL and line of git's output is shown without them.
 - No hooks, submodules or LFS: the export is the commit's own files.
 - Every object fetched is checked (``fetch.fsckObjects``), and the fetched
   commit is checked to be the one asked for.
@@ -35,10 +37,16 @@ import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from iki_spec import first_party, naming
-from iki_spec.lockfile import LockedPlugin, repository
+from iki_spec.lockfile import (
+    LockedPlugin,
+    redact_credentials,
+    repository,
+    url_credentials,
+    without_credentials,
+)
 
 __all__ = ["FetchError", "Fetched", "cache_directory", "check_mirror", "fetch"]
 
@@ -69,17 +77,22 @@ def cache_directory() -> Path:
 def check_mirror(url: str, protocols: Sequence[str] | None = None) -> str | None:
     """Why ``url`` can't be a mirror of Iki's repository, or None if it can."""
     allowed = protocols or PROTOCOLS
-    parts = urlsplit(url)
+    shown = without_credentials(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return f"`{shown}` isn't a URL git reads"
     if not parts.scheme and "ssh" in allowed and "@" in url and ":" in url.partition("@")[2]:
         return None  # scp-like ssh: git@git.example.org:mirrors/iki.git
     if parts.scheme not in allowed:
-        return f"`{url}` isn't an {' or '.join(allowed)} URL"
-    if parts.scheme == "https" and (parts.username or parts.password):
-        return f"`{url}` has credentials in it: give them to git's credential helper instead"
-    if parts.query or parts.fragment:
-        return f"`{url}` has a query or fragment, which a git URL doesn't"
+        return f"`{shown}` isn't an {' or '.join(allowed)} URL"
+    what = url_credentials(url)
+    if what == "a query or fragment":
+        return f"`{shown}` has a query or fragment, which a git URL doesn't"
+    if what is not None:
+        return f"`{shown}` has {what} in it: give it to git's credential helper instead"
     if parts.scheme != "file" and not parts.hostname:
-        return f"`{url}` has no host"
+        return f"`{shown}` has no host"
     return None
 
 
@@ -115,7 +128,7 @@ def fetch(
         mirrored = source != plugin.git
         if mirrored:
             _check_iki_made(git, plugin, source)
-        return Fetched(_export(git, plugin, into), _public(source), mirrored)
+        return Fetched(_export(git, plugin, into), without_credentials(source), mirrored)
     if len(failures) == 1:
         raise FetchError(failures[0])
     raise FetchError(
@@ -136,9 +149,10 @@ def _check_iki_made(git: _Git, plugin: LockedPlugin, source: str) -> None:
     if tree.strip() not in first_party.trees(plugin.name):
         raise FetchError(
             f"{plugin.name}: `{plugin.path}` at commit {plugin.sha[:12]} from the mirror "
-            f"{source} isn't one Iki's repository has had, as far as this iki-cli knows. A "
-            "mirror serves Iki's own commits, so pin one of those. If it's a newer commit of "
-            "Iki's, use the iki-cli of a release that has it. If you changed the plugin, it's "
+            f"{without_credentials(source)} isn't one Iki's repository has had, as far as this "
+            "iki-cli knows. A mirror serves Iki's own commits, so pin one of those. If it's a "
+            "newer commit of Iki's, use the iki-cli of a release that has it. If you changed the "
+            "plugin, it's "
             f"yours: give it your namespace, such as `acme/{naming.short_name(plugin.name)}`."
         )
 
@@ -157,16 +171,6 @@ def _export(git: _Git, plugin: LockedPlugin, into: Path) -> Path:
         # "data" refuses absolute paths, `..`, links out of the directory and devices.
         tar.extractall(target, filter="data")
     return target
-
-
-def _public(url: str) -> str:
-    """``url`` without credentials, to record: a user and password in an https URL go."""
-    parts = urlsplit(url)
-    if parts.scheme in ("http", "https") and (parts.username or parts.password):
-        host = parts.hostname or ""
-        netloc = f"{host}:{parts.port}" if parts.port else host
-        return urlunsplit(parts._replace(netloc=netloc))
-    return url
 
 
 def _format(sha: str) -> str:
@@ -227,7 +231,8 @@ class _Git:
         effective = self.effective(url)
         if repository(effective) != repository(url):
             raise FetchError(
-                f"{plugin.name}: git's config sends {url} to {_public(effective)} "
+                f"{plugin.name}: git's config sends {without_credentials(url)} to "
+                f"{without_credentials(effective)} "
                 "(`url.<base>.insteadOf`). Name a mirror of Iki's repository for the "
                 "deployment instead, so the build checks what it fetches and records where it "
                 "came from."
@@ -246,7 +251,9 @@ class _Git:
         if not self.has_commit(plugin.sha):
             self.fetch(plugin, url)
         if not self.has_commit(plugin.sha):
-            raise FetchError(f"{plugin.name}: {url} sent something other than {plugin.sha}.")
+            raise FetchError(
+                f"{plugin.name}: {without_credentials(url)} sent something other than {plugin.sha}."
+            )
 
     def fetch(self, plugin: LockedPlugin, url: str) -> None:
         assert plugin.sha is not None  # noqa: S101 - the lockfile's rules
@@ -270,7 +277,8 @@ class _Git:
         )
         if result.returncode != 0:
             raise FetchError(
-                f"{plugin.name}: couldn't fetch commit {plugin.sha[:12]} from {url}: "
+                f"{plugin.name}: couldn't fetch commit {plugin.sha[:12]} from "
+                f"{without_credentials(url)}: "
                 f"{_last_line(result.stderr)}. Check that the commit is pushed and that this "
                 "machine can read the repository."
             )
@@ -278,4 +286,5 @@ class _Git:
 
 def _last_line(text: str) -> str:
     lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
-    return (lines[-1] if lines else "no message").removeprefix("fatal: ").rstrip(".")
+    last = (lines[-1] if lines else "no message").removeprefix("fatal: ").rstrip(".")
+    return redact_credentials(last)

@@ -29,6 +29,8 @@ class Problem:
 
     `code` is a stable, documented identifier (for example `unknown-unit`),
     so tools can filter on it. `file` is relative to the plugin's directory.
+    `extra["hide_source"]` says not to quote the problem's line, which holds
+    something that mustn't be printed, such as a credential.
     """
 
     code: str

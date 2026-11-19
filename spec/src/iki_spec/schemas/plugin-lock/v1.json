@@ -35,7 +35,7 @@
           "enum": ["active", "detached", "purged"]
         },
         "git": {
-          "description": "The plugin's git repository: an https or ssh URL, such as `https://github.com/acme/iki-plugins.git` or `git@github.com:acme/iki-plugins.git`.",
+          "description": "The plugin's git repository: an https or ssh URL, such as `https://github.com/acme/iki-plugins.git` or `git@github.com:acme/iki-plugins.git`. It holds no credentials (no user, token or password, and no query): git's credential helper gives them.",
           "type": "string",
           "maxLength": 2000,
           "pattern": "^((https|ssh)://[^\\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\\s]+)$"

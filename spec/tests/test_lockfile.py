@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.lockfile import LockedPlugin, load_lock, lock_to_dict
+from iki_spec.lockfile import (
+    LockedPlugin,
+    load_lock,
+    lock_to_dict,
+    redact_credentials,
+    without_credentials,
+)
 
 SHA = "4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b"
 
@@ -225,3 +231,75 @@ def test_the_same_name_in_two_namespaces(tmp_path: Path) -> None:
     assert result.problems == []
     assert result.lock is not None
     assert [p.name for p in result.lock.plugins] == ["acme/assays", "globex/assays"]
+
+
+# --- A lockfile holds no credentials (ADR 0034) ------------------------------------------
+
+SECRET = "ghp_EXAMPLE0SECRET"
+
+
+@pytest.mark.parametrize(
+    ("name", "git", "what"),
+    [
+        ("acme/assays", f"https://bob:{SECRET}@github.com/acme/assays.git", "a password"),
+        ("acme/assays", f"https://{SECRET}@github.com/acme/assays.git", "a user or token"),
+        ("acme/assays", f"https://x-access-token:{SECRET}@github.com/a/b.git", "a password"),
+        ("acme/assays", f"https://github.com/acme/a.git?private_token={SECRET}", "a query"),
+        ("acme/assays", f"https://github.com/acme/a.git#{SECRET}", "a query or fragment"),
+        ("acme/assays", f"ssh://git:{SECRET}@git.acme.example/assays.git", "a password"),
+        # Messages for Iki's own plugins and for a missing commit name the URL: none may.
+        ("iki/dna", f"https://bob:{SECRET}@github.com/elsewhere/iki.git", "a password"),
+        ("iki/dna", f"https://{SECRET}@github.com/yogesh-dhande/iki.git", "a user or token"),
+    ],
+)
+def test_a_git_url_with_credentials_is_refused_without_repeating_them(
+    tmp_path: Path, name: str, git: str, what: str
+) -> None:
+    file = lock(
+        tmp_path,
+        f"""\
+        - name: {name}
+          git: "{git}"
+          path: plugins/dna
+          state: active
+        """,
+    )
+    result = load_lock(file)
+    assert result.lock is None
+    assert [p.code for p in result.problems] == ["git-credentials"]
+    (problem,) = result.problems
+    assert what in problem.message
+    assert "credential helper" in (problem.hint or "")
+    assert problem.location is not None and problem.location.line == 5
+    assert SECRET not in str(problem.as_dict())
+
+
+@pytest.mark.parametrize(
+    "git",
+    [
+        "ssh://git@git.acme.example:2222/assays.git",
+        "git@github.com:acme/assays.git",
+        "https://github.com/acme/assays.git",
+    ],
+)
+def test_an_ssh_user_isnt_a_credential(tmp_path: Path, git: str) -> None:
+    file = lock(tmp_path, f"- name: acme/assays\n  git: {git}\n  sha: {SHA}\n  state: active\n")
+    assert codes(file) == []
+
+
+def test_urls_are_shown_without_credentials() -> None:
+    assert (
+        without_credentials(f"https://bob:{SECRET}@GitHub.com:8443/a/b.git?t={SECRET}")
+        == "https://github.com:8443/a/b.git"
+    )
+    assert without_credentials(f"ssh://git:{SECRET}@host/a.git") == "ssh://git@host/a.git"
+    assert without_credentials("https://GitHub.com/a/b.git") == "https://GitHub.com/a/b.git"
+    assert without_credentials("git@github.com:a/b.git") == "git@github.com:a/b.git"
+    message = (
+        f"unable to access 'https://bob:{SECRET}@github.com/a/b.git/': 403, "
+        f"and ssh://git:{SECRET}@host/x, and https://{SECRET}@host/y"
+    )
+    assert redact_credentials(message) == (
+        "unable to access 'https://github.com/a/b.git/': 403, "
+        "and ssh://git@host/x, and https://host/y"
+    )

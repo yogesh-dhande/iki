@@ -15,6 +15,7 @@ from typing import Any, TextIO
 
 from iki_codegen import build as build_apps
 from iki_spec import API_VERSION, naming
+from iki_spec.lockfile import redact_credentials
 from iki_spec.model import Plugin
 from iki_spec.problems import Problem
 from iki_spec.validate import Result, check_settings_values, load_plugin
@@ -360,7 +361,7 @@ def write_problems(
         out.write(
             f"{style(where, '1')}: {level}: {problem.message} {style(f'[{problem.code}]', '2')}\n"
         )
-        if problem.file and problem.location:
+        if problem.file and problem.location and not problem.extra.get("hide_source"):
             source = _source_line(
                 sources, directory, problem.file, problem.location.line, lines_cache
             )
@@ -387,7 +388,8 @@ def _source_line(
             cache[file] = []
     lines = cache[file]
     if 0 < line <= len(lines):
-        return lines[line - 1].expandtabs(1)
+        # A URL's user, token or password is never printed, from any file.
+        return redact_credentials(lines[line - 1].expandtabs(1))
     return None
 
 

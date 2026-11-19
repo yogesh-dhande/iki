@@ -524,6 +524,60 @@ def test_only_replaces_a_previous_build(tmp_path: Path, capsys: pytest.CaptureFi
     assert (tmp_path / "out" / "notes.txt").exists()
 
 
+SECRET = "ghp_EXAMPLE0SECRET"
+
+
+@pytest.mark.parametrize(
+    "git",
+    [
+        f"https://bob:{SECRET}@git.example/acme/plugins.git",
+        f"https://git.example/acme/plugins.git?private_token={SECRET}",
+    ],
+)
+@pytest.mark.parametrize("flow", [False, True], ids=["block", "flow"])
+def test_a_lockfile_with_credentials_builds_nothing_and_never_prints_them(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], git: str, flow: bool
+) -> None:
+    directory = tmp_path / "prod"
+    directory.mkdir()
+    entry = (
+        f'  - {{name: acme/dna, git: "{git}", sha: "{"a" * 40}", state: active}}\n'
+        if flow
+        else f'  - name: acme/dna\n    git: "{git}"\n    sha: "{"a" * 40}"\n    state: active\n'
+    )
+    (directory / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n" + entry
+    )
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "out")]) == 1
+    printed = capsys.readouterr()
+    assert "[git-credentials]" in printed.err
+    assert "credential helper" in printed.err
+    assert SECRET not in printed.out + printed.err
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_failed_fetch_never_prints_the_credentials_gits_config_adds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A rewrite that adds credentials to the same repository is allowed (ADR 0114).
+    (tmp_path / "gitconfig").write_text(
+        f'[url "https://bob:{SECRET}@git.invalid/"]\n\tinsteadOf = https://git.invalid/\n'
+    )
+    directory = tmp_path / "prod"
+    directory.mkdir()
+    (directory / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - name: acme/dna\n    git: https://git.invalid/acme/plugins.git\n"
+        f'    sha: "{"a" * 40}"\n    state: active\n'
+    )
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "out")]) == 1
+    printed = capsys.readouterr()
+    assert "couldn't fetch commit aaaaaaaaaaaa from https://git.invalid/acme/plugins.git" in (
+        printed.err
+    )
+    assert SECRET not in printed.out + printed.err
+
+
 def test_lockfile_problems_point_at_the_line(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
