@@ -433,10 +433,13 @@ class _Writer:
                     reason=reason,
                 )
 
-    def _remap(self, form: Shape, values: dict[str, Any]) -> dict[str, Any]:
+    def _remap(
+        self, form: Shape, values: dict[str, Any], ids: _Ids | None = None
+    ) -> dict[str, Any]:
         """Values whose references name a bundle's registry entry by its ID there, naming
         it by its ID here; and the people they name, as they are here (ADR 0122): the same
-        person by their email address, or their placeholder."""
+        person by their email address, or their placeholder. ``ids``, if given, is told
+        each ID named anew, by field and row cell."""
         fields = {n: f for p in form.parts for n, f in p.fields.items()}
         out = dict(values)
         for name, value in values.items():
@@ -444,29 +447,32 @@ class _Writer:
             if f is None or value is None:
                 continue
             if f.is_rows and f.items is not None:
-                out[name] = [self._row(f.items, r) for r in value]
+                out[name] = [self._row(f.items, r, name, ids) for r in value]
             elif f.type == "person":
-                out[name] = self._person(value)
+                out[name] = _noted(ids, name, None, value, self._person(value))
             elif f.type == "list" and f.items is not None and f.items.type == "person":
-                out[name] = [p for p in (self._person(v) for v in value) if p is not None]
+                found = [_noted(ids, name, None, v, self._person(v)) for v in value]
+                out[name] = [p for p in found if p is not None]
             elif not self.renamed:
                 continue
             elif f.type == "ref":
-                out[name] = self._renamed(value)
+                out[name] = _noted(ids, name, None, value, self._renamed(value))
             elif f.type == "list" and f.items is not None and f.items.type == "ref":
-                out[name] = [self._renamed(v) for v in value]
+                out[name] = [_noted(ids, name, None, v, self._renamed(v)) for v in value]
         return out
 
-    def _row(self, row: Field, values: dict[str, Any]) -> dict[str, Any]:
+    def _row(
+        self, row: Field, values: dict[str, Any], field: str = "", ids: _Ids | None = None
+    ) -> dict[str, Any]:
         """A list's row (ADR 0137), its people and references as :meth:`_remap` has them."""
         out = dict(values)
         for name, cell in row.fields.items():
             if values.get(name) is None:
                 continue
             if cell.type == "person":
-                out[name] = self._person(values[name])
+                out[name] = _noted(ids, field, name, values[name], self._person(values[name]))
             elif cell.type == "ref" and self.renamed:
-                out[name] = self._renamed(values[name])
+                out[name] = _noted(ids, field, name, values[name], self._renamed(values[name]))
         return out
 
     def _person(self, value: Any) -> Any:  # noqa: ANN401 - a UUID, or its text
@@ -647,12 +653,12 @@ class _Writer:
 
         listed = {k["key"]: k["deployment"] for k in self.bundle.manifest.get("signing_keys", [])}
         trusted = {**signing_keys.trusted(), **listed}
-        renamed = {str(k): str(v) for k, v in self.renamed.items()}
         # What migrations here do to its record's history from now on, it's read through,
         # signed by this deployment's own key (ADR 0148): made now, if it has none yet.
         seen = signature_services.history_seen()
         if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
             signing_keys.current()
+        entities = {line["id"]: line["type"] for line in self.bundle.lines("entities.ndjson")}
         for line in self.bundle.lines("signatures.ndjson"):
             if line["record"] not in planned or Signature.objects.filter(pk=line["id"]).exists():
                 continue
@@ -665,13 +671,24 @@ class _Writer:
                 raise reading.BundleError(
                     f"Signature {line['id']} in it doesn't verify: {failed[0].detail}"
                 )
+            try:
+                before = proof.vouched(line.get("since"), line, trusted)
+                content = proof.migrated(proof_document(line["content"]), before)
+            except proof.Unexplained as unexplained:
+                raise reading.BundleError(
+                    f"Signature {line['id']} in it doesn't verify: {unexplained}"
+                ) from None
             document = proof_document(line["document"])
             signer = self._user(line["signer"])
             if signer is None:
                 raise reading.BundleError(f"Signature {line['id']} names nobody in it.")
             for key in {line["key"]} - set(signing_keys.trusted()):
                 signing_keys.trust(key, listed.get(key, self.made.trusted_as or ""), self.made)
-            names = _strings(proof_document(line["content"]).get("values")) & renamed.keys()
+            # How this import names, here, the people and registry entries it names: what
+            # its record's history here is read through, after what was done where it came
+            # from (ADR 0096, ADR 0148).
+            ids = _Ids(here=signature_services.deployment())
+            self._remap(shape(entities[line["record"]]), content.get("values") or {}, ids)
             made = Signature.objects.create(
                 id=line["id"],
                 entity_id=line["record"],
@@ -690,9 +707,8 @@ class _Writer:
                 content=line["content"],
                 deployment=line["deployment"],
                 bundle_import=self.made,
-                renamed={k: renamed[k] for k in sorted(names)},
                 history_seen=seen,
-                migrated=list(line.get("since") or []),
+                read_through=signature_services.read_through(line, [*before, *ids.changes()]),
             )
             if line["withdrawn"] is not None:
                 w = line["withdrawn"]
@@ -981,15 +997,41 @@ class _Writer:
         return user.get_full_name() if user is not None else None
 
 
-def _strings(value: Any) -> set[str]:  # noqa: ANN401 - JSON
-    """Every string in a JSON value."""
-    if isinstance(value, str):
-        return {value}
-    if isinstance(value, dict):
-        return {s for v in value.values() for s in _strings(v)}
-    if isinstance(value, list):
-        return {s for v in value for s in _strings(v)}
-    return set()
+@dataclass
+class _Ids:
+    """The IDs an import names anew, here, in a signed record's values (ADR 0096): a
+    person's, by their email or as their placeholder, and a registry entry's that's
+    registered here already. ``here``: this deployment, as its signatures name it."""
+
+    here: str
+    fields: dict[str, dict[str, str]] = field(default_factory=dict)
+    cells: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
+
+    def changes(self) -> list[dict[str, Any]]:
+        """As ``proof.migrated`` reads them: one change, if any ID is named anew."""
+        if not self.fields and not self.cells:
+            return []
+        return [
+            {
+                "kind": "ids",
+                "here": self.here,
+                "at": timezone.now().date().isoformat(),
+                "fields": self.fields,
+                "cells": self.cells,
+            }
+        ]
+
+
+def _noted(ids: _Ids | None, name: str, cell: str | None, old: Any, new: Any) -> Any:  # noqa: ANN401 - an ID
+    """``new``, the ID ``old`` is named by here, told to ``ids`` if it differs."""
+    if ids is not None and new is not None and str(new) != str(old):
+        into = (
+            ids.fields.setdefault(name, {})
+            if cell is None
+            else (ids.cells.setdefault(name, {}).setdefault(cell, {}))
+        )
+        into[str(old)] = str(new)
+    return new
 
 
 def proof_document(text: str) -> dict[str, Any]:

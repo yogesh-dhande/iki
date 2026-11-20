@@ -485,6 +485,7 @@ class Lot(Entity):
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
     yield_mg = models.FloatField(null=True)
     report = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
+    made_by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
     status = StateField(
         states=['open', 'in_review', 'approved', 'released'],
         locking=['approved', 'released'],
@@ -531,10 +532,42 @@ class Lot_History(models.Model):
     protein = models.UUIDField(db_column='protein_id', null=True)
     yield_mg = models.FloatField(null=True)
     report = models.UUIDField(db_column='report_id', null=True)
+    made_by = models.UUIDField(db_column='made_by_id', null=True)
+    inputs = models.JSONField(null=True)
     status = models.TextField(null=True)
 
     class Meta:
         db_table = 'acme__protein_lot__history'
+
+
+class Lot_inputs(models.Model):
+    """The items of acme/protein.Lot.inputs, in order."""
+
+    IKI_LIST_OF = ('Lot', 'inputs')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Lot', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
+    amount_mg = models.FloatField(null=True)
+    by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_lot__inputs'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount_mg__gt=float('-inf'), amount_mg__lt=float('inf')),
+                name='acme__protein_lot__inputs__amount_mg__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(amount_mg__gte=0),
+                name='acme__protein_lot__inputs__amount_mg__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=10),
+                name='acme__protein_lot__inputs__position__max_items',
+            ),
+        ]
 
 
 class Protein(iki_plugin_acme__dna.models.Sequence):

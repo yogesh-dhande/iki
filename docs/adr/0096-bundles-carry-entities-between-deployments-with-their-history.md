@@ -169,3 +169,7 @@ need the `admin` scope.
   and in the plan, so people can find one from the other.
 - `bundle/v1` is a compatibility surface: a deployment reads bundles from
   older Iki releases, and refuses ones from newer releases it can't read.
+  That starts with the first release (M1). Before it there are no releases
+  and no databases to keep, so `bundle/v1` changes in place, without
+  readers for earlier forms: a bundle exported by an earlier build may not
+  read.

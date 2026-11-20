@@ -229,6 +229,7 @@ def _collect(
     by_entity: dict[uuid.UUID, list[Revision]] = {}
     for r in revisions:
         by_entity.setdefault(r.entity_id, []).append(r)
+    signature_lines = [_signature(s) for s in signed]
     lines = {
         "people.ndjson": (_person(u) for u in User.objects.filter(pk__in=people).order_by("pk")),
         "agents.ndjson": (_agent(a) for a in Agent.objects.filter(pk__in=agents).order_by("pk")),
@@ -242,7 +243,7 @@ def _collect(
             _outside(i, why, by) for i, why in sorted(found.outside.items(), key=str)
         ),
         "runs.ndjson": iter(runs),
-        "signatures.ndjson": (_signature(s) for s in signed),
+        "signatures.ndjson": iter(signature_lines),
     }
     paths = {}
     for name, rows in lines.items():
@@ -272,7 +273,7 @@ def _collect(
         },
         "selection": selection[:2000],
         "plugins": _plugins(found),
-        "signing_keys": _signing_keys(signed),
+        "signing_keys": _signing_keys(signature_lines),
         "counts": {
             "entities": len(found.entities),
             "entries": len(found.entries),
@@ -633,8 +634,9 @@ def _withdrawal_of(signature: Signature) -> Withdrawal | None:
 
 def _signature(s: Signature) -> dict[str, Any]:
     """An electronic signature (ADR 0126), as it was signed: ``iki bundle verify`` checks
-    it against the bundle's own history, offline, through ``since``: what plugins'
-    migrations did to its record's history after it was signed (ADR 0148)."""
+    it against the bundle's own history, offline, through ``since``: what was done to its
+    record's history after it was signed (ADR 0148), as this deployment's signing key
+    vouches."""
     withdrawn = _withdrawal_of(s)
     return {
         "id": str(s.pk),
@@ -665,24 +667,30 @@ def _signature(s: Signature) -> dict[str, Any]:
     }
 
 
-def _since(s: Signature) -> list[dict[str, Any]]:
-    """What migrations did to its record's history since it was signed (ADR 0148). Only
-    what came with it, if a change recorded here since isn't one this deployment signed:
-    the bundle's history then fails its check, as the record's does here."""
-    from iki_server.signatures import proof
+def _since(s: Signature) -> dict[str, str] | None:
+    """What was done to its record's history since it was signed, in order (ADR 0148):
+    plugins' migrations here, and for an imported one what it was read through when it
+    came, vouched for by this deployment's signing key. None if nothing was, or if what's
+    recorded here isn't what this deployment signed: then the bundle's history fails its
+    check, as the record's does here."""
     from iki_server.signatures import services as signatures
 
     try:
-        return signatures.since(s, s.entity)
+        changes = signatures.since(s, s.entity)
     except proof.Unexplained:
-        return list(s.migrated or [])
+        return None
+    of = {"id": s.pk, "record": s.entity_id, "revision": s.revision}
+    return signatures.read_through(of, changes) or None
 
 
-def _signing_keys(signed: list[Signature]) -> list[dict[str, str]]:
-    """The keys that signed the bundle's signatures, each with the deployment this one
-    trusts it as: signed into ``bundle.json``, so as trusted as the bundle."""
+def _signing_keys(lines: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """The keys that signed the bundle's signatures, and vouch for what was done to their
+    records' history since, each with the deployment this one trusts it as: signed into
+    ``bundle.json``, so as trusted as the bundle."""
     trusted = signing_keys.trusted()
-    used = sorted({s.key for s in signed})
+    used = sorted(
+        {line["key"] for line in lines} | {line["since"]["key"] for line in lines if line["since"]}
+    )
     return [{"key": k, "deployment": trusted[k]} for k in used if k in trusted]
 
 

@@ -94,13 +94,17 @@ signature moved to another record, a document edited, a signature deleted
 
 **Bundles carry signatures, and verify offline.** A bundle has
 `signatures.ndjson`, with each signature's document, signature and content,
-and its manifest lists the deployment's signing keys. `iki bundle verify`
-checks a bundle's own signature, then each electronic signature against the
-bundle's history, without Iki: it trusts the keys of a bundle signed by a
-key given with `--trust`, or keys given with `--key`. An import checks each
-signature before writing anything, and refuses a bundle with one that
-doesn't verify; it keeps the source's key as trusted for what came with that
-import, and the signatures still verify where they land.
+and what was done to its record's history since, vouched for by the
+exporting deployment's signing key (ADR 0148). Its manifest lists those
+keys. `iki bundle verify` checks a bundle's own signature, then each
+electronic signature against the bundle's history, without Iki: every value
+the record signed must be there, read through what was done since. It
+trusts the keys of a bundle signed by a key given with `--trust`, or keys
+given with `--key`. An import checks each signature before writing anything,
+and refuses a bundle with one that doesn't verify. It keeps the source's key
+as trusted for what came with that import, and the signatures still verify
+where they land, with the people and registry entries their records name as
+they are there.
 
 **The organization certifies first (§11.100(c)).** Nobody signs until an Org
 Admin records the organization's certification letter to the FDA (when it was

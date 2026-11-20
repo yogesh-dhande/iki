@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="signature",
-            name="migrated",
-            field=models.JSONField(blank=True, default=list),
+            name="read_through",
+            field=models.JSONField(blank=True, default=dict),
         ),
     ]

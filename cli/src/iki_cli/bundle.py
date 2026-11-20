@@ -33,7 +33,9 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
             "Check a bundle: each member's SHA-256, and its signature by its deployment's "
             "key. Then check each electronic signature (21 CFR Part 11) it carries: signed "
             "by a key you trust, for its record and revision, and that the bundle's history "
-            "of that revision holds what was signed. Exits 0 only if everything checks out: "
+            "of that revision holds what was signed, read through what was done to it since "
+            "(migrations, imports), which a key you trust must vouch for too. Exits 0 only "
+            "if everything checks out: "
             "the bundle is signed by a key given with --trust, and each signature is valid. "
             "With --key and no --trust, only its signatures are checked, so it exits 0 only "
             "if it carries some, and each is valid."
@@ -57,8 +59,9 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         default=[],
         metavar="KEY[=DEPLOYMENT]",
         help=(
-            "Trust KEY for signatures, whatever the bundle lists: a deployment's signing key, "
-            "from GET /api/v1/signing-keys there. Repeat for more."
+            "Trust KEY for signatures, and for what was done to their records' history "
+            "since, whatever the bundle lists: a deployment's signing key, from "
+            "GET /api/v1/signing-keys there. Repeat for more."
         ),
     )
     verify.add_argument("--json", action="store_true", help="Print the result as JSON.")

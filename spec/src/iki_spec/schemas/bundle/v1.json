@@ -143,7 +143,7 @@
       }
     },
     "signing_keys": {
-      "description": "The keys that signed its electronic signatures (ADR 0126), each with the deployment its source trusts it as. As trusted as the bundle: its signature covers them.",
+      "description": "The keys that signed its electronic signatures (ADR 0126), and that vouch for what was done to their records' history since (`since`), each with the deployment its source trusts it as. As trusted as the bundle: its signature covers them.",
       "type": "array",
       "maxItems": 1000,
       "items": {
@@ -1508,65 +1508,20 @@
           "maxLength": 67108864
         },
         "since": {
-          "description": "What plugins' migrations did to its record's history after it was signed, in order (ADR 0148): a field renamed, a quantity converted to another unit (`new = old * scale + offset`), the type renamed. `iki bundle verify` does each to `content` before checking it against the bundle's history. Nothing, if absent.",
-          "type": "array",
-          "maxItems": 10000,
-          "items": {
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["kind", "plugin", "at", "from", "to"],
-                "additionalProperties": false,
-                "properties": {
-                  "kind": { "enum": ["rename", "retype"] },
-                  "plugin": {
-                    "description": "The plugin whose migration did it.",
-                    "type": "string",
-                    "maxLength": 100
-                  },
-                  "at": {
-                    "description": "The day it did, UTC.",
-                    "type": "string",
-                    "format": "date"
-                  },
-                  "from": { "type": "string", "minLength": 1, "maxLength": 255 },
-                  "to": { "type": "string", "minLength": 1, "maxLength": 255 }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind",
-                  "plugin",
-                  "at",
-                  "field",
-                  "from_unit",
-                  "to_unit",
-                  "scale",
-                  "offset"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "kind": { "const": "convert" },
-                  "plugin": {
-                    "description": "The plugin whose migration did it.",
-                    "type": "string",
-                    "maxLength": 100
-                  },
-                  "at": {
-                    "description": "The day it did, UTC.",
-                    "type": "string",
-                    "format": "date"
-                  },
-                  "field": { "type": "string", "minLength": 1, "maxLength": 255 },
-                  "from_unit": { "type": "string", "minLength": 1, "maxLength": 100 },
-                  "to_unit": { "type": "string", "minLength": 1, "maxLength": 100 },
-                  "scale": { "type": "number" },
-                  "offset": { "type": "number" }
-                }
+          "description": "What was done to its record's history after it was signed, in order, vouched for by the exporting deployment's signing key (ADR 0148): its `document`, `iki/read-through/v1` canonical JSON naming the signature, its record and revision, and the changes (a field renamed, a quantity converted to another unit as `new = old * scale + offset`, the type renamed, and an import naming people and registry entries by their IDs where it was imported, ADR 0096), the `key` that signed it, and its Ed25519 `signature`. `iki bundle verify` and an import check it with the keys they trust, then do each change to `content` before checking it against the bundle's history. Null if nothing was done.",
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["document", "key", "signature"],
+              "additionalProperties": false,
+              "properties": {
+                "document": { "type": "string", "maxLength": 16777216 },
+                "key": { "$ref": "#/$defs/publicKey" },
+                "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
               }
-            ]
-          }
+            }
+          ]
         },
         "withdrawn": {
           "description": "Its signer took it back before the state it signed for was set.",

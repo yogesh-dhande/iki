@@ -35,9 +35,12 @@ must still catch any change that a supported operation didn't make.
 ## Decision
 
 **What was signed stays as it was signed.** Signed content is never
-rewritten. Its format is now `iki/signed-content/v2`, which adds `units`:
-the UCUM unit of each quantity among its values, as the values were stored.
-So 1.5 is signed as 1.5 g. Format v1 was never released, so v2 replaces it.
+rewritten. Its format is now `iki/signed-content/v3`. It adds `units`: the
+UCUM unit of each quantity among its values, as the values were stored, so
+1.5 is signed as 1.5 g. And it adds `entry_fields`: which of its values are
+its registry entry's (ADR 0115), so a reader holding only the record's
+history knows that every other value signed must be there. Formats v1 and
+v2 were never released, so v3 replaces them.
 
 **Migrations record what they do to kept history.** Each change goes in
 `iki_history_change`, in the migration's own transaction, forwards or
@@ -77,9 +80,9 @@ It compares the result with the history as it's kept now. Each change it
 applies must be signed by one of this deployment's own keys, and a
 conversion must start from the unit the content had then. Otherwise, or if
 anything differs, the record check fails. When something was applied, a passing
-check says what: "revision 1 still holds what was signed, as plugins'
-migrations have kept it since: `name` renamed `title`, `mass` converted
-from g to mg."
+check says what, a conversion with its factor so an implausible one shows:
+"revision 1 still holds what was signed, read through what was done to it
+since: `name` renamed `title`, `mass` converted from g to mg (× 1000)."
 
 **A record of a registry entry is read with the entry it named then.**
 The content reads the entry the record named at the signed revision, using
@@ -87,12 +90,32 @@ the same `entry_at` that history uses. That's the superseded one if the
 record has moved since. The entry's own history isn't touched by a move,
 so a change to it is still caught.
 
-**Bundles carry the changes.** Each line of `signatures.ndjson` has
-`since`: the changes made since the signature that touch its record, as the
-exporting deployment recorded them. `iki bundle verify` applies them before
-checking the bundle's history. An import keeps them with the signature
-(`migrated`), and applies any changes the importing deployment makes later
-on top.
+**Bundles carry the changes, vouched for.** Each line of `signatures.ndjson`
+has `since`: the changes made since the signature that touch its record, in
+order, in a document of their own (`iki/read-through/v1`, canonical JSON
+naming the signature, its record and revision) signed by the exporting
+deployment's signing key. The bundle lists that key with the signatures'
+keys. `iki bundle verify` and an import check it with the keys they trust,
+as they check the signature's: the keys a trusted bundle lists, or those
+given with `--key`. Only then are the changes applied before the bundle's
+history is checked. Changes no trusted key vouches for, for this signature,
+explain nothing: the record check fails, naming the key that would have to
+be trusted. The check compares every value the record signed, but its
+entry's (`entry_fields`), with the bundle's history at that revision, so a
+value missing there differs from what was signed.
+
+**An import says how it named what the record names.** An import names each
+person a record names as they are where it lands, by their email or as a
+placeholder (ADR 0122), and each registry entry as it's registered there
+(ADR 0096): in person and reference fields, their lists, and rows' cells
+(ADR 0137). So the import adds one more change, `ids`: for each field, and
+each rows' cell, the IDs where the bundle came from and the IDs here. It
+keeps the bundle's changes and its own with the signature (`read_through`),
+signed by its own signing key, and applies any changes the importing
+deployment makes later on top. A bundle exported from there carries all of
+them, vouched for by that deployment's key, so a signature still verifies
+however many deployments its record has passed through. Its record check
+says so: "`made_by` naming people and registry entries as prod does".
 
 ## Consequences
 
@@ -106,10 +129,16 @@ on top.
   the result has to be in the unit the field has now.
 - A row recorded before the deployment had a signing key is unsigned. No
   signature here was made before it, so none is read through it.
-- An imported signature keeps the changes its bundle brought (`migrated`)
-  in a column, as it keeps the registry entries it renames (`renamed`).
-  The bundle's signature vouched for both at import, but nothing signs them
-  in the database after.
+- An imported signature keeps what it's read through (`read_through`) in a
+  column, signed by the importing deployment's key, so the database alone
+  can't add a change that would explain a value changed in SQL.
+- Verifying a bundle with only the signer's key (`--key`) passes a signature
+  whose record was migrated or imported since only if the key of the
+  deployment that exported it is given too: that key, not the signer's,
+  vouches for what was done since.
+- Before M1 there are no releases, so the bundle format changed in place:
+  bundles exported by earlier builds, whose `since` isn't signed and whose
+  content is v2, don't verify or import. No reader keeps the old forms.
 - The signed content now says what units its quantities were in. A reader
   without Iki can tell what was signed.
 - Signing refuses, and asks to sign again, if a deploy migrates kept

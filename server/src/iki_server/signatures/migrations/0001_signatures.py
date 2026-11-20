@@ -68,7 +68,6 @@ class Migration(migrations.Migration):
                 ("key", models.CharField(max_length=64)),
                 ("content", models.TextField()),
                 ("deployment", models.CharField(max_length=100)),
-                ("renamed", models.JSONField(blank=True, default=dict)),
                 (
                     "bundle_import",
                     models.ForeignKey(

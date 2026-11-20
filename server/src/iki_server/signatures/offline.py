@@ -9,11 +9,14 @@ each of ``signatures.ndjson``'s lines against the bundle itself:
 - the content kept with it is the one its document names, by SHA-256, for its record
   and revision;
 - the bundle's own history of the record, at that revision, holds that content: each of
-  the record's own fields, and the SHA-256 of each file they name, once what plugins'
-  migrations did to that history since it was signed (``since``: fields renamed,
-  quantities converted, ADR 0148) is done to the content. A record of a registry entry's
-  entry fields are bound by the signature alone: the bundle has the entry as it is now,
-  not at the revision signed;
+  the record's own fields signed (a value it doesn't hold there differs from it), and
+  the SHA-256 of each file they name, once what was done to that history since it was
+  signed is done to the content (``since``: fields renamed, quantities converted, ADR
+  0148, and people and registry entries named as an import named them, ADR 0096). That
+  list is vouched for by the signing key of the deployment that exported it, which must
+  be one the reader trusts, as the signature's is: nothing else explains a difference.
+  A record of a registry entry's entry fields, which its content names, are bound by the
+  signature alone: the bundle has the entry as it is now, not at the revision signed;
 - if a revision of the record carries it, that revision is the one after it and sets
   the state it signed for.
 
@@ -99,7 +102,7 @@ def _one(
     if record is None:
         checks.append(proof.Check("record", False, "The bundle doesn't hold its record."))
     else:
-        checks.append(_history_check(line, record, files))
+        checks.append(_history_check(line, record, files, trusted))
         carried = _carried(line, record, document)
         if carried is not None:
             checks.append(carried)
@@ -118,7 +121,10 @@ def _one(
 
 
 def _history_check(
-    line: Mapping[str, Any], record: Mapping[str, Any], files: Mapping[str, str]
+    line: Mapping[str, Any],
+    record: Mapping[str, Any],
+    files: Mapping[str, str],
+    trusted: Mapping[str, str],
 ) -> proof.Check:
     revision = int(line["revision"])
     latest: dict[str, tuple[int, dict[str, Any]]] = {}
@@ -129,20 +135,21 @@ def _history_check(
     own: dict[str, Any] = {}
     for _, values in latest.values():
         own.update(values)
-    since = line.get("since") or []
     try:
+        since = proof.vouched(line.get("since"), line, trusted)
         signed = proof.migrated(_parsed(line["content"]), since)
     except proof.Unexplained as unexplained:
         return proof.Check(
             "record",
             False,
-            f"The bundle's history of revision {revision} isn't what was signed: {unexplained}",
+            f"The bundle's history of revision {revision} can't be said to be what was "
+            f"signed: {unexplained}",
         )
     except (ValueError, TypeError, KeyError):
         signed = {}
-    signed_values = signed.get("values") or {}
-    held = {k: v for k, v in own.items() if v is not None and v != []}
-    mine = {k: v for k, v in signed_values.items() if k in own}
+    entry_fields = set(signed.get("entry_fields") or ())
+    held = {k: v for k, v in own.items() if v is not None and v != [] and k not in entry_fields}
+    mine = {k: v for k, v in (signed.get("values") or {}).items() if k not in entry_fields}
     changed = sorted(
         k
         for k in held.keys() | mine.keys()
@@ -150,9 +157,7 @@ def _history_check(
     )
     named = _strings(mine.values())
     signed_files = signed.get("files") or {}
-    wrong_files = sorted(
-        k for k, sha in signed_files.items() if k in named and files.get(k) not in (None, sha)
-    )
+    wrong_files = sorted(k for k, sha in signed_files.items() if k in named and files.get(k) != sha)
     if changed or wrong_files:
         return proof.Check(
             "record",
@@ -166,9 +171,7 @@ def _history_check(
         True,
         f"The bundle's history of revision {revision} holds what was signed"
         + (
-            f", as plugins' migrations have kept it since: {proof.described(since)}."
-            if since
-            else "."
+            f", read through what was done to it since: {proof.described(since)}." if since else "."
         ),
     )
 
@@ -217,10 +220,13 @@ def _parsed(text: str) -> dict[str, Any]:
 
 
 def _strings(values: Iterable[Any]) -> set[str]:
+    """Every string among ``values``, in lists and rows (ADR 0137) too."""
     out: set[str] = set()
     for v in values:
         if isinstance(v, str):
             out.add(v)
         elif isinstance(v, list):
             out |= _strings(v)
+        elif isinstance(v, dict):
+            out |= _strings(v.values())
     return out

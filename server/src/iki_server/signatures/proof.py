@@ -8,8 +8,10 @@ names the SHA-256 of the record's **content** at that revision: canonical JSON t
 values as its history keeps them, and each quantity's unit. So a signature can't be moved
 to another record or revision, and a changed value, by any path, no longer matches what
 was signed. What a plugin's migration did to that history since, renaming a field or
-converting a quantity to another unit (ADR 0148), :func:`migrated` does to the content, so
-it's compared with the history as it's kept now.
+converting a quantity to another unit (ADR 0148), and how an import names the people and
+registry entries it names (ADR 0096), :func:`migrated` does to the content, so it's
+compared with the history as it's kept now. A deployment vouches for that list, for each
+signature it holds, with its signing key: :func:`read_through`.
 
 Canonical JSON is RFC 8785's (JCS): object keys sorted by their UTF-16 code units, no
 whitespace, strings as ECMAScript's ``JSON.stringify`` writes them, and numbers as
@@ -23,7 +25,7 @@ import binascii
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -33,8 +35,11 @@ from iki_server.bundles import keys
 #: The format of what a signature signs.
 DOCUMENT_FORMAT = "iki/signature/v1"
 #: The format of a record's content, whose SHA-256 the document names: v2 names each
-#: quantity's unit (ADR 0148).
-CONTENT_FORMAT = "iki/signed-content/v2"
+#: quantity's unit (ADR 0148); v3 says which of its values are its registry entry's.
+CONTENT_FORMAT = "iki/signed-content/v3"
+#: The format of what a deployment signs to vouch for what was done to a signed record's
+#: history since it was signed (ADR 0148).
+READ_THROUGH_FORMAT = "iki/read-through/v1"
 
 
 class NotCanonical(ValueError):  # noqa: N818 - reads as "the JSON is not canonical"
@@ -127,6 +132,7 @@ def content(
     values: Mapping[str, Any],
     units: Mapping[str, str],
     files: Mapping[str, str],
+    entry_fields: Iterable[str] = (),
 ) -> dict[str, Any]:
     """A record's content at a revision, as a signature binds it.
 
@@ -136,7 +142,9 @@ def content(
     signed revision, doesn't change what was signed. ``units``: the UCUM unit each
     quantity among them is kept in, so 1.5 reads as the 1.5 g it was. ``files``: the
     SHA-256 of each file the values name, by ID. ``entry``: for a record of a registry
-    entry, the entry's ID and revision, whose values are among ``values``.
+    entry, the entry's ID and revision, whose values are among ``values``: those named in
+    ``entry_fields``. The rest are the record's own, which a bundle's history of it must
+    hold, each one.
     """
     kept = {k: v for k, v in values.items() if v is not None and v != []}
     return {
@@ -145,6 +153,7 @@ def content(
         "type": type_name,
         "revision": revision,
         "entry": dict(entry) if entry is not None else None,
+        "entry_fields": sorted(set(entry_fields) & kept.keys()),
         "values": kept,
         "units": {k: u for k, u in units.items() if k in kept},
         "files": dict(files),
@@ -158,13 +167,16 @@ class Unexplained(ValueError):  # noqa: N818 - reads as "the content's units are
 
 def migrated(signed: Mapping[str, Any], changes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """``signed`` content as its record's history keeps it after ``changes``: what plugins'
-    migrations did to that history since it was signed (ADR 0148), in the order they did
-    it. A field renamed is named anew; a quantity converted is converted as the migration
-    converted it, ``new = old * scale + offset``, so it's the same double; a type renamed
-    is named anew. Raises :class:`Unexplained` for a conversion from a unit the field
-    wasn't in."""
+    migrations did to that history since it was signed (ADR 0148), and how imports named
+    what it names, in the order they did it. A field renamed is named anew; a quantity
+    converted is converted as the migration converted it, ``new = old * scale + offset``,
+    so it's the same double; a type renamed is named anew; an import's IDs (``ids``) name
+    the people and registry entries of the fields and rows' cells it lists as they are
+    where it was imported. Raises :class:`Unexplained` for a conversion from a unit the
+    field wasn't in."""
     values = dict(signed.get("values") or {})
     units = dict(signed.get("units") or {})
+    entry_fields = set(signed.get("entry_fields") or ())
     out = dict(signed)
     for change in changes:
         kind = change.get("kind")
@@ -174,6 +186,10 @@ def migrated(signed: Mapping[str, Any], changes: Sequence[Mapping[str, Any]]) ->
                 values[new] = values.pop(old)
             if old in units:
                 units[new] = units.pop(old)
+            if old in entry_fields:
+                entry_fields = (entry_fields - {old}) | {new}
+        elif kind == "ids":
+            _named_here(values, change)
         elif kind == "convert":
             name = change["field"]
             if name not in values:
@@ -194,21 +210,129 @@ def migrated(signed: Mapping[str, Any], changes: Sequence[Mapping[str, Any]]) ->
             out["type"] = change["to"]
     out["values"] = values
     out["units"] = units
+    if "entry_fields" in signed:
+        out["entry_fields"] = sorted(entry_fields)
     return out
 
 
+def _named_here(values: dict[str, Any], change: Mapping[str, Any]) -> None:
+    """An import's IDs (ADR 0096): ``fields``, each field's IDs where the bundle came from
+    to its IDs here (a person's, or a registry entry's); ``cells``, the same for each of a
+    list of rows' cells (ADR 0137)."""
+
+    def here(value: Any, ids: Mapping[str, str]) -> Any:  # noqa: ANN401 - JSON
+        if isinstance(value, list):
+            return [ids.get(v, v) if isinstance(v, str) else v for v in value]
+        return ids.get(value, value) if isinstance(value, str) else value
+
+    for name, ids in (change.get("fields") or {}).items():
+        if name in values:
+            values[name] = here(values[name], ids)
+    for name, by_cell in (change.get("cells") or {}).items():
+        rows = values.get(name)
+        if not isinstance(rows, list):
+            continue
+        values[name] = [
+            {k: here(v, by_cell[k]) if k in by_cell else v for k, v in r.items()}
+            if isinstance(r, dict)
+            else r
+            for r in rows
+        ]
+
+
 def described(changes: Sequence[Mapping[str, Any]]) -> str:
-    """What migrations did since, for people: "`name` renamed `title`, `mass` converted
-    from g to mg"."""
+    """What was done since, for people: "`name` renamed `title`, `mass` converted from g
+    to mg (× 1000), `made_by` naming people and registry entries as staging does"."""
     said = []
     for c in changes:
         if c.get("kind") == "rename":
             said.append(f"`{c['from']}` renamed `{c['to']}`")
         elif c.get("kind") == "convert":
-            said.append(f"`{c['field']}` converted from {c['from_unit']} to {c['to_unit']}")
+            offset = float(c["offset"])
+            how = f"× {_number(float(c['scale']))}" + (
+                f" {'+' if offset >= 0 else '-'} {_number(abs(offset))}" if offset else ""
+            )
+            said.append(f"`{c['field']}` converted from {c['from_unit']} to {c['to_unit']} ({how})")
         elif c.get("kind") == "retype":
             said.append(f"its type renamed {c['to']}")
+        elif c.get("kind") == "ids":
+            names = [f"`{n}`" for n in sorted({*(c.get("fields") or {}), *(c.get("cells") or {})})]
+            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+            said.append(
+                f"{listed} naming people and registry entries as {c.get('here') or 'it'} does"
+            )
     return ", ".join(said)
+
+
+# --- Vouching for what was done since -----------------------------------------------------------
+
+
+def read_through(
+    *,
+    signature: Mapping[str, Any],
+    changes: Sequence[Mapping[str, Any]],
+    deployment: str,
+    key: str,
+    made_at: str,
+) -> dict[str, Any]:
+    """What a deployment signs to vouch, with its signing key, for what was done to a signed
+    record's history since it was signed, in order (``changes``, for :func:`migrated`):
+    canonical JSON naming the signature, its record and revision. ``signature``: the
+    signature's ``id``, ``record`` and ``revision``."""
+    return {
+        "format": READ_THROUGH_FORMAT,
+        "signature": str(signature["id"]),
+        "record": str(signature["record"]),
+        "revision": int(signature["revision"]),
+        "deployment": deployment,
+        "key": key,
+        "made_at": made_at,
+        "changes": [dict(c) for c in changes],
+    }
+
+
+def vouched(
+    given: Mapping[str, Any] | None, signature: Mapping[str, Any], trusted: Mapping[str, str]
+) -> list[dict[str, Any]]:
+    """The changes ``given`` (a signed :func:`read_through`: its ``document``, ``key`` and
+    ``signature``) vouches for, once its key is one of ``trusted`` (public key → the
+    deployment it's trusted as), the key signed it, and it's for ``signature`` (its ``id``,
+    ``record`` and ``revision``). Nothing if none is given. Raises :class:`Unexplained`,
+    saying why, if it doesn't check out: then nothing explains a difference."""
+    if not given:
+        return []
+    if not isinstance(given, Mapping):
+        raise Unexplained("what was done to its history since it was signed isn't readable.")
+    text = given.get("document")
+    try:
+        document = json.loads(text) if isinstance(text, str) else None
+        canon = canonical(document) if isinstance(document, dict) else ""
+    except (ValueError, NotCanonical):
+        document, canon = None, ""
+    if not isinstance(document, dict) or canon != text:
+        raise Unexplained("what was done to its history since it was signed isn't readable.")
+    key = document.get("key")
+    if (
+        document.get("format") != READ_THROUGH_FORMAT
+        or key != given.get("key")
+        or (document.get("signature"), document.get("record"), document.get("revision"))
+        != (str(signature["id"]), str(signature["record"]), int(signature["revision"]))
+    ):
+        raise Unexplained("what's said to have been done to its history since is another's.")
+    if not isinstance(key, str) or key not in trusted:
+        raise Unexplained(
+            "what was done to its history since it was signed is vouched for by "
+            f"{document.get('deployment')}'s signing key {key}, which isn't trusted."
+        )
+    raw = given.get("signature")
+    if not isinstance(raw, str) or not keys.verify(key, unb64(raw), text.encode()):
+        raise Unexplained(
+            "what was done to its history since it was signed doesn't match its signature."
+        )
+    changes = document.get("changes")
+    if not isinstance(changes, list) or not all(isinstance(c, dict) for c in changes):
+        raise Unexplained("what was done to its history since it was signed isn't readable.")
+    return changes
 
 
 # --- Checking -----------------------------------------------------------------------------------

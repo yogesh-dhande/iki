@@ -245,6 +245,7 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_bispecific__entry__arms",
         "acme__protein_lot",
         "acme__protein_lot__history",
+        "acme__protein_lot__inputs",
         "acme__protein_batch",
         "acme__protein_batch__history",
         "acme__protein_batch__proteins",

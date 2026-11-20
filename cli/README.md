@@ -162,7 +162,11 @@ without Iki: for an auditor, a partner, or an archive years later. It checks
 the bundle's own signature and every member against its manifest, then each
 signature: its key signed it, it names its record, revision and change, the
 content it signed hashes to what it names, and the bundle's history of the
-record is still that content.
+record is still that content, every value of it, read through what was done
+to it since (plugins' migrations, imports naming people and registry entries
+as they are where they landed). A key you trust must vouch for that too: the
+signing key of the deployment that exported the bundle
+([ADR 0148](../docs/adr/0148-a-signature-reads-its-record-through-what-migrations-did-since.md)).
 
 ```console
 $ iki bundle verify lot-a.tar.gz --trust prod=ed25519:riAtz4…
@@ -172,12 +176,12 @@ ok   LOT-000001: Approved by Grace Hopper on 2026-11-18 at 15:10:04 UTC. Meaning
 2 signatures, all valid.
 ```
 
-| Option                   | What it does                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------- |
-| `BUNDLE`                 | The bundle: a `.tar.gz` exported from Iki.                                                    |
-| `--trust DEPLOYMENT=KEY` | Trust KEY as DEPLOYMENT's bundle key; the signing keys the bundle lists are then trusted too. |
-| `--key KEY`              | Trust KEY for signatures, whatever the bundle lists: from `GET /api/v1/signing-keys` there.   |
-| `--json`                 | Print the result as JSON, with every check.                                                   |
+| Option                   | What it does                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `BUNDLE`                 | The bundle: a `.tar.gz` exported from Iki.                                                                               |
+| `--trust DEPLOYMENT=KEY` | Trust KEY as DEPLOYMENT's bundle key; the signing keys the bundle lists are then trusted too.                            |
+| `--key KEY`              | Trust KEY for signatures, and for what was done since, whatever the bundle lists: from `GET /api/v1/signing-keys` there. |
+| `--json`                 | Print the result as JSON, with every check.                                                                              |
 
 It exits with 0 when the bundle and every signature check out, 1 when
 anything doesn't (an untrusted key included), and 2 for a usage mistake.
