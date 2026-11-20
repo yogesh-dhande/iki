@@ -28,7 +28,9 @@ It shows what such a plugin needs
   `IKI_API_FOLDCLOUD_CALLBACK_URL`. Once it's done, the script runs again
   with `resume` in its input and imports the predicted structure: its
   origin names the model FoldCloud's answer gives (ADR 0106), and its chain
-  IDs are the file's, so DSSP can assign each chain's secondary structure.
+  IDs are the file's protein chains', so DSSP can assign each chain's secondary
+  structure; a chain of solvent or ligands, with no amino acids, isn't the
+  protein, and the run says it was left out of its chains.
   The model's version is in the run's record of its calls, not on the
   structure: the resumed script gets the poll's answer, not its headers.
 
