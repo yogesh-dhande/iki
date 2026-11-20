@@ -23,7 +23,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::job;
-use crate::logs::Mask;
+use crate::logs::{Mask, Masking};
 
 /// What `step.json` says to run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,11 +171,19 @@ fn run_masked(
     });
     let (done, finished) = mpsc::channel::<()>();
     thread::spawn(move || {
-        job::each_line(reader, |line| {
-            let text = String::from_utf8_lossy(line);
-            let _ = out.write_all(mask.apply(&text).as_bytes());
+        let mut masking = Masking::new(mask);
+        let mut write = |(text, _): (String, u64)| {
+            let _ = out.write_all(text.as_bytes());
             let _ = out.flush();
+        };
+        job::each_line(reader, |piece| {
+            if let Some(masked) = masking.piece(piece) {
+                write(masked);
+            }
         });
+        if let Some(rest) = masking.end() {
+            write(rest);
+        }
         let _ = done.send(());
     });
     let status = child.wait();
@@ -275,6 +283,25 @@ mod tests {
         assert_eq!(status.code(), Some(7));
         let log = std::fs::read_to_string(&out).unwrap();
         assert_eq!(log, "token: ***\nlease: ***\ndone\n");
+        std::fs::remove_file(&out).unwrap();
+    }
+
+    #[test]
+    fn a_secret_in_a_line_longer_than_a_read_is_hidden_where_the_reads_split_it() {
+        let out = std::env::temp_dir().join(format!("iki-step-long-{}", std::process::id()));
+        let file = std::fs::File::create(&out).unwrap();
+        // Its first 64 KiB read ends 10 bytes into the secret.
+        let script = "head -c 65526 /dev/zero | tr '\\0' x; printf '%s tail\\n' \"$TOKEN\"";
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", script])
+            .env("TOKEN", "iki-sentinel-6f1c2d");
+        let status = run_masked(&mut command, Mask::new(["iki-sentinel-6f1c2d"]), file).unwrap();
+        assert!(status.success());
+        let log = std::fs::read_to_string(&out).unwrap();
+        assert!(!log.contains("sentinel"), "{}", &log[65_000..]);
+        assert!(log.ends_with("x*** tail\n"), "{}", &log[65_000..]);
+        assert_eq!(log.len(), 65_526 + "*** tail\n".len());
         std::fs::remove_file(&out).unwrap();
     }
 

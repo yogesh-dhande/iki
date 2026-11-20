@@ -18,7 +18,8 @@
 //!
 //! The worker can restart while its jobs wait and run: their leases outlast it, and each
 //! job's directory keeps what it needs (`slurm.json`) to pick the job up again, and how
-//! far its log has reached the server (`log.json`), to carry on from there. A job whose
+//! far its log has reached the server (`log.json`), to carry on from there, with why its
+//! command said it failed up to there. A job whose
 //! lease went elsewhere meanwhile is `scancel`led; one whose server can't be reached waits
 //! until it can say.
 
@@ -1202,8 +1203,8 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
         beat.as_ref()
             .map(|b| u64::try_from(b.log_offset).unwrap_or(0)),
     );
-    held.job.resume_log(mark);
     keep_log_marks(&held.job, &dirs);
+    held.job.resume_log(mark.clone());
     let raw = std::fs::read(&dirs.input)
         .ok()
         .and_then(|t| serde_json::from_slice::<serde_json::Value>(&t).ok());
@@ -1241,6 +1242,11 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
     // It's hidden in what the job prints on its node (`step`); the worker hides what it
     // can again here: the attempt's credentials, from its input.
     let report = job::conclude(&host, &plan, &dirs, |host, said, mask| {
+        // Why the command said it failed, if it did so before the restart: it isn't read
+        // again.
+        said.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone_from(&mark.error);
         let from = Following {
             read: mark.read,
             was: (!waiting).then_some(Phase::Running),

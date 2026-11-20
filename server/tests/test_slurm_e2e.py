@@ -605,6 +605,33 @@ def test_a_login_node_restarting_leaves_its_jobs_running_and_picks_them_up(
     assert len(api_as(world).get(f"/runs/{run['id']}/attempts").json()) == 1
 
 
+def test_a_login_node_restarting_keeps_why_its_job_said_it_failed(
+    world: World, cluster: Cluster, login_node: Callable[[], LoginNode]
+) -> None:
+    """The command says why it fails, the worker restarts, and the command then fails:
+    the run says why, though the line was read before the restart and isn't read again."""
+    run = launch(world)
+    spec = ActionRun.objects.get(pk=run["id"]).spec
+    why = "Record 3 (pUC19) has no bases"
+    spec["command"] = ["sh", "-c", f"echo '::error {why}'; sleep 20; exit 3"]
+    ActionRun.objects.filter(pk=run["id"]).update(spec=spec)
+    node = login_node()
+    node.start()
+    eventually(
+        lambda: why in log_of(run),
+        what="the job to say why it fails",
+        explain=lambda: node.diagnosis(run),
+    )
+    node.stop()
+    node.start()
+    assert ended(world, run, node) == "failed", node.diagnosis(run)
+    said = node.stop()
+    assert "Picked up a job on the cluster again." in said
+    body = api_as(world).get(f"/runs/{run['id']}").json()
+    assert body["error"]["message"] == f"{why} (exit status 3)"
+    assert log_of(run).count(why) == 1
+
+
 def test_a_login_node_restarting_keeps_its_jobs_secrets_hidden_and_its_log_whole(
     world: World, cluster: Cluster, login_node: Callable[[], LoginNode]
 ) -> None:
