@@ -88,6 +88,45 @@ def test_a_change_to_what_the_backend_run_runs_makes_every_cloud_due(repo: Path)
         assert all(v.due and path in (v.paths or []) for v in live_runs.due("HEAD", repo, record))
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "uv.lock",
+        "worker/Cargo.lock",
+        "worker/Cargo.toml",
+        "worker/rust-toolchain.toml",
+        "cli/src/iki_cli/deploy.py",
+        "cli/src/iki_cli/workers.py",
+    ],
+)
+def test_a_change_to_what_the_images_are_built_from_makes_every_cloud_due(
+    repo: Path, path: str
+) -> None:
+    """A locked dependency, the worker's toolchain, or what writes the worker image's build
+    context: each changes what both clouds' runs deploy, with no code of Iki's changed."""
+    tested = commit(repo, {path: "a", "README.md": "a"}, "1")
+    record = repo / "runs.json"
+    for cloud in live_runs.CLOUDS:
+        live_runs.append(entry(cloud, tested), record)
+    commit(repo, {path: "b"}, path)
+    assert all(v.due and v.paths == [path] for v in live_runs.due("HEAD", repo, record))
+
+
+def test_what_the_worker_image_copies_in_is_relevant() -> None:
+    """worker/Dockerfile's build inputs, as it names them: a file it copies in that isn't
+    listed would change the image every cloud's run tests without making them due."""
+    sources = [
+        source
+        for line in (REPO / "worker" / "Dockerfile").read_text().splitlines()
+        if line.startswith("COPY ") and "--from=" not in line
+        for source in line.split()[1:-1]
+    ]
+    assert "worker/Cargo.lock" in sources
+    for cloud in live_runs.CLOUDS:
+        files = [s for s in sources if s != "worker/crates"]
+        assert [s for s in files if not covered(s, cloud)] == [], cloud
+
+
 def test_a_cloud_never_tested_is_due(repo: Path) -> None:
     commit(repo, {"a": "a"}, "1")
     (gcp, aws) = sorted(
