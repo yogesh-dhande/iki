@@ -76,12 +76,16 @@ capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
 limits: { max_concurrent: 2 }
 price: { per_hour: 0.05, currency: USD }
 ---
+# The one pod kept warm: no more may run, so the end-to-end checks can tell
+# that it ran one run after another (ADR 0062) without depending on which of
+# two free pods took each. Starting more for a busy one is tested in the
+# server's tests (test_container_tier.py).
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: container-warm
 provisioner: k8s_deployment
 capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
-limits: { max_concurrent: 2, min_warm: 1, idle_shutdown: 10m }
+limits: { max_concurrent: 1, min_warm: 1, idle_shutdown: 10m }
 price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1

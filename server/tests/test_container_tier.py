@@ -558,6 +558,59 @@ def test_a_persistent_template_keeps_a_pod_warm_that_runs_one_job_after_another(
     assert Launch.objects.get(pk=launch.pk).state == LaunchState.RUNNING
 
 
+def lease_after_demand(monkeypatch: pytest.MonkeyPatch, pod: WorkerClient) -> list[Any]:
+    """Has `pod` lease a job just after each tick reads what's queued, as a warm pod's
+    worker, woken as a run is queued, does when it beats the provisioner to it."""
+    leased: list[Any] = []
+    read = provisioner.demand
+
+    def then_lease(*args: Any, **kwargs: Any) -> Any:
+        groups = read(*args, **kwargs)
+        leased.append(pod.lease())
+        return groups
+
+    monkeypatch.setattr(provisioner, "demand", then_lease)
+    return leased
+
+
+def test_a_job_a_warm_pod_leases_as_the_provisioner_looks_gets_no_pod_of_its_own(
+    warm: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = cluster.only()
+    pod = start_pod(cluster, name)
+    screen(warm)
+    # The run was queued when the provisioner read what's queued, and the warm pod had it
+    # by the time it counted the free pods: it's no job that no free pod can take.
+    leased = lease_after_demand(monkeypatch, pod)
+    assert provisioner.tick(cluster) == (0, 0)
+    assert [each.status_code for each in leased] == [200]
+    assert Launch.objects.count() == 1
+    # Its next job goes to the same pod, the only one there is.
+    fail(pod, leased[0])
+    screen(warm, name="ACDEF")
+    assert provisioner.tick(cluster) == (0, 0)
+    assert [each.status_code for each in leased] == [200, 200]
+    assert Launch.objects.count() == 1
+
+
+def test_jobs_beyond_what_the_warm_pod_leases_as_the_provisioner_looks_get_pods(
+    warm: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = cluster.only()
+    pod = start_pod(cluster, name)
+    screen(warm)
+    screen(warm, name="ACDEF")
+    leased = lease_after_demand(monkeypatch, pod)
+    # The warm pod took one of the two: the other gets a pod, and only it.
+    assert provisioner.tick(cluster) == (1, 0)
+    assert [each.status_code for each in leased] == [200]
+    assert Launch.objects.exclude(state=LaunchState.ENDED).count() == 2
+
+
 def test_runs_that_ask_for_a_fresh_machine_never_go_to_a_warm_one(warm: World) -> None:
     cluster = FakeCluster()
     provisioner.tick(cluster)
