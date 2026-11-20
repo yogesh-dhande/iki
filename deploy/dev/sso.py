@@ -2408,7 +2408,7 @@ def reads_on_protein(alice: requests.Session, project: dict[str, Any], hbb: dict
     if metrics.get("aligned") != 1 or metrics.get("differences") != 1:
         fail(f"{run['hrid']} ({action}) measured {metrics}, not 1 read and 1 difference")
     said = [m["text"] for m in run.get("messages") or []]
-    expected = f"Differences from {hbb['hrid']}: E7V (hbb_R1 Q40)."
+    expected = f"Differences from {hbb['hrid']}: p.(E7V) (hbb_R1 Q40)."
     if expected not in said:
         fail(f"{run['hrid']} said {said}, not {expected!r}")
     created = [e for e in run.get("effects") or [] if e["kind"] == "created"]

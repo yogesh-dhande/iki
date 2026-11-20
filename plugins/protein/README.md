@@ -155,19 +155,23 @@ that's partly vector aligns where it holds the protein's code, and one that
 doesn't code for it is left out, saying so (a warning for each reason, naming
 the reads, and each read, with why, in the run's artifact `left_out.tsv`). What's left of the read either
 side is aligned in its strand's other frames: a part that aligns there means
-the frame shifted, and the run names where (`K120fs`). The run lists each
-difference in the protein's numbering, as HGVS names them in one-letter
-codes: substitutions (`T315I`), stops (`Q45*`), deletions (`K12del`,
-`K12_L14del`), insertions (`K12_L13insG`), duplications (`K12dup`) and
+the frame shifted, and the run names where (`p.(K120fs)`). The run lists each
+difference in the protein's numbering, as HGVS names a protein change predicted
+from DNA, in parentheses, in one-letter codes: substitutions (`p.(T315I)`),
+stops (`p.(Q45*)`), deletions (`p.(K12del)`, `p.(K12_L14del)`), insertions
+(`p.(K12_L13insG)`), duplications (`p.(K12dup)`), deletion-insertions and
 frameshifts, a deletion or insertion in repeated residues named at its
 C-terminal-most place, with the reads that show it and their quality (the
-least of its codon's bases). Each codon is compared as the residues it could
+least of its codon's bases). Changes a read makes to consecutive residues are
+one change, a deletion-insertion, as HGVS names changes on one allele: R21S and
+C22W beside each other are `p.(R21_C22delinsSW)`, and are one of the run's
+differences. Each codon is compared as the residues it could
 code for, by every codon its bases could be: it differs if it can be none of
 what the protein's residue stands for (B is D or N, Z is E or Q, J is I or L,
-X anything), so RAY (Asp or Asn) at an Ala is `A42B`. A codon that could be
+X anything), so RAY (Asp or Asn) at an Ala is `p.(A42B)`. A codon that could be
 either, such as NNN, says nothing: it covers nothing, and the run lists
 where. UGA is selenocysteine where the protein has U, and UAG pyrrolysine
-where it has O; any other stop there (`U42*`) is a stop.
+where it has O; any other stop there (`p.(U42*)`) is a stop.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
