@@ -182,8 +182,9 @@ def _fragments(
     return out
 
 
-def _made(assembly: dict[str, Any], params: dict[str, Any]) -> cloning.Assembled:
-    """The one circle the plan makes, or why there isn't one."""
+def _candidates(assembly: dict[str, Any], params: dict[str, Any]) -> list[cloning.Assembled]:
+    """Every circle the plan makes, or why it makes none. More than one, and the plan
+    alone doesn't say which: `check` settles that against the product, `assemble` can't."""
     method = values_of(assembly)["method"]
     enzymes = list(values_of(assembly).get("enzymes") or [])
     least = int(params.get("min_overlap", cloning.LEAST_OVERLAP))
@@ -206,6 +207,12 @@ def _made(assembly: dict[str, Any], params: dict[str, Any]) -> cloning.Assembled
             f"The plan's parts make no circle {how}: no arrangement of one fragment from each "
             "part joins all the way round."
         )
+    return made
+
+
+def _made(assembly: dict[str, Any], params: dict[str, Any]) -> cloning.Assembled:
+    """The one circle the plan makes, or why there isn't one."""
+    made = _candidates(assembly, params)
     if len(made) > 1:
         lengths = ", ".join(f"{len(one.bases)} bp" for one in made)
         raise Stop(
@@ -267,43 +274,105 @@ def assemble(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Cleared when a check can't say whether the plan makes its product: a result that no
+#: longer stands mustn't be what a review reads (nor gate a transition to Checked).
+NO_RESULT: dict[str, Any] = {
+    "matches_product": None,
+    "simulated_length": None,
+    "junctions": None,
+}
+
+
 def check(run: dict[str, Any]) -> dict[str, Any]:
     assemblies = run["inputs"]["assembly"]
     updates, messages = [], []
     for done, assembly in enumerate(assemblies, start=1):
         try:
             product = one_included(assembly, "product", "product")
-            made = _made(assembly, run["params"])
+            candidates = _candidates(assembly, run["params"])
         except Stop as why:
+            # No result, so the old one goes: whatever a run found of an earlier plan
+            # says nothing of this one, and Checked must not be reached on it.
             messages.append({"level": "error", "text": str(why), "entity": assembly["id"]})
+            updates.append({"entity": assembly["id"], "values": dict(NO_RESULT)})
             continue
-        stated = values_of(product)["bases"].upper()
-        matches = cloning.same_molecule(made.bases, stated)
-        updates.append(
-            {
-                "entity": assembly["id"],
-                "values": {
-                    "simulated_length": len(made.bases),
-                    "matches_product": matches,
-                    "junctions": made.junctions,
-                },
+        values = values_of(product)
+        stated = values["bases"].upper()
+        # A molecule is its bases, its topology and how many strands it has (ADR 0138),
+        # and a plan closes a double-stranded circle. A single-stranded or linear product
+        # is another molecule however its bases read.
+        topology = values.get("topology") or "linear"
+        strands = values.get("strandedness") or "double"
+        same_kind = topology == "circular" and strands == "double"
+        found = [
+            one for one in candidates if same_kind and cloning.same_molecule(one.bases, stated)
+        ]
+        lengths = ", ".join(f"{len(one.bases)} bp" for one in candidates)
+        if found:
+            # The product says which circle the plan made, even where the plan alone
+            # didn't: the one it is.
+            made = found[0]
+            values_out: dict[str, Any] = {
+                "simulated_length": len(made.bases),
+                "matches_product": True,
+                "junctions": made.junctions,
             }
-        )
-        if matches:
-            print(
-                f"{assembly['hrid']}: the plan makes {product['hrid']}, {len(made.bases)} bp, "
-                "the same molecule from any origin and on either strand"
-            )
-        else:
-            print(
-                f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp circle, and "
-                f"{product['hrid']} has {len(stated)} bp"
-                + (
-                    ": the same length, so they differ in their bases"
-                    if len(made.bases) == len(stated)
-                    else f", {abs(len(made.bases) - len(stated))} bp apart"
+            if len(candidates) == 1:
+                print(
+                    f"{assembly['hrid']}: the plan makes {product['hrid']}, {len(made.bases)} bp, "
+                    "the same molecule from any origin and on either strand"
                 )
-            )
+            else:
+                print(
+                    f"{assembly['hrid']}: the plan makes {len(candidates)} different circles "
+                    f"({lengths}), and {product['hrid']}, {len(made.bases)} bp, is one of them: "
+                    "the plan explains the clone, and doesn't predict it on its own"
+                )
+                messages.append(
+                    {
+                        "level": "warning",
+                        "text": (
+                            f"The plan makes {len(candidates)} different circles, and "
+                            f"{product['hrid']} is one of them, so the plan explains the clone. "
+                            "The plan on its own doesn't say which circle it makes: cut with "
+                            "enzymes that leave different overhangs to settle that."
+                        ),
+                        "entity": assembly["id"],
+                    }
+                )
+        else:
+            # It isn't what the plan makes. Where the plan makes several circles, which of
+            # them it meant is still unsettled, so no length or junctions are claimed.
+            one_circle = len(candidates) == 1
+            values_out = {
+                "matches_product": False,
+                "simulated_length": len(candidates[0].bases) if one_circle else None,
+                "junctions": candidates[0].junctions if one_circle else None,
+            }
+            if not same_kind:
+                was = f"{topology} and {strands}-stranded"
+                print(
+                    f"{assembly['hrid']}: the plan closes a circular double-stranded molecule, "
+                    f"and {product['hrid']} is {was}, so it isn't what the plan makes however "
+                    "its bases read"
+                )
+            elif one_circle:
+                made = candidates[0]
+                print(
+                    f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp circle, and "
+                    f"{product['hrid']} has {len(stated)} bp"
+                    + (
+                        ": the same length, so they differ in their bases"
+                        if len(made.bases) == len(stated)
+                        else f", {abs(len(made.bases) - len(stated))} bp apart"
+                    )
+                )
+            else:
+                print(
+                    f"{assembly['hrid']}: the plan makes {len(candidates)} different circles "
+                    f"({lengths}), and {product['hrid']}, {len(stated)} bp, is none of them"
+                )
+        updates.append({"entity": assembly["id"], "values": values_out})
         progress(done, len(assemblies))
     return {"updates": {"assembly": updates}, "messages": messages}
 

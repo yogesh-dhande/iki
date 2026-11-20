@@ -65,11 +65,23 @@ def command(tmp_path: Path, which: str, run: dict[str, Any]) -> tuple[dict[str, 
     return output, result.stdout
 
 
-def sequence(n: int, bases: str, *, topology: str = "circular", name: str = "") -> dict[str, Any]:
+def sequence(
+    n: int,
+    bases: str,
+    *,
+    topology: str = "circular",
+    name: str = "",
+    strandedness: str = "double",
+) -> dict[str, Any]:
     return {
         "id": f"00000000-0000-0000-0000-{n:012d}",
         "hrid": f"DNA-{n:06d}",
-        "values": {"bases": bases, "topology": topology, "name": name},
+        "values": {
+            "bases": bases,
+            "topology": topology,
+            "strandedness": strandedness,
+            "name": name,
+        },
     }
 
 
@@ -132,12 +144,158 @@ def test_puc19_is_cut_where_its_polylinker_has_its_sites(cloning: ModuleType) ->
     assert bases[395:401] == "GAATTC"
     assert bases[446:452] == "AAGCTT"
     assert cloning.cuts(bases, True, ["EcoRI", "HindIII"]) == [
-        (396, -4, "EcoRI"),
-        (447, -4, "HindIII"),
+        (396, -4, ("EcoRI",)),
+        (447, -4, ("HindIII",)),
     ]
     fragments = cloning.digest("pUC19", bases, True, ["EcoRI", "HindIII"])
     assert sorted(len(f.bases) for f in fragments) == [51, 2635]
     assert sum(len(f.bases) for f in fragments) == 2686
+
+
+def elucidated_overhang(enzyme: object) -> str:
+    """The overhang an enzyme leaves, from Biopython's own ``elucidate()``: the bases
+    between its two strands' cuts, whichever comes first. EcoRI's ``G^AATT_C`` leaves
+    AATT after the top-strand cut, PstI's ``C_TGCA^G`` leaves TGCA before it."""
+    shown: str = enzyme.elucidate()  # type: ignore[attr-defined]
+    top, bottom = shown.index("^"), shown.index("_")
+    return shown[min(top, bottom) + 1 : max(top, bottom)]
+
+
+#: Each enzyme with the sequence it is tried on: a site with three bases either side, so
+#: both strands' cuts fall inside the molecule. Written out rather than generated, so the
+#: site each case means is on the page.
+OVERHANG_CASES = [
+    ("EcoRI", "AAAGAATTCTTT"),  # 5' AATT
+    ("HindIII", "AAAAAGCTTTTT"),  # 5' AGCT
+    ("BamHI", "AAAGGATCCTTT"),  # 5' GATC
+    ("SalI", "AAAGTCGACTTT"),  # 5' TCGA
+    ("PstI", "AAACTGCAGTTT"),  # 3' TGCA
+    ("KpnI", "AAAGGTACCTTT"),  # 3' GTAC
+    ("SacI", "AAAGAGCTCTTT"),  # 3' AGCT
+    ("SphI", "AAAGCATGCTTT"),  # 3' CATG
+    ("ApaI", "AAAGGGCCCTTT"),  # 3' GGCC
+    ("AatII", "AAAGACGTCTTT"),  # 3' ACGT
+    ("SmaI", "AAACCCGGGTTT"),  # blunt
+]
+
+
+@pytest.mark.parametrize(("name", "bases"), OVERHANG_CASES)
+def test_an_end_carries_the_overhang_biopython_elucidates(
+    cloning: ModuleType, name: str, bases: str
+) -> None:
+    """Every end's bases are the overhang REBASE gives that enzyme, 5' and 3' alike. A
+    3' overhang lies before the top-strand cut, so it is as much a part of the fragment
+    on the left as a 5' one is of the fragment on the right, and an end that doesn't
+    carry it would let any two 3' cuts of the same length look alike."""
+    enzyme = getattr(Restriction, name)
+    want = elucidated_overhang(enzyme)
+    fragments = cloning.digest("x", bases, False, [name])
+    assert len(fragments) == 2
+    left, right = fragments
+    assert left.right.overhang == right.left.overhang == enzyme.ovhg
+    assert left.right.bases == right.left.bases == want
+    assert len(want) == abs(enzyme.ovhg)
+    # The fragments' top strands are still Biopython's, overhang bases and all.
+    assert [f.bases for f in fragments] == [
+        str(s) for s in enzyme.catalyse(Seq(bases), linear=True)
+    ]
+
+
+def test_pstis_overhang_is_the_same_wherever_the_origin_is(cloning: ModuleType) -> None:
+    """A 3' overhang reads the bases before the cut, which on a circle can be the bases
+    before the origin. pUC19's single PstI site cuts after base 440, so rotating the
+    record until that cut sits 2 bases in puts half the overhang at the far end of the
+    sequence; the end's bases are TGCA either way."""
+    bases, _, _ = read("L09137.2")
+    assert cloning.cuts(bases, True, ["PstI"]) == [(439, 4, ("PstI",))]
+    for at in (0, 437, 438, 439, 1500):
+        rotated = bases[at:] + bases[:at]
+        (fragment,) = cloning.digest("pUC19", rotated, True, ["PstI"])
+        assert len(fragment.bases) == 2686
+        assert fragment.left == fragment.right == cloning.End(4, "TGCA")
+
+
+def test_two_different_3_prime_overhangs_dont_ligate(cloning: ModuleType) -> None:
+    """pUC19's polylinker has one KpnI site and one PstI site. Both leave a four-base 3'
+    overhang, but KpnI leaves GTAC and PstI TGCA, so neither of the two fragments closes
+    on itself and the digest religates to nothing -- the 3' counterpart of the EcoRI and
+    HindIII double digest. Cut with PstI alone, the same molecule closes again."""
+    bases, _, _ = read("L09137.2")
+    both = cloning.digest("pUC19", bases, True, ["KpnI", "PstI"])
+    assert sorted(len(f.bases) for f in both) == [27, 2659]
+    assert {str(f.left) for f in both} == {str(f.right) for f in both} == {"3' GTAC", "3' TGCA"}
+    assert cloning.ligate([both]) == []
+    # One enzyme, one overhang: the circle comes back, and the junction names it.
+    alone = cloning.digest("pUC19", bases, True, ["PstI"])
+    (made,) = cloning.ligate([alone])
+    assert cloning.same_molecule(made.bases, bases)
+    assert [j["overhang"] for j in made.junctions] == ["3' TGCA"]
+
+
+def test_a_fragment_turned_round_twice_is_itself_again(cloning: ModuleType) -> None:
+    """Every geometry a digest makes -- blunt, 5' and 3' ends in each combination -- comes
+    back unchanged after being turned round twice, so the two strands' stretches survive
+    the turn. A 5' overhang belongs to the strand that carries it, so the other strand is
+    not the same length as the top one when the two ends are of different kinds."""
+    bases = "AAAGAATTCAAACCCGGGTTTCTGCAGTTT"
+    fragments = cloning.digest("x", bases, False, ["EcoRI", "SmaI", "PstI"])
+    assert [(str(f.left), str(f.right)) for f in fragments] == [
+        ("blunt", "5' AATT"),
+        ("5' AATT", "blunt"),
+        ("blunt", "3' TGCA"),
+        ("3' TGCA", "blunt"),
+    ]
+    for fragment in fragments:
+        assert fragment.reversed().reversed() == fragment
+    # A 5' end on the left and a 3' end on the right are both on the top strand, so the
+    # other strand is eight bases shorter; the other way round, eight longer.
+    both_on_top = cloning.Fragment(
+        "x", "AATTCAAACCCGGGTTTCTGCA", cloning.End(-4, "AATT"), cloning.End(4, "TGCA")
+    )
+    assert len(both_on_top.other_strand()) == len(both_on_top.bases) - 8
+    assert both_on_top.reversed().reversed() == both_on_top
+    both_below = both_on_top.reversed()
+    assert len(both_below.other_strand()) == len(both_below.bases) + 8
+
+
+def test_both_orientations_of_an_insert_are_whole_molecules(cloning: ModuleType) -> None:
+    """The same plan, worked out directly: the two circles differ only in the insert's
+    strand, and both keep a GAATTC at each junction. An inverted fragment that kept the
+    top strand's own stretch would spell a junction that no longer has the site."""
+    puc, _, _ = read("L09137.2")
+    _, gene = neo_insert()
+    insert = "TT" + "GAATTC" + gene + "GAATTC" + "TT"
+    vector = cloning.digest("pUC19", puc, True, ["EcoRI"])
+    cut = [
+        f
+        for f in cloning.digest("neo", insert, False, ["EcoRI"])
+        if f.left.sticky and f.right.sticky
+    ]
+    assert [len(f.bases) for f in cut] == [801]
+    made = cloning.ligate([vector, cut])
+    assert len(made) == 2
+    forward, inverted = (made[0], made[1]) if gene in made[0].bases * 2 else (made[1], made[0])
+    for product in (forward, inverted):
+        assert len(product.bases) == 2686 + 801 == 3487
+        # Both sites are back: GAATTC twice around the circle.
+        assert (product.bases + product.bases[:5]).count("GAATTC") == 2
+        assert cloning.same_molecule(product.bases, puc) is False
+    assert gene in forward.bases * 2
+    assert reverse_complement(gene) in inverted.bases * 2
+    assert not cloning.same_molecule(forward.bases, inverted.bases)
+
+
+def test_isoschizomers_cut_once_where_they_agree(cloning: ModuleType) -> None:
+    """SacI and SstI recognise GAGCTC and break the same two bonds, so pUC19 digested
+    with both gives the one fragment either gives alone, not two. Both names are kept
+    against the boundary, because both enzymes make it."""
+    bases, _, _ = read("L09137.2")
+    assert cloning.cuts(bases, True, ["SacI", "SstI"]) == [(406, 4, ("SacI", "SstI"))]
+    (together,) = cloning.digest("pUC19", bases, True, ["SacI", "SstI"])
+    (alone,) = cloning.digest("pUC19", bases, True, ["SacI"])
+    assert together.bases == alone.bases == bases[406:] + bases[:406]
+    assert len(together.bases) == 2686
+    assert sorted(set(together.cut_with)) == ["SacI", "SstI"]
 
 
 # --- the same molecule from any origin ----------------------------------------------
@@ -404,3 +562,138 @@ def test_a_plan_with_a_product_already_isnt_assembled_again(tmp_path: Path) -> N
     )
     assert not output
     assert "has a product already" in log
+
+
+# --- a check's result stands for the plan it was found from ---------------------------
+
+
+def test_a_single_stranded_product_isnt_what_a_plan_makes(tmp_path: Path) -> None:
+    """A ligation closes a double-stranded circle. A molecule is its bases, its topology
+    and its strand count (ADR 0138), so a single-stranded circle of the same spelling is
+    another molecule, and the check says so rather than matching on the bases alone."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc, strandedness="single"),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert "DNA-000003 is circular and single-stranded" in log
+    # The same bases, double-stranded, are the plan's product.
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc),
+        ),
+    )
+    assert checked, log
+    assert checked["updates"]["assembly"][0]["values"]["matches_product"] is True
+
+
+def test_a_check_settles_a_plan_that_makes_several_circles(
+    tmp_path: Path, cloning: ModuleType
+) -> None:
+    """A plan whose parts make more than one circle can't be assembled: it doesn't say
+    which. The clone's own sequence does, which is what the ambiguity message tells the
+    scientist to do, so the check finds the product among the circles and matches it --
+    with a warning that the plan on its own didn't predict it."""
+    puc, _, _ = read("L09137.2")
+    _, gene = neo_insert()
+    insert = "TT" + "GAATTC" + gene + "GAATTC" + "TT"
+    both = plan(
+        "restriction_ligation",
+        sequence(1, puc, name="pUC19"),
+        [sequence(2, insert, topology="linear", name="neo")],
+        enzymes=["EcoRI"],
+    )
+    # The plan makes the insert either way round, so `assemble` makes neither.
+    output, log = command(tmp_path, "assemble", both)
+    assert not output
+    assert "2 different circles (3487 bp, 3487 bp)" in log
+    assert "give the product and check the plan against it" in log
+
+    # Which one the clone is, the clone's sequence says.
+    made = cloning.ligate(
+        [
+            cloning.digest("pUC19", puc, True, ["EcoRI"]),
+            [
+                f
+                for f in cloning.digest("neo", insert, False, ["EcoRI"])
+                if f.left.sticky and f.right.sticky
+            ],
+        ]
+    )
+    inverted = next(a for a in made if reverse_complement(gene) in a.bases * 2)
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [sequence(2, insert, topology="linear", name="neo")],
+            enzymes=["EcoRI"],
+            product=sequence(3, inverted.bases),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is True
+    assert values["simulated_length"] == 3487
+    assert "is one of them" in log
+    warning = [m for m in checked["messages"] if m["level"] == "warning"]
+    assert len(warning) == 1
+    assert "doesn't say which circle it makes" in warning[0]["text"]
+
+    # A product that is none of them doesn't match, and no length is claimed for a plan
+    # that still doesn't say which circle it makes.
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [sequence(2, insert, topology="linear", name="neo")],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert values["simulated_length"] is None
+    assert values["junctions"] is None
+    assert "is none of them" in log
+
+
+def test_a_check_that_cant_reach_a_result_clears_the_old_one(tmp_path: Path) -> None:
+    """A plan checked once keeps its result until a check finds otherwise, and Checked,
+    Built and Verified all read that flag. A plan edited into one Iki doesn't work out --
+    here a Gateway reaction -- leaves a stale result standing, so the check clears it
+    along with the length and junctions it was found with."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan("gateway_lr", sequence(1, puc, name="pUC19"), [], product=sequence(3, puc)),
+    )
+    assert checked, log
+    assert checked["updates"]["assembly"][0]["values"] == {
+        "matches_product": None,
+        "simulated_length": None,
+        "junctions": None,
+    }
+    assert checked["messages"][0]["level"] == "error"
+    assert "recorded, not worked out" in checked["messages"][0]["text"]

@@ -167,7 +167,13 @@ again, so a read across its origin aligns in one piece. A read aligns if at
 least half its trimmed bases do (and 20); others are left out, and the run
 says so, as is one with nothing scoring above zero (all N, say): a warning
 for each reason, naming the reads, and each read, with why, in the run's
-artifact `left_out.tsv`. The run says
+artifact `left_out.tsv`. Two more reads are left out there. One that lies
+equally well on another stretch of the sequence, or as well on both strands,
+says nothing of the place it was put on — bowtie2 gives such a read a mapping
+quality of 0 — so neither its coverage nor a difference in it is claimed for
+one of them. And one that reads round a circular sequence more than once
+passes a place twice, which the alignment's one base per place can't hold:
+align it in parts. The run says
 where the reads cover the sequence: a read's base covers its place only when
 it says what's there, so N, or another ambiguity code that could be the
 sequence's base, covers nothing, and the run lists where reads have only such
@@ -178,13 +184,28 @@ difference from the sequence, as HGVS's DNA recommendations name them with the
 sequence as their reference, numbered from its first base: `o.` for a
 circular sequence (a plasmid), `g.` for a linear one. They are substitutions
 (`g.1234C>T`), deletions (`g.1240del`, `g.1240_1242del`), insertions
-(`g.1250_1251insG`), duplications (`g.1250dup`) and, for changes side by
-side, deletion-insertions (`g.1260_1261delinsTA`), with the reads that show
-each and their least quality there. A deletion or insertion in repeated bases
-is named at its 3′-most place; a circular sequence's origin is no end, so one
-may move on round it, and one across it is named from the last place to the
-first (`o.2686_1insA`). HGVS names a mitochondrial genome's with `m.`, which
-Iki can't tell from another circular sequence's: such a sequence's are `o.`. In the alignment, each read's row is as it lies on the
+(`g.1250_1251insG`), duplications (`g.1250dup`), inversions, where more than
+one base is replaced by its own reverse complement (`g.3_6inv`), and, for
+other changes side by side, deletion-insertions (`g.1260_1261delinsTA`), with
+the reads that show each and their least quality there. A deletion or
+insertion in repeated bases is named at its 3′-most place; a circular
+sequence's origin is no end, so one may move on round it, and one across it is
+named from the last place to the first (`o.2686_1insA`). Where that rule would
+carry a deletion or an insertion onto a base another change names — no
+sequence has both a base deleted and that base changed — the two are one
+change, named from the whole stretch that differs (`o.223_224delinsC`).
+
+`o.` and `g.` are HGVS's two prefixes for a genomic reference sequence, which
+is what a DNA sequence here is: its identity is its bases, topology and
+strandedness, and says nothing of what the molecule is in a cell. HGVS's other
+prefixes need what this reference doesn't carry — `c.` and `n.` number along a
+transcript, from its coding start or its first base, and `m.` says a reference
+is mitochondrial DNA — so a mitochondrial genome's differences here are `o.`
+like any other circle's, and a variant to be sent to a variant database is
+renamed against the transcript or chromosome it's called on, which is a
+different reference from this one.
+
+In the alignment, each read's row is as it lies on the
 sequence (its reverse complement if it read the other strand), and bases a
 read has that the sequence doesn't get columns of their own.
 

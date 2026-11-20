@@ -16,6 +16,11 @@ as if it went round again, so a read across its origin aligns in one piece. A re
 aligns if at least half its trimmed bases (and 20) do; others are left out and the run
 says so, as is one with no stretch that scores above zero: a warning for each reason,
 naming the reads, and a row for each read, with why, in the artifact `left_out.tsv`.
+A read that lies equally well on another stretch, or as well on both strands, is left
+out too: nothing it shows belongs to the place it was put on rather than the other
+(bowtie2 gives such a read a mapping quality of 0). So is one that reads round a
+circular reference more than once, which passes a place twice where the alignment holds
+one base per place.
 
 The alignment's first row is the reference, headed by its HRID; each read's row follows,
 headed by its name, as it lies on the reference (its reverse complement if it read the
@@ -31,13 +36,19 @@ none of whose bases the reference's code allows. Where the reference itself is
 ambiguous (R, N, ...), the base a read has there is listed apart, as resolving it.
 Differences are named as HGVS's DNA recommendations name them, with the reference as the
 reference sequence, numbered from its first base: `o.` for a circular one (a plasmid),
-`g.` for a linear one. They are substitutions (g.1234C>T), deletions (g.1240del,
-g.1240_1242del), insertions (g.1250_1251insG), duplications (g.1250dup) and, for changes
-side by side, deletion-insertions (g.1260_1261delinsTA), with the reads that show each and
-their least quality there. A deletion or insertion in repeated bases is named at its
-3'-most place, as HGVS asks; on a circular reference, its origin is no end, so one may
+`g.` for a linear one. Those are HGVS's two prefixes for a genomic reference, which is
+what a DNA sequence here is; `c.`, `n.` and `m.` number along a transcript or say a
+reference is mitochondrial, which this reference doesn't say it is. They are
+substitutions (g.1234C>T), deletions (g.1240del,
+g.1240_1242del), insertions (g.1250_1251insG), duplications (g.1250dup), inversions, where
+more than one base is replaced by its own reverse complement (g.3_6inv), and, for other
+changes side by side, deletion-insertions (g.1260_1261delinsTA), with the reads that show
+each and their least quality there. A deletion or insertion in repeated bases is named at
+its 3'-most place, as HGVS asks; on a circular reference, its origin is no end, so one may
 move on round it, and one across it is named from its last place to its first
-(o.2686_1insA). The rows show them where the aligner put them.
+(o.2686_1insA). Where that rule would carry a deletion or an insertion onto a base another
+change names, the two are one change over the whole stretch that differs: no sequence has
+both a base deleted and that base changed. The rows show them where the aligner put them.
 """
 
 from __future__ import annotations
@@ -66,6 +77,9 @@ LIMIT = 0.05
 LEAST_SHARE, LEAST_BASES = 0.5, 20
 #: The most differences the run lists.
 MAX_LISTED = 100
+#: The most of a read's equally scoring placements looked at, to see whether more than one
+#: stretch of the reference explains it as well as the stretch it was put on.
+MOST_PLACEMENTS = 50
 #: The longest message a run may give (the run-output schema's limit).
 MAX_TEXT = 2000
 #: The bases each IUPAC code stands for (IUBMB, 1985).
@@ -114,6 +128,11 @@ class Placed:
     #: Reference positions the read lies across the place just before: it reads on from
     #: the base before (round the origin, on a circular reference) without ending there.
     across: set[int] = field(default_factory=set)
+    #: How many stretches of the reference the read lies on equally well, counting at most
+    #: MOST_PLACEMENTS of them: more than one, and nothing it shows belongs to any of them.
+    places: int = 1
+    #: Whether it scores the same on both strands, which says nothing of which it read.
+    either_strand: bool = False
 
 
 def mott(quality: list[int]) -> tuple[int, int]:
@@ -216,9 +235,22 @@ def place(
     reverse = scores[1] > scores[0]
     query = backward if reverse else forward
     quality = (read.quality[::-1] if reverse else read.quality) if read.quality else None
-    best = scorer.align(target, query)[0]
+    found = scorer.align(target, query)
+    best = found[0]
     coordinates = best.coordinates
     placed = Placed(read, reverse, int(coordinates[1][0]), int(coordinates[1][-1]))
+    # Where else it lies as well. A read inside repeated bases lies equally on each copy,
+    # and then no base it has belongs to one of them rather than another; bowtie2 gives
+    # such a read a mapping quality of 0. Alignments differing only in where their gaps
+    # fall are one placement, so the stretches are counted, not the alignments.
+    stretches = set()
+    for n, each in enumerate(found):
+        if n >= MOST_PLACEMENTS:
+            break
+        where = each.coordinates
+        stretches.add((int(where[0][0]) % size, int(where[0][-1]) % size))
+    placed.places = len(stretches)
+    placed.either_strand = scores[0] == scores[1]
     # Where it begins it doesn't lie across: the place before its first base, even when
     # that's the reference's last (round the origin), is one it has no observation of.
     first, last = int(coordinates[0][0]), int(coordinates[0][-1])
@@ -248,7 +280,16 @@ def place(
 
 def numbered(circular: bool) -> str:
     """HGVS's prefix for the reference's numbering, counting from its first base: `o.` for a
-    circular genomic reference sequence (a plasmid, say), `g.` for a linear one."""
+    circular genomic reference sequence (a plasmid, say), `g.` for a linear one.
+
+    These are the two HGVS allows for a genomic reference, which is what an
+    `iki/dna.DNASequence` is: its identity is bases, topology and strandedness (ADR 0138)
+    and says nothing of what the molecule is in a cell. HGVS's other prefixes each need
+    something the reference doesn't carry -- `c.` and `n.` number along a transcript, from
+    its coding start or its first base, and `m.` says a reference is mitochondrial DNA --
+    so a name here is always along the sequence it was aligned to. A variant to be sent
+    to a variant database is renamed against the transcript or the chromosome it's called
+    on, which is a different reference from this one."""
     return "o." if circular else "g."
 
 
@@ -295,6 +336,99 @@ def insertion(reference: str, spot: int, bases: str, circular: bool = False) -> 
         spot, bases = spot - 1, reference[spot - 1] + bases[:-1]
     spot %= size
     return f"{found}{spot if spot else size}_{spot + 1}ins{bases}"
+
+
+#: One change the read has: the reference's places it replaces, 0-based and end exclusive
+#: (past the reference's length, round a circular origin; the two equal for an insertion,
+#: which replaces nothing), and the bases the read has there instead (none for a deletion).
+Change = tuple[int, int, str]
+
+
+def stretch(reference: str, start: int, stop: int) -> str:
+    """The reference's bases from 0-based ``start`` to ``stop``, round the origin."""
+    size = len(reference)
+    return "".join(reference[k % size] for k in range(start, stop))
+
+
+def shifted(reference: str, change: Change, circular: bool) -> Change:
+    """A change moved as far 3' as the bases allow, which is where HGVS names it. Only a
+    deletion or an insertion alone moves: where bases replace bases, the bases themselves
+    say which places changed."""
+    start, stop, bases = change
+    size = len(reference)
+    if bool(bases) == (stop > start):
+        return change
+    for _ in range(size):
+        if not circular and stop >= size:
+            break
+        after = reference[stop % size]
+        if bases:
+            if bases[0] != after:
+                break
+            bases = bases[1:] + after
+        elif after != reference[start % size]:
+            break
+        start, stop = start + 1, stop + 1
+    return start, stop, bases
+
+
+def trimmed(reference: str, change: Change) -> Change:
+    """A change with the places it leaves as they were taken off either end of it, so that
+    what it names is what actually changed."""
+    start, stop, bases = change
+    while bases and stop > start and bases[0] == reference[start % len(reference)]:
+        start, bases = start + 1, bases[1:]
+    while bases and stop > start and bases[-1] == reference[(stop - 1) % len(reference)]:
+        stop, bases = stop - 1, bases[:-1]
+    return start, stop, bases
+
+
+def merged(
+    reference: str, changes: list[Change], qualities: list[list[int]], circular: bool
+) -> tuple[list[Change], list[list[int]]]:
+    """Changes that would name the same places, as one change, each with its qualities.
+
+    A deletion or an insertion alone is named at its 3'-most place, which in repeated
+    bases can be where the next change is: then the two name the same base, and no
+    sequence has both -- a deletion of base 30 and a substitution at base 30 can't both
+    be applied. What the read has is one change over the whole stretch, named from the
+    reference's bases there and the read's (HGVS's deletion-insertion).
+    """
+    out, found = list(changes), [list(each) for each in qualities]
+    index = 0
+    while index < len(out) - 1:
+        here, after = out[index], out[index + 1]
+        _, reach, _ = shifted(reference, here, circular)
+        if reach < after[0]:
+            index += 1
+            continue
+        between = stretch(reference, here[1], after[0])
+        out[index : index + 2] = [
+            trimmed(reference, (here[0], after[1], here[2] + between + after[2]))
+        ]
+        found[index : index + 2] = [found[index] + found[index + 1]]
+    return out, found
+
+
+def named(reference: str, change: Change, circular: bool) -> str:
+    """A change's HGVS name: a substitution, a deletion, an insertion or duplication, an
+    inversion, or a deletion-insertion for anything else."""
+    start, stop, bases = change
+    size = len(reference)
+    if not bases:
+        return deletion(reference, start % size, (stop - 1) % size, circular)
+    if start == stop:
+        return insertion(reference, start % size, bases, circular)
+    was = stretch(reference, start, stop)
+    first, last = start % size, (stop - 1) % size
+    if len(was) == 1 and len(bases) == 1:
+        return f"{numbered(circular)}{first + 1}{was}>{bases}"
+    where = f"{first + 1}" if first == last else f"{first + 1}_{last + 1}"
+    # More than one base replaced by its own reverse complement is an inversion, which
+    # HGVS names in its own right; a single base's reverse complement is a substitution.
+    if len(bases) == len(was) > 1 and bases == str(Seq(was).reverse_complement()):
+        return f"{numbered(circular)}{where}inv"
+    return f"{numbered(circular)}{where}delins{bases}"
 
 
 def call(base: str, reference: str) -> str:
@@ -364,33 +498,29 @@ def differences(
     """The read's differences from the reference, as HGVS names them: (where, its name, the
     read's least quality in it). Read along the read, so one across a circular reference's
     origin is one. A run of changed places (bases that differ, and deletions) with what's
-    inserted between them is one change: a substitution (`g.151C>T`) when it's one base for
-    one, a deletion when it's only deletions, and otherwise a deletion-insertion
-    (`g.10_11delinsTA`), as HGVS asks for consecutive changes."""
+    inserted between them is one change, named from the reference's bases there and the
+    read's: a substitution (`g.151C>T`) for one base, a deletion, an insertion or
+    duplication, an inversion where the bases are their own reverse complement, and
+    otherwise a deletion-insertion (`g.10_11delinsTA`), as HGVS asks for consecutive
+    changes. Changes the 3' rule would carry into one another are one change too."""
     size = len(reference)
     first, last = placed.span
-    out: list[tuple[int, str, int | None]] = []
-    # The run of changes open: its first and last target places, what the read has there
-    # instead, and the read's qualities in it.
-    run: list[int] = []
+    changes: list[Change] = []
+    quality_of: list[list[int]] = []
+    # The run of changes open: where it starts and stops in the reference, what the read
+    # has there instead, and the read's qualities in it.
+    start: int | None = None
+    stop = 0
     instead: list[str] = []
     qualities: list[int] = []
 
     def close() -> None:
-        if not run:
+        nonlocal start
+        if start is None:
             return
-        start, end = run[0] % size, run[-1] % size
-        bases = "".join(instead)
-        least = min(qualities) if qualities else None
-        if not bases:
-            out.append((start, deletion(reference, start, end, circular), None))
-        elif start == end and len(bases) == 1:
-            name = f"{numbered(circular)}{start + 1}{reference[start]}>{bases}"
-            out.append((start, name, least))
-        else:
-            where = f"{start + 1}" if start == end else f"{start + 1}_{end + 1}"
-            out.append((start, f"{numbered(circular)}{where}delins{bases}", least))
-        run.clear()
+        changes.append((start, stop, "".join(instead)))
+        quality_of.append(list(qualities))
+        start = None
         instead.clear()
         qualities.clear()
 
@@ -399,26 +529,30 @@ def differences(
         base = placed.at.get(spot, ".")
         changed = base == "-" or call(base, reference[spot]) == "differs"
         added = placed.inserted.get(spot, "") if t > first else ""
-        if added and not run and not changed:
-            quality = placed.inserted_quality.get(spot)
-            out.append((spot, insertion(reference, spot, added, circular), quality))
-        elif added:
-            # Inserted next to a change: it's part of it.
-            if not run:
-                run.append(t)
+        if added:
+            # Inserted before this place, so the run starts here if it hasn't.
+            if start is None:
+                start = stop = t
             instead.append(added)
             if spot in placed.inserted_quality:
                 qualities.append(placed.inserted_quality[spot])
         if not changed:
             close()
             continue
-        if not run or run[-1] != t:
-            run.append(t)
+        if start is None:
+            start = t
+        stop = t + 1
         if base != "-":
             instead.append(base)
             if spot in placed.quality_at:
                 qualities.append(placed.quality_at[spot])
     close()
+
+    changes, quality_of = merged(reference, changes, quality_of, circular)
+    out: list[tuple[int, str, int | None]] = []
+    for change, found in zip(changes, quality_of, strict=True):
+        least = min(found) if found and change[2] else None
+        out.append((change[0] % size, named(reference, change, circular), least))
     return out
 
 
@@ -582,6 +716,33 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             best = f"{aligned} of its {len(read.bases)} bases do at best"
             alone = f"{read.name} doesn't align to {hrid}: {best}. It's left out."
             left.append(Left(read, alone, f"don't align to {hrid}", best))
+            continue
+        # A read that lies as well somewhere else says nothing of the place it was put
+        # on: a difference in it may be at either, and the coverage belongs to neither.
+        if found.places > 1 or found.either_strand:
+            where = (
+                "equally well on both strands"
+                if found.either_strand
+                else f"equally well in {found.places} places on {hrid}"
+                + (" or more" if found.places >= MOST_PLACEMENTS else "")
+            )
+            alone = (
+                f"{read.name} lies {where}, so nothing it shows belongs to one of them "
+                "rather than another: it's left out."
+            )
+            left.append(Left(read, alone, f"lie in more than one place on {hrid}", where))
+            continue
+        # A read longer than a circular reference passes a place more than once, and the
+        # alignment holds one base per place: the two passes can't both be shown, and a
+        # difference on one of them would be lost or claimed twice.
+        span = found.span[1] - found.span[0]
+        if span > len(reference):
+            over = f"{span:,} bases of its {len(reference):,}"
+            alone = (
+                f"{read.name} reads round {hrid} more than once ({over}), which an "
+                "alignment can't show place by place: it's left out. Align it in parts."
+            )
+            left.append(Left(read, alone, f"read round {hrid} more than once", over))
             continue
         placed.append(found)
     if not placed:

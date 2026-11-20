@@ -479,16 +479,13 @@
       "name": "CEN6",
       "label": "CEN6 (Saccharomyces cerevisiae centromere 6)",
       "type": "centromere",
-      "role": "origin",
+      "role": "segregation",
       "bases": "CATCACGTGCTATAAAAATAATTATAATTTAAATTTTTTAATATAAATATATAAATTAAAAATAGAAAGTAAAAAAAGAAATTAAAGAAAAAATAGTTTTTGTTTTCCGAAGATGTAAA",
       "source": {
         "database": "INSDC",
         "accession": "FJ457000.1",
         "record": "Yeast shuttle vector pRS416-10xGly",
         "location": "4357..4475"
-      },
-      "implies": {
-        "replication_origins": "CEN6"
       }
     },
     {

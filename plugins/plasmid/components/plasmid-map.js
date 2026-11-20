@@ -260,7 +260,14 @@ class PlasmidMap extends HTMLElement {
     const values = entity?.values ?? {};
     const features = Array.isArray(values.annotated_features) ? values.annotated_features : [];
     const length = Number(values.length) || 0;
-    if (!length) {
+    // Whether this project's record has been annotated, which is what the map draws.
+    // Its length is its registry entry's and the same for every project (ADR 0115), so
+    // a second project has the length as soon as the record exists, before its own
+    // annotation has run: `annotated_with` is written by that run, with the features.
+    const annotated =
+      features.length > 0 ||
+      (typeof values.annotated_with === "string" && values.annotated_with !== "");
+    if (!length || !annotated) {
       this.shadowRoot.replaceChildren(
         style,
         element(

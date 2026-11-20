@@ -7,7 +7,9 @@ description: >-
   Works out what a cloning plan makes and checks it against the sequence its clone turned
   out to have: the same bases from any origin and on either strand are the same molecule
   (ADR 0138). It says how long the circle is, where its junctions are, and, when they
-  differ, by how much.
+  differ, by how much. A plan whose parts make several circles is settled here, since the
+  clone's sequence says which was made; one Iki can't work out leaves no result, and the
+  old one is cleared rather than left to be read as current.
 inputs:
   assembly: { type: Assembly, schema: ">=1", include: [backbone, inserts, product] }
 params:

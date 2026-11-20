@@ -113,6 +113,12 @@ def annotate(tmp_path: Path, bases: str, *, circular: bool = True) -> dict[str, 
     return values
 
 
+def annotated(tmp_path: Path, bases: str, *, circular: bool = True) -> dict[str, Any]:
+    """``annotate`` in a directory of its own, so one test can annotate several times."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return annotate(tmp_path, bases, circular=circular)
+
+
 def found(values: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Its features by the part's name, since a part can be found more than once."""
     out: dict[str, list[dict[str, Any]]] = {}
@@ -224,6 +230,12 @@ PUBLISHED = [
     ("pRS416", "URA3", 417, 1220, "forward"),
     ("pRS416", "CEN6", 4325, 4443, "forward"),
     ("pRS416", "ARSH4", 4456, 4829, "forward"),
+    # The two shortest parts of the library, each at the place LT009457.1's own feature
+    # table gives it in the very record the part was taken from: `misc_feature 1..16
+    # /note="HIV-1 cPPT"` and `regulatory 3454..3470 /note="T3 promoter"`. Both are
+    # shorter than a seed, so neither can be placed by the seed index.
+    ("pLenti6-V5-Puro", "cPPT", 1, 16, "forward"),
+    ("pLenti6-V5-Puro", "T3 promoter", 3454, 3470, "forward"),
 ]
 
 
@@ -283,8 +295,8 @@ SAYS = {
     "pRS416": {
         "bacterial_resistance": ["ampicillin"],
         "selection_markers": ["ura3"],
-        "replication_origins": ["f1", "pMB1/pUC", "CEN6", "ARSH4"],
-        "promoters": ["T7", "lac"],
+        "replication_origins": ["f1", "pMB1/pUC", "ARSH4"],
+        "promoters": ["T7", "T3", "lac"],
     },
     "pcDNA3.1(+)": {
         "bacterial_resistance": ["kanamycin", "ampicillin"],
@@ -296,7 +308,7 @@ SAYS = {
         "bacterial_resistance": ["ampicillin", "chloramphenicol"],
         "selection_markers": ["puromycin"],
         "replication_origins": ["SV40", "f1", "pMB1/pUC"],
-        "promoters": ["T7", "lac", "CMV", "SV40 early"],
+        "promoters": ["T7", "lac", "T3", "CMV", "SV40 early"],
     },
     "pET-28a-ZaTdT12": {
         "bacterial_resistance": ["kanamycin"],
@@ -347,3 +359,85 @@ def test_a_linear_sequence_is_annotated_without_wrapping_its_origin(tmp_path: Pa
     hits = found(values)
     assert sorted(hits) == ["AmpR", "lac promoter", "ori"]
     assert all(f["end"] > f["start"] for f in values["annotated_features"])
+
+
+# --- what a part found says, and what it doesn't -------------------------------------
+
+
+def test_a_centromere_is_not_an_origin_of_replication(
+    annotations: dict[str, dict[str, Any]],
+) -> None:
+    """A pRS41x shuttle vector carries both CEN6 and ARSH4, and they do different things:
+    CEN6 is the centromere of Saccharomyces cerevisiae chromosome VI, which segregates
+    the plasmid at mitosis, and ARSH4 is the autonomously replicating sequence it
+    replicates from. Sikorski and Hieter 1989 (Genetics 122:19-27) built the pRS vectors
+    from the two, and INSDC's feature table keeps `centromere` and `rep_origin` apart. So
+    CEN6 is annotated, as a centromere, and the plasmid's origins are ARSH4's, not its."""
+    hits = found(annotations["pRS416"])
+    (cen6,) = hits["CEN6"]
+    (arsh4,) = hits["ARSH4"]
+    assert (cen6["type"], cen6["qualifiers"]["role"]) == ("centromere", "segregation")
+    assert (arsh4["type"], arsh4["qualifiers"]["role"]) == ("rep_origin", "origin")
+    assert "CEN6" not in annotations["pRS416"]["replication_origins"]
+    assert "ARSH4" in annotations["pRS416"]["replication_origins"]
+
+
+def test_a_marker_whose_reading_frame_is_broken_selects_nothing(tmp_path: Path) -> None:
+    """A ura3 nonsense allele is the classic yeast auxotroph: it is all but identical to
+    URA3 and selects nothing, because its protein is never made. pRS416's URA3 is 804
+    bases, 267 codons and a stop (SGD YEL021W, orotidine-5'-phosphate decarboxylase, 267
+    aa). Its second codon is TCG, and one base makes that TAG: 803 of 804 bases still
+    match, and the open frame is one residue long. The homology is still annotated, with
+    its frame recorded as interrupted, and the plasmid is no longer said to be selected
+    with ura3."""
+    bases, _, _ = read("U03450.1")
+    start, end, strand = located("417..1220")
+    assert strand == "forward"
+    gene = bases[start - 1 : end]
+    assert len(gene) == 804 == 3 * (267 + 1)
+    assert gene[:3] == "ATG" and gene[-3:] in STOPS
+
+    whole = annotated(tmp_path / "whole", bases)
+    assert "ura3" in whole["selection_markers"]
+    assert found(whole)["URA3"][0]["qualifiers"]["reading_frame"] == "whole"
+
+    assert gene[3:6] == "TCG"
+    nonsense = gene[:4] + "A" + gene[5:]
+    assert nonsense[3:6] == "TAG" in STOPS
+    broken = bases[: start - 1] + nonsense + bases[end:]
+    assert len(broken) == len(bases)
+    assert sum(a != b for a, b in zip(broken, bases, strict=True)) == 1
+    values = annotated(tmp_path / "broken", broken)
+    (hit,) = found(values)["URA3"]
+    # 801 of the part's 804 bases: the local alignment opens after the new stop codon
+    # rather than paying for a mismatch three bases in, so the first codon is left out.
+    assert hit["qualifiers"]["identity"] == "99.6%"
+    assert hit["qualifiers"]["reading_frame"] == "interrupted"
+    assert values["selection_markers"] == []
+    # Everything else the vector says is unchanged.
+    assert values["replication_origins"] == whole["replication_origins"]
+    assert values["bacterial_resistance"] == whole["bacterial_resistance"]
+
+
+def test_a_part_nested_in_a_part_of_another_kind_stays_wherever_the_origin_is(
+    tmp_path: Path,
+) -> None:
+    """Only alternative readings of the same thing compete: a 19-base T7 promoter inside
+    a 25-base lac operator means something of its own, and both stay. Which survived used
+    to depend on where the record happened to begin, because a hit crossing the origin was
+    ranked by a negative length. pET-28a's own T7 promoter and lac operator lie next to
+    each other, so the record is rotated until each in turn crosses the origin and the
+    same parts come out."""
+    bases, _, _ = read("OL989372.1")
+    wanted = {"T7 promoter", "lac operator", "lacI promoter"}
+    first = {
+        name: len(hits)
+        for name, hits in found(annotated(tmp_path / "plain", bases)).items()
+        if name in wanted
+    }
+    assert first == {"T7 promoter": 1, "lac operator": 1, "lacI promoter": 1}
+    for n, at_base in enumerate((4990, 5010, 5025, 2500)):
+        rotated = bases[at_base:] + bases[:at_base]
+        values = annotated(tmp_path / f"rotated{n}", rotated)
+        again = {name: len(hits) for name, hits in found(values).items() if name in wanted}
+        assert again == first, f"rotated by {at_base}"

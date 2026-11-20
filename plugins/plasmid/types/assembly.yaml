@@ -122,6 +122,12 @@ fields:
           checked_first:
             check: state.from == "checked"
             message: An assembly is built from Checked, once its plan matches its product.
+          the_plan_still_matches:
+            check: record.matches_product == true
+            message: >-
+              The plan no longer matches its product: the last check didn't find that
+              what the plan makes is the product's sequence. Check it again (Check an
+              assembly) before recording it as built.
       verified:
         label: Verified
         set_by: [construct_reviewer]
@@ -137,6 +143,15 @@ fields:
           four_eyes:
             check: last.status.built == null || last.status.built.by != actor.person
             message: You built it, so someone else verifies it.
+          # Verified locks the record, so what it attests must hold at that moment: a
+          # plan edited after it was checked is rechecked, and a check that found a
+          # mismatch, or couldn't reach a result, leaves nothing to verify.
+          the_plan_still_matches:
+            check: record.matches_product == true
+            message: >-
+              The plan no longer matches its product: the last check didn't find that
+              what the plan makes is the product's sequence. Verified locks the record,
+              so check the plan again (Check an assembly) first.
       abandoned:
         label: Abandoned
         set_by: [cloner, construct_reviewer]

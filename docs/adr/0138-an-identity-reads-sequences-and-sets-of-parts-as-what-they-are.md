@@ -82,8 +82,11 @@ place in the order they're read, and written as INSDC's feature table writes
 them along the entry's: a part across the entry's origin is two,
 `join(x..L,1..y)`, and two parts that only the given origin split are one. A
 `location` qualifier holding an INSDC location, as a GenBank import keeps, is
-written again along the entry's, its fuzzy ends kept. So the coordinates
-always match the bases they're shown along.
+written again along the entry's, its fuzzy ends kept, and so are INSDC's other
+qualifiers that name a position in the record's own numbering: `rpt_unit_range`,
+and the `pos:` of `transl_except` and `anticodon`, which name the codon whose
+translation is exceptional and a tRNA's anticodon. So the coordinates always
+match the bases they're shown along.
 Registering again doesn't refuse an identity value spelled otherwise as a
 change to the entry. It's the same value.
 
@@ -105,7 +108,9 @@ There's no reconciliation step. Before M1 no deployment holds entries
 - Each registration of a circular sequence costs a linear pass, and a
   duplex's costs two.
 - Feature placement knows only the sequence viewer's features (`start`,
-  `end`, `strand`, `parts`) and their `location` qualifier. A plugin with other coordinate fields along a sequence
-  places them itself, or declares them through a sequence viewer.
+  `end`, `strand`, `parts`) and the qualifiers that name a position in the
+  record's own numbering (`location`, `rpt_unit_range`, and the `pos:` of
+  `transl_except` and `anticodon`). A plugin with other coordinate fields along
+  a sequence places them itself, or declares them through a sequence viewer.
 - Sticky ends and other partly double-stranded molecules aren't modelled. A
   linear duplex is read as fully paired.

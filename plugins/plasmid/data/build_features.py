@@ -305,15 +305,18 @@ PARTS: list[dict[str, Any]] = [
         "role": "selection",
         "implies": {"selection_markers": "ura3"},
     },
-    # The yeast centromere and origin a pRS41x vector keeps one copy per cell by.
+    # The yeast centromere and origin a pRS41x vector keeps one copy per cell by. CEN6
+    # segregates it at mitosis and ARSH4 is what it replicates from: Sikorski & Hieter
+    # 1989 (Genetics 122:19-27) built the pRS vectors from the two together, and INSDC's
+    # feature table keeps `centromere` and `rep_origin` apart, so CEN6 implies no origin.
     {
         "accession": "FJ457000.1",
         "location": "4357..4475",
         "name": "CEN6",
         "label": "CEN6 (Saccharomyces cerevisiae centromere 6)",
         "type": "centromere",
-        "role": "origin",
-        "implies": {"replication_origins": "CEN6"},
+        "role": "segregation",
+        "implies": {},
     },
     {
         "accession": "FJ457000.1",
@@ -424,7 +427,7 @@ def main() -> None:
                 "location": part["location"],
             },
         }
-        if "implies" in part:
+        if part.get("implies"):
             out["implies"] = part["implies"]
         if "at_least" in part:
             out["at_least"] = part["at_least"]

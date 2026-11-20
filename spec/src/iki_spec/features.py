@@ -21,6 +21,12 @@ It's written as INSDC's feature table writes it along the entry's sequence:
 - A ``location`` qualifier holding an INSDC location (a GenBank import's own text) is
   written again along the entry's, its partial ends kept on the ends they were on. Text
   that isn't a location is left as it is.
+- INSDC's other qualifiers that name a position do so in the record's own numbering too,
+  so they are written again the same way: ``rpt_unit_range``, and the ``pos:`` of
+  ``transl_except`` and ``anticodon``. Left as submitted, such a position would name
+  another codon or another base once the sequence is read from the entry's origin. As
+  with every other coordinate here, the submitted text is what placing the feature back
+  along the record's own sequence gives.
 """
 
 from __future__ import annotations
@@ -37,6 +43,13 @@ _FLIPPED = {"forward": "reverse", "reverse": "forward"}
 _RANGE = re.compile(r"(<)?([0-9]+)\.\.(>)?([0-9]+)")
 _BETWEEN = re.compile(r"([0-9]+)\^([0-9]+)")
 _BASE = re.compile(r"([<>])?([0-9]+)")
+#: INSDC qualifiers whose value is wholly a location in the record's own numbering.
+_LOCATION_QUALIFIERS = ("location", "rpt_unit_range")
+#: INSDC qualifiers that hold one inside a ``pos:``: ``/transl_except=(pos:213..215,
+#: aa:Trp)`` names the codon whose translation is exceptional, and ``/anticodon=(pos:
+#: 34..36,aa:Phe,seq:gaa)`` the anticodon's bases.
+_POSITIONED_QUALIFIERS = ("transl_except", "anticodon")
+_POS = re.compile(r"(?<![A-Za-z_])pos:")
 
 
 @dataclass(frozen=True)
@@ -99,10 +112,54 @@ def place_feature(
         else:
             out["parts"] = [_part(span) for span in placed]
     qualifiers = feature.get("qualifiers")
-    if isinstance(qualifiers, dict) and isinstance(qualifiers.get("location"), str):
-        location = place_location(qualifiers["location"], placement, length, circular=circular)
-        if location is not None:
-            out["qualifiers"] = {**qualifiers, "location": location}
+    if isinstance(qualifiers, dict):
+        out["qualifiers"] = _place_qualifiers(qualifiers, placement, length, circular=circular)
+    return out
+
+
+def _pos_in(text: str) -> tuple[int, int] | None:
+    """Where the location after a ``pos:`` begins and ends in a qualifier's value: up to
+    the comma that ends it, counting the parentheses of a ``complement`` or a ``join``."""
+    found = _POS.search(text)
+    if found is None:
+        return None
+    start = found.end()
+    depth = 0
+    for at in range(start, len(text)):
+        here = text[at]
+        if here == "(":
+            depth += 1
+        elif here == ")":
+            if depth == 0:
+                return start, at
+            depth -= 1
+        elif here == "," and depth == 0:
+            return start, at
+    return start, len(text)
+
+
+def _place_qualifiers(
+    qualifiers: dict[str, Any], placement: Placement, length: int, *, circular: bool
+) -> dict[str, Any]:
+    """``qualifiers``, with every position they name written along the entry's sequence
+    and the text as the record gave it kept beside it (see above)."""
+    out = dict(qualifiers)
+    for name in (*_LOCATION_QUALIFIERS, *_POSITIONED_QUALIFIERS):
+        text = qualifiers.get(name)
+        if not isinstance(text, str) or not text:
+            continue
+        if name in _LOCATION_QUALIFIERS:
+            written = place_location(text, placement, length, circular=circular)
+        else:
+            where = _pos_in(text)
+            if where is None:
+                continue
+            inner = place_location(text[where[0] : where[1]], placement, length, circular=circular)
+            written = None if inner is None else text[: where[0]] + inner + text[where[1] :]
+        # None means it isn't a position on this sequence -- another record's, or not a
+        # location at all -- so there's nothing to move and the text stays as it is.
+        if written is not None:
+            out[name] = written
     return out
 
 
