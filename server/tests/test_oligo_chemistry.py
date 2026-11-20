@@ -295,3 +295,40 @@ def test_a_self_complementary_strand_is_both_strands_of_its_duplex() -> None:
     assert duplex["values"]["molecular_formula"] == "C232H294N92O140P22"
     assert duplex["values"]["molecular_weight"] == 7292.84
     assert duplex["derived_from"] == ["OLI-1"]
+
+
+def test_the_library_galnac_has_l96s_stereochemistry() -> None:
+    """L96's three GalNAcs are N-acetyl-β-D-galactosamine and its prolinol is
+    trans-4-hydroxy-L-prolinol (EMA's assessment report for Leqvio). Each GalNAc, cut
+    from its arm at O1 and capped with a methyl, is methyl 2-acetamido-2-deoxy-β-D-
+    galactopyranoside (PubChem CID 6559236); the prolinol, cut from its acyl, is
+    (3R,5S)-5-(hydroxymethyl)pyrrolidin-3-ol (CID 15817396); and nothing is left
+    undefined."""
+    from rdkit import Chem
+
+    galnac = chemistry.free(chemistry.library()[("CHEM", "3GN3C12hp")].smiles)
+    assert not [
+        s for s in Chem.FindPotentialStereo(galnac) if s.specified != Chem.StereoSpecified.Specified
+    ]
+    sugar = Chem.MolFromSmarts(
+        "[CH2][OX2][CH1]1[OX2][CH1]([CH2][OH])[CH1]([OH])[CH1]([OH])[CH1]1[NH]C(C)=O"
+    )
+    ring = Chem.MolFromSmarts("C(=O)N1C[CH1](O)C[CH1]1CO")
+
+    def cut(at: tuple[int, int], cap: int) -> str:
+        bond = galnac.GetBondBetweenAtoms(*at).GetIdx()
+        pieces = Chem.FragmentOnBonds(galnac, [bond], dummyLabels=[(0, 0)])
+        piece = min(Chem.GetMolFrags(pieces, asMols=True), key=lambda f: f.GetNumAtoms())
+        rw = Chem.RWMol(piece)
+        for atom in rw.GetAtoms():
+            if atom.GetAtomicNum() == 0:
+                atom.SetAtomicNum(cap)
+                atom.SetIsotope(0)
+        mol = rw.GetMol()
+        Chem.SanitizeMol(mol)
+        return str(Chem.MolToInchiKey(Chem.RemoveHs(mol)))  # type: ignore[no-untyped-call]
+
+    sugars = [cut((m[0], m[1]), 6) for m in galnac.GetSubstructMatches(sugar)]
+    assert sugars == ["ZEVOCXOZYFLVKN-SYHAXYEDSA-N"] * 3
+    ((acyl, _, n, *_),) = galnac.GetSubstructMatches(ring)
+    assert cut((acyl, n), 1) == "CALDMMCNNFPJSI-CRCLSJGQSA-N"

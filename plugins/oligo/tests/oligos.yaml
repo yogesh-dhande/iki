@@ -163,9 +163,8 @@ name: inclisiran_sense_strand_with_galnac
 description: >-
   Inclisiran's sense strand with its triantennary GalNAc (L96) on a 3′ phosphate:
   C292H416F2N75O182P21S2, 8,641.40 g/mol as the free acid (EMA's EPAR for Leqvio, Table
-  1). The GalNAc's
-  constitution is the Ionis library's; its sugars' stereochemistry isn't drawn, which
-  weight and formula don't depend on.
+  1). The GalNAc's constitution is the Ionis library's, with its sugars' and
+  prolinol's stereochemistry given, which weight and formula don't depend on.
 action: register_oligonucleotide
 params:
   helm: "RNA1{[mR](C)[sP].[mR](U)[sP].[mR](A)P.[mR](G)P.[mR](A)P.[mR](C)P.[fR](C)P.[mR](U)P.[fR](G)P.[mR](U)P.[dR](T)P.[mR](U)P.[mR](U)P.[mR](G)P.[mR](C)P.[mR](U)P.[mR](U)P.[mR](U)P.[mR](U)P.[mR](G)P.[mR](U)P}|CHEM1{[3GN3C12hp]}$RNA1,CHEM1,63:R2-1:R1$$$V2.0"

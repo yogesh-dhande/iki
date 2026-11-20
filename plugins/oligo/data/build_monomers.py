@@ -101,7 +101,13 @@ FROM_IONIS: list[tuple[str, str, str | None, float, str]] = [
     (
         "3GN3C12hp",
         "Triantennary GalNAc (GalNAc3, as L96), on a hydroxyprolinol linker",
-        None,
+        # Its constitution, with each GalNAc's stereochemistry (N-acetyl-beta-D-
+        # galactosamine) and its prolinol's (trans-4-hydroxy-L-prolinol, (2S,4R)), as
+        # EMA's assessment report for Leqvio describes them.
+        "O(CC(NC(CCCCCCCCCCC(N1C[C@H](O)C[C@H]1CO[H:1])=O)=O)"
+        "(COCCC(=O)NCCCNC(CCCCO[C@@H]2O[C@H](CO)[C@H](O)[C@H](O)[C@H]2NC(C)=O)=O)"
+        "COCCC(NCCCNC(CCCCO[C@@H]3O[C@H](CO)[C@H](O)[C@H](O)[C@H]3NC(C)=O)=O)=O)"
+        "CCC(NCCCNC(CCCCO[C@@H]4O[C@H](CO)[C@H](O)[C@H](O)[C@H]4NC(C)=O)=O)=O",
         0,
         NO_CHROMOPHORE,
     ),

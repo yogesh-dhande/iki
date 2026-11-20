@@ -247,8 +247,8 @@
    "name": "Triantennary GalNAc (GalNAc3, as L96), on a hydroxyprolinol linker",
    "role": "modifier",
    "natural_analogue": null,
-   "smiles": "O(CC(NC(CCCCCCCCCCC(N1CC(CC1CO[H:1])O)=O)=O)(COCCC(=O)NCCCNC(CCCCOC2OC(C(C(C2NC(C)=O)O)O)CO)=O)COCCC(NCCCNC(CCCCOC3OC(C(C(C3NC(C)=O)O)O)CO)=O)=O)CCC(NCCCNC(CCCCOC4OC(C(C(C4NC(C)=O)O)O)CO)=O)=O",
-   "source": "HELMMonomerSets Ionis library (Pistoia Alliance, commit fecc972, MIT)",
+   "smiles": "O(CC(NC(CCCCCCCCCCC(N1C[C@H](O)C[C@H]1CO[H:1])=O)=O)(COCCC(=O)NCCCNC(CCCCO[C@@H]2O[C@H](CO)[C@H](O)[C@H](O)[C@H]2NC(C)=O)=O)COCCC(NCCCNC(CCCCO[C@@H]3O[C@H](CO)[C@H](O)[C@H](O)[C@H]3NC(C)=O)=O)=O)CCC(NCCCNC(CCCCO[C@@H]4O[C@H](CO)[C@H](O)[C@H](O)[C@H]4NC(C)=O)=O)=O",
+   "source": "HELMMonomerSets Ionis library (Pistoia Alliance, commit fecc972, MIT), corrected",
    "extinction_260": 0,
    "extinction_source": "No chromophore that absorbs at 260 nm: saturated chains and amides."
   },
