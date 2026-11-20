@@ -367,6 +367,44 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
+name: each_csv_record_is_digested_as_written
+description: >-
+  A CSV file as Excel writes it, lines ending CRLF: two records whose descriptions span
+  two lines and end alike, and one with a LINE SEPARATOR (U+2028) in a cell, which isn't
+  a line end in CSV. Each create's origin has the SHA-256 of every line its record spans,
+  with their line ends (ADR 0052), computed apart from Iki with `shasum -a 256`.
+action: import_oligonucleotides
+params:
+  file: { $file: oligos }
+files: { oligos: tests/data/excel.csv }
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values: { name: two-line, bases: AC }
+        origin:
+          id: two-line
+          sha256: 486164aadd808391e7d7d9f12ff93dfe33dd1ec896dc4f114bf1921e7d2f5557
+      - type: iki/oligo.Oligonucleotide
+        values: { name: other two-line, bases: GT }
+        origin:
+          id: other two-line
+          sha256: 9396ffd5e05d4428713792f3f324d328435a114c2db48555d64c38e3c724820b
+      - type: iki/oligo.Oligonucleotide
+        values: { name: separator, bases: AT }
+        origin:
+          id: separator
+          sha256: f81f2ff0e4aa4802a58b30546a83a85a8de90ea0401c8212ea932bb07556b435
+    metrics: { rows: 3, skipped: 0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
 name: an_sdf_file_with_a_monomer_nobody_registered
 description: >-
   An SDF file of HELM: fomivirsen, and an oligonucleotide naming [xyz], which neither

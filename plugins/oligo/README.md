@@ -71,7 +71,9 @@ BSD-3-Clause), the small_molecule plugin's release, which asks for 512 MiB.
 - **`import_oligonucleotides`**: registers each row of a CSV file (a `helm`
   column, and `name` and `description` if it has them) or each record of an
   SDF file (a `HELM` data item, and its `Name` item or title), up to 2,000.
-  Each records the row or record it came from, with its SHA-256. A row that
+  Each records the row or record it came from, with its SHA-256: of every line
+  a CSV row spans, a quoted value's line breaks among them, with their line
+  ends as the file has them. A row that
   can't be registered fails the run, naming each, or with `on_error: skip` is
   left out, registering none of its monomers.
 - **`compute_oligonucleotide`**: an oligonucleotide's properties from the

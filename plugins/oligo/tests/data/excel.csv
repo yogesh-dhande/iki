@@ -1,0 +1,6 @@
+name,helm,description
+two-line,RNA1{[dR](A)P.[dR](C)}$$$$V2.0,"first line
+same end"
+other two-line,RNA1{[dR](G)P.[dR](T)}$$$$V2.0,"other line
+same end"
+separator,RNA1{[dR](A)P.[dR](T)}$$$$V2.0,A B

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import json
 import os
 import re
@@ -41,6 +40,9 @@ MAX_OUTPUT_BYTES = 2_500_000
 #: The most an import registers at once.
 MAX_IMPORT = 2_000
 SDF_END = re.compile(r"^\$\$\$\$[ \t]*\r?$", re.MULTILINE)
+#: A line of a CSV file, with its line end: CRLF, LF or CR, as RFC 4180 and Python's csv
+#: module end one.
+CSV_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
 
 
 class Refused(Exception):  # noqa: N818 - reads as "the run is refused"
@@ -326,18 +328,27 @@ def design(run: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _rows_csv(text: str) -> list[dict[str, str]]:
-    """Each row's values by its column's name, in lower case, and the row as written
-    (under "")."""
-    lines = text.splitlines(keepends=True)
-    reader = csv.DictReader(io.StringIO(text))
+    """Each row's values by its column's name, in lower case, and the record as written
+    (under ""): every line it spans, a quoted value's line ends among them, with their
+    own line ends, as the file has them (ADR 0052)."""
+    # The reader is given the lines as CSV ends them, and only so (not at U+2028, form
+    # feeds or the other line ends str.splitlines knows), so the lines it counts are these.
+    lines = CSV_LINE.findall(text)
+    reader = csv.DictReader(lines)
     fields = {f.lower().strip(): f for f in reader.fieldnames or []}
     if "helm" not in fields:
         raise Refused("Its first line names its columns, and one of them is helm.")
     out = []
+    start = reader.line_num
     for row in reader:
+        end = reader.line_num
+        # Blank lines before it, which the reader skips, are no record's.
+        while start < end and not lines[start].strip("\r\n"):
+            start += 1
         values = {k.lower().strip(): (v or "").strip() for k, v in row.items() if k}
-        values[""] = "".join(lines[reader.line_num - 1 : reader.line_num])
+        values[""] = "".join(lines[start:end])
         out.append(values)
+        start = end
     return out
 
 
@@ -372,7 +383,9 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
     params = run["params"]
     file_id = params["file"]
     path = Path(run["files"][file_id]["path"])
-    text = path.read_text(encoding="utf-8-sig")
+    # As written: its line ends untranslated, so each record's digest is of its bytes.
+    with path.open(encoding="utf-8-sig", newline="") as written:
+        text = written.read()
     sdf = path.suffix.lower() in (".sdf", ".sd") or SDF_END.search(text) is not None
     rows = _rows_sdf(text) if sdf else _rows_csv(text)
     if len(rows) > MAX_IMPORT:
