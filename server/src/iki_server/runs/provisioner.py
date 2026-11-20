@@ -13,8 +13,9 @@ Each :func:`tick`:
   its environment's templates (by priority, then size) that it fits and whose lifecycle
   its action asks for. The provisioner starts a pod for each job that no free pod can take
   (one starting, or a persistent one with nothing to do), up to the template's
-  ``max_concurrent``, a few at a time. A template whose pods keep failing to start waits
-  longer each time before the next.
+  ``max_concurrent``, a few at a time. Which jobs are still queued and which pods are
+  free are read together, so a job a pod leases as the provisioner looks gets none. A
+  template whose pods keep failing to start waits longer each time before the next.
 - **Keeps machines warm** (ADR 0062). ``k8s_deployment`` templates are persistent: their
   pods run one job after another. Each keeps ``min_warm`` running for each environment
   bound to it, and stops one that has had nothing to do for ``idle_shutdown`` (ten minutes
@@ -42,8 +43,8 @@ from typing import Any, TypeGuard
 
 import structlog
 from django.conf import settings
-from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db import connection, transaction
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from iki_server.entities import registry
@@ -313,12 +314,12 @@ def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[tuple[str, str, s
     return found
 
 
-def _free(provisioners: tuple[str, ...]) -> list[Launch]:
+def _free(provisioners: tuple[str, ...]) -> QuerySet[Launch]:
     """Machines that can take a job now or once they start: one starting, or a persistent
     one with nothing to do."""
     held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
     ever = Job.objects.filter(worker__launch=OuterRef("pk"))
-    return list(
+    return (
         Launch.objects.exclude(state=LaunchState.ENDED)
         # A machine started for a setup build runs nothing else (ADR 0075).
         .filter(provisioner__in=provisioners, setup__isnull=True)
@@ -326,6 +327,30 @@ def _free(provisioners: tuple[str, ...]) -> list[Launch]:
         .filter(Q(once=False, held=False) | Q(once=True, ever=False))
         .order_by("created_at")
     )
+
+
+def _now_queued_and_free(
+    jobs: list[Job], provisioners: tuple[str, ...]
+) -> tuple[set[uuid.UUID], list[Launch]]:
+    """Which of `jobs` are still queued, and which machines are free, as of one moment.
+
+    :func:`demand` read the jobs a little earlier. A worker that leased one since, a warm
+    pod's woken as the run was queued, say, isn't free any more, and the job is no longer
+    queued: read apart, the job would look like one no free machine can take, and get a
+    machine of its own that nothing needs. One statement sees one snapshot (Postgres
+    gives each its own), so a lease is seen in both or in neither."""
+    still = Job.objects.filter(pk__in=[job.pk for job in jobs], state=JobState.QUEUED)
+    queued_sql, queued_params = still.values("pk").query.sql_with_params()
+    free_sql, free_params = _free(provisioners).values("pk").query.sql_with_params()
+    with connection.cursor() as cursor:
+        # What's interpolated is Django's own compiled SQL; every value is a parameter.
+        cursor.execute(
+            f"SELECT ARRAY({queued_sql}), ARRAY({free_sql})",
+            (*queued_params, *free_params),
+        )
+        queued, free = cursor.fetchone()
+    found = Launch.objects.in_bulk(free)
+    return set(queued), [found[pk] for pk in free if pk in found]
 
 
 def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
@@ -343,12 +368,17 @@ def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
 def _unmet(
     groups: dict[tuple[str, str, str], Group], provisioners: tuple[str, ...]
 ) -> Counter[tuple[str, str, str]]:
-    """How many of each group's jobs no free machine can take."""
-    templates = catalog.compute().templates
-    spare = _free(provisioners)
+    """How many of each group's jobs, still queued, no free machine can take."""
     unmet: Counter[tuple[str, str, str]] = Counter()
+    jobs = [job for group in groups.values() for job in group.jobs]
+    if not jobs:
+        return unmet
+    templates = catalog.compute().templates
+    queued, spare = _now_queued_and_free(jobs, provisioners)
     for key, group in groups.items():
         for job in group.jobs:
+            if job.pk not in queued:
+                continue  # leased, or cancelled, since demand() read it
             taken = next((i for i, m in enumerate(spare) if _serves(m, job, templates)), None)
             if taken is None:
                 unmet[key] += 1

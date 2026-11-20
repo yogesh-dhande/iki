@@ -3362,13 +3362,16 @@ def containers() -> None:
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
     action = "acme/example.tidy_storage"
+    # container-warm keeps one pod and allows no more (compute.yaml), so both runs share
+    # it only if it ran one after the other; what runs where doesn't depend on which of
+    # two free pods won a lease.
     ran = [
         _contained(alice, project, action, _sample(alice, project, storage=" -80C   freezer"))
         for _ in range(2)
     ]
     workers = {attempt["worker"] for _, attempt, _ in ran}
     if len(workers) != 1 or any(a["template"] != "container-warm" for _, a, _ in ran):
-        fail(f"{action}'s runs didn't share the warm pod: {[a for _, a, _ in ran]}")
+        fail(f"{action}'s runs didn't share the one warm pod: {[a for _, a, _ in ran]}")
     if any(storage != "-80 °C freezer" for _, _, storage in ran):
         fail(f"{action} wrote {[s for _, _, s in ran]}")
     (worker,) = workers
