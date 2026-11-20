@@ -103,7 +103,8 @@ fields:
       chain_ids: a letter for each residue of its protein's sequence. H is an
       alpha helix, G a 3-10 helix, I a pi helix, P a polyproline II helix, E a
       strand in a sheet, B an isolated bridge, T a turn, S a bend, - none, and ?
-      a residue the structure doesn't have coordinates for.
+      a residue DSSP didn't assign: one the structure has no coordinates for, or
+      one DSSP leaves out, such as a chromophore (GFP's CRO).
   helix_fraction:
     type: quantity
     registry: derived
@@ -112,7 +113,7 @@ fields:
     max: 100
     computed: true
     indexed: true
-    description: The share of its proteins' modelled residues in helices (H, G or I).
+    description: The share of the residues DSSP assigned in its chains that are in helices (H, G or I).
   strand_fraction:
     type: quantity
     registry: derived
@@ -121,7 +122,7 @@ fields:
     max: 100
     computed: true
     indexed: true
-    description: The share of its proteins' modelled residues in strands or bridges (E or B).
+    description: The share of the residues DSSP assigned in its chains that are in strands or bridges (E or B).
   accessible_surface_area:
     type: quantity
     registry: derived

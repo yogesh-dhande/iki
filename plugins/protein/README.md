@@ -306,9 +306,12 @@ numbered from 101, with insertion codes (52A) or with residues missing gets
 its letters on its own residues. The image's check compares them with what
 mkdssp gives reading the PDB file itself: H, G and I are helices (alpha, 3-10, pi), P a
 polyproline II helix, E a strand in a sheet, B an isolated bridge, T a turn, S
-a bend, `-` none, and `?` a residue without coordinates. The helix share
-counts H, G and I, and the strand share E and B, over residues with
-coordinates. The accessible surface is the sum of the residues', as DSSP
+a bend, `-` none, and `?` a residue DSSP didn't assign: one without
+coordinates, or one DSSP leaves out though it has them, such as green
+fluorescent protein's chromophore (CRO 66 in PDB 1EMA). The helix share counts
+H, G and I, and the strand share E and B, over the residues DSSP assigned (in
+1EMA's chain A, 117 strand residues of 225 assigned, 52.0%, where 226 have
+coordinates). The accessible surface is the sum of the residues', as DSSP
 reports it, with the chains together. A residue DSSP gives no accessibility
 (`?`) has no measured area, so the surface is then left out, and the run says
 how many had none; mkdssp 4.4.10 writes every residue's or none. DSSP takes residues' chemistry from
