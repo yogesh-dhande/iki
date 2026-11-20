@@ -91,8 +91,8 @@ and how a lab built its own copy is the lab's record, not a fact about the
 molecule.
 
 **`iki/plasmid.Plasmid` covers circular plasmids, and says so.** Linear
-plasmids are real -- *Kluyveromyces lactis* carries pGKL1 and pGKL2,
-*Borrelia burgdorferi* a set of them, *Streptomyces coelicolor* SCP1 -- and
+plasmids are real -- _Kluyveromyces lactis_ carries pGKL1 and pGKL2,
+_Borrelia burgdorferi_ a set of them, _Streptomyces coelicolor_ SCP1 -- and
 GenBank records them (their `LOCUS` line reads `linear`), as Benchling and
 SnapGene both let a plasmid record be linear. So the refusal here isn't a
 claim about what a plasmid can be. It's the boundary of what this plugin

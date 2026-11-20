@@ -39,8 +39,8 @@ from.
     agreement; one at BSL-2 or above names its biosafety approval.
   - A plasmid record here is a **circular** one: the map draws a circle, the annotation
     reads across the origin, and a cloning plan has to close into one. Linear plasmids
-    are real — *Kluyveromyces lactis* carries pGKL1 and pGKL2, *Borrelia burgdorferi* a
-    set of them, *Streptomyces coelicolor* SCP1 — and GenBank records them, so this is
+    are real — _Kluyveromyces lactis_ carries pGKL1 and pGKL2, _Borrelia burgdorferi_ a
+    set of them, _Streptomyces coelicolor_ SCP1 — and GenBank records them, so this is
     the plugin's boundary rather than biology's
     ([ADR 0163](../../docs/adr/0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md)).
     A linear molecule is held as an `iki/dna.DNASequence`, which reads it as it is.
