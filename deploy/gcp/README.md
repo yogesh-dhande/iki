@@ -119,7 +119,10 @@ replica), served only by an internal load balancer; checks Iki's
 readiness, the setup link, a project and entity, a file through signed
 URLs, a backend worker's run, the bucket and the database's private TLS;
 then always tears it down with `scripts/teardown.sh` and fails if anything
-of its own is left but what Google Cloud keeps. It bills the project a few
+of its own is left but what Google Cloud keeps, or anything that was there
+is gone. Since a project has one Binary Authorization policy, it refuses
+to start in a project whose policy isn't the untouched one, or where a
+cluster or Cloud Run service or job enforces it. It bills the project a few
 US dollars, and never runs on CI. Last, it reports what the run cost at list
 prices (`make gcp-live-cost` does again). Its settings, including
 `IKI_GCP_TOKEN_COMMAND` for the identity it acts as, are in
