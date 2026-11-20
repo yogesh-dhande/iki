@@ -431,6 +431,11 @@ class TypeAmountOut(Schema):
         description="For aliquots of another type, its reference naming the record each was "
         "split from."
     )
+    material: str | None = Field(
+        description="Its reference naming what its amount is of, such as a lot's molecule: "
+        "a transfer into one of its records takes only that entity's, and its aliquots are "
+        "of it too."
+    )
 
 
 class EntityTypeOut(Schema):
@@ -1221,6 +1226,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
         "concentration": wanted.concentration,
         "aliquots": wanted.aliquots or type_name,
         "aliquots_of": wanted.aliquots_of,
+        "material": wanted.material,
     }
 
 

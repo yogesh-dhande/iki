@@ -754,6 +754,7 @@ def _amount(data: Any, plugin: str) -> Amount | None:  # noqa: ANN401 - YAML
         concentration=data.get("concentration"),
         aliquots=qualify(aliquots["type"], plugin) if "type" in aliquots else None,
         aliquots_of=aliquots.get("of"),
+        material=data.get("material"),
     )
 
 
@@ -1742,6 +1743,8 @@ class _Semantics:
             self.concentration(amount.concentration, unit, every, source)
         if amount.aliquots is not None:
             self.aliquots(entity_type, amount, source)
+        if amount.material is not None:
+            self.material(amount.material, every, source)
 
     def amount_unit(self, code: str, unit: units.Unit, source: Document, at: Path) -> None:
         try:
@@ -1795,6 +1798,29 @@ class _Semantics:
                 source,
                 at,
                 hint="Such as mg/mL for an amount in uL or in mg.",
+            )
+
+    def material(
+        self, name: str, every: dict[str, tuple[Field, EntityType]], source: Document
+    ) -> None:
+        found = every.get(name)
+        f = found[0] if found is not None else None
+        if f is None or f.removed or f.type != "ref" or not (f.required and f.immutable):
+            self.add(
+                "amount-material",
+                f"`material` names a required, immutable reference of the type, to what its "
+                f"amount is of, and `{name}` "
+                + (
+                    "isn't one."
+                    if f is None or f.removed
+                    else f"is a {f.type} field."
+                    if f.type != "ref"
+                    else "isn't both required and immutable: what a record is of can't change."
+                ),
+                source,
+                ("amount", "material"),
+                hint="Such as `of: { type: ref, to: iki/core.Entity, required: true, "
+                "immutable: true }`.",
             )
 
     def aliquots(self, entity_type: EntityType, amount: Amount, source: Document) -> None:

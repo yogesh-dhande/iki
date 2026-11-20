@@ -13487,6 +13487,11 @@ export interface components {
              */
             label: string;
             /**
+             * Material
+             * @description Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+             */
+            material: string | null;
+            /**
              * Unit
              * @description The UCUM unit it's kept in, such as uL, mg or {vial}.
              */

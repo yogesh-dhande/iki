@@ -68,6 +68,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
     concentration: "concentration",
     aliquots: "acme/lims.Sample",
     aliquots_of: null,
+    material: null,
   },
 };
 

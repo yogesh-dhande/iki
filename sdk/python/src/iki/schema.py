@@ -4447,6 +4447,8 @@ class TypeAmountOut(TypedDict):
     display_unit: str | None
     #: What it's called, such as Volume.
     label: str
+    #: Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+    material: str | None
     #: The UCUM unit it's kept in, such as uL, mg or {vial}.
     unit: str
 

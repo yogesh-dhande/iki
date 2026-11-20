@@ -2727,6 +2727,17 @@ def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
     ]
     assert problems(("of: parent", "of: nothing")) == ["amount-aliquots"]
     assert problems(("amount: { unit: uL }\n", "")) == ["amount-aliquots"]
+    # What an amount is of is a reference no record can change: a lot's molecule.
+    of_its_parent = ("amount: { unit: uL }\n", "amount: { unit: uL, material: parent }\n")
+    fixed = (
+        "parent: { type: ref, to: Assay }",
+        "parent: { type: ref, to: Assay, required: true, immutable: true }",
+    )
+    assert problems(of_its_parent, fixed) == []
+    assert problems(of_its_parent) == ["amount-material"]
+    assert problems(of_its_parent, fixed, ("material: parent", "material: nothing")) == [
+        "amount-material"
+    ]
     assert problems(
         ("hrid: { prefix: ALQ }", "hrid: { prefix: ALQ }\nextends: Assay"),
         ("amount: { unit: uL }\n", "amount: { unit: mL }\n"),
