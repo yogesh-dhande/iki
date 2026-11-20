@@ -158,7 +158,9 @@ scenes:
 | `closing`      | The last scene of every video: the takeaway, and what's next.                        | `statement`, `next`                                                                              | `statement`, `next`, `brand`                                                            |
 
 The layouts place everything: inside the title-safe area, above the caption band, at the
-theme's sizes. You never give a position or a size. If none of them can show what you need,
+theme's sizes. A graph going right widens each gap between columns for its longest edge
+label, and narrows its nodes to stay in the frame; the check refuses one whose labels
+can't fit even then. Keep edge labels to a few words. You never give a position or a size. If none of them can show what you need,
 see [custom code](#when-the-layouts-arent-enough).
 
 The content a slot takes, in the app's own terms:

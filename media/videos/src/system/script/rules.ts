@@ -1,5 +1,6 @@
 // What the schema can't say: the checks that keep scripts consistent with the layouts and
 // the pacing rules. Each problem names where it is.
+import { graphColumns, graphEdge } from "../layouts/graph-geometry.ts";
 import { caption } from "../theme/theme.ts";
 import { wrapCaption } from "./captions.ts";
 import { partsOf } from "./parts.ts";
@@ -81,6 +82,15 @@ export function checkRules(video: Video): string[] {
           if (!nodes.has(end))
             problems.push(`${where}: an edge names "${end}", which isn't a node.`);
         }
+      }
+      if (
+        scene.slots.direction !== "down" &&
+        scene.slots.edges.every((edge) => nodes.has(edge.from) && nodes.has(edge.to)) &&
+        !graphColumns(scene.slots.nodes, scene.slots.edges).fits
+      ) {
+        problems.push(
+          `${where}: its columns and edge labels don't fit across the frame, even with nodes ${String(graphEdge.minNode)} px wide: shorten the longest labels, or show fewer steps.`,
+        );
       }
     }
     if (scene.layout === "gallery") {

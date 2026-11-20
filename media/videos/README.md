@@ -118,7 +118,7 @@ artifact, so a pull request can be reviewed without Git LFS.
 | `fonts/`                                   | Inter 4.1 and JetBrains Mono 2.304, both under the SIL Open Font License 1.1 (`OFL.txt` beside each).                                  |
 | `Dockerfile`, `tools/container.sh`         | The render image, and what runs a command in it on this checkout.                                                                      |
 | `script.schema.json`                       | The script's JSON Schema, for editors' autocompletion. Generated: `pnpm --filter @ikisci/videos schema`.                               |
-| `tools/`                                   | `render`, `check`, `captions`, `frames`, `tokens`, `schema` and `container.sh`.                                                        |
+| `tools/`                                   | `render`, `check`, `captions`, `frames`, `tokens`, `metrics`, `schema` and `container.sh`.                                             |
 | `out/`                                     | The renders and their sidecars. MP4s are in Git LFS; the rest is plain text, or a small PNG.                                           |
 | `src/<video>/*.meta`, `src/*/project.meta` | Motion Canvas's own settings files. Keep them; nothing in them is ours.                                                                |
 
@@ -145,7 +145,10 @@ the same pull request:
 3. Commit the script and everything in `out/` for that video, together.
 
 When the design tokens change in `iki.css`, run `pnpm --filter @ikisci/videos tokens`, then
-render every video again.
+render every video again. When a font changes, regenerate its character widths
+(`src/system/theme/metrics.generated.ts`, which layouts use to make room for text) with
+`media/videos/tools/container.sh node tools/metrics.ts`, so they're measured by the
+renderer's own Chromium.
 
 ## Captions and voice-over
 

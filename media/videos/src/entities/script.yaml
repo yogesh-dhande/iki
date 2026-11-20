@@ -368,8 +368,8 @@ scenes:
         - { id: aliquot, kind: Aliquot, title: ALQ-000031 }
       edges:
         - { from: protein, to: compute, label: registered }
-        - { from: donor, to: hold, label: withdrawn }
-        - { from: hold, to: aliquot, label: holds }
+        - { from: donor, to: hold, label: consent withdrawn }
+        - { from: hold, to: aliquot, label: put on hold }
     beats:
       - id: triggers-registered
         caption: A trigger runs an action when an entity changes, such as registering a protein.

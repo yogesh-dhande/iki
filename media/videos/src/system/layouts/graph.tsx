@@ -1,6 +1,7 @@
 // How things connect: entities and runs as nodes, links as labelled arrows. Nodes go in
 // columns (or rows, going down) by how far they are from where the graph starts, so an
 // arrow always points onward: what something was made from, then what was made from it.
+// Going right, each gap between columns fits its labels (graph-geometry.ts).
 import { Node, type Layout, type Rect } from "@motion-canvas/2d";
 import { Vector2 } from "@motion-canvas/core";
 import { Connector } from "../components/Connector.tsx";
@@ -8,32 +9,20 @@ import { GraphNode } from "../components/GraphNode.tsx";
 import type { Parts } from "../components/parts.ts";
 import { SignatureMark } from "../components/SignatureMark.tsx";
 import { Text } from "../components/Text.tsx";
-import type { GraphEdgeData, GraphNodeData, SceneOf } from "../script/schema.ts";
+import type { SceneOf } from "../script/schema.ts";
 import { content, layoutSize, size, space } from "../theme/theme.ts";
-
-/** Each node's depth: the longest path to it from a node nothing points to. */
-export function depths(nodes: GraphNodeData[], edges: GraphEdgeData[]): Map<string, number> {
-  const depth = new Map(nodes.map((node) => [node.id, 0]));
-  // Longest paths in a DAG: relax every edge until nothing changes (at most once a node).
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const edge of edges) {
-      const next = (depth.get(edge.from) ?? 0) + 1;
-      if (next > (depth.get(edge.to) ?? 0) && next < nodes.length) {
-        depth.set(edge.to, next);
-        changed = true;
-      }
-    }
-  }
-  return depth;
-}
+import { depths, edgeGeometry, graphColumns, graphEdge } from "./graph-geometry.ts";
 
 export function graphLayout(scene: SceneOf<"graph">, parts: Parts): Node {
   const { slots } = scene;
   const down = slots.direction === "down";
-  const depth = depths(slots.nodes, slots.edges);
+  const columns = down ? undefined : graphColumns(slots.nodes, slots.edges);
+  const depth = columns?.depth ?? depths(slots.nodes, slots.edges);
   const levels = Math.max(...depth.values()) + 1;
+  const nodeWidth = columns?.nodeWidth ?? size.node.width;
+  const labelAt = new Map(
+    columns ? edgeGeometry(columns, slots.edges).map((g) => [g.edge, g.labelAt]) : [],
+  );
   const root = <Node />;
   const cards = new Map<string, Rect>();
   const signatures = new Map<string, Rect>();
@@ -47,7 +36,9 @@ export function graphLayout(scene: SceneOf<"graph">, parts: Parts): Node {
   }
 
   for (const node of slots.nodes) {
-    const card = (<GraphNode ref={parts.ref(`node:${node.id}`)} node={node} />) as Rect;
+    const card = (
+      <GraphNode ref={parts.ref(`node:${node.id}`)} node={node} width={nodeWidth} />
+    ) as Rect;
     cards.set(node.id, card);
     root.add(card);
     if (node.signature) {
@@ -55,7 +46,7 @@ export function graphLayout(scene: SceneOf<"graph">, parts: Parts): Node {
         <SignatureMark
           ref={parts.ref(`signature:${node.id}`)}
           signature={node.signature}
-          width={size.node.width}
+          width={nodeWidth}
         />
       ) as Rect;
       mark.offset([0, -1]);
@@ -91,7 +82,7 @@ export function graphLayout(scene: SceneOf<"graph">, parts: Parts): Node {
         card.y(top + ((level + 0.5) * height) / levels);
         card.x(along);
       } else {
-        card.x(content.left + ((level + 0.5) * content.width) / levels);
+        card.x(columns?.centers[level] ?? 0);
         card.y(() => (top + content.bottom) / 2 + along());
       }
     });
@@ -104,9 +95,12 @@ export function graphLayout(scene: SceneOf<"graph">, parts: Parts): Node {
     root.add(
       <Connector
         ref={parts.ref(`edge:${edge.from}>${edge.to}`)}
-        from={() => (down ? from.bottom().addY(space.xs) : from.right().addX(space.xs))}
-        to={() => (down ? to.top().addY(-space.xs) : to.left().addX(-space.xs))}
+        from={() =>
+          down ? from.bottom().addY(graphEdge.inset) : from.right().addX(graphEdge.inset)
+        }
+        to={() => (down ? to.top().addY(-graphEdge.inset) : to.left().addX(-graphEdge.inset))}
         label={edge.label}
+        labelAt={labelAt.get(edge)}
       />,
     );
   }
