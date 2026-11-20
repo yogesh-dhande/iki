@@ -1,46 +1,47 @@
 {
   "video": "entities",
-  "title": "Entities: one record, its whole history",
-  "description": "In Iki, each molecule is one entity: a typed record, defined by a plugin, registered once, with every revision kept and links to everything made from it. This video follows the antibody trastuzumab from five spreadsheets and a notebook to one record in Iki.\n\nChapters\n0:00 The problem: one antibody, many copies\n0:18 One entity, defined by a plugin\n0:30 Identity and the registry\n0:48 Every revision kept\n0:58 Links, lineage and signatures",
+  "title": "Entities: how they work in Iki",
+  "description": "How entities work in Iki. An entity is a typed record: it has the fields its type defines, an ID people can read, and a project it's kept in. Plugins define the types, and a lab can add its own, with their fields, what makes two the same, and their rules. Registering the same thing again finds its registry entry. Every change is a revision, and a signature is tied to the revision it signs. Triggers run actions when entities change, once a project Admin turns them on. Entities link to what was made from them.\n\nChapters\n0:00 What an entity is\n0:21 A lab’s own types\n0:34 Identity and the registry\n0:45 History and signatures\n1:01 Triggers and links",
   "tags": [
     "Iki",
-    "scientific data management",
-    "LIMS",
-    "biologics registry",
-    "antibody registration",
+    "entities",
+    "entity types",
+    "plugins",
+    "registry",
+    "revisions",
     "audit trail",
-    "data lineage",
     "electronic signatures",
-    "trastuzumab"
+    "triggers",
+    "data lineage"
   ],
   "chapters": [
     {
       "start": 0,
       "time": "0:00",
-      "title": "The problem: one antibody, many copies"
+      "title": "What an entity is"
     },
     {
-      "start": 18,
-      "time": "0:18",
-      "title": "One entity, defined by a plugin"
+      "start": 21,
+      "time": "0:21",
+      "title": "A lab’s own types"
     },
     {
-      "start": 30,
-      "time": "0:30",
+      "start": 34,
+      "time": "0:34",
       "title": "Identity and the registry"
     },
     {
-      "start": 48,
-      "time": "0:48",
-      "title": "Every revision kept"
+      "start": 45,
+      "time": "0:45",
+      "title": "History and signatures"
     },
     {
-      "start": 58,
-      "time": "0:58",
-      "title": "Links, lineage and signatures"
+      "start": 61,
+      "time": "1:01",
+      "title": "Triggers and links"
     }
   ],
-  "duration": 77.478,
+  "duration": 92.922,
   "language": "en",
   "files": {
     "video": "entities.mp4",

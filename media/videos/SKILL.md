@@ -12,9 +12,15 @@ before you start. This is the workflow, end to end.
 
 ## 1. Agree the concept
 
-If you don't have an approved concept, write one: a title ("Concept: its promise"), a
-target length, five to eight scenes (what's seen, and the one line said), and a last line
-naming the next video. Stop and get it approved before writing the script.
+If you don't have an approved concept, write one: a plain title (the concept's name, and a
+subtitle such as "How entities work"), a target length, five to nine scenes (what's seen,
+and the one line said), and a last line naming the next video. Stop and get it approved
+before writing the script.
+
+A concept video explains the concept: what it is, examples, how it's extended, and how it
+connects. It doesn't open with a "before" or a problem, and it doesn't sell: captions
+describe mechanisms, not outcomes, and avoid the words AUTHORING.md lists under "Explain
+the concept; don't sell it".
 
 ## 2. Check every fact before you draw it
 

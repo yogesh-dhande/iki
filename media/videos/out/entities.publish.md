@@ -1,8 +1,8 @@
-# Entities: one record, its whole history
+# Entities: how they work in Iki
 
 <!-- Generated from the script by make video: edit the script, not this file. -->
 
-Duration: 1:17. Language: English.
+Duration: 1:32. Language: English.
 
 ## Files
 
@@ -13,21 +13,21 @@ Duration: 1:17. Language: English.
 
 ## Title
 
-Entities: one record, its whole history
+Entities: how they work in Iki
 
 ## Description
 
 ```text
-In Iki, each molecule is one entity: a typed record, defined by a plugin, registered once, with every revision kept and links to everything made from it. This video follows the antibody trastuzumab from five spreadsheets and a notebook to one record in Iki.
+How entities work in Iki. An entity is a typed record: it has the fields its type defines, an ID people can read, and a project it's kept in. Plugins define the types, and a lab can add its own, with their fields, what makes two the same, and their rules. Registering the same thing again finds its registry entry. Every change is a revision, and a signature is tied to the revision it signs. Triggers run actions when entities change, once a project Admin turns them on. Entities link to what was made from them.
 
 Chapters
-0:00 The problem: one antibody, many copies
-0:18 One entity, defined by a plugin
-0:30 Identity and the registry
-0:48 Every revision kept
-0:58 Links, lineage and signatures
+0:00 What an entity is
+0:21 A lab’s own types
+0:34 Identity and the registry
+0:45 History and signatures
+1:01 Triggers and links
 ```
 
 ## Tags
 
-Iki, scientific data management, LIMS, biologics registry, antibody registration, audit trail, data lineage, electronic signatures, trastuzumab
+Iki, entities, entity types, plugins, registry, revisions, audit trail, electronic signatures, triggers, data lineage

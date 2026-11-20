@@ -213,6 +213,49 @@ describe("the videos", () => {
   );
 });
 
+describe("a gallery", () => {
+  const compact = (n: number) => ({
+    record: {
+      type: "Protein",
+      hrid: `PRT-00000${String(n)}`,
+      name: "P",
+      fields: [{ label: "Gene", value: "ERBB2" }],
+    },
+  });
+  const tall = {
+    record: {
+      type: "Protein",
+      hrid: "PRT-000009",
+      name: "P",
+      fields: [
+        { label: "Gene", value: "ERBB2" },
+        { label: "UniProt accession", value: "P04626" },
+      ],
+    },
+  };
+  const gallery = (items: unknown[]) =>
+    script({
+      scenes: [
+        {
+          id: "types",
+          layout: "gallery",
+          chapter: "Types",
+          slots: { items },
+          beats: [{ id: "types", caption: "Some types." }],
+        },
+      ],
+    });
+
+  it("holds six compact records, in two rows", () => {
+    expect(() => load(gallery([1, 2, 3, 4, 5, 6].map(compact)))).not.toThrow();
+  });
+
+  it("holds three taller records or notices", () => {
+    expect(() => load(gallery([compact(1), compact(2), tall]))).not.toThrow();
+    expect(() => load(gallery([compact(1), compact(2), compact(3), tall]))).toThrow(/at most 3/);
+  });
+});
+
 describe("a merge transition", () => {
   const gallery = {
     id: "copies",

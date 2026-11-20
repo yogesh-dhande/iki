@@ -1,68 +1,78 @@
 1
-00:00:00,000 --> 00:00:02,822
-Entities: one record, its whole history.
+00:00:00,000 --> 00:00:02,081
+Entities: how entities work.
 
 2
-00:00:04,022 --> 00:00:08,326
-One antibody, trastuzumab, lives in
-five spreadsheets and a notebook.
+00:00:03,281 --> 00:00:08,326
+An entity is a typed record,
+with the fields its type defines.
 
 3
-00:00:08,326 --> 00:00:13,741
-Each copy has its own name, and
-its own version of the sequence.
+00:00:08,326 --> 00:00:15,222
+It has an ID people can read,
+ABY-000001, and it’s kept in a project.
 
 4
-00:00:13,741 --> 00:00:17,804
-The same molecule, six
-versions of the truth.
+00:00:16,422 --> 00:00:21,467
+Plugins define the types, each
+with its own ID prefix and fields.
 
 5
-00:00:19,904 --> 00:00:24,948
-In Iki, it’s one entity: a typed
-record, defined by a plugin.
+00:00:22,667 --> 00:00:28,452
+A lab can add its own entity
+types, in a plugin of its own.
 
 6
-00:00:24,948 --> 00:00:29,993
-The antibody plugin defines the type:
-its chains, format, isotype and target.
+00:00:28,452 --> 00:00:33,867
+The type lists its fields, what
+makes two the same, and its rules.
 
 7
-00:00:31,193 --> 00:00:35,496
-Iki knows what makes two
-antibodies the same: their chains.
+00:00:35,067 --> 00:00:39,370
+Two antibodies with the same
+chains are the same antibody.
 
 8
-00:00:35,496 --> 00:00:41,652
-Register the same chains again, and
-Iki finds ABY-000001, not a duplicate.
+00:00:39,370 --> 00:00:45,156
+Registering them again finds ABY-000001:
+the project gets its own record.
 
 9
-00:00:42,852 --> 00:00:48,267
-One registry entry, one ID. Each
-project keeps its own record of it.
+00:00:46,356 --> 00:00:51,770
+Every change makes a new revision:
+who, when, how, and any reason given.
 
 10
-00:00:49,467 --> 00:00:54,881
-Every change is a new revision: who,
-when, how, and any reason given.
-
-11
-00:00:54,881 --> 00:00:58,444
+00:00:51,770 --> 00:00:55,333
 Revisions can’t be changed
 or removed, by anyone.
 
-12
-00:00:59,644 --> 00:01:05,059
-Entities link to everything made from
-them, so you can always trace back.
-
-13
-00:01:05,059 --> 00:01:10,474
-A lot’s release takes QA’s signature:
+11
+00:00:55,333 --> 00:01:00,748
+Releasing a lot takes QA’s signature:
 a fresh sign-in, tied to that revision.
 
+12
+00:01:01,948 --> 00:01:07,733
+A trigger runs an action when an entity
+changes, such as registering a protein.
+
+13
+00:01:07,733 --> 00:01:12,778
+Withdrawing a donor’s consent can
+hold what was made from their samples.
+
 14
-00:01:11,674 --> 00:01:15,978
-Entities are what everything
-in Iki works on. Next: actions.
+00:01:12,778 --> 00:01:18,933
+Triggers are off until a project Admin
+turns them on. Each run names its trigger.
+
+15
+00:01:20,133 --> 00:01:26,289
+An entity links to its lots, the runs
+that used it, and what they made.
+
+16
+00:01:27,489 --> 00:01:31,422
+Entities are the records
+actions work on. Next: actions.

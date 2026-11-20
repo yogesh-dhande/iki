@@ -17,14 +17,31 @@ The steps, in order:
 
 Write a short concept before any script, and get it approved. It has:
 
-- **The title**, as "Concept: its promise". For example, "Entities: one record, its whole
-  history".
+- **The title**, plain: the concept's name, such as "Entities", and a subtitle that says
+  what the video covers, such as "How entities work".
 - **A target length.** Most concepts take 60 to 90 seconds.
-- **Five to eight scenes.** For each: what the viewer sees, and the one line it says.
+- **Five to nine scenes.** For each: what the viewer sees, and the one line it says.
 - **The last line**, which names the next video in the series.
 
 A scene teaches one idea. If a scene needs two captions to make two points, it's two
 scenes.
+
+### Explain the concept; don't sell it
+
+These videos explain how Iki works. They're a reference manual, narrated.
+
+- **Explain the concept:** what it is, examples of it, how it's extended, and how it
+  connects to the rest of Iki.
+- **Don't frame a problem.** Don't open with a "before", a cold open on how things go
+  wrong without Iki, or a problem the concept solves. Start with the concept itself.
+- **Describe mechanisms, not outcomes.** "Every change makes a new revision: who, when,
+  how, and any reason given", not "so you can always trust your data". Say what Iki does
+  and how, never why it's better.
+- **No selling words:** finally, no more, just, simply, easily, effortlessly, powerful,
+  seamless, instantly, best, revolutionary, game-changing, trust, peace of mind. No benefit
+  taglines.
+- **The title, the close and the publishing description are plain and factual too.** The
+  close can simply name the next video.
 
 ## 2. Check every fact
 
@@ -133,7 +150,7 @@ scenes:
 | -------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | `title`        | The first scene of every video.                                                      | `eyebrow`, `title`, `subtitle`                                                                   | `brand`, `eyebrow`, `title`, `subtitle`                                                 |
 | `focus`        | One thing, on its own: a record, a message, a file.                                  | `heading`, `object` (a `record`, `notice` or `fragment`)                                         | `heading`, `object`, `field:<label>`                                                    |
-| `gallery`      | Several of the same kind of thing: copies, versions, examples (2 to 6).              | `heading`, `items`                                                                               | `heading`, `item:<n>` (from 1), `item:<n>.field:<label>`                                |
+| `gallery`      | Several of the same kind of thing: examples, versions (2 to 6; 3 tall cards).        | `heading`, `items`                                                                               | `heading`, `item:<n>` (from 1), `item:<n>.field:<label>`                                |
 | `split`        | Two things compared: new and existing, before and after.                             | `heading`, `left` and `right` (each a `label` and `content`), `link` (the arrow's label), `note` | `heading`, `left`, `right`, `left.field:<label>`, `right.field:<label>`, `link`, `note` |
 | `record-inset` | A record, and the plugin that defines its type.                                      | `record`, `inset` (a plugin), `link`                                                             | `record`, `field:<label>`, `inset`, `link`                                              |
 | `timeline`     | A record's history: revisions, oldest first (2 to 5).                                | `heading`, `subject`, `revisions`                                                                | `heading`, `subject`, `axis`, `revision:<n>`, `signature:<n>`                           |
@@ -262,6 +279,11 @@ phone, and read `out/<video>.publish.md`.
 
 **Script**
 
+- [ ] It explains the concept (what it is, examples, how it's extended, how it connects),
+      with no "before" or problem framing.
+- [ ] It's neutral: mechanisms, not outcomes, and none of the selling words in
+      [Explain the concept; don't sell it](#explain-the-concept-dont-sell-it), in the
+      captions, the title, the close or the description.
 - [ ] Each scene teaches one idea, through the layout made for it.
 - [ ] Lines are plain, short and in the UI's words. No caption is more than two lines.
 - [ ] Every beat but a card's has a caption. HRIDs have a `say`.

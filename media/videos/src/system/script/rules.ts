@@ -84,10 +84,16 @@ export function checkRules(video: Video): string[] {
       }
     }
     if (scene.layout === "gallery") {
-      const cards = scene.slots.items.filter((item) => !("fragment" in item)).length;
-      if (cards > 0 && scene.slots.items.length > 3) {
+      // Files and compact records (one field, no footer) fit six to a gallery, in two
+      // rows; taller cards fit three, in one.
+      const tall = scene.slots.items.filter(
+        (item) =>
+          "notice" in item ||
+          ("record" in item && (item.record.fields.length > 1 || item.record.footer)),
+      ).length;
+      if (tall > 0 && scene.slots.items.length > 3) {
         problems.push(
-          `${where}: a gallery of records or notices holds at most 3: they're taller than files.`,
+          `${where}: a gallery holds at most 3 notices, or records with more than one field or a footer: they're taller than files and compact records.`,
         );
       }
     }

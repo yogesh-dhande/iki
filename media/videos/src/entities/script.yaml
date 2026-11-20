@@ -1,40 +1,68 @@
 # yaml-language-server: $schema=../../script.schema.json
 #
-# Entities: one record, its whole history. The first of Iki's concept videos.
-# Checked against the product on 2026-11-19. Where a line rests on a decision, the ADR is
-# named beside it; re-check those when the product changes (README: "After product changes").
+# Entities: how entities work. The first of Iki's concept videos: what an entity is, the
+# types plugins define, a lab's own types, identity and the registry, history and
+# signatures, triggers, and links.
+# Checked against the product on 2026-11-19. Where a line rests on a decision or a file,
+# it's named beside the scene; check those again when the product changes (README: "After
+# product changes").
 id: entities
-title: "Entities: one record, its whole history"
+title: "Entities: how they work in Iki"
 series: Iki concepts
-target: 75
+target: 90
 publish:
   description: >-
-    In Iki, each molecule is one entity: a typed record, defined by a plugin, registered
-    once, with every revision kept and links to everything made from it. This video follows
-    the antibody trastuzumab from five spreadsheets and a notebook to one record in Iki.
+    How entities work in Iki. An entity is a typed record: it has the fields its type
+    defines, an ID people can read, and a project it's kept in. Plugins define the types,
+    and a lab can add its own, with their fields, what makes two the same, and their rules.
+    Registering the same thing again finds its registry entry. Every change is a revision,
+    and a signature is tied to the revision it signs. Triggers run actions when entities
+    change, once a project Admin turns them on. Entities link to what was made from them.
   tags:
     - Iki
-    - scientific data management
-    - LIMS
-    - biologics registry
-    - antibody registration
+    - entities
+    - entity types
+    - plugins
+    - registry
+    - revisions
     - audit trail
-    - data lineage
     - electronic signatures
-    - trastuzumab
+    - triggers
+    - data lineage
 # The product's own words, which a check finds in its source: when one changes, this
 # video is stale (README: "After product changes").
 quotes:
   - text: Revisions can’t be changed or removed, by anyone.
   - text: was registered already, so
   - text: now has its own record of it.
-  - text: Registry entry
   - text: Heavy chain
     in: plugins/antibody/types
   - text: Light chain
     in: plugins/antibody/types
+  - text: UniProt accession
+    in: plugins/protein/types
+  - text: Oligonucleotide
+    in: plugins/oligo/types
+  - text: Compound
+    in: plugins/small_molecule/types
+  - text: Plasmid
+    in: plugins/plasmid/types
   - text: Protein lot
     in: plugins/lots/types
+  - text: Lot of
+    in: plugins/lots/types
+  - text: QA release
+    in: plugins/lots/types
+  - text: Donor
+    in: plugins/example_lims/types
+  - text: Consent
+    in: plugins/example_lims/types
+  - text: Aliquot
+    in: plugins/example_lims/types
+  - text: Compute protein properties
+    in: plugins/protein/actions
+  - text: Hold what a withdrawn consent covers
+    in: plugins/example_lims/actions
   - text: Predict structure with ImmuneBuilder
     in: plugins/antibody/actions
   - text: Protein structure
@@ -42,14 +70,14 @@ quotes:
 scenes:
   - id: title
     layout: title
-    chapter: "The problem: one antibody, many copies"
+    chapter: What an entity is
     slots:
       eyebrow: Iki concepts
       title: Entities
-      subtitle: One record, its whole history
+      subtitle: How entities work
     beats:
       - id: title
-        say: "Entities: one record, its whole history."
+        say: "Entities: how entities work."
         do:
           - together:
               - show: eyebrow
@@ -58,58 +86,93 @@ scenes:
               - show: subtitle
                 as: rise
 
-  # The problem: one antibody, scattered. The differences are the kind real copies have:
-  # names, case, a stop codon's asterisk, only the variable domain.
-  - id: problem
+  # An entity: a record of a type, with the type's fields, an HRID (prefix ABY, numbered
+  # per deployment: ADR 0096), kept in a project (its owner project: ADR 0115). The
+  # antibody type is iki/antibody's (plugins/antibody/types/antibody.yaml); its chains are
+  # Protein entries.
+  - id: what
+    layout: focus
+    slots:
+      object:
+        record:
+          type: Antibody
+          hrid: ABY-000001
+          name: Trastuzumab
+          fields:
+            - label: Heavy chain
+              value: PRT-000001
+              kind: id
+              detail: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+              detailKind: sequence
+            - label: Light chain
+              value: PRT-000002
+              kind: id
+              detail: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+              detailKind: sequence
+            - label: Format
+              value: igg
+            - label: Isotype
+              value: igg1
+            - label: Target
+              value: HER2
+          footer: In the HER2 Program project
+    beats:
+      - id: what-typed
+        caption: An entity is a typed record, with the fields its type defines.
+        do:
+          - together:
+              - emphasize: field:Heavy chain
+              - emphasize: field:Light chain
+              - emphasize: field:Format
+              - emphasize: field:Isotype
+              - emphasize: field:Target
+      - id: what-id
+        caption: It has an ID people can read, ABY-000001, and it’s kept in a project.
+        say: It has an ID people can read, A B Y one, and it’s kept in a project.
+
+  # Types from Iki's plugins, with their real labels and HRID prefixes: iki/protein
+  # (PRT; UniProt P04626 is human HER2), iki/plasmid (PLS; pcDNA3.1(+) is 5428 bp),
+  # iki/oligo (OLI; nusinersen's bases, 5′ to 3′, as the bases field keeps them),
+  # iki/small_molecule (CPD; aspirin is C9H8O4), iki/lots (PLOT) and the example LIMS
+  # plugin (DNR; a donor's consent is a state).
+  - id: examples
     layout: gallery
     slots:
-      heading: Before
+      heading: Entity types from Iki’s plugins
       items:
-        - fragment:
-            kind: spreadsheet
-            file: antibodies_master.xlsx
-            columns: [Name, Heavy chain]
-            rows:
-              - [Trastuzumab, EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIH]
-        - fragment:
-            kind: spreadsheet
-            file: her2_program.xlsx
-            columns: [Molecule, HC sequence]
-            rows:
-              - [Herceptin, evqlvesgggLVQPGGSLRLSCAASGFNIKDTYIH]
-            highlight: [[0, 0], [0, 1]]
-        - fragment:
-            kind: spreadsheet
-            file: binding_assays.csv
-            columns: [Sample, Light chain]
-            rows:
-              - [TRZ-01, DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVA]
-            highlight: [[0, 0]]
-        - fragment:
-            kind: spreadsheet
-            file: cmc_tracker.xlsx
-            columns: [Product, Heavy chain ends]
-            rows:
-              - [Tras. biosimilar, "…SLSLSPG*"]
-            highlight: [[0, 0], [0, 1]]
-        - fragment:
-            kind: spreadsheet
-            file: structures_q3.xlsx
-            columns: [Name, VH only]
-            rows:
-              - [Trastuzumab Fv, EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIH]
-            highlight: [[0, 1]]
-        - fragment:
-            kind: notebook
-            file: notebook p. 42
-            rows:
-              - ["trastuzumab, re-sequenced:"]
-              - ["HC EVQLV ESGGG LVQPG …"]
-              - ["LC DIQMT QSPSS LSASV …"]
-            highlight: [[0, 0]]
+        - record:
+            type: Protein
+            hrid: PRT-000003
+            name: HER2
+            fields: [{ label: UniProt accession, value: P04626, kind: id }]
+        - record:
+            type: Plasmid
+            hrid: PLS-000001
+            name: pcDNA3.1(+)
+            fields: [{ label: Length, value: 5428 bp }]
+        - record:
+            type: Oligonucleotide
+            hrid: OLI-000001
+            name: Nusinersen
+            fields: [{ label: Bases, value: TCACTTTCATAATGCTGG, kind: sequence }]
+        - record:
+            type: Compound
+            hrid: CPD-000001
+            name: Aspirin
+            fields: [{ label: Molecular formula, value: C9H8O4 }]
+        - record:
+            type: Protein lot
+            hrid: PLOT-000001
+            name: Lot 26-031
+            fields: [{ label: Lot of, value: ABY-000001, kind: id }]
+        - record:
+            type: Donor
+            hrid: DNR-000001
+            name: D-0147
+            fields: [{ label: Consent, value: Given }]
     beats:
-      - id: problem-copies
-        caption: One antibody, trastuzumab, lives in five spreadsheets and a notebook.
+      - id: examples-types
+        caption: Plugins define the types, each with its own ID prefix and fields.
         do:
           - together:
               - show: item:1
@@ -124,65 +187,49 @@ scenes:
                 as: rise
               - show: item:6
                 as: rise
-      - id: problem-names
-        caption: Each copy has its own name, and its own version of the sequence.
-      - id: problem-truth
-        caption: The same molecule, six versions of the truth.
-        hold: short
 
-  # The copies become one entity. The antibody type is the iki/antibody plugin's
-  # (plugins/antibody/types/antibody.yaml); its chains are Protein entries (PRT), its
-  # HRID prefix is ABY, numbered from 1 per deployment (ADR 0096).
-  - id: entity
+  # A lab's own type, in its own plugin: a manifest (kind: EntityType) with its HRID
+  # prefix, its identity (the fields that make two the same: compound.yaml's
+  # identity: [inchikey]), its fields (a ref to another plugin's type, as
+  # plugin-template/types/sample.yaml's), and its rules (antibody.yaml's rules). The
+  # plugin and its clone are invented; the keys are the manifest's.
+  - id: custom
     layout: record-inset
-    chapter: One entity, defined by a plugin
-    transition:
-      merge: { into: record }
+    chapter: A lab’s own types
     slots:
       record:
-        type: Antibody
-        hrid: ABY-000001
-        name: Trastuzumab
+        type: Producer clone
+        hrid: CLN-000001
+        name: CHO-TZ-17
         fields:
-          - label: Heavy chain
-            value: PRT-000001
-            kind: id
-            detail: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
-            detailKind: sequence
-          - label: Light chain
-            value: PRT-000002
-            kind: id
-            detail: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
-            detailKind: sequence
-          - label: Format
-            value: igg
-          - label: Isotype
-            value: igg1
-          - label: Target
-            value: HER2
+          - { label: Expresses, value: ABY-000001, kind: id }
+          - { label: Titer, value: 3.2 g/L }
+          - { label: Parental line, value: CHO-K1 }
       inset:
-        name: iki/antibody
-        provides: Defines the Antibody type
+        name: acme/cell-lines
+        provides: Defines the Producer clone type
         fields:
-          - { name: components, type: heavy and light chains }
-          - { name: format, type: "igg, fab, fv, scfv, vhh…" }
-          - { name: isotype, type: igg1 … igd }
-          - { name: target, type: text }
+          - { name: hrid, type: "prefix: CLN" }
+          - { name: identity, type: "[clone_id]" }
+          - { name: clone_id, type: "string, required" }
+          - { name: expresses, type: ref to an Antibody }
+          - { name: titer, type: "quantity, g/L" }
+          - { name: rules, type: titer_is_positive }
       link: defines its type
     beats:
-      - id: entity-one
-        caption: "In Iki, it’s one entity: a typed record, defined by a plugin."
-      - id: entity-plugin
-        caption: "The antibody plugin defines the type: its chains, format, isotype and target."
+      - id: custom-plugin
+        caption: A lab can add its own entity types, in a plugin of its own.
         do:
-          - show: link
-            as: draw
           - show: inset
             as: rise
+          - show: link
+            as: draw
+      - id: custom-manifest
+        caption: The type lists its fields, what makes two the same, and its rules.
 
-  # Identity: an antibody is its parts, as an unordered set of (part, copies); proteins are
-  # their sequences (ADR 0138). Registering it again in another project gives that project
-  # its own record of the entry: web/app/src/registries.ts's createdMessage.
+  # Identity: an antibody is its parts, as an unordered set of (part, copies); proteins
+  # are their sequences (ADR 0138). Registering it again in another project gives that
+  # project its own record of the entry (ADR 0115; web/app/src/registries.ts).
   - id: identity
     layout: split
     chapter: Identity and the registry
@@ -221,7 +268,7 @@ scenes:
         link: ABY-000001
     beats:
       - id: identity-same
-        caption: "Iki knows what makes two antibodies the same: their chains."
+        caption: Two antibodies with the same chains are the same antibody.
         do:
           - show: left
             as: rise
@@ -231,81 +278,48 @@ scenes:
               - show: right
                 as: rise
       - id: identity-found
-        caption: Register the same chains again, and Iki finds ABY-000001, not a duplicate.
-        say: Register the same chains again, and Iki finds A B Y one, not a duplicate.
+        caption: "Registering them again finds ABY-000001: the project gets its own record."
+        say: "Registering them again finds A B Y one: the project gets its own record."
         do:
           - show: note
             as: rise
 
-  # Registry entries and project records (ADR 0115): the entry holds the identity and its
-  # one ID; each project's record holds that project's own values.
-  - id: registry
-    layout: graph
-    slots:
-      direction: down
-      nodes:
-        - id: entry
-          kind: Registry entry
-          title: Its chains, PRT-000001 and PRT-000002
-          hrid: ABY-000001
-          focus: true
-        - id: her2
-          kind: HER2 Program’s record
-          title: Trastuzumab
-          hrid: ABY-000001
-        - id: biosimilars
-          kind: Biosimilars’ record
-          title: Herceptin reference
-          hrid: ABY-000001
-      edges:
-        - { from: entry, to: her2 }
-        - { from: entry, to: biosimilars }
-    beats:
-      - id: registry-records
-        caption: One registry entry, one ID. Each project keeps its own record of it.
-        do:
-          - show: node:entry
-            as: pop
-          - together:
-              - show: edge:entry>her2
-                as: draw
-              - show: edge:entry>biosimilars
-                as: draw
-              - show: node:her2
-                as: rise
-              - show: node:biosimilars
-                as: rise
-
   # History (ADR 0035): revisions are numbered, append-only, and record who, when, how
   # (web, API, MCP or a run) and an optional reason. The History tab: "Revisions can't be
-  # changed or removed, by anyone."
+  # changed or removed, by anyone." A lot's release is a state QA sets with a signature
+  # whose meaning is "QA release" (plugins/lots/types/lot.yaml; ADRs 0124, 0126).
   - id: history
     layout: timeline
-    chapter: Every revision kept
+    chapter: History and signatures
     slots:
-      subject: { type: Antibody, hrid: ABY-000001, name: Trastuzumab }
+      subject: { type: Protein lot, hrid: PLOT-000001, name: Lot 26-031 }
       revisions:
         - number: 1
           what: Created
           who: Priya Shah
-          when: 2 Mar 2026, in the web app
+          when: 2 Jun 2026, in the web app
         - number: 2
           what: Edited
           who: Priya Shah
-          when: 9 Mar 2026, in the web app
-          why: Target confirmed by SPR
+          when: 5 Jun 2026, in the web app
+          why: Certificate of analysis attached
         - number: 3
           what: Edited
           who: Tomás Rivera
-          when: 21 Apr 2026, through the API
-          why: Description from the CMC review
+          when: 8 Jun 2026, through the API
         - number: 4
-          what: Edited
+          what: State set
           who: Dana Kim
-          when: 3 Jun 2026, in the web app
+          when: 10 Jun 2026, in the web app
+          why: Meets its specification
+          signature:
+            verb: Approved
+            by: Dana Kim
+            when: on 2026-06-10 at 14:03:22 UTC
+            meaning: QA release
     beats:
       - id: history-revisions
-        caption: "Every change is a new revision: who, when, how, and any reason given."
+        caption: "Every change makes a new revision: who, when, how, and any reason given."
         do:
           - show: axis
             as: draw
@@ -322,14 +336,69 @@ scenes:
         caption: Revisions can’t be changed or removed, by anyone.
         do:
           - emphasize: revision:1
+      - id: history-signed
+        caption: "Releasing a lot takes QA’s signature: a fresh sign-in, tied to that revision."
+        do:
+          - show: signature:4
+            as: pop
+
+  # Triggers (ADR 0080): a plugin's trigger runs one of its actions when an entity
+  # changes. Each is off in every project until one of its Admins turns it on, in the web
+  # app; its runs are that Admin's, and a run's page names the trigger and the change.
+  # protein.compute_new_protein_properties runs "Compute protein properties" when a
+  # protein is registered; example_lims.hold_withdrawn_consent runs "Hold what a withdrawn
+  # consent covers" when a donor's consent is withdrawn, holding the aliquots and results
+  # derived from them.
+  - id: triggers
+    layout: graph
+    chapter: Triggers and links
+    slots:
+      direction: right
+      nodes:
+        - { id: protein, kind: Protein, title: HER2, hrid: PRT-000003 }
+        - id: compute
+          kind: Run
+          title: Compute protein properties
+          hrid: RUN-000021
+        - { id: donor, kind: Donor, title: D-0147, hrid: DNR-000001 }
+        - id: hold
+          kind: Run
+          title: Hold what a withdrawn consent covers
+          hrid: RUN-000022
+        - { id: aliquot, kind: Aliquot, title: ALQ-000031 }
+      edges:
+        - { from: protein, to: compute, label: registered }
+        - { from: donor, to: hold, label: withdrawn }
+        - { from: hold, to: aliquot, label: holds }
+    beats:
+      - id: triggers-registered
+        caption: A trigger runs an action when an entity changes, such as registering a protein.
+        do:
+          - together:
+              - show: edge:protein>compute
+                as: draw
+              - show: node:compute
+                as: rise
+      - id: triggers-consent
+        caption: Withdrawing a donor’s consent can hold what was made from their samples.
+        do:
+          - together:
+              - show: edge:donor>hold
+                as: draw
+              - show: node:hold
+                as: rise
+          - together:
+              - show: edge:hold>aliquot
+                as: draw
+              - show: node:aliquot
+                as: rise
+      - id: triggers-admin
+        caption: Triggers are off until a project Admin turns them on. Each run names its trigger.
 
   # Lineage (ADR 0123): a lot names what it's a lot of; ImmuneBuilder's run made a
-  # structure from the antibody. A lot's release is a state that needs QA's signature
-  # (plugins/lots/types/lot.yaml; ADRs 0124, 0126): antibodies themselves have no states
-  # to sign.
+  # structure from the antibody.
   - id: lineage
     layout: graph
-    chapter: Links, lineage and signatures
     slots:
       direction: right
       nodes:
@@ -342,11 +411,6 @@ scenes:
           kind: Protein lot
           title: Lot 26-031
           hrid: PLOT-000001
-          signature:
-            verb: Approved
-            by: Dana Kim
-            when: on 2026-06-10 at 14:03:22 UTC
-            meaning: QA release
         - id: run
           kind: Run
           title: Predict structure with ImmuneBuilder
@@ -361,7 +425,7 @@ scenes:
         - { from: run, to: structure, label: made }
     beats:
       - id: lineage-links
-        caption: Entities link to everything made from them, so you can always trace back.
+        caption: An entity links to its lots, the runs that used it, and what they made.
         do:
           - together:
               - show: edge:antibody>lot
@@ -378,20 +442,15 @@ scenes:
                 as: draw
               - show: node:structure
                 as: rise
-      - id: lineage-signed
-        caption: "A lot’s release takes QA’s signature: a fresh sign-in, tied to that revision."
-        do:
-          - show: signature:lot
-            as: pop
 
   - id: close
     layout: closing
     slots:
-      statement: Entities are what everything in Iki works on.
+      statement: Entities are the records actions work on.
       next: "Next: actions"
     beats:
       - id: close
-        say: "Entities are what everything in Iki works on. Next: actions."
+        say: "Entities are the records actions work on. Next: actions."
         do:
           - show: next
             as: rise
