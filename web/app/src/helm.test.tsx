@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { field, KINASE, PROTEIN, renderApp } from "./entity-fixtures";
-import { describeHelm } from "./helm";
+import { describeHelm, readHelm } from "./helm";
 import { answer, page, signedIn } from "./test-server";
 
 vi.mock("./apps", async (original) => {
@@ -82,16 +82,85 @@ describe("HELM in forms", () => {
   });
 
   it("describes duplexes and peptides", () => {
+    const length = (n: number) => ({ fewest: n, most: n });
     expect(
       describeHelm({
         canonical: "",
         connections: [],
+        groups: [],
         version1: false,
         polymers: [
-          { id: "RNA1", type: "RNA", units: 21, monomers: [], ambiguous: false },
-          { id: "PEPTIDE1", type: "PEPTIDE", units: 1, monomers: [], ambiguous: false },
+          {
+            id: "RNA1",
+            type: "RNA",
+            units: 21,
+            length: length(21),
+            monomers: [],
+            ambiguous: false,
+          },
+          {
+            id: "PEPTIDE1",
+            type: "PEPTIDE",
+            units: 1,
+            length: length(1),
+            monomers: [],
+            ambiguous: false,
+          },
         ],
       }),
     ).toBe("HELM: a strand of 21 nucleotides and a chain of 1 amino acid.");
+  });
+
+  /** Each string read by iki-wasm, then described. */
+  async function described(...texts: string[]): Promise<string[]> {
+    return (await readHelm(texts)).map(describeHelm);
+  }
+
+  it("says how many a range, an unknown span and a missing monomer stand for", async () => {
+    // Pistoia's ambiguous monomers: G'2-5' is two to five glycines, * any number of
+    // amino acids, X one unknown one, and _ a missing one, which adds nothing.
+    expect(
+      await described(
+        "PEPTIDE1{A.G'2-5'.C}$$$$V2.0",
+        "PEPTIDE1{A.*.G}$$$$V2.0",
+        "PEPTIDE1{A._.G}$$$$V2.0",
+        "PEPTIDE1{A.X.C}$$$$V2.0",
+        "PEPTIDE1{H.E.L.M.(K,_)}$$$$V2.0",
+      ),
+    ).toEqual([
+      "HELM: a chain of 4 to 7 amino acids.",
+      "HELM: a chain of at least 2 amino acids.",
+      "HELM: a chain of 2 amino acids.",
+      "HELM: a chain of 3 amino acids, not all of them known.",
+      "HELM: a chain of 4 to 5 amino acids.",
+    ]);
+  });
+
+  it("doesn't count a 5′ phosphate as a nucleotide", async () => {
+    expect(await described("RNA1{P.R(A)P.R(C)}$$$$V2.0")).toEqual([
+      "HELM: a strand of 2 nucleotides and 1 other unit.",
+    ]);
+  });
+
+  it("says a group of alternatives is one of them, and a mixture is all of them", async () => {
+    // Pistoia's polymer groups: "The comma becomes an OR operator".
+    expect(
+      await described(
+        "PEPTIDE1{A.C.D}|PEPTIDE2{P.Q}$$G1(PEPTIDE1,PEPTIDE2)$$V2.0",
+        "PEPTIDE1{A.C.D}|PEPTIDE2{P.Q}$$G1(PEPTIDE1+PEPTIDE2)$$V2.0",
+        "PEPTIDE1{A.C.D}|PEPTIDE2{P.Q}$$G1(PEPTIDE1:2+PEPTIDE2:3)$$V2.0",
+      ),
+    ).toEqual([
+      "HELM: either a chain of 3 amino acids or a chain of 2 amino acids.",
+      "HELM: a mixture of a chain of 3 amino acids and a chain of 2 amino acids.",
+      "HELM: a mixture of a chain of 3 amino acids and a chain of 2 amino acids, 2:3.",
+    ]);
+  });
+
+  it("counts a connection, not text in in-line SMILES", async () => {
+    // HELM 2.04's in-line CXSMILES example: its atom labels hold "$".
+    expect(await described("PEPTIDE1{A.[*N[C@@H](C)C(=O)* |$_R1;;;;;;_R2$|].G}$$$$V2.0")).toEqual([
+      "HELM: a chain of 3 amino acids.",
+    ]);
   });
 });

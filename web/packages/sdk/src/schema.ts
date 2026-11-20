@@ -7413,6 +7413,34 @@ export interface components {
              */
             when?: string | null;
         };
+        /** HelmGroupMemberOut */
+        HelmGroupMemberOut: {
+            /**
+             * Id
+             * @description A polymer's or a group's canonical ID.
+             */
+            id: string;
+            /**
+             * Ratio
+             * @description Its ratio, such as 0.5, if it's given.
+             */
+            ratio: string | null;
+        };
+        /** HelmGroupOut */
+        HelmGroupOut: {
+            /**
+             * Id
+             * @description Its canonical ID, such as G1.
+             */
+            id: string;
+            /** Members */
+            members: components["schemas"]["HelmGroupMemberOut"][];
+            /**
+             * Mixture
+             * @description Its members are a mixture (`+`), all present. False: it's one of them (`,`), which isn't known.
+             */
+            mixture: boolean;
+        };
         /** HelmIn */
         HelmIn: {
             /**
@@ -7420,6 +7448,19 @@ export interface components {
              * @description HELM strings, HELM 2 (ending V2.0) or HELM 1, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.
              */
             helm: string[];
+        };
+        /** HelmLengthOut */
+        HelmLengthOut: {
+            /**
+             * Fewest
+             * @description The fewest it may have.
+             */
+            fewest: number;
+            /**
+             * Most
+             * @description The most it may have. Null when there's no most: `*`, any number.
+             */
+            most: number | null;
         };
         /** HelmMonomerOut */
         HelmMonomerOut: {
@@ -7466,7 +7507,7 @@ export interface components {
         HelmPolymerOut: {
             /**
              * Ambiguous
-             * @description It has monomers that aren't known, or a list of them, or a repeat of a range of counts.
+             * @description It has a repeat of a range of counts, a list of monomers, or monomers HELM keeps for unknown ones: `*`, `_`, a PEPTIDE's `X` or an RNA's `N`.
              */
             ambiguous: boolean;
             /**
@@ -7474,6 +7515,8 @@ export interface components {
              * @description Its canonical ID, such as RNA1.
              */
             id: string;
+            /** @description How many amino acids (PEPTIDE) or nucleotides (RNA: its units with a base) it has, the fewest and the most. They differ for a repeat of a range of counts, `*` (any number), or a list with `_` (maybe missing). A CHEM is one. */
+            length: components["schemas"]["HelmLengthOut"];
             /** Monomers */
             monomers: components["schemas"]["HelmMonomerOut"][];
             /**
@@ -7483,7 +7526,7 @@ export interface components {
             type: "PEPTIDE" | "RNA" | "CHEM" | "BLOB";
             /**
              * Units
-             * @description Its units: its nucleotides, for RNA.
+             * @description Its units as its canonical form writes them. An RNA's include any without a base, such as a 5′ phosphate.
              */
             units: number;
         };
@@ -7509,6 +7552,11 @@ export interface components {
              * @description Why it isn't HELM. Null if it is.
              */
             error?: string | null;
+            /**
+             * Groups
+             * @description Its polymer groups, canonical.
+             */
+            groups?: components["schemas"]["HelmGroupOut"][];
             /**
              * Polymers
              * @description Its polymers, in canonical order.
