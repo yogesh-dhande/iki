@@ -1,0 +1,11 @@
+# A lab's own generic complex (ADR 0161): any parts, in any role. It's a second concrete
+# iki/core.Complex beside the bispecific, so the same parts and copies registered as either
+# are one entry, whichever registered it first (ADR 0165).
+apiVersion: iki/v1
+kind: EntityType
+name: Multimer
+label: Multimer
+extends: iki/core.Complex
+schema_version: 1
+description: Molecules held together as one, of any parts, each with its copies.
+hrid: { prefix: MLT }

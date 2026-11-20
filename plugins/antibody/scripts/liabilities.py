@@ -89,7 +89,11 @@ def _label(entity: dict[str, Any]) -> str:
 
 def regions(domain: dict[str, Any]) -> list[str]:
     """Which region each of a domain's residues is in: a CDR, by its field's name, or
-    framework. Its CDRs are where `number_chains` found them, by the definition it used."""
+    framework. Its CDRs are where `number_chains` found them, by the definition it used;
+    in a domain whose CDRs it couldn't find, every residue's region is unknown, as a
+    loop's residues aren't framework's."""
+    if domain.get("cdrs") is None:
+        return ["unknown"] * len(domain["numbering"])
     letter = "h" if domain["chain"] == "H" else "l"
     start = domain["start"]
     spans = [
@@ -161,7 +165,7 @@ def found_in(domain: dict[str, Any], scheme: str, start: int) -> list[dict[str, 
         found.append(liability)
 
     for index, residue in enumerate(residues):
-        cdr = where[index] != "framework"
+        cdr = where[index].startswith("cdr_")
         after = residues[index + 1 : index + 2]
         if (
             residue == "N"

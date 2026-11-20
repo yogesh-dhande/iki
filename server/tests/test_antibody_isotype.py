@@ -542,3 +542,166 @@ def test_assemble_records_the_aligner_it_runs() -> None:
         {"name": "Biopython", "version": pinned.group(1), "url": "https://biopython.org"}
     ]
     assert "from Bio import Align" in (SCRIPTS / "constant_regions.py").read_text()
+
+
+# --- How much of what bonds it its bonds are -------------------------------------------------
+
+
+def bonds_of(output: dict[str, Any]) -> list[tuple[str, int, int, str, int, int]]:
+    return [
+        (b["part"], b["copy"], b["residue"], b["partner"], b["partner_copy"], b["partner_residue"])
+        for b in output["creates"][0]["values"].get("bonds") or []
+    ]
+
+
+def test_a_light_chain_without_its_last_cysteine_leaves_its_heavy_chains_unpaired(
+    tmp_path: Path,
+) -> None:
+    """Trastuzumab's light chain (KEGG DRUG D03257) without its C-terminal C214: its bond to
+    the heavy chain's C220 (H223) has no cysteine to end on, so it isn't given, and its
+    constant domain's own, L134-L194, stays where it is, not moved to bond the heavy chain."""
+    heavy = chain("heavy", HEAVY["D03257"], "H", len(VH))
+    code, log, output = run_assemble(tmp_path, heavy, chain("light", LIGHT[:-1], "K", 107))
+    assert code == 0, log
+    made = bonds_of(output)
+    assert ("light", 1, 134, "light", 1, 194) in made and ("light", 2, 134, "light", 2, 194) in made
+    assert not any(b[3] == "light" and b[0] == "heavy" for b in made)
+    assert len(made) == 14
+    assert output["creates"][0]["values"]["bond_map"] == "incomplete"
+    said = output["messages"][-1]
+    assert said["level"] == "warning"
+    assert said["text"] == (
+        "Not given, as a cysteine one needs isn't where its chain's domains put it: H223's to "
+        "its light chain, which has no cysteine where a light chain's bonds its heavy chain, "
+        "at its constant domain's end. So its bonds don't include every one it has."
+    )
+    # The whole chain has KEGG's.
+    code, _, output = run_assemble(tmp_path, heavy, chain("light", LIGHT, "K", 107))
+    assert ("heavy", 1, 223, "light", 1, 214) in bonds_of(output)
+    assert output["creates"][0]["values"]["bond_map"] == "complete"
+
+
+#: Avelumab (KEGG DRUG D10817), an IgG1 with a lambda light chain.
+AVELUMAB_HEAVY = (
+    "EVQLLESGGGLVQPGGSLRLSCAASGFTFSSYIMMWVRQAPGKGLEWVSSIYPSGGITFYADTVKGRFTISRDNSKNTLYLQMNSLRAED"
+    "TAVYYCARIKLGTVTTVDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSS"
+    "GLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVS"
+    "HEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSRDE"
+    "LTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPGK"
+)
+AVELUMAB_LIGHT = (
+    "QSALTQPASVSGSPGQSITISCTGTSSDVGGYNYVSWYQQHPGKAPKLMIYDVSNRPSGVSNRFSGSKSGNTASLTISGLQAEDEADYYC"
+    "SSYTSSSTRVFGTGTKVTVLGQPKANPTVTLFPPSSEELQANKATLVCLISDFYPGAVTVAWKADGSPVKAGVETTKPSKQSNNKYAASS"
+    "YLSLTPEQWKSHRSYSCQVTHEGSTVEKTVAPTECS"
+)
+
+
+def test_a_lambda_chains_cysteines_are_where_its_constant_domain_puts_them(
+    tmp_path: Path,
+) -> None:
+    """Avelumab's lambda chain bonds its heavy chain from C215, next to its last residue,
+    and its constant domain's own disulfide is L138-L197, as KEGG DRUG D10817 lists them
+    (H223-L215, and L138-L197, which it prints as H138-L197)."""
+    heavy = chain("heavy", AVELUMAB_HEAVY, "H", AVELUMAB_HEAVY.index("ASTKGP"))
+    light = chain("light", AVELUMAB_LIGHT, "L", AVELUMAB_LIGHT.index("GQPKANP"))
+    code, log, output = run_assemble(tmp_path, heavy, light)
+    assert code == 0, log
+    made = bonds_of(output)
+    assert ("heavy", 1, 223, "light", 1, 215) in made
+    assert ("light", 1, 138, "light", 1, 197) in made
+    assert ("light", 1, 22, "light", 1, 90) in made
+    assert len(made) == 16
+    assert output["creates"][0]["values"]["bond_map"] == "complete"
+
+
+def test_a_native_igg4s_hinge_bonds_are_its_predominant_forms(tmp_path: Path) -> None:
+    """A native IgG4's hinge, S228 (EU), bonds within each heavy chain in some of its
+    molecules (Angal et al., Mol Immunol 30:105, 1993; Bloom et al., Protein Sci 6:407,
+    1997): IMGT's IGHG4*01 behind trastuzumab's VH. Pembrolizumab's (KEGG DRUG D10574)
+    has S228P, which keeps them between its chains."""
+    code, _, output = assemble(tmp_path, reference("igg4"))
+    assert code == 0
+    assert ("heavy", 1, 226, "heavy", 2, 226) in bonds_of(output)
+    assert output["creates"][0]["values"]["bond_map"] == "predominant"
+    said = output["messages"][-1]
+    assert said["level"] == "warning"
+    assert said["text"].startswith("Its hinge is a native IgG4's, S228 (EU)")
+    code, _, output = assemble(tmp_path, constant(HEAVY["D10574"]))
+    assert code == 0
+    assert output["creates"][0]["values"]["bond_map"] == "complete"
+
+
+def test_an_iggs_heavy_chain_has_all_of_ch3(tmp_path: Path) -> None:
+    """IgG1's CH1, hinge and CH2, and ten residues of its CH3, which leave out both of
+    CH3's cysteines: some of CH3 isn't a whole IgG's heavy chain."""
+    ch1, hinge, ch2, ch3 = (domain("igg1", d) for d in ("CH1", "hinge", "CH2", "CH3"))
+    code, stdout, output = assemble(tmp_path, ch1 + hinge + ch2 + ch3[:10])
+    assert code == 1 and output == {}
+    assert (
+        "A whole antibody's heavy chain has all of CH1, CH2 and CH3, and heavy's constant "
+        "region has 10 of 107 CH3 residues of IgG1's: if its sequence is the whole chain, "
+        "choose other."
+    ) in stdout
+    code, _, _ = assemble(tmp_path, ch1 + hinge + ch2 + ch3)
+    assert code == 0
+
+
+#: A mouse IgG1's constant region (UniProt P01868): CH1 1-97, the hinge 98-110, CH2
+#: 111-217, CH3 218-324.
+MOUSE_IGG1 = UNIPROT["P01868"]
+
+
+def test_a_mouse_fabs_domains_are_read_off_the_nearest_human_one(tmp_path: Path) -> None:
+    """A mouse IgG1's CH1, hinge and CH2 aren't a Fab's, though no human isotype matches
+    them and they're fewer residues than a whole IgG's constant region: they align with
+    human IgG2's domain by domain, 66% identical. Its CH1 and hinge alone are a Fab's."""
+    code, stdout, output = assemble(tmp_path, MOUSE_IGG1[:217], format="fab")
+    assert code == 1 and output == {}
+    assert (
+        "A Fab's heavy chain has CH1, and perhaps some of the hinge, but no Fc, and heavy's "
+        "constant region aligns with IgG2's CH1, hinge and CH2, the nearest human one's "
+        "(65.8% identical): choose other."
+    ) in stdout
+    code, _, output = assemble(tmp_path, MOUSE_IGG1[:110], format="fab")
+    assert code == 0 and output["creates"][0]["values"]["format"] == "fab"
+    code, _, output = assemble(tmp_path, MOUSE_IGG1, format="igg", isotype="igg1")
+    assert code == 0
+
+
+def test_a_constant_region_unlike_any_antibodys_isnt_a_fabs(tmp_path: Path) -> None:
+    """Hen lysozyme (UniProt P00698, its 129 mature residues) behind a VH aligns with no
+    human constant region well enough for its domains to be told."""
+    lysozyme = (
+        "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSALLSSD"
+        "ITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
+    )
+    code, stdout, _ = assemble(tmp_path, lysozyme, format="fab")
+    assert code == 1
+    assert "constant region is too unlike every human one for its domains to be told" in stdout
+
+
+def test_only_a_chain_whose_ch3_pairs_is_two_copies(tmp_path: Path) -> None:
+    """An isolated CH2 is a monomer (Prabakaran et al., Acta Crystallogr D 64:1062, 2008),
+    and an Fc fusion's CH3 pairs it with another, as etanercept's two chains are."""
+    ch2 = unnumbered("CH2", domain("igg1", "CH2"))
+    code, _, output = run_assemble(tmp_path, ch2, None, format="other")
+    assert code == 0
+    assert output["creates"][0]["values"]["components"][0]["copies"] == 1
+    fusion = unnumbered("D00742", FUSIONS["D00742"])
+    code, _, output = run_assemble(tmp_path, fusion, None, format="other")
+    assert code == 0
+    assert output["creates"][0]["values"]["components"][0]["copies"] == 2
+
+
+def test_an_igm_is_one_subunit_of_its_pentamer(tmp_path: Path) -> None:
+    """Human IgM's secreted constant region (UniProt P01871-1) makes one subunit, two heavy
+    and two light chains; its pentamer, with a J chain, or hexamer is a protein complex."""
+    code, _, output = assemble(tmp_path, UNIPROT["P01871-1"], format="other")
+    assert code == 0
+    made = output["creates"][0]["values"]
+    assert made["isotype"] == "igm" and made["components"][0]["copies"] == 2
+    assert any(
+        m["text"].startswith("An IgM is secreted as a pentamer, 10 heavy chains, 10 light chains")
+        and "iki/complex.ProteinComplex" in m["text"]
+        for m in output["messages"]
+    )

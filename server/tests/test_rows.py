@@ -302,6 +302,88 @@ def test_its_bonds_join_residues_of_its_parts_copies(world: World) -> None:
     ]
 
 
+def test_a_disulfide_ends_on_a_cysteine_in_a_proteins_sequence(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A disulfide joins two cysteines' sulfurs, so each of its ends is a cysteine (C) in a
+    protein's sequence. A DNA part's C is a cytosine, a base, not an amino acid, and a part
+    with no sequence (a compound such as heme b, C34H32FeN4O4, with no sulfur: RCSB's HEM)
+    has no residue that could be one. Every bond's residue is in its part's sequence, read
+    from its sequence field whether or not its type has a viewer."""
+    c = chains(world)
+    api = api_as(world)
+    rows = components(c, linker=True)
+
+    def bond(part: Any, residue: int, partner: Any, at: int, kind: str = "disulfide") -> Any:
+        return {
+            "kind": kind,
+            "part": part["id"],
+            "copy": 1,
+            "residue": residue,
+            "partner": partner["id"],
+            "partner_copy": 1,
+            "partner_residue": at,
+        }
+
+    # The linker is ACGT: its residue 2 is a cytosine. Emicizumab's heavy chain's C229 is a
+    # hinge cysteine (KEGG D10821).
+    found = errors(
+        create(
+            api,
+            world.project,
+            {
+                "name": "B",
+                "components": rows,
+                "bonds": [
+                    bond(c.heavy, 229, c.linker, 2),
+                    bond(c.heavy, 232, c.linker, 999, kind="other"),
+                ],
+            },
+            BISPECIFIC,
+        )
+    )
+    assert found == {
+        "#/values/bonds/0/partner_residue": f"{c.linker['hrid']}'s sequence is DNA's, not a "
+        "protein's, and a disulfide joins two cysteines (C) in proteins' sequences.",
+        "#/values/bonds/1/partner_residue": f"{c.linker['hrid']} has 4 residues, so there's no "
+        "residue 999.",
+    }
+    # Another kind of bond may end on a base: what it joins is its chemistry's.
+    made = create(
+        api,
+        world.project,
+        {"name": "B", "components": rows, "bonds": [bond(c.heavy, 229, c.linker, 2, "other")]},
+        BISPECIFIC,
+    )
+    assert made.status_code == 201, made.content
+
+    # A part with no sequence at all, as a compound or another complex is, has no residue a
+    # disulfide could be checked against: one ending there is refused, not taken on trust.
+    from iki_server.entities import rules
+
+    read = rules._residues
+
+    def without_the_linkers(parts: list[Any]) -> dict[Any, tuple[str, str]]:
+        linker = {c.linker["id"], c.linker["entry"]["id"]}
+        return {pk: v for pk, v in read(parts).items() if str(pk) not in linker}
+
+    monkeypatch.setattr(rules, "_residues", without_the_linkers)
+    # Another molecule: one heavy chain, twice.
+    other = [{**rows[0], "copies": 2}, rows[2], rows[3]]
+    found = errors(
+        create(
+            api,
+            world.project,
+            {"name": "B2", "components": other, "bonds": [bond(c.heavy, 229, c.linker, 2)]},
+            BISPECIFIC,
+        )
+    )
+    assert found == {
+        "#/values/bonds/0/partner_residue": f"{c.linker['hrid']} has no protein sequence to "
+        "place it on, and a disulfide joins two cysteines (C) in proteins' sequences."
+    }
+
+
 def test_rows_change_as_a_whole_and_each_revision_keeps_them(world: World) -> None:
     heavy, _, _, linker = chains(world)
     api = api_as(world)

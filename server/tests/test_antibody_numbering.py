@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 from jsonschema import Draft202012Validator
+from test_antibody_isotype import run_assemble
 
 from iki_spec import schemas
 
@@ -318,20 +319,34 @@ def imgt_cdr3(sequence: str) -> str:
     return sequence[cys + 1 : trp]
 
 
+#: The insertion codes ANARCI writes, in order: A to Z, then AA, BB and so on to ZZ.
+INSERTIONS = [*"ABCDEFGHIJKLMNOPQRSTUVWXYZ", *(c * 2 for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")]
+
+
 def imgt_cdr3_numbers(length: int) -> list[str]:
     """IMGT's numbers for a CDR3 of `length` over 13, in order along the chain: 105-111,
     then the positions IMGT adds at the loop's top in the order 112.1, 111.1, 112.2, 111.2
     and so on (IMGT's unique numbering for V domains), so 111.1 onwards, then 112.n down to
-    112.1, then 112-117. ANARCI writes 111.1 as 111A."""
+    112.1, then 112-117. ANARCI writes 111.1 as 111A, and 111.27 as 111AA."""
     extra = length - 13
     top_112, top_111 = (extra + 1) // 2, extra // 2
-    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    letters = INSERTIONS
     return (
         [str(n) for n in range(105, 112)]
         + [f"111{letters[i]}" for i in range(top_111)]
         + [f"112{letters[i]}" for i in reversed(range(top_112))]
         + [str(n) for n in range(112, 118)]
     )
+
+
+def test_the_expected_numbers_go_on_past_z_as_anarcis_do() -> None:
+    """A CDR3 of 67 has 27 positions on each side of the loop's top: 111A to 111Z then
+    111AA, and 112AA then 112Z down to 112A, as ANARCI numbers one (its schemes' insertion
+    alphabet)."""
+    numbers = imgt_cdr3_numbers(67)
+    assert len(numbers) == 67
+    assert numbers[7 + 25 : 7 + 29] == ["111Z", "111AA", "112AA", "112Z"]
+    assert numbers[-7:] == ["112A", "112", "113", "114", "115", "116", "117"]
 
 
 def cdr3_numbers(values: dict[str, Any], low: int, high: int) -> list[str]:
@@ -341,7 +356,8 @@ def cdr3_numbers(values: dict[str, Any], low: int, high: int) -> list[str]:
 
 def test_ultralong_cdr_h3s_are_numbered_and_kept_whole_in_imgts_scheme(tmp_path: Path) -> None:
     """Bovine BLV1H12's CDR-H3 (PDB 4K3D) is 63 residues by IMGT's definition and B11's
-    (PDB 5IHU) 65, as long as natural ones go; human PG9's (PDB 3U4E) 30."""
+    (PDB 5IHU) 65, this fixture's longest (bovine CDR-H3s run to 67 or more: Wang et al.,
+    Cell 153:1379, 2013); human PG9's (PDB 3U4E) 30."""
     chains = ("blv1h12", "b11", "pg9")
     assert [len(imgt_cdr3(SEQUENCES[c])) for c in chains] == [63, 65, 30]
     assert imgt_cdr3(SEQUENCES["blv1h12"]) == (
@@ -452,3 +468,47 @@ def test_a_run_keeps_at_most_100_messages(tmp_path: Path) -> None:
 
     assert len(output["messages"]) == 100
     assert output["messages"][-1] == {"level": "warning", "text": "And 51 more warnings."}
+
+
+# --- A variable domain's own disulfide, where its numbering puts it ------------------------
+
+
+def numbered(tmp_path: Path, name: str, scheme: str) -> dict[str, Any]:
+    """A chain as `number_chains` leaves it, numbered in `scheme`."""
+    _, output = run(tmp_path, [protein(1, SEQUENCES[name], name)], scheme=scheme)
+    (update,) = output["updates"]["protein"]
+    values = {"name": name, "sequence": SEQUENCES[name], **update["values"]}
+    return {"id": name, "hrid": "PRT-000001", "values": values}
+
+
+@pytest.mark.parametrize("scheme", ["imgt", "kabat", "chothia", "martin", "aho"])
+def test_a_vhhs_own_disulfide_is_where_each_scheme_numbers_it(tmp_path: Path, scheme: str) -> None:
+    """cAb-Lys3 (PDB 1MEL) has four cysteines, C22, C33, C96 and C109: its domain's own
+    disulfide, C22-C96, and one from CDR1 to CDR3. Each scheme numbers C22 and C96 as its
+    canonical pair (IMGT's 23 and 104, Kabat's H22 and H92, AHo's 23 and 106), so each
+    gives the domain the same one, AHo too."""
+    code, log, output = run_assemble(
+        tmp_path, numbered(tmp_path, "cab_lys3", scheme), None, format="vhh"
+    )
+    assert code == 0, log
+    bonds = output["creates"][0]["values"]["bonds"]
+    assert [(b["residue"], b["partner_residue"]) for b in bonds] == [(22, 96)]
+    assert output["creates"][0]["values"]["bond_map"] == "complete"
+
+
+def test_a_domain_cut_short_of_its_first_cysteine_has_no_disulfide_of_its_own(
+    tmp_path: Path,
+) -> None:
+    """cAb-Lys3's IMGT numbering cut to IMGT 24 to 104, after its C22 and to its C96: the
+    two cysteines left, C33 and C96, aren't its domain's pair (PDB 1MEL bonds them to C109
+    and C22), so it's given none, though it has just two."""
+    vhh = numbered(tmp_path, "cab_lys3", "imgt")
+    (domain,) = vhh["values"]["variable_domains"]
+    kept = [i for i, (n, _, _) in enumerate(domain["numbering"]) if 23 < n <= 104]
+    domain["numbering"] = domain["numbering"][kept[0] : kept[-1] + 1]
+    domain["start"], domain["end"] = domain["start"] + kept[0], domain["start"] + kept[-1]
+    window = vhh["values"]["sequence"][domain["start"] - 1 : domain["end"]]
+    assert [i + domain["start"] for i, aa in enumerate(window) if aa == "C"] == [33, 96]
+    code, log, output = run_assemble(tmp_path, vhh, None, format="vhh")
+    assert code == 0, log
+    assert "bonds" not in output["creates"][0]["values"]

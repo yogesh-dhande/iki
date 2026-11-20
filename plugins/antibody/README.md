@@ -17,9 +17,12 @@ take, how many and of what
 and its `bonds`, a registry fact, are its disulfides, between its chains and
 within each domain, each from a copy's cysteine to another's.
 
-- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody of one specificity,
-  by its chains: a `heavy` chain and, unless it's a VHH or an scFv, a `light`
-  chain.
+- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody by its chains, at
+  most one kind of each: a `heavy` chain and, unless it's a VHH or an scFv, a
+  `light` chain. One chain may carry two specificities (blinatumomab's two
+  scFvs, format `other`); one of more kinds of chain (a bispecific IgG's) or
+  more copies (an IgM pentamer's ten of each, with its J chain) is a protein
+  complex.
   - A whole IgG (`igg`) is two copies of each; a Fab (`fab`), an Fv (`fv`, the
     two variable domains alone), a single domain (`vhh`, a camelid's or a
     nanobody) or both variable domains on one chain (`scfv`) one of each.
@@ -69,8 +72,10 @@ within each domain, each from a copy's cysteine to another's.
 - **Proteins' sequence liabilities** (the same extension of `iki/protein.Protein`):
   the motifs a developability screen reports in a numbered chain
   (`liabilities`), each with where it is, whether it falls in a CDR or in
-  framework, and how severe published screens call it; how many of each kind it
-  has (`liability_counts`); and how many in all (`liability_count`, indexed, so
+  framework (or an `unknown` region, in a domain whose CDRs numbering couldn't
+  find, where the motifs that count only in a CDR aren't looked for), and how
+  severe published screens call it; how many of each kind it has
+  (`liability_counts`); and how many in all (`liability_count`, indexed, so
   chains can be sorted and filtered by it). A chain with none has
   `liability_count` 0, which is not the same as one that hasn't been screened
   (it has none of the three fields).
@@ -108,7 +113,7 @@ been numbered first (`number_chains`):
 
 | Format  | Chains                                                                                        | Isotype                      |
 | ------- | --------------------------------------------------------------------------------------------- | ---------------------------- |
-| `igg`   | A heavy chain with CH1, hinge, CH2 and CH3; a light chain with its CL                         | `igg1` to `igg4`             |
+| `igg`   | A heavy chain with all of CH1, CH2 and CH3, and the hinge; a light chain with its CL          | `igg1` to `igg4`             |
 | `fab`   | A heavy chain with CH1, perhaps some hinge, but no Fc (CH2 or CH3); a light chain with its CL | Any class                    |
 | `fv`    | A heavy and a light variable domain, with no constant domain                                  | None                         |
 | `scfv`  | One chain with one heavy and one light variable domain, no constant domain                    | None                         |
@@ -122,13 +127,19 @@ or light chain, is `other`.
 An immunoglobulin constant domain is about 100 residues (human IGKC's is 107,
 IGHG1's CH1 98), so fewer than 90 residues after a variable domain count as no
 constant domain. Which constant domains a heavy chain has is read off how its
-residues after the variable domain align with the human reference they match:
-at least 10 residues of a domain are that domain. So a heavy chain through
-CH2 (IgG1's CH1, hinge and CH2 are 223 residues) isn't a Fab's, nor an IgG's
-without CH3; a Fab' with the whole hinge, or a pepsin F(ab')2 with CH2's first
-few residues, is a Fab's. Where no human reference matches (a mouse's), the
-length says it instead: an IgG heavy chain's constant region is 326 to 377
-residues (IGHG2's to IGHG3's), so 300 or more count as a whole one. For
+residues after the variable domain align with the human reference nearest
+them: at least 10 residues of a domain are some of that domain, and an IgG's
+heavy chain has at least 90% of each of CH1, CH2 and CH3 (a whole one without
+its C-terminal lysine has 98% of CH3; one that stops 10 residues into CH3
+isn't an IgG's). So a heavy chain through CH2 (IgG1's CH1, hinge and CH2 are
+223 residues) isn't a Fab's, nor an IgG's without CH3; a Fab' with the whole
+hinge, or a pepsin F(ab')2 with CH2's first few residues, is a Fab's. Another
+mammal's constant region, which no human isotype matches, aligns with the
+nearest human one domain by domain all the same (a mouse's IgG1, UniProt
+P01868, is 66% identical to human IgG2's), so its domains are read the same
+way: a mouse IgG1's CH1, hinge and CH2 aren't a Fab's. One less than 50%
+identical to every human reference can't be told, so it isn't taken for a Fab
+or an IgG: choose `other`. For
 `other`, a heavy chain without numbered variable domains, such as an Fc
 fusion's (etanercept's, aflibercept's: numbering leaves a protein without
 antibody domains as it was), is compared whole, so its isotype is checked or
@@ -180,30 +191,55 @@ subclass places them in EU numbering (Edelman et al., _PNAS_ 63:78-85, 1969),
 read off how its heavy chain's constant region aligns with IGHG1\*01, which is
 EU numbering's residue for residue (Liu and May, _mAbs_ 4:17-23, 2012):
 
-| Subclass | Light chain's last cysteine to | Heavy chain to heavy chain |
-| -------- | ------------------------------ | -------------------------- |
-| IgG1     | C220, the hinge's first        | C226 and C229              |
-| IgG4     | C131, in CH1                   | C226 and C229              |
+| Subclass | Light chain's interchain cysteine to | Heavy chain to heavy chain |
+| -------- | ------------------------------------ | -------------------------- |
+| IgG1     | C220, the hinge's first              | C226 and C229              |
+| IgG4     | C131, in CH1                         | C226 and C229              |
+
+A light chain's interchain cysteine is a kappa's C214, its last residue, or a
+lambda's homologous one, next to its last, found where its constant domain
+aligns with the human one's (UniProt P01834's IGKC, or P0DOY2's IGLC2), as its
+constant domain's own two are. Trastuzumab's are KEGG DRUG's (D03257):
+H223-L214, H229-H′229 and H232-H′232; avelumab's, a lambda's (D10817),
+H223-L215.
 
 IgG2's light-chain disulfides take more than one arrangement (its A, B and A/B
 isoforms), and IgG3's hinge has 11 between its heavy chains, so neither's are
-given; nor are those of `fv`, `scfv`, `vhh` and `other`. Trastuzumab's are
-KEGG DRUG's (D03257): H223-L214, H229-H′229 and H232-H′232.
+given; nor are those of `fv`, `scfv`, `vhh` and `other`. A native IgG4's hinge,
+S228 (EU), bonds within each heavy chain in some of its molecules instead of
+between them (Angal et al., _Mol Immunol_ 30:105-108, 1993; Bloom et al.,
+_Protein Sci_ 6:407-415, 1997), so its are its predominant form's, which the
+run warns of; S228P, as pembrolizumab's hinge has, keeps them between the
+chains.
+
+Every antibody `assemble` registers says which in its `bond_map`, a registry
+fact of every complex: `complete`, every bond it has; `predominant`, a native
+IgG4's; `incomplete`, where some aren't given (an IgG2's or IgG3's between its
+chains, a hybrid's or a nonhuman constant region's, an `other`'s between its
+chains or copies, or a bond one of whose cysteines a chain hasn't). The complex
+plugin's composition and a lot's concentration say when what they work out
+from its disulfides may count too few.
 
 It gives each domain's own disulfide too, between its two sheets, in each copy
 of its chain, which KEGG DRUG lists with the others:
 
 - a variable domain's, IMGT's C23 and C104 (Lefranc et al., _Dev Comp Immunol_
-  27:55-77, 2003), Kabat's and Chothia's H22 and H92 or L23 and L88. A domain
-  whose only cysteines are those two has them; in one with more (a VHH's
-  CDR1–CDR3 disulfide, a CDR's unpaired cysteine) they're where its numbering
-  puts them, and the rest are left out;
+  27:55-77, 2003), Kabat's, Chothia's and Martin's H22 and H92 or L23 and L88,
+  and AHo's 23 and 106, as the liability screen reads them: where its
+  numbering puts them, whatever other cysteines it has (a VHH's CDR1–CDR3
+  disulfide, a CDR's unpaired cysteine), which are left out. Only a domain
+  stored without its numbering is read off its cysteines, when it has two;
 - an IgG heavy chain's CH1's, CH2's and CH3's, EU C144–C200, C261–C321 and
   C367–C425, which every subclass has, where its constant region was read as
   one human subclass's; an `other` chain without a variable domain (an Fc
   fusion's) CH2's and CH3's alone, as what's fused to its hinge has disulfides
   of its own that aren't an IgG's;
-- a light chain's CL's, its two cysteines before its last.
+- a light chain's CL's, a kappa's C134 and C194 or a lambda's homologous two,
+  where its constant domain aligns with the human one's.
+
+A bond one of whose cysteines a chain hasn't, where its domains say it would
+be, isn't given: a light chain without its C214 has no bond to its heavy
+chain, and its CL's own stays L134-L194, and the run says which are missing.
 
 So trastuzumab has 16 (KEGG's H22-H96, H147-H203, H264-H324, H370-H428,
 L23-L88 and L134-L194 in each copy, as well as those between its chains).
@@ -221,6 +257,14 @@ format says is `assemble`'s check alone: it reads where the chain's variable
 domains end, its project's numbering, which a rule can't, as a reference holds
 the chain's registry entry. `assemble` names the antibody after its chains
 unless it's given a name.
+
+An `other`'s copies are as given, or two of each chain whose CH3 (an IgM's or
+IgE's CH4) pairs with another's, as an Fc fusion's does, and one otherwise: an
+isolated CH2 is a monomer (Prabakaran et al., _Acta Crystallogr D_ 64:1062-1067,
+2008). An IgM's chains make one of its subunits, two of each; the run says that
+its pentamer, 10 heavy and 10 light chains and a J chain (Hiramoto et al.,
+_Sci Adv_ 4:eaau1199, 2018), or its hexamer, 12 of each, is a protein complex
+(`iki/complex.ProteinComplex`) of its chains with their copies.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image
@@ -382,8 +426,11 @@ CC BY 4.0: cite its paper when you publish its structures). Its input includes t
 antibody's chains (ADR 0105), so it reads their sequences as they were when it was
 launched. ABodyBuilder2 models a heavy and a light chain's variable domains, from
 an IgG's or a Fab's two chains or an scFv's one; NanoBodyBuilder2 a VHH's single
-domain. Each runs four models and keeps the one closest to the others, refined
-with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
+domain. Each models one binding head, the first domain of each type it finds, so
+a chain numbering found more in (a tandem scFv's, a DVD-Ig's) is refused, saying
+which it has, rather than modelled in part as if whole: each binding head,
+registered as an antibody of its own, is modelled. Each runs four models and
+keeps the one closest to the others, refined with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
 (chain IDs H and L), derived from the antibody, with how far the four models
 disagree: `predicted_error` over every residue and `cdr_h3_predicted_error` over
 CDR-H3, in Å, and each residue's in the file as its B-factor. Refining isn't
@@ -400,7 +447,12 @@ iki plugin test plugins/antibody --with plugins/dna --with plugins/protein
 ```
 
 `tests/assemble.yaml` assembles trastuzumab as an IgG, a Fab and an Fv, each
-checked against KEGG DRUG's disulfides (D03257). The dev cluster's end-to-end
+checked against KEGG DRUG's disulfides (D03257). `server/tests/test_antibody_isotype.py`
+assembles avelumab's lambda chain against KEGG's (D10817), trastuzumab's light
+chain without its C214, a native and an S228P IgG4 hinge, a heavy chain that
+stops in CH3, a mouse IgG1's CH1 to CH2 as a Fab, an isolated CH2 and an IgM;
+`server/tests/test_antibody_numbering.py` gives cAb-Lys3 (PDB 1MEL) its own
+disulfide in each of the five numbering schemes. The dev cluster's end-to-end
 check assembles trastuzumab's Fv, waits for the complex plugin to compute its
 composition, and finds it by searching `iki/core.Complex`.
 

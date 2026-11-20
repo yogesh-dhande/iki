@@ -14,10 +14,14 @@
       "2eae6d25770a187304a5dfa69a9888a2e082c232",
       "6e431eb1830a661d2b61810a7f05459d69a8a90c",
       "001c8ad8f0b98da38dc8f1f4e11fb0576719bb59",
-      "1a0a3051f1da8000e60cfa88ab66f7a841d84333"
+      "1a0a3051f1da8000e60cfa88ab66f7a841d84333",
+      "eae4484e220ef08e362876dc48f728b2eb576305",
+      "be447ee3b1ead0640f24c8b969e1bb90a308706c",
+      "bd3ef7f15f14a6be0439d1728d07857c29f48099"
     ],
     "iki/complex": [
-      "780a4315f60f3e764568272e9b0c9b2f0083cea7"
+      "780a4315f60f3e764568272e9b0c9b2f0083cea7",
+      "bd4dc174dd767a29f437c616dc795e2765af91eb"
     ],
     "iki/dna": [
       "40397192fc2432cf43b2c249c3db77cab5afce6d",
@@ -60,7 +64,8 @@
     ],
     "iki/lots": [
       "a834be1e2af8eb1955104121169203bf085bcf71",
-      "fc71f9dba4055920a2c101b331d6aeae53534c40"
+      "fc71f9dba4055920a2c101b331d6aeae53534c40",
+      "3b7e4c9c6b6c958b7d1f88aae2349a5e0dcbb423"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",

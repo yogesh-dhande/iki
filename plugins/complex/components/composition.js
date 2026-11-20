@@ -1,9 +1,12 @@
 // The complex plugin's Composition tab: a complex's parts, each with its role and copies;
 // its formula, masses and absorbance at 280 nm as compute_composition computed them from
 // its parts (each cysteine's thiol free), and with its disulfides, each of which takes two
-// hydrogens off and adds a cystine's absorbance; and its bonds. Its bonds are a registry
-// fact that may be corrected, so what they change is worked out here, from them as they are now, not stored (ADR 0161). Iki sets
-// `entity` to the complex, as the person viewing it may read it (ADR 0084).
+// hydrogens off and adds a cystine's absorbance: its own, and those its parts have of
+// their own (a Fab's, in a complex of the Fab and its antigen), which compute_composition
+// counted for this project's record; whether any may be missing; and its bonds. Its bonds
+// are a registry fact that may be corrected, so what they change is worked out here, from
+// them as they are now, not stored (ADR 0161). Iki sets `entity` to the complex, as the
+// person viewing it may read it (ADR 0084).
 
 const STYLE = `
   :host { display: block; color: CanvasText; background: Canvas; padding: 1rem; border-radius: 8px; font: 14px/1.45 system-ui, sans-serif; }
@@ -17,6 +20,7 @@ const STYLE = `
   td.number, th.number { text-align: right; font-variant-numeric: tabular-nums; }
   .formula { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   .muted { color: color-mix(in srgb, CanvasText 72%, Canvas); }
+  .warning { border-left: 3px solid color-mix(in srgb, CanvasText 60%, Canvas); padding-left: 0.5rem; }
   details { margin-top: 0.5rem; }
   summary { cursor: pointer; }
   summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
@@ -40,9 +44,10 @@ function element(tag, attributes = {}, ...children) {
   return out;
 }
 
-/** A formula's elements in its own order, with their counts. */
+/** A formula's atoms in its own order, with their counts: each an element (C) or an
+ * isotope, as RDKit writes one ([13C], or D and T for hydrogen's). */
 function elements(formula) {
-  return [...formula.matchAll(/([A-Z][a-z]?)(\d*)/g)].map(([, symbol, n]) => [
+  return [...formula.matchAll(/(\[\d+[A-Z][a-z]?\]|[A-Z][a-z]?)(\d*)/g)].map(([, symbol, n]) => [
     symbol,
     n ? Number(n) : 1,
   ]);
@@ -118,7 +123,20 @@ function partsTable(entity, components) {
   );
 }
 
-function massesTable(values, disulfides) {
+/** Its formula, masses and absorbance with `n` disulfides. */
+function bonded(free, n) {
+  return {
+    formula: adjusted(free.formula, "H", -2 * n),
+    average: free.average - 2 * HYDROGEN.average * n,
+    monoisotopic: free.monoisotopic - 2 * HYDROGEN.monoisotopic * n,
+    absorbance:
+      free.absorbance === null || free.absorbance === undefined
+        ? null
+        : free.absorbance + CYSTINE * n,
+  };
+}
+
+function massesTable(values, disulfides, theirs) {
   const head = element(
     "tr",
     {},
@@ -140,15 +158,11 @@ function massesTable(values, disulfides) {
         `With its ${disulfides} disulfide${disulfides === 1 ? "" : "s"}`,
       ),
     );
-    columns.push({
-      formula: adjusted(free.formula, "H", -2 * disulfides),
-      average: free.average - 2 * HYDROGEN.average * disulfides,
-      monoisotopic: free.monoisotopic - 2 * HYDROGEN.monoisotopic * disulfides,
-      absorbance:
-        free.absorbance === null || free.absorbance === undefined
-          ? null
-          : free.absorbance + CYSTINE * disulfides,
-    });
+    columns.push(bonded(free, disulfides));
+  }
+  if (theirs > 0) {
+    head.append(element("th", { scope: "col" }, `With its parts' ${theirs} as well`));
+    columns.push(bonded(free, disulfides + theirs));
   }
   const rows = [
     ["Formula", "formula", formulaNode, ""],
@@ -218,6 +232,27 @@ function bondsTable(entity, bonds) {
   );
 }
 
+// What a bond map that isn't complete is, as compute_composition says it.
+const NOT_COMPLETE = {
+  incomplete: "Its bonds don't include every bond it has",
+  predominant:
+    "Its bonds are only its predominant form's, while some of its molecules are bonded otherwise",
+};
+
+/** Why what's worked out with its disulfides may count too few or too many, or null. */
+function uncounted(values) {
+  const why = [];
+  if (NOT_COMPLETE[values.bond_map]) why.push(NOT_COMPLETE[values.bond_map]);
+  if (values.part_disulfides === null || values.part_disulfides === undefined) {
+    why.push("its parts' own disulfides aren't counted in this project yet");
+  } else if (values.part_bonds_complete === false) {
+    why.push("not all of its parts' own disulfides are counted");
+  }
+  if (!why.length) return null;
+  const text = why.join("; ");
+  return `${text[0].toUpperCase()}${text.slice(1)}, so what's worked out with its disulfides may count too few or too many.`;
+}
+
 class Composition extends HTMLElement {
   constructor() {
     super();
@@ -251,7 +286,10 @@ class Composition extends HTMLElement {
         ),
       );
     } else {
-      out.push(massesTable(values, disulfides));
+      const theirs = values.part_disulfides ?? 0;
+      out.push(massesTable(values, disulfides, theirs));
+      const missing = uncounted(values);
+      if (missing) out.push(element("p", { role: "note", className: "warning" }, missing));
       const others = bonds.length - disulfides;
       out.push(
         element(

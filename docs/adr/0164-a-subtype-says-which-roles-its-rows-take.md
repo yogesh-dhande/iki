@@ -50,7 +50,13 @@ within the parent's role's, and types among those the parent's role, or the
 row field, refers to, each with its subtypes (`refines-wider`,
 `row-role-type-not-allowed`). A refinement of a list in the identity refers
 only to types with entries (`registry-refers-to-record`). A subtype of a
-refining subtype refines it again, narrower still.
+refining subtype refines it again, narrower still, and is compared with all
+of its parent's roles, not only those it repeats: it keeps every role its
+parent's rows must have (`refines-drops-role`), and a role whose references
+its parent holds to some types says them again, or types among them, since a
+refinement's roles replace its parent's and one left out would refer to
+anything its field does (`refines-wider`). A role its parent's rows may have
+but needn't, it may leave out: that narrows them.
 
 **Every surface reads the refined rows.** Saving checks a record's rows by
 its own type's roles; the API's type gives `components` with its type's

@@ -82,6 +82,10 @@ TRASTUZUMAB_VALUES: dict[str, Any] = {
     "monoisotopic_mass": 145107.9205,
     "chain_count": 4,
     "extinction_coefficient_reduced": 213380,
+    # An IgG1's bonds are all of them; its parts, its chains, have none of their own.
+    "bond_map": "complete",
+    "part_disulfides": 0,
+    "part_bonds_complete": True,
 }
 TRASTUZUMAB: dict[str, Any] = {
     "id": "00000000-0000-7000-8000-000000000010",
@@ -156,6 +160,100 @@ def test_a_complex_without_an_absorbance_shows_none(browser: Browser, frame_serv
     masses = page.get_by_role("table", name="Formula, masses and absorbance")
     masses.wait_for(timeout=30_000)
     assert cells(masses.get_by_role("row").last) == ["Absorbance at 280 nm", "—", "—"]
+    page.context.close()
+
+
+#: Trastuzumab's Fab bound to HER2's extracellular domain (PDB 1N8Z), as compute_composition
+#: gives it: its own bonds HER2's 23 disulfides, its part the Fab's 4 its own.
+FAB, HER2 = "00000000-0000-7000-8000-000000000003", "00000000-0000-7000-8000-000000000004"
+FAB_HER2: dict[str, Any] = {
+    "id": "00000000-0000-7000-8000-000000000020",
+    "hrid": "PCX-000001",
+    "type": "iki/complex.ProteinComplex",
+    "values": {
+        "name": "Trastuzumab Fab with HER2",
+        "components": [
+            {"part": FAB, "copies": 1, "role": "antibody"},
+            {"part": HER2, "copies": 1, "role": "antigen"},
+        ],
+        "bonds": [_disulfide(HER2, 1, 4 * n + 1, HER2, 1, 4 * n + 2) for n in range(23)],
+        "molecular_formula": "C4980H7745N1389O1538S65",
+        "molecular_weight": 113766.39,
+        "monoisotopic_mass": 113694.238,
+        "chain_count": 3,
+        "extinction_coefficient_reduced": 133620,
+        "part_disulfides": 4,
+        "part_bonds_complete": True,
+    },
+    "refs": {
+        FAB: {**_ref("ABY-000002", "Trastuzumab Fab"), "type": "iki/antibody.Antibody"},
+        HER2: _ref("PRT-000003", "HER2 extracellular domain"),
+    },
+}
+
+
+def test_a_complex_of_a_complex_counts_its_parts_disulfides(
+    browser: Browser, frame_server: str
+) -> None:
+    page = open_frame(browser, frame_server, "composition.js", FAB_HER2)
+    masses = page.get_by_role("table", name="Formula, masses and absorbance")
+    masses.wait_for(timeout=30_000)
+    assert [cells(r) for r in masses.get_by_role("row").all()] == [
+        ["", "Its parts as they are", "With its 23 disulfides", "With its parts' 4 as well"],
+        [
+            "Formula",
+            "C4980H7745N1389O1538S65",
+            "C4980H7699N1389O1538S65",
+            "C4980H7691N1389O1538S65",
+        ],
+        [
+            "Average mass",
+            "113,766.39 u (113.77 ku)",
+            "113,720.02 u (113.72 ku)",
+            "113,711.96 u (113.71 ku)",
+        ],
+        [
+            "Monoisotopic mass",
+            "113,694.2380 u (113.69 ku)",
+            "113,647.8780 u (113.65 ku)",
+            "113,639.8154 u (113.64 ku)",
+        ],
+        [
+            "Absorbance at 280 nm",
+            "133,620 L/(mol·cm)",
+            "136,495 L/(mol·cm)",
+            "136,995 L/(mol·cm)",
+        ],
+    ]
+    assert page.get_by_role("note").count() == 0
+    page.context.close()
+
+
+@pytest.mark.parametrize(
+    ("values", "said"),
+    [
+        (
+            {"part_disulfides": None},
+            "Its parts' own disulfides aren't counted in this project yet, so what's worked "
+            "out with its disulfides may count too few or too many.",
+        ),
+        (
+            # An IgG2's disulfides between its chains take more than one arrangement.
+            {"bond_map": "incomplete", "part_bonds_complete": False},
+            "Its bonds don't include every bond it has; not all of its parts' own disulfides "
+            "are counted, so what's worked out with its disulfides may count too few or too "
+            "many.",
+        ),
+    ],
+)
+def test_disulfides_that_may_not_all_be_counted_are_said_to(
+    browser: Browser, frame_server: str, values: dict[str, Any], said: str
+) -> None:
+    entity = {**FAB_HER2, "values": {**FAB_HER2["values"], **values}}
+    page = open_frame(browser, frame_server, "composition.js", entity)
+    note = page.get_by_role("note")
+    note.wait_for(timeout=30_000)
+    assert note.text_content() == said
     page.context.close()
 
 

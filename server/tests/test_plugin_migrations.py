@@ -243,6 +243,10 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         # Its components are iki/core.Complex's, in the core's table (ADR 0161); its arms,
         # a fact of its own entry, are its own (ADR 0165).
         "acme__protein_bispecific__entry__arms",
+        "acme__protein_multimer",
+        "acme__protein_multimer__history",
+        "acme__protein_multimer__entry",
+        "acme__protein_multimer__entry__history",
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_lot__inputs",
@@ -394,7 +398,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:13] == [
+    assert report.splitlines()[:14] == [
         # The core plugin's alignments, apps, collections and views, which every deployment
         # has, beside the fixtures'.
         "  HRID sequence iki_hrid_aln",
@@ -406,6 +410,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_lot",
+        "  HRID sequence iki_hrid_mlt",
         "  HRID sequence iki_hrid_pls",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",

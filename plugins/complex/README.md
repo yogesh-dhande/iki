@@ -45,18 +45,38 @@ derived`): its parts as they are, each cysteine's thiol free. Its bonds are a
 | --------------------- | ------------------------------------------------------------------------------------- | ------- |
 | `compute_composition` | Computes a complex's formula, masses, chain count and absorbance at 280 nm, any type. | backend |
 
-The trigger `compute_new_complex_composition` runs it on each complex
-registered, of any type, batching up to 100 a run. A complex's run reads its
+The trigger `compute_new_complex_composition` runs it on each complex a
+project gets, of any type, batching up to 100 a run: its entry's derived
+values are set by the first, and every project's record gets its parts'
+disulfides. A complex's run reads its
 parts (`include: [components.part]`), at the revisions they have then:
 
 - a protein's formula is its residues', each its amino acid's less a water,
   and one water for its termini. Selenocysteine (U) is C3H5NOSe and pyrrolysine
   (O) C12H19N3O2. An ambiguous residue (B, Z, J or X) has no one formula, so a
-  complex with one is named and left out;
+  complex with one is named and left out. J (leucine or isoleucine, as mass
+  spectrometry reads them) is C6H11NO either way, and absorbs at 280 nm as
+  neither does, so it's weighed, and the run says so;
+- a DNA sequence's is its bases', as Biopython's `molecular_weight` weighs
+  DNA: each its deoxynucleoside 5′-monophosphate's less a water for each
+  phosphodiester bond, a 5′ phosphate and a 3′ hydroxyl on a linear strand,
+  and both strands of a double-stranded one, which is two chains. A strand
+  made with a 5′ hydroxyl (a synthetic oligonucleotide, a PCR product of
+  unphosphorylated primers) is HPO3, 79.97 u, lighter, which the run says. An
+  ambiguous base has no one formula;
 - any other part's is its entry's `molecular_formula`: a compound's, an
   oligonucleotide's, a duplex's or another complex's, which this action
-  computed when it was registered. A part without one yet, or with a charged
-  one, is named and the complex left out.
+  computed when it was registered, with any isotope as RDKit writes it
+  (`[13C]`, and D and T for hydrogen's), weighed as that isotope in both
+  masses: deutetrabenazine is C19H21D6NO3, its six deuteriums 2.0141 u each.
+  A part without one yet, or with a charged one (a zinc ion, Zn+2), is named
+  and the complex left out.
+
+A complex it can't compute, in a run of several, is an error about it, which
+fails its own run, and the others are computed (ADR 0055); a run of one fails.
+Each complex gets one message, at most, saying all of it, so a run of 100
+keeps to the 100 messages a run's output has: the longest is cut at a
+sentence, its whole in the run's log.
 
 Its average mass is its formula's with the standard atomic weights Biopython
 has (`Bio.Data.IUPACData.atom_weights`), as the protein plugin's molecular
@@ -79,17 +99,22 @@ The run says what its disulfides make it: _"With its 16 disulfides:
 C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u
 monoisotopic, and 216,410 L/(mol.cm) at 280 nm"_. A part that's a complex has
 bonds of its own, shown on it, and the run says what the complex is with those
-as well. Its other bonds (isopeptides, thioethers) aren't weighed: what each
+as well, and when some may not be counted (a part complex whose own parts'
+weren't counted in this project, or whose bonds aren't complete). Its other bonds (isopeptides, thioethers) aren't weighed: what each
 takes off depends on its chemistry.
 
 What it computes, checked against published values:
 
-| Complex                         | Its parts as they are                                                                                                                       | Published                                                                                                                                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hemoglobin A (CPX-2158)         | C2954H4508Fe4N780O806S12, 64,452.3 u; no absorbance, as its hemes aren't weighed                                                            | Complex Portal: 64 kD. Its α chain alone, 15,126.16 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_) |
-| Amivantamab (KEGG D11894)       | With its 16 disulfides, C6472H10014N1730O2023S46, 145,900.13 u; 214,410 L/(mol.cm), 216,410 with them                                       | KEGG DRUG: C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054                                                                                                        |
-| Trastuzumab Fab–HER2 (PDB 1N8Z) | C4980H7745N1389O1538S65, 113,766.39 u, 3 chains; 133,620 L/(mol.cm), 136,495 with HER2's 23 disulfides and 136,995 with the Fab's 4 as well | Its chains as Biopython weighs them, and its disulfides 1N8Z's SSBOND records; RCSB's entity weights are 0.1% higher                                                                                      |
+| Complex                                            | Its parts as they are                                                                                                                             | Published                                                                                                                                                                                                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hemoglobin A (CPX-2158)                            | C2954H4508Fe4N780O806S12, 64,452.3 u; no absorbance, as its hemes aren't weighed                                                                  | Complex Portal: 64 kD. Its α chain alone, 15,126.16 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_)                                           |
+| Amivantamab (KEGG D11894)                          | Its chains' residues alone, unglycosylated: with its 16 disulfides, C6472H10014N1730O2023S46, 145,900.13 u; 214,410 L/(mol.cm), 216,410 with them | KEGG DRUG (its peptide chains): C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054. The glycoprotein's major glycoform is 148,209 Da (FDA's chemistry review of Rybrevant, BLA 761210), its glycans 2,309 more |
+| Trastuzumab Fab–HER2 (PDB 1N8Z)                    | C4980H7745N1389O1538S65, 113,766.39 u, 3 chains; 133,620 L/(mol.cm), 136,495 with HER2's 23 disulfides and 136,995 with the Fab's 4 as well       | Its chains as Biopython weighs them, and its disulfides 1N8Z's SSBOND records; RCSB's entity weights are 0.1% higher                                                                                                                                |
+| Human insulin (P01308)                             | With its 3 disulfides, C257H383N65O77S6, 5,807.57 u, 2 chains                                                                                     | USP and DrugBank (DB00030): C257H383N65O77S6, 5,807.57                                                                                                                                                                                              |
+| Drew–Dickerson dodecamer with netropsin (PDB 1BNA) | Its two strands with a 5′ phosphate, 7,452.73 u, and netropsin's C18H26N10O3: C250H322N102O149P24, 7,883.2 u, 2 chains                            | Biopython's `molecular_weight`, double-stranded: 7,452.73; netropsin, PubChem CID 4461                                                                                                                                                              |
 
+Every mass is its parts' formulas', so a glycoprotein's is its chains' without
+their glycans, or any other modification its parts' formulas don't have.
 Amivantamab's formula, from KEGG DRUG's chains, is KEGG's exactly; its average
 mass differs in its last figures, as KEGG's atomic weights differ from
 Biopython's. Absorbances are
@@ -99,9 +124,9 @@ Biopython ProtParam's for each chain with its thiols free
 ## Components
 
 **Composition**, a tab on every complex's page: its parts with their roles and
-copies; its formula, masses and absorbance at 280 nm as computed, and with its
-disulfides; and its
-bonds, each from a copy's residue to another's. It's named for screen readers
+copies; its formula, masses and absorbance at 280 nm as computed, with its
+disulfides, and with its parts' own as well; whether any may not be counted;
+and its bonds, each from a copy's residue to another's. It's named for screen readers
 as it's drawn for the eye.
 
 ## Tests
@@ -111,8 +136,14 @@ iki plugin test plugins/complex --with plugins/dna --with plugins/protein --with
 ```
 
 `tests/compute_composition.yaml` computes hemoglobin A, amivantamab with its
-disulfides, trastuzumab's Fab bound to HER2 (a complex of a complex) and one
-with an ambiguous residue. `server/tests/test_complex_components.py` shows
+disulfides, trastuzumab's Fab bound to HER2 (a complex of a complex), human
+insulin beside a complex it can't compute in one run, insulin read with J for
+its leucines and isoleucines, VMAT2 with deuterated deutetrabenazine, and the
+Drew–Dickerson DNA dodecamer with netropsin; and refuses one with an ambiguous
+residue and insulin's hexamer with its charged zinc ions.
+`server/tests/test_complex_composition.py` runs a full pack of 100, checking
+its output against the run-output schema, and checks formulas and masses
+against RDKit's and Biopython's. `server/tests/test_complex_components.py` shows
 trastuzumab's composition in each browser, in light and dark, with axe's WCAG
 2.2 AA checks; `server/tests/test_rows.py` checks a complex's parts and bonds
 with the test plugin's own complex type; and `server/tests/test_first_party_plugins.py`

@@ -4,11 +4,12 @@ kind: Trigger
 name: compute_new_complex_composition
 label: Compute each new complex's composition
 description: >-
-  Computes a complex's formula, masses and absorbance as soon as it's
-  registered, whatever its type (an antibody, a protein complex, or a lab's
-  own): once for each identity, as they're its registry
-  entry's. Runs that compute them only fill in fields, so they never fire a
-  trigger again.
-on: entity.registered
+  Computes a complex's formula, masses and absorbance as soon as a project
+  has it, whatever its type (an antibody, a protein complex, or a lab's own):
+  its registry entry's once, as they're its identity's, and its parts' own
+  disulfides for each project's record, as they're its parts' bonds as that
+  project has them. Runs that compute them only fill in fields, so they never
+  fire a trigger again.
+on: entity.created
 type: iki/core.Complex
 run: compute_composition

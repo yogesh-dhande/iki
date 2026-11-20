@@ -852,7 +852,8 @@ web app's search box.
 a list of rows an ancestor declares and gives the roles the subtype's rows
 take, all they may have, each no wider than its parent's (a role its `by`
 field takes, a count within its parent's, types among those its parent
-refers to: `refines-wider`). So one list, declared once, serves every
+refers to, given again: `refines-wider`), and none its parent's rows must
+have left out (`refines-drops-role`). So one list, declared once, serves every
 subtype: each saves, checks and shows its own roles, and search and the
 graph read the one table.
 

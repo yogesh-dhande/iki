@@ -25,8 +25,33 @@ WEIGHTS = Path(os.environ.get("IMMUNEBUILDER_WEIGHTS", "/opt/immunebuilder/weigh
 H3 = range(105, 118)
 
 
+def _one_head(chain: dict[str, Any], kinds: list[str], form: str | None) -> None:
+    """That ``chain`` has the variable domains of one binding head, ``kinds`` (H, or H and
+    K/L for an scFv's), as its numbering found them: ImmuneBuilder models one, the first of
+    each type it finds, so a chain of more (a tandem scFv's, a DVD-Ig's) would have the
+    rest left out unsaid. Raises ValueError."""
+    domains = chain["values"].get("variable_domains")
+    name = chain["values"].get("name") or chain["hrid"]
+    if domains is None:
+        if form == "other":
+            raise ValueError(
+                f"{name} hasn't been numbered, so which of its variable domains would be "
+                "modelled isn't known: number its chains first"
+            )
+        return
+    found = sorted("K/L" if d["chain"] in ("K", "L") else d["chain"] for d in domains)
+    if found != sorted(kinds):
+        spans = ", ".join(f"{d['chain']} {d['start']}-{d['end']}" for d in domains) or "none"
+        raise ValueError(
+            f"{name} has {len(domains)} variable domains ({spans}), and ImmuneBuilder models "
+            f"one binding head ({' and '.join(kinds)}), so it would leave the rest out: "
+            "register each binding head as an antibody of its own (an scFv) to model it"
+        )
+
+
 def chains(antibody: dict[str, Any]) -> tuple[dict[str, str], list[str], list[str]]:
-    """What to model: sequences by chain ID (H, L), the protein each chain ID is, in order."""
+    """What to model: sequences by chain ID (H, L), the protein each chain ID is, in order.
+    Raises ValueError for chains that aren't one binding head."""
     # Its chains are its parts (ADR 0161), each row's included in the rows' order.
     rows = antibody["values"].get("components") or []
     parts = (antibody.get("included") or {}).get("components.part") or []
@@ -36,6 +61,13 @@ def chains(antibody: dict[str, Any]) -> tuple[dict[str, str], list[str], list[st
         raise ValueError("its heavy chain wasn't given to the run")
     h = heavy["values"]["sequence"].removesuffix("*").upper()
     form = antibody["values"].get("format")
+    if form == "vhh":
+        _one_head(heavy, ["H"], form)
+    elif form == "scfv" or light is None:
+        _one_head(heavy, ["H", "K/L"], form)
+    else:
+        _one_head(heavy, ["H"], form)
+        _one_head(light, ["K/L"], form)
     if form == "vhh":
         return {"H": h}, [heavy["id"]], ["H"]
     if form == "scfv" or light is None:

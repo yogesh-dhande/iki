@@ -553,3 +553,20 @@ def test_renumbering_a_screened_chain_finds_its_liabilities_again(tmp_path: Path
         "text": "vh's liabilities were found again on the new numbering: 7.",
         "entity": screened["id"],
     } in renumbered["messages"]
+
+
+def test_a_loops_residues_arent_framework_when_its_cdrs_werent_found(tmp_path: Path) -> None:
+    """Bovine BLV1H12 (PDB 4K3D), numbered in IMGT's scheme with Kabat's CDRs, which
+    ANARCI can't number its 61-residue CDR-H3 in: its CDRs aren't found, so the six
+    cysteines inside its CDR-H3, at residues 108, 118, 124, 129, 130 and 138, are in an
+    unknown region, not framework."""
+    (chain,) = chains(tmp_path, "blv1h12", cdr_definition="kabat")
+    assert chain["values"]["variable_domains"][0].get("cdrs") is None
+    _, output = screen(tmp_path, [chain])
+    found = output["updates"]["protein"][0]["values"]["liabilities"]
+    cysteines = [
+        (f["position"], f["region"]) for f in found if f["kind"] == "noncanonical_cysteine"
+    ]
+    assert {108, 118, 124, 129, 130, 138} <= {p for p, _ in cysteines}
+    assert {r for _, r in cysteines} == {"unknown"}
+    assert not [f for f in found if f["region"] == "framework"]

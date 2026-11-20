@@ -1081,7 +1081,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         cursor.execute(
             "CREATE TEMP TABLE iki_import_resolved ON COMMIT DROP AS "  # noqa: S608 - ours; values are parameters
             "WITH firsts AS ("
-            f" SELECT DISTINCT ON (identity_hash) identity_hash, line, entity_id FROM {table}"
+            f" SELECT DISTINCT ON (identity_hash) identity_hash, line, entity_id, type FROM {table}"
             " WHERE identity_hash IS NOT NULL AND type = ANY(%(identified)s)"
             " ORDER BY identity_hash, line"
             "), registered AS ("
@@ -1089,7 +1089,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " WHERE e.registry_id = %(registry)s"
             " AND e.identity_hash IN (SELECT identity_hash FROM firsts)"
             "), entries AS ("
-            " SELECT f.identity_hash, f.line,"
+            " SELECT f.identity_hash, f.line, f.type AS first_type,"
             "  COALESCE(x.id, uuidv7()) AS entry_id, x.id IS NULL AS new_entry,"
             "  x.type AS entry_type, x.hrid AS entry_hrid, x.superseded_by_id"
             " FROM firsts f LEFT JOIN registered x USING (identity_hash)"
@@ -1102,6 +1102,9 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " SELECT s.line, s.entity_id, s.type, n.entry_id, n.entry_type, n.entry_hrid,"
             "  n.superseded_by_id, n.new_entry AND n.line = s.line AS makes_entry,"
             "  CASE WHEN n.new_entry AND n.line <> s.line THEN n.line END AS registered_by,"
+            # A new identity is the first line's type: a later line of it as another type
+            # would be that entry under another type (ADR 0165).
+            "  CASE WHEN n.new_entry THEN n.first_type END AS first_type,"
             "  COALESCE(h.id, f.entity_id, s.entity_id) AS target,"
             "  h.id IS NOT NULL AS reused"
             f" FROM {table} s"
@@ -1110,7 +1113,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " LEFT JOIN entries n ON n.identity_hash = f.identity_hash"
             " LEFT JOIN held h ON h.entry_id = n.entry_id"
             ") SELECT line, entity_id, type, entry_id, entry_type, entry_hrid, superseded_by_id,"
-            " makes_entry, registered_by, target, reused,"
+            " makes_entry, registered_by, first_type, target, reused,"
             " target = entity_id AND NOT reused AS new,"
             " row_number() OVER (PARTITION BY target ORDER BY line) = 1 AS first"
             " FROM lines",
@@ -1246,22 +1249,29 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
 
 
 def _refuse_unregistrable(cursor: Any) -> None:  # noqa: ANN401 - a cursor
-    """Lines whose identity is registered as another type, or was superseded (ADR 0115):
-    as a create of them would be, they're refused, naming the entry."""
+    """Lines whose identity is registered as another type, or was superseded (ADR 0115), or
+    that an earlier line of the file registers as another type: as a create of them would
+    be, one after the other, they're refused, naming the entry or the line."""
     cursor.execute(
-        "SELECT r.line, r.entry_hrid, r.entry_type, s.hrid FROM iki_import_resolved r"
+        "SELECT r.line, r.entry_hrid, r.entry_type, s.hrid, r.registered_by, r.first_type"
+        " FROM iki_import_resolved r"
         " LEFT JOIN iki_entity s ON s.id = r.superseded_by_id"
-        " WHERE r.entry_type IS NOT NULL"
-        " AND (r.entry_type <> r.type OR r.superseded_by_id IS NOT NULL)"
+        " WHERE (r.entry_type IS NOT NULL"
+        " AND (r.entry_type <> r.type OR r.superseded_by_id IS NOT NULL))"
+        " OR (r.registered_by IS NOT NULL AND r.first_type <> r.type)"
         " ORDER BY r.line LIMIT 100"
     )
     errors = []
-    for line, hrid, entry_type, replacement in cursor.fetchall():
-        detail = (
-            f"{hrid} was superseded by {replacement}: register that instead."
-            if replacement is not None
-            else f"This is registered already, as a {entry_type} ({hrid}): register it as one."
-        )
+    for line, hrid, entry_type, replacement, first, first_type in cursor.fetchall():
+        if replacement is not None:
+            detail = f"{hrid} was superseded by {replacement}: register that instead."
+        elif entry_type is not None:
+            detail = f"This is registered already, as a {entry_type} ({hrid}): register it as one."
+        else:
+            detail = (
+                f"Line {first} registers this as a {first_type}, the same molecule: register "
+                "it as one."
+            )
         errors.append({"pointer": results.pointer("creates_file", line, "type"), "detail": detail})
     if errors:
         raise results.InvalidOutput(errors)
