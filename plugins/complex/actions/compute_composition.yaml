@@ -6,14 +6,17 @@ label: Compute a complex's composition
 description: >-
   A complex's formula, average and monoisotopic masses and chain count, from
   its parts, each times its copies: a protein's formula from its residues and
-  water, a nucleic acid's or an oligonucleotide's, a small molecule's or
-  another complex's from its entry's molecular formula. A part with neither (a
-  sequence with an ambiguous residue, or a molecule whose formula isn't known
-  yet) is named, and nothing is computed. And its molar absorbance at 280 nm,
-  Pace's, from its parts' tryptophans and tyrosines with each cysteine's thiol
-  free, if its parts are all proteins or complexes with one. The run also says
-  its formula, masses and absorbance with its disulfides: two hydrogens off and
-  a cystine's 125 L/(mol.cm) on for each.
+  water, a DNA sequence's from its bases, its strands and topology, and a
+  small molecule's, an oligonucleotide's or another complex's from its entry's
+  molecular formula. A part with none (a sequence with an ambiguous residue or
+  base, or a molecule whose formula isn't known yet) is named, and nothing is
+  computed for that complex. And its molar absorbance at 280 nm, Pace's, from
+  its parts' tryptophans and tyrosines with each cysteine's thiol free, if its
+  parts are all proteins or complexes with one. It counts the disulfides its
+  parts have of their own, such as a Fab's in a complex of the Fab and its
+  antigen, for this project's record. The run also says its formula, masses
+  and absorbance with its disulfides, its own and its parts': two hydrogens
+  off and a cystine's 125 L/(mol.cm) on for each.
 inputs:
   complex: { type: iki/core.Complex, schema: ">=1", include: [components.part] }
 effects:
@@ -26,6 +29,8 @@ effects:
           monoisotopic_mass,
           chain_count,
           extinction_coefficient_reduced,
+          part_disulfides,
+          part_bonds_complete,
         ]
 runs_on: { tier: backend, environment: complex-tools }
 command: [python, ./scripts/composition.py]

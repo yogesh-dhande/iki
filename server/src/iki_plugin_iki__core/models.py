@@ -296,6 +296,8 @@ class Complex(Entity):
     )
     name = models.CharField(max_length=255, null=True, db_index=True)
     description = models.TextField(null=True)
+    part_disulfides = models.BigIntegerField(null=True)
+    part_bonds_complete = models.BooleanField(null=True)
 
     class Meta:
         db_table = 'iki__core_complex'
@@ -315,6 +317,10 @@ class Complex(Entity):
             models.CheckConstraint(
                 condition=LessThanOrEqual(Length('description'), 10000),
                 name='iki__core_complex__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=Q(part_disulfides__gte=0),
+                name='iki__core_complex__part_disulfides__min',
             ),
         ]
         indexes = [
@@ -341,6 +347,8 @@ class Complex_History(models.Model):
     revision = models.PositiveIntegerField()
     name = models.TextField(null=True)
     description = models.TextField(null=True)
+    part_disulfides = models.BigIntegerField(null=True)
+    part_bonds_complete = models.BooleanField(null=True)
 
     class Meta:
         db_table = 'iki__core_complex__history'
@@ -360,6 +368,7 @@ class Complex_Entry(Entity):
         db_column='entity_id',
         related_name='+',
     )
+    bond_map = models.TextField(null=True)
     molecular_formula = models.CharField(max_length=255, null=True)
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)
@@ -370,6 +379,10 @@ class Complex_Entry(Entity):
         db_table = 'iki__core_complex__entry'
         constraints = [
             models.CheckConstraint(
+                condition=Q(bond_map__in=['complete', 'incomplete', 'predominant']),
+                name='iki__core_complex__entry__bond_map__values',
+            ),
+            models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('molecular_formula'), 1),
                 name='iki__core_complex__entry__molecular_formula__not_empty',
             ),
@@ -378,7 +391,9 @@ class Complex_Entry(Entity):
                 name='iki__core_complex__entry__molecular_formula__one_line',
             ),
             models.CheckConstraint(
-                condition=Q(molecular_formula__regex='^(?:^([A-Z][a-z]?[0-9]*)+$)$'),
+                condition=Q(
+                    molecular_formula__regex='^(?:^((\\[[1-9][0-9]*[A-Z][a-z]?\\]|[A-Z][a-z]?)[0-9]*)+$)$',
+                ),
                 name='iki__core_complex__entry__molecular_formula__pattern',
             ),
             models.CheckConstraint(
@@ -429,6 +444,7 @@ class Complex_Entry_History(models.Model):
     revision = models.PositiveIntegerField()
     components = models.JSONField(null=True)
     bonds = models.JSONField(null=True)
+    bond_map = models.TextField(null=True)
     molecular_formula = models.TextField(null=True)
     molecular_weight = QuantityField(unit='u', null=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)

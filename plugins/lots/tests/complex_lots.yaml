@@ -1,0 +1,592 @@
+# Run with `iki plugin test plugins/lots --with plugins/dna --with plugins/protein --with plugins/antibody --with plugins/complex --with plugins/oligo --with plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: a_complex_of_a_fab_and_its_antigen
+description: >-
+  Trastuzumab's Fab bound to HER2's extracellular domain (PDB 1N8Z; Cho et al., Nature
+  421:756, 2003), as the complex plugin's compute_composition gives it: 113,766.39 g/mol
+  and 133,620 L/(mol·cm) with every thiol free. Its own bonds are HER2's 23 disulfides;
+  its part the Fab has 4 of its own, which compute_composition counted for this
+  project. All 27 are cystines: 133,620 + 27 × 125 = 136,995 L/(mol·cm) over 113,766.39
+  − 27 × 2.01588 = 113,711.96 g/mol, 1.2048 mL/(mg·cm): an A280 of 1.2 diluted 1 in
+  10 is 9.9605 mg/mL. Counting HER2's 23 alone would give 1.2003 mL/(mg·cm), 0.4% too
+  little.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 1.2, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/complex.ProteinComplex
+            values:
+              name: trastuzumab Fab–HER2
+              components:
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: antibody }
+                - { part: 00000000-0000-7000-8003-000000000003, copies: 1, role: antigen }
+              # HER2's 23 disulfides, as PDB 1N8Z's SSBOND records give them.
+              bonds:
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 4,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 31,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 140,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 170,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 173,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 182,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 177,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 190,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 198,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 205,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 202,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 213,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 214,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 222,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 218,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 230,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 233,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 242,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 246,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 273,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 277,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 289,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 293,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 309,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 312,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 316,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 320,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 345,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 453,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 482,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 489,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 498,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 493,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 506,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 509,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 518,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 522,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 538,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 541,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 554,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 545,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 562,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 565,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 574,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 578,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 601,
+                  }
+              molecular_formula: C4980H7745N1389O1538S65
+              molecular_weight: 113766.39
+              extinction_coefficient_reduced: 133620
+              part_disulfides: 4
+              part_bonds_complete: true
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 1.2048, concentration: 9.9605 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_complex_whose_parts_disulfides_arent_counted_yet
+description: >-
+  The same complex, before its composition counted its parts' own disulfides in this
+  project: its own 23 are cystines, 1.2003 mL/(mg·cm), and the run warns that some may
+  not be counted.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 1.2, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/complex.ProteinComplex
+            values:
+              name: trastuzumab Fab–HER2
+              components:
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: antibody }
+                - { part: 00000000-0000-7000-8003-000000000003, copies: 1, role: antigen }
+              # HER2's 23 disulfides, as PDB 1N8Z's SSBOND records give them.
+              bonds:
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 4,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 31,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 140,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 170,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 173,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 182,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 177,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 190,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 198,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 205,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 202,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 213,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 214,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 222,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 218,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 230,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 233,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 242,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 246,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 273,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 277,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 289,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 293,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 309,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 312,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 316,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 320,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 345,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 453,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 482,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 489,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 498,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 493,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 506,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 509,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 518,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 522,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 538,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 541,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 554,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 545,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 562,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 565,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 574,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 578,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 601,
+                  }
+              molecular_formula: C4980H7745N1389O1538S65
+              molecular_weight: 113766.39
+              extinction_coefficient_reduced: 133620
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 1.2003, concentration: 9.9977 }
+    messages:
+      - level: warning
+        text: "PLOT-000001: its complex's disulfides may not all be counted (its Composition tab says which), so its concentration from its A280 may be off by a cystine's 125 L/(mol·cm) for each."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_reduced_complex_of_a_fab_and_its_antigen
+description: >-
+  The same complex, reduced: every thiol free, so none of its 27 disulfides is
+  counted, its own or its Fab's: 133,620 L/(mol·cm) over 113,766.39 g/mol,
+  1.1745 mL/(mg·cm), and the same A280 is 10.217 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values:
+        {
+          a280: 1.2,
+          dilution_factor: 10,
+          path_length: 1,
+          concentration_method: a280,
+          cysteines: reduced,
+        }
+      included:
+        protein:
+          - type: iki/complex.ProteinComplex
+            values:
+              name: trastuzumab Fab–HER2
+              components:
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: antibody }
+                - { part: 00000000-0000-7000-8003-000000000003, copies: 1, role: antigen }
+              # HER2's 23 disulfides, as PDB 1N8Z's SSBOND records give them.
+              bonds:
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 4,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 31,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 140,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 170,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 173,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 182,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 177,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 190,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 198,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 205,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 202,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 213,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 214,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 222,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 218,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 230,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 233,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 242,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 246,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 273,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 277,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 289,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 293,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 309,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 312,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 316,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 320,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 345,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 453,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 482,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 489,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 498,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 493,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 506,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 509,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 518,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 522,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 538,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 541,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 554,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 545,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 562,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 565,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 574,
+                  }
+                - {
+                    kind: disulfide,
+                    part: 00000000-0000-7000-8003-000000000003,
+                    residue: 578,
+                    partner: 00000000-0000-7000-8003-000000000003,
+                    partner_residue: 601,
+                  }
+              molecular_formula: C4980H7745N1389O1538S65
+              molecular_weight: 113766.39
+              extinction_coefficient_reduced: 133620
+              part_disulfides: 4
+              part_bonds_complete: true
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 1.1745, concentration: 10.217 }

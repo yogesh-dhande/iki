@@ -52,6 +52,8 @@ expect:
             molecular_weight: 64452.3
             monoisotopic_mass: 64412.9788
             chain_count: 4
+            part_disulfides: 0
+            part_bonds_complete: true
     messages:
       - level: info
         text: "Its molar absorbance at 280 nm isn't computed: heme b isn't a protein, and Pace's values weigh only proteins' tryptophans, tyrosines and cystines."
@@ -231,6 +233,8 @@ expect:
             monoisotopic_mass: 145842.3559
             chain_count: 4
             extinction_coefficient_reduced: 214410
+            part_disulfides: 0
+            part_bonds_complete: true
     messages:
       - level: info
         text: "With its 16 disulfides: C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u monoisotopic, and 216,410 L/(mol.cm) at 280 nm."
@@ -267,7 +271,7 @@ description: >-
   Fab's two and HER2's one. Its bonds are HER2's 23 disulfides, as 1N8Z's
   SSBOND records give them; the Fab's 4 (A23-A88, A134-A194, B22-B96 and
   B147-B203 in 1N8Z, its chains not joined, as its Fd stops before the hinge)
-  are the Fab's own. At 280 nm the Fab has 71,280 L/(mol.cm) with its thiols
+  are the Fab's own, which it counts as its parts' disulfides, for a lot of it. At 280 nm the Fab has 71,280 L/(mol.cm) with its thiols
   free (its chains' 7 tryptophans and 22 tyrosines) and HER2 62,340 (7 and 16),
   as Biopython's ProtParam gives them: 133,620 together, 136,495 with HER2's
   disulfides, and 136,995 with the Fab's as well.
@@ -484,6 +488,9 @@ inputs:
               molecular_formula: C2074H3209N555O659S12
               chain_count: 2
               extinction_coefficient_reduced: 71280
+              # Its chains are proteins, so its parts have none of their own.
+              part_disulfides: 0
+              part_bonds_complete: true
           - type: iki/protein.Protein
             values:
               {
@@ -500,8 +507,266 @@ expect:
             monoisotopic_mass: 113694.238
             chain_count: 3
             extinction_coefficient_reduced: 133620
+            part_disulfides: 4
+            part_bonds_complete: true
     messages:
       - level: info
-        text: "With its 23 disulfides: C4980H7699N1389O1538S65, 113,720.02 u average and 113,647.8780 u monoisotopic, and 136,495 L/(mol.cm) at 280 nm."
+        text: "With its 23 disulfides: C4980H7699N1389O1538S65, 113,720.02 u average and 113,647.8780 u monoisotopic, and 136,495 L/(mol.cm) at 280 nm. Its parts have 4 disulfides of their own (trastuzumab Fab's 4), which are their bonds, shown on them. With those as well as its own: C4980H7691N1389O1538S65, 113,711.96 u average and 113,639.8154 u monoisotopic, and 136,995 L/(mol.cm) at 280 nm."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: one_of_several_it_cant_compute
+description: >-
+  Run together, as the trigger batches them, a complex that can't be computed
+  fails its own run, with an error saying why, and the others are computed:
+  human insulin (UniProt P01308's A chain, 21 residues, and B chain, 30), its
+  three disulfides A6-A11, A7-B7 and A20-B19 making C257H383N65O77S6, 5,807.57
+  u, as the USP and DrugBank (DB00030) give it; and a complex of a chain with
+  an X, which has no one formula.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: human insulin
+        components:
+          - { part: 00000000-0000-7000-8003-000000000021, copies: 1, role: A chain }
+          - { part: 00000000-0000-7000-8003-000000000022, copies: 1, role: B chain }
+        bonds:
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 6,
+              partner: 00000000-0000-7000-8003-000000000021,
+              partner_residue: 11,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 7,
+              partner: 00000000-0000-7000-8003-000000000022,
+              partner_residue: 7,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 20,
+              partner: 00000000-0000-7000-8003-000000000022,
+              partner_residue: 19,
+            }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values: { name: insulin A chain, sequence: GIVEQCCTSICSLYQLENYCN }
+          - type: iki/protein.Protein
+            values: { name: insulin B chain, sequence: FVNQHLCGSHLVEALYLVCGERGFFYTPKT }
+    - type: iki/complex.ProteinComplex
+      values:
+        name: partly read
+        components:
+          - { part: 00000000-0000-7000-8003-000000000023, copies: 2 }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values: { name: partly read chain, sequence: MKXLV }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C257H389N65O77S6
+            molecular_weight: 5813.62
+            monoisotopic_mass: 5809.6846
+            chain_count: 2
+            extinction_coefficient_reduced: 5960
+            part_disulfides: 0
+            part_bonds_complete: true
+    messages:
       - level: info
-        text: "Its parts have 4 disulfides of their own (trastuzumab Fab's 4), which are their bonds, shown on them. With those as well as its own: C4980H7691N1389O1538S65, 113,711.96 u average and 113,639.8154 u monoisotopic, and 136,995 L/(mol.cm) at 280 nm."
+        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.57 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm."
+      - level: error
+        text: "partly read chain has 'X', an ambiguous or unknown residue, which has no one formula."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: leucine_or_isoleucine
+description: >-
+  A protein read by mass spectrometry, whose leucines and isoleucines it can't
+  tell apart (they're isobaric), has J for each: human insulin's chains so
+  read have the formula and masses insulin has, as J is either, which have one
+  formula.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: human insulin, by mass spectrometry
+        components:
+          - { part: 00000000-0000-7000-8003-000000000021, copies: 1, role: A chain }
+          - { part: 00000000-0000-7000-8003-000000000022, copies: 1, role: B chain }
+        bonds:
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 6,
+              partner: 00000000-0000-7000-8003-000000000021,
+              partner_residue: 11,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 7,
+              partner: 00000000-0000-7000-8003-000000000022,
+              partner_residue: 7,
+            }
+          - {
+              kind: disulfide,
+              part: 00000000-0000-7000-8003-000000000021,
+              residue: 20,
+              partner: 00000000-0000-7000-8003-000000000022,
+              partner_residue: 19,
+            }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values: { name: insulin A chain, sequence: GJVEQCCTSJCSJYQJENYCN }
+          - type: iki/protein.Protein
+            values: { name: insulin B chain, sequence: FVNQHJCGSHJVEAJYJVCGERGFFYTPKT }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C257H389N65O77S6
+            molecular_weight: 5813.62
+            monoisotopic_mass: 5809.6846
+            chain_count: 2
+            extinction_coefficient_reduced: 5960
+    messages:
+      - level: info
+        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.57 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm. insulin A chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula. insulin B chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_deuterated_ligand
+description: >-
+  Human VMAT2 (UniProt Q05940, 514 residues) with deutetrabenazine, its
+  inhibitor tetrabenazine with its two methoxy groups' hydrogens deuterium
+  (PubChem CID 73442840, C19H27NO3 as PubChem writes it, 323.2368 u
+  monoisotopic): RDKit writes it C19H21D6NO3, and its six deuteriums weigh
+  as deuterium, 2.0141 u each, not hydrogen's 1.0078, in both of the
+  complex's masses. A formula is read as RDKit writes one, isotopes and all.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: VMAT2 with deutetrabenazine
+        components:
+          - { part: 00000000-0000-7000-8003-000000000031, copies: 1, role: transporter }
+          - { part: 00000000-0000-7000-8003-000000000032, copies: 1, role: inhibitor }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values:
+              {
+                name: VMAT2,
+                sequence: MALSELALVRWLQESRRSRKLILFIVFLALLLDNMLLTVVVPIIPSYLYSIKHEKNATEIQTARPVHTASISDSFQSIFSYYDNSTMVTGNATRDLTLHQTATQHMVTNASAVPSDCPSEDKDLLNENVQVGLLFASKATVQLITNPFIGLLTNRIGYPIPIFAGFCIMFVSTIMFAFSSSYAFLLIARSLQGIGSSCSSVAGMGMLASVYTDDEERGNVMGIALGGLAMGVLVGPPFGSVLYEFVGKTAPFLVLAALVLLDGAIQLFVLQPSRVQPESQKGTPLTTLLKDPYILIAAGSICFANMGIAMLEPALPIWMMETMCSRKWQLGVAFLPASISYLIGTNIFGILAHKMGRWLCALLGMIIVGVSILCIPFAKNIYGLIAPNFGVGFAIGMVDSSMMPIMGYLVDLRHVSVYGSVYAIADVAFCMGYAIGPSAGGAIAKAIGFPWLMTIIGIIDILFAPLCFFLRSPPAKEEKMAILMDHNCPIKTKMYTQNNIQSYPIGEDEESESD,
+              }
+          - type: iki/small_molecule.Compound
+            values:
+              {
+                name: deutetrabenazine,
+                smiles: "[2H]C([2H])([2H])OC1=C(C=C2[C@@H]3CC(=O)[C@H](CN3CCC2=C1)CC(C)C)OC([2H])([2H])[2H]",
+                molecular_formula: C19H21D6NO3,
+              }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C2562H4030D6N624O706S36
+            molecular_weight: 56035.59
+            monoisotopic_mass: 55998.942
+            chain_count: 1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_charged_part
+description: >-
+  Insulin's hexamer holds two zinc ions (Baker et al., Phil Trans R Soc B
+  319:369, 1988); a zinc ion's formula, Zn+2, is charged, and a complex's
+  parts are neutral here, so its masses aren't computed, and the run says
+  so as it is: charged, not anything else.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: insulin hexamer
+        components:
+          - { part: 00000000-0000-7000-8003-000000000021, copies: 6, role: A chain }
+          - { part: 00000000-0000-7000-8003-000000000022, copies: 6, role: B chain }
+          - { part: 00000000-0000-7000-8003-000000000041, copies: 2, role: zinc }
+      included:
+        components.part:
+          - type: iki/protein.Protein
+            values: { name: insulin A chain, sequence: GIVEQCCTSICSLYQLENYCN }
+          - type: iki/protein.Protein
+            values: { name: insulin B chain, sequence: FVNQHLCGSHLVEALYLVCGERGFFYTPKT }
+          - type: iki/small_molecule.Compound
+            values: { name: zinc ion, smiles: "[Zn+2]", molecular_formula: Zn+2 }
+expect:
+  error: "zinc ion's formula, Zn+2, isn't a neutral one (a complex's parts are neutral here), so its mass in the complex isn't known."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_dna_duplex_with_a_drug
+description: >-
+  The Drew-Dickerson dodecamer, CGCGAATTCGCG, self-complementary, so two
+  strands (Drew et al., PNAS 78:2179, 1981; PDB 1BNA), with netropsin in its
+  minor groove (Kopka et al., PNAS 82:1376, 1985; PubChem CID 4461,
+  C18H26N10O3). A DNA sequence's formula is its bases': its two strands,
+  each its deoxynucleotides' less a water for each of its 11 phosphodiester
+  bonds, with a 5′ phosphate, as Biopython's molecular_weight weighs a
+  double-stranded one (7,452.73 u); so it's two chains, not one. The
+  dodecamer was made with a 5′ hydroxyl on each strand, HPO3 lighter, which
+  the run says. DNA absorbs at 280 nm in ways Pace's values don't weigh.
+action: compute_composition
+inputs:
+  complex:
+    - type: iki/complex.ProteinComplex
+      values:
+        name: dodecamer with netropsin
+        components:
+          - { part: 00000000-0000-7000-8003-000000000051, copies: 1, role: DNA }
+          - { part: 00000000-0000-7000-8003-000000000052, copies: 1, role: drug }
+      included:
+        components.part:
+          - type: iki/dna.DNASequence
+            values:
+              {
+                name: Drew-Dickerson dodecamer,
+                bases: CGCGAATTCGCG,
+                topology: linear,
+                strandedness: double,
+              }
+          - type: iki/small_molecule.Compound
+            values:
+              {
+                name: netropsin,
+                smiles: "CN1C=C(C=C1C(=O)NC2=CN(C(=C2)C(=O)NCCC(=N)N)C)NC(=O)CN=C(N)N",
+                molecular_formula: C18H26N10O3,
+              }
+expect:
+  output:
+    updates:
+      complex:
+        - values:
+            molecular_formula: C250H322N102O149P24
+            molecular_weight: 7883.2
+            monoisotopic_mass: 7879.4458
+            chain_count: 2
+    messages:
+      - level: info
+        text: "Its molar absorbance at 280 nm isn't computed: Drew-Dickerson dodecamer and netropsin aren't proteins, and Pace's values weigh only proteins' tryptophans, tyrosines and cystines. Its linear DNA's strands are weighed with a 5′ phosphate and a 3′ hydroxyl, as Biopython weighs DNA: a strand made with a 5′ hydroxyl, as a synthetic or PCR-made one is, is HPO3 (79.97 u) lighter."

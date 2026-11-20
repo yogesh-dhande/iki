@@ -330,7 +330,21 @@ def protein(lot: Lot) -> None:
         return
     molar = number(theirs.get("extinction_coefficient_reduced"))
     bonds = theirs.get("bonds") or []
-    disulfides = sum(1 for b in bonds if b.get("kind") == "disulfide") if oxidized else 0
+    # Its own disulfides, and those its parts have of their own (a Fab's, in a complex of
+    # the Fab and its antigen), which its composition counted for this project.
+    own = sum(1 for b in bonds if b.get("kind") == "disulfide")
+    disulfides = own + int(theirs.get("part_disulfides") or 0) if oxidized else 0
+    if oxidized and (
+        theirs.get("bond_map") in ("incomplete", "predominant")
+        or theirs.get("part_bonds_complete") is False
+        or (theirs.get("molecular_formula") and theirs.get("part_disulfides") is None)
+    ):
+        lot.say(
+            "warning",
+            "its complex's disulfides may not all be counted (its Composition tab says "
+            "which), so its concentration from its A280 may be off by a cystine's 125 "
+            "L/(mol·cm) for each.",
+        )
     note = ""
     if disulfides:
         molar = None if molar is None else molar + CYSTINE * disulfides

@@ -124,8 +124,11 @@ measured.
   each of its cystines takes two hydrogens (2.016 g/mol) off. A complex's, such
   as an antibody's, an Fc fusion's or a multispecific's, are kept with each
   thiol free (ADR 0161); as cystines, each disulfide its bonds place takes two
-  hydrogens off and adds 125 L/(mol·cm), as its Composition tab shows. Hen
-  lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
+  hydrogens off and adds 125 L/(mol·cm), as its Composition tab shows, and so
+  does each its parts have of their own (a Fab's, in a complex of the Fab and
+  its antigen), which its composition counts for the project. When some may
+  not be counted (its bonds are said to be incomplete, as an IgG2's are, or its
+  parts' weren't counted yet), the run warns. Hen lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
   14,313.0 g/mol, less 8.06 for its four cystines: 37,970 / 14,304.94 = 2.6543
   mL/(mg·cm), within 0.6% of the 2.64 measured at 281.5 nm (Aune & Tanford,
   1969, Biochemistry 8:4579). Trastuzumab (KEGG D03257), two heavy and two light

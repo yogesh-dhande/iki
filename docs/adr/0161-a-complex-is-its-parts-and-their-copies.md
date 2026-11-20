@@ -91,9 +91,21 @@ copy `copy` of one part and `partner_residue` of `partner_copy` of another,
 or of the same part: an IgG's hinge disulfides join copy 1 of its heavy
 chain to copy 2. The core rule checks each end is one of its parts, its copy
 is one it has, its residue is in the part's sequence and, for a disulfide,
-a cysteine, and that no residue is in two. The antibody plugin's actions
+a cysteine in a protein's sequence (a C in a DNA linker is a cytosine, and a
+part with no sequence has no cysteine to place), and that no residue is in
+two. The antibody plugin's actions
 give them as each subclass places them (an IgG1's light chain to C220 and
 heavy chains at C226 and C229, EU numbering), checked against KEGG DRUG's.
+
+**How much its bonds tell is a fact too.** Its `bond_map` (a registry fact)
+says whether its bonds are `complete` (every bond it has), `incomplete` (not
+all: an IgG2's or IgG3's disulfides between its chains take more than one
+arrangement, so a run places none of them), or `predominant` (its
+predominant form's, while some of its molecules are bonded otherwise: a
+native IgG4's hinge, which in some molecules bonds within each heavy chain,
+Angal et al., Mol Immunol 30:105, 1993). Left empty, it isn't said. What's
+worked out with its disulfides says so when they may count too few or too
+many: a lot's concentration from its A280 warns, as its tab and the run do.
 
 **What its parts make it is derived from its identity.** Its molecular
 formula, average and monoisotopic masses, chain count and molar absorbance at
@@ -109,6 +121,22 @@ every pair of cysteines, as one protein's oxidized absorbance is: an
 antibody's light chain has an odd number of cysteines, one of them bonding
 the heavy chain. A complex with a part that isn't a protein (a heme) has no
 absorbance, as Pace's values weigh only proteins.
+
+**Its parts' own disulfides are its project record's.** A part that's a
+complex has bonds of its own, on it: a Fab's four, in a complex of the Fab
+and its antigen. They're cystines in a lot of it as much as its own are, so
+the complex plugin counts them, each times its copies and with their parts'
+in turn, as `part_disulfides`, with `part_bonds_complete` saying whether
+every one was counted (false when a part's `bond_map` isn't complete, or a
+part complex's own count is missing). They're computed fields of each
+project's record, not derived ones of the entry: they follow from its parts'
+bonds, facts their registrars may correct, so they can't be its identity's
+(ADR 0131), and a registry fact is curated, not computed. The plugin's
+trigger runs on each record created, so every project that has the complex
+counts them, from its parts as that project has them; its entry's derived
+values are set once, by the first, and the others' runs leave them as they
+are. A count is as of its run: when a part's bonds are corrected, computing
+the complex again counts them anew.
 
 **An action can include a list of rows' references**: `include:
 [components.part]` gives a run each row's part, in the rows' order, at the
