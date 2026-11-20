@@ -11,7 +11,7 @@ on every create and edit, so they hold for the web, the API, MCP and runs alike:
   the person saving it (see :mod:`iki_server.entities.app_specs`).
 - ``iki/core.Complex`` (ADR 0161) lists each part once, with its copies, each a registry
   entry; and each of its bonds joins two residues there are, of copies it has, a disulfide
-  two cysteines, each residue in one bond at most.
+  two cysteines in proteins' sequences, each residue in one bond at most.
 
 Subtypes follow their parents' rules.
 """
@@ -197,8 +197,11 @@ def _app(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     return {"spec": found} if found else {}
 
 
-#: What a disulfide joins, at each end.
+#: What a disulfide joins, at each end: a cysteine, in a protein's sequence.
 CYSTEINE = "C"
+PROTEIN = "protein_sequence"
+#: What a sequence of each format is, for saying why a disulfide can't end on it.
+POLYMERS = {"dna_sequence": "DNA's", "rna_sequence": "RNA's"}
 
 
 def _complex(user: User, values: Mapping[str, Any], project: Project) -> Errors:
@@ -248,19 +251,37 @@ def _complex(user: User, values: Mapping[str, Any], project: Project) -> Errors:
                     f"copy {which}."
                 ]
                 continue
-            sequence = residues.get(part.pk)
+            sequence, form = residues.get(part.pk, (None, None))
             if sequence is not None and at > len(sequence):
                 problems[residue] = [
                     f"{part.hrid} has {len(sequence)} residues, so there's no residue {at}."
                 ]
                 continue
-            disulfide = row.get("kind") == "disulfide"
-            if disulfide and sequence is not None and sequence[at - 1] != CYSTEINE:
-                problems[residue] = [
-                    f"{part.hrid}'s residue {at} is {sequence[at - 1]}, and a disulfide "
-                    "joins two cysteines (C)."
-                ]
-                continue
+            if row.get("kind") == "disulfide":
+                # A disulfide joins two cysteines' sulfurs, so each end must be a residue
+                # that's known to be one: a cysteine in a protein's sequence. A base is no
+                # amino acid, and a part with no sequence (a compound, a heme, another
+                # complex) has no residue to check.
+                why = None
+                if sequence is None:
+                    why = (
+                        f"{part.hrid} has no protein sequence to place it on, and a disulfide "
+                        "joins two cysteines (C) in proteins' sequences."
+                    )
+                elif form != PROTEIN:
+                    why = (
+                        f"{part.hrid}'s sequence is {POLYMERS.get(form or '', 'another kind')}, "
+                        "not a protein's, and a disulfide joins two cysteines (C) in proteins' "
+                        "sequences."
+                    )
+                elif sequence[at - 1] != CYSTEINE:
+                    why = (
+                        f"{part.hrid}'s residue {at} is {sequence[at - 1]}, and a disulfide "
+                        "joins two cysteines (C)."
+                    )
+                if why is not None:
+                    problems[residue] = [why]
+                    continue
             ends.append((part, which, at, residue))
         if len(ends) == 2 and ends[0][:3] == ends[1][:3]:
             problems["partner_residue"] = ["is the residue it starts from: a bond joins two."]
@@ -279,27 +300,34 @@ def _complex(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     return errors
 
 
-def _residues(parts: list[Entity]) -> dict[Any, str]:
-    """Each part's residues, upper case and without a terminal stop, read from the field its
-    type's sequence viewer shows; none for a part without one, such as a compound."""
+def _residues(parts: list[Entity]) -> dict[Any, tuple[str, str]]:
+    """Each part's residues, upper case and without a terminal stop, and their sequence
+    format (a protein's, DNA's or RNA's): read from the field its type's sequence viewer
+    shows, or else its own field of a sequence format; none for a part without one, such
+    as a compound or another complex."""
     from iki_server.entities.services import current_values_of
+    from iki_server.entities.values import shape
+    from iki_spec.identity import SEQUENCE_FORMATS
 
-    fields: dict[Any, str] = {}
+    fields: dict[Any, tuple[str, str]] = {}
     for part in parts:
         entity_type = registry.types().get(part.type)
         if entity_type is None:
             continue
+        own = shape(part.type).fields()
         shown = next((v.sequence for v in registry.viewers(entity_type) if v.sequence), None)
-        if shown:
-            fields[part.pk] = shown
+        if shown is None or shown not in own:
+            shown = next((n for n, f in own.items() if f.format in SEQUENCE_FORMATS), None)
+        if shown is not None and own[shown].format in SEQUENCE_FORMATS:
+            fields[part.pk] = (shown, str(own[shown].format))
     if not fields:
         return {}
     values = current_values_of([p for p in parts if p.pk in fields])
-    out: dict[Any, str] = {}
-    for pk, name in fields.items():
+    out: dict[Any, tuple[str, str]] = {}
+    for pk, (name, form) in fields.items():
         text = (values.get(pk) or {}).get(name)
         if isinstance(text, str):
-            out[pk] = text.upper().rstrip("*")
+            out[pk] = (text.upper().rstrip("*"), form)
     return out
 
 
