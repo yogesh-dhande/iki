@@ -426,8 +426,11 @@ CC BY 4.0: cite its paper when you publish its structures). Its input includes t
 antibody's chains (ADR 0105), so it reads their sequences as they were when it was
 launched. ABodyBuilder2 models a heavy and a light chain's variable domains, from
 an IgG's or a Fab's two chains or an scFv's one; NanoBodyBuilder2 a VHH's single
-domain. Each runs four models and keeps the one closest to the others, refined
-with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
+domain. Each models one binding head, the first domain of each type it finds, so
+a chain numbering found more in (a tandem scFv's, a DVD-Ig's) is refused, saying
+which it has, rather than modelled in part as if whole: each binding head,
+registered as an antibody of its own, is modelled. Each runs four models and
+keeps the one closest to the others, refined with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
 (chain IDs H and L), derived from the antibody, with how far the four models
 disagree: `predicted_error` over every residue and `cdr_h3_predicted_error` over
 CDR-H3, in Å, and each residue's in the file as its B-factor. Refining isn't

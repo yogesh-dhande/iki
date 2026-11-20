@@ -238,3 +238,36 @@ def test_it_uses_as_many_threads_as_its_container_has_cpus(tmp_path: Path) -> No
     quota.write_text("max 100000\n")
     assert script.cpus(quota) >= 1
     assert script.cpus(tmp_path / "missing") >= 1
+
+
+def test_a_chain_of_two_binding_heads_isnt_modelled_as_one(tmp_path: Path) -> None:
+    """A tandem scFv, two scFvs on one chain as blinatumomab is (FDA's pharmacology review
+    of Blincyto, BLA 125557): ImmuneBuilder would model its first heavy and first light
+    domains alone, so the run refuses it, saying which domains numbering found, rather
+    than model half of it as the whole."""
+    linker = "GGGGS" * 3
+    parts = [HEAVY, linker, LIGHT, "GGGGS", HEAVY, linker, LIGHT]
+    tandem = protein(1, "".join(parts))
+    domains, at = [], 0
+    for part, kind in zip(parts, ["H", "", "K", "", "H", "", "K"], strict=True):
+        if kind:
+            domains.append({"chain": kind, "start": at + 1, "end": at + len(part)})
+        at += len(part)
+    tandem["values"]["variable_domains"] = domains
+    given = antibody("other", tandem, None)
+
+    result, output, called = run(tmp_path, given)
+
+    assert result.returncode == 1
+    assert output is None and called is None
+    assert (
+        "::error Trastuzumab: PRT-000001 has 4 variable domains (H 1-120, K 136-242, "
+        "H 248-367, K 383-489), and ImmuneBuilder models one binding head (H and K/L), so "
+        "it would leave the rest out: register each binding head as an antibody of its own "
+        "(an scFv) to model it."
+    ) in result.stdout
+    # One scFv's chain, numbered, is one head.
+    scfv = protein(1, HEAVY + linker + LIGHT)
+    scfv["values"]["variable_domains"] = domains[:2]
+    result, _, called = run(tmp_path, antibody("scfv", scfv, None))
+    assert result.returncode == 0, result.stderr
