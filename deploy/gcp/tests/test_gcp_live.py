@@ -641,6 +641,28 @@ def key_rings(gcp: Gcp, s: Settings, apis: set[str]) -> list[str]:
 #: Names GKE gives what it makes for a cluster and its Gateway: they don't all carry the
 #: deployment's name.
 GKE_MADE = re.compile(r"^(gke-|k8s1-|k8s2-|gkegw1-|gkemcg1-)")
+#: The sections GKE makes those in: its nodes, their disks, templates and firewalls, and
+#: the parts of a Service's or Gateway's load balancer. A name like GKE's means nothing
+#: elsewhere: a bucket, secret or account so named is checked as any other is.
+GKE_SECTIONS = {
+    "instances",
+    "disks",
+    "instance templates",
+    "firewalls",
+    "network endpoint groups",
+    "addresses",
+    "forwarding rules",
+    "backend services",
+    "health checks",
+    "url maps",
+    "target https proxies",
+    "ssl certificates",
+}
+
+
+def gke_made(section: str, line: str) -> bool:
+    """Whether GKE made this, for some cluster: named as it names them, where it makes them."""
+    return section in GKE_SECTIONS and bool(GKE_MADE.match(line))
 
 
 #: Sections whose resources come and go with any workload in a shared project: another
@@ -716,7 +738,7 @@ def taken_away(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             problems += [
                 f"{section}: {line} is gone, which was there before"
                 for line in sorted(found - now)
-                if not GKE_MADE.match(line)
+                if not gke_made(section, line)
             ]
             continue
         states = dict(map(_name_and_state, now))
@@ -753,7 +775,7 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             # Cloud SQL's zone for its names under Private Services Access, made for
             # the deployment's instance and named for nothing of it.
             psa = section == "dns zones" and line.startswith("cloud-sql-psa-dns-")
-            mine = any(o in line for o in ours) or bool(GKE_MADE.match(line)) or psa
+            mine = any(o in line for o in ours) or gke_made(section, line) or psa
             if section == "addresses":
                 row = after.addresses.get(line, {})
                 mine = (

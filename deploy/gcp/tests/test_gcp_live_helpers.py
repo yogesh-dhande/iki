@@ -141,6 +141,53 @@ def test_what_comes_and_goes_in_a_shared_project_isnt_counted_as_gone() -> None:
     assert live.leftovers(before, after, SETTINGS) == []
 
 
+@pytest.mark.parametrize(
+    ("section", "line"),
+    [
+        ("buckets", "gke-lab-archive"),
+        ("buckets", "k8s1-lab-backups"),
+        ("secrets", "gke-lab-token"),
+        ("service accounts", "gkegw1-lab@shared-lab.iam.gserviceaccount.com"),
+        ("sql instances", "gke-lab-db\tRUNNABLE"),
+        ("artifact registry", "projects/shared-lab/locations/us/repositories/gke-lab"),
+        ("networks", "gke-lab-vpc"),
+    ],
+)
+def test_a_gke_looking_name_exempts_only_what_gke_makes(section: str, line: str) -> None:
+    """GKE makes firewalls, load balancers' parts and node templates for any cluster, which
+    come and go with it; never buckets, secrets or the rest, whatever they're named."""
+    before = project(**{section.replace(" ", "_"): {line}})
+    assert live.leftovers(before, project(), SETTINGS) == [
+        f"{section}: {line} is gone, which was there before"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("section", "line"),
+    [
+        ("firewalls", "gke-lab-cluster-1a2b-all\tdefault"),
+        ("firewalls", "k8s2-lab-l4-fw\tdefault"),
+        ("forwarding rules", "gkegw1-lab-gateway-x1"),
+        ("backend services", "gkegw1-lab-backend"),
+        ("health checks", "k8s1-lab-hc"),
+        ("url maps", "gkegw1-lab-map"),
+        ("target https proxies", "gkegw1-lab-proxy"),
+        ("ssl certificates", "gkegw1-lab-cert"),
+        ("instance templates", "gke-lab-cluster-default-pool-1a2b3c4d"),
+    ],
+)
+def test_what_gke_makes_for_another_cluster_may_go(section: str, line: str) -> None:
+    before = project(**{section.replace(" ", "_"): {line}})
+    assert live.leftovers(before, project(), SETTINGS) == []
+    # And what's left of it after tearing down, the deployment's cluster's, is reported.
+    assert live.leftovers(project(), before, SETTINGS) == [f"{section}: {line}"]
+
+
+def test_a_gke_looking_bucket_made_during_the_run_isnt_taken_for_the_deployments() -> None:
+    """Another team's, made meanwhile: neither left by the run nor gone."""
+    assert live.leftovers(project(), project(buckets={"gke-lab-archive"}), SETTINGS) == []
+
+
 REGION_URL = (
     f"https://www.googleapis.com/compute/v1/projects/{SETTINGS.project}/regions/{SETTINGS.region}"
 )
