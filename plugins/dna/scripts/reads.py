@@ -36,7 +36,10 @@ none of whose bases the reference's code allows. Where the reference itself is
 ambiguous (R, N, ...), the base a read has there is listed apart, as resolving it.
 Differences are named as HGVS's DNA recommendations name them, with the reference as the
 reference sequence, numbered from its first base: `o.` for a circular one (a plasmid),
-`g.` for a linear one. They are substitutions (g.1234C>T), deletions (g.1240del,
+`g.` for a linear one. Those are HGVS's two prefixes for a genomic reference, which is
+what a DNA sequence here is; `c.`, `n.` and `m.` number along a transcript or say a
+reference is mitochondrial, which this reference doesn't say it is. They are
+substitutions (g.1234C>T), deletions (g.1240del,
 g.1240_1242del), insertions (g.1250_1251insG), duplications (g.1250dup), inversions, where
 more than one base is replaced by its own reverse complement (g.3_6inv), and, for other
 changes side by side, deletion-insertions (g.1260_1261delinsTA), with the reads that show
@@ -277,7 +280,16 @@ def place(
 
 def numbered(circular: bool) -> str:
     """HGVS's prefix for the reference's numbering, counting from its first base: `o.` for a
-    circular genomic reference sequence (a plasmid, say), `g.` for a linear one."""
+    circular genomic reference sequence (a plasmid, say), `g.` for a linear one.
+
+    These are the two HGVS allows for a genomic reference, which is what an
+    `iki/dna.DNASequence` is: its identity is bases, topology and strandedness (ADR 0138)
+    and says nothing of what the molecule is in a cell. HGVS's other prefixes each need
+    something the reference doesn't carry -- `c.` and `n.` number along a transcript, from
+    its coding start or its first base, and `m.` says a reference is mitochondrial DNA --
+    so a name here is always along the sequence it was aligned to. A variant to be sent
+    to a variant database is renamed against the transcript or the chromosome it's called
+    on, which is a different reference from this one."""
     return "o." if circular else "g."
 
 

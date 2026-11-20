@@ -37,6 +37,13 @@ from.
     ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)): a
     plasmid's sequence is circular; one under a material transfer agreement names the
     agreement; one at BSL-2 or above names its biosafety approval.
+  - A plasmid record here is a **circular** one: the map draws a circle, the annotation
+    reads across the origin, and a cloning plan has to close into one. Linear plasmids
+    are real — *Kluyveromyces lactis* carries pGKL1 and pGKL2, *Borrelia burgdorferi* a
+    set of them, *Streptomyces coelicolor* SCP1 — and GenBank records them, so this is
+    the plugin's boundary rather than biology's
+    ([ADR 0163](../../docs/adr/0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md)).
+    A linear molecule is held as an `iki/dna.DNASequence`, which reads it as it is.
   - Its **Map** tab draws it round a circle, each annotated part an arc pointing the way
     its strand runs, with every part also in a table beneath, so nothing is told by
     colour alone. Its bases, with the features its GenBank record gave, are one click

@@ -90,6 +90,21 @@ sequence. The plasmid record for that sequence is registered beside it.
 and how a lab built its own copy is the lab's record, not a fact about the
 molecule.
 
+**`iki/plasmid.Plasmid` covers circular plasmids, and says so.** Linear
+plasmids are real -- *Kluyveromyces lactis* carries pGKL1 and pGKL2,
+*Borrelia burgdorferi* a set of them, *Streptomyces coelicolor* SCP1 -- and
+GenBank records them (their `LOCUS` line reads `linear`), as Benchling and
+SnapGene both let a plasmid record be linear. So the refusal here isn't a
+claim about what a plasmid can be. It's the boundary of what this plugin
+reads correctly: its map draws a circle, its annotation looks across the
+origin, and its cloning simulator keeps only the products that close into
+one. A linear sequence let in would be drawn and annotated as though its two
+ends were joined, which is worse than being told to register it as a DNA
+sequence. The type's rule and its `sequence` field say that this is the
+plugin's boundary rather than biology's, and naming the molecules it excludes
+is what makes it a scope to widen later: a `topology` on the entry's side, a
+linear drawing in the map, and a cloning plan that can end linear.
+
 ## Consequences
 
 - One molecule has two citable IDs, DNA-000001 and PLS-000012: the sequence
@@ -104,3 +119,6 @@ molecule.
 - A plugin that wants another kind of record about the same molecule (a
   cosmid, a BAC, a viral genome) makes its own type the same way, without
   touching `iki/dna`.
+- A linear plasmid is held as an `iki/dna.DNASequence`, which reads it
+  correctly, and has no vector fields and no map until the plugin's map,
+  annotation and cloning simulator read a linear molecule too.

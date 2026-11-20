@@ -193,8 +193,19 @@ sequence's origin is no end, so one may move on round it, and one across it is
 named from the last place to the first (`o.2686_1insA`). Where that rule would
 carry a deletion or an insertion onto a base another change names — no
 sequence has both a base deleted and that base changed — the two are one
-change, named from the whole stretch that differs (`o.223_224delinsC`). HGVS names a mitochondrial genome's with `m.`, which
-Iki can't tell from another circular sequence's: such a sequence's are `o.`. In the alignment, each read's row is as it lies on the
+change, named from the whole stretch that differs (`o.223_224delinsC`).
+
+`o.` and `g.` are HGVS's two prefixes for a genomic reference sequence, which
+is what a DNA sequence here is: its identity is its bases, topology and
+strandedness, and says nothing of what the molecule is in a cell. HGVS's other
+prefixes need what this reference doesn't carry — `c.` and `n.` number along a
+transcript, from its coding start or its first base, and `m.` says a reference
+is mitochondrial DNA — so a mitochondrial genome's differences here are `o.`
+like any other circle's, and a variant to be sent to a variant database is
+renamed against the transcript or chromosome it's called on, which is a
+different reference from this one.
+
+In the alignment, each read's row is as it lies on the
 sequence (its reverse complement if it read the other strand), and bases a
 read has that the sequence doesn't get columns of their own.
 

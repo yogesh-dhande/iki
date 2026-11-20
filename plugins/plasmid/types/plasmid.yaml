@@ -32,7 +32,9 @@ fields:
     immutable: true
     description: >-
       The circular, double-stranded DNA sequence that is this plasmid, by its registry
-      entry: its bases, topology, features and accession are the sequence's.
+      entry: its bases, topology, features and accession are the sequence's. A plasmid
+      record here is a circular one; a linear plasmid is held as a DNA sequence, which
+      reads it as it is.
   length:
     type: quantity
     registry: derived
@@ -252,8 +254,11 @@ rules:
     label: A plasmid's sequence is circular
     check: record.sequence.topology == "circular"
     message: >-
-      A plasmid is a circular molecule, and {{ record.sequence }} is linear. Register a
-      linear construct as a DNA sequence, or register the circle it closes into.
+      {{ record.sequence }} is linear, and a plasmid record here is read as a circle: its
+      map is drawn round one, its annotation reads across the origin, and a cloning plan
+      for it has to close. Linear plasmids exist, and a linear molecule is held as a DNA
+      sequence, which reads it as it is -- so register it there, or register the circle
+      this one closes into.
     fields: [sequence]
   an_mta_is_named:
     label: A plasmid under an MTA names the agreement
