@@ -40,9 +40,10 @@ strays. Only its IAM condition, which limits it to names starting with
 workers trust besides their own roots.** The provisioner alone mounts it
 (`IKI_RUNS_VM_CA_FILE`), and each machine's host configuration carries the
 certificates. `iki-worker host` writes a bundle of the machine's roots and
-those certificates, and bind-mounts it read-only into the worker's
-container as `/etc/iki/ca-certificates.crt`, with `SSL_CERT_FILE` naming
-it. The server refuses a file that holds no PEM certificate or more than
+those certificates, readable by anyone (mode 0644, set on the file whatever
+the service's umask, since the worker isn't root), and bind-mounts it
+read-only into the worker's container as `/etc/iki/ca-certificates.crt`,
+with `SSL_CERT_FILE` naming it. The server refuses a file that holds no PEM certificate or more than
 8 KiB at start: the certificates go in every machine's boot script, so they
 are the deployment's own few, not a bundle of public ones. It reads the
 file once, as X.509 certificates in PEM blocks, and refuses any other
