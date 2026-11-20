@@ -39,6 +39,8 @@ expect:
           format: igg
           isotype: igg1
           target: HER2
+          # An IgG1's are every bond it has.
+          bond_map: complete
           # KEGG DRUG D03257's 16: H223-L214, H229-H'229 and H232-H'232 between its chains,
           # then each domain's own.
           bonds:
@@ -221,6 +223,7 @@ expect:
           name: trastuzumab VH / trastuzumab VL
           format: fv
           target: HER2
+          bond_map: complete
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -253,6 +256,7 @@ expect:
           name: trastuzumab Fd / trastuzumab light chain
           format: fab
           isotype: igg1
+          bond_map: complete
           bonds:
             - {
                 kind: disulfide,
@@ -450,6 +454,7 @@ expect:
             - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
           name: caplacizumab
           format: vhh
+          bond_map: complete
         derived_from: [00000000-0000-7000-8003-000000000001]
 ---
 apiVersion: iki/v1
@@ -596,7 +601,9 @@ description: >-
   Etanercept (KEGG DRUG D00742), TNFR2's extracellular domain on IgG1's
   hinge, CH2 and CH3, has no variable domain, so numbering leaves it as it
   was: as an other, its whole chain says its isotype, and its Fc's CH2 and CH3
-  have their own disulfides, in each of its two copies.
+  have their own disulfides, in each of its two copies. Its two copies' hinge
+  disulfides aren't given, as an other's chains may be joined any way, so its
+  bonds are said to be incomplete.
 action: assemble
 inputs:
   heavy_chain:
@@ -610,8 +617,9 @@ expect:
       - values:
           format: other
           isotype: igg1
+          bond_map: incomplete
     messages:
       - level: info
         text: "Its isotype is igg1, as given: etanercept, compared whole as it has no numbered variable domain, is IgG1's, 99.1% identical to IMGT's IGHG1*01 (J00228) over 232 residues; the next nearest, IgG2's, is 92.2%."
       - level: info
-        text: "Its chains' disulfides: 4 within its domains, each domain's own."
+        text: "The disulfides between its chains aren't given: its format is other, whose chains may be joined any way, so give them yourself if they're known; and 4 within its domains, each domain's own."

@@ -11,15 +11,18 @@ label_plural: Antibodies
 extends: iki/core.Complex
 schema_version: 2
 description: >-
-  An antibody of one specificity, by the proteins that are its chains: a heavy
-  chain and a light chain, two copies of each for a whole IgG and one for a Fab
-  or an Fv, or for a single-domain antibody (a VHH) or an scFv, one chain. Two
-  with the same chains and copies are the same antibody, so assembling one again
-  finds its registry entry. Its format and isotype are its chains': an IgG1 and
-  an IgG4 of the same variable domains have different heavy chains, so they're
-  different antibodies, and a heavy and a light variable domain alone are an Fv.
-  An antibody with arms of two or more specificities, which has more chains,
-  is a protein complex.
+  An antibody by the proteins that are its chains: at most one kind of heavy
+  chain and one of light chain, each with its copies. Two copies of each for a
+  whole IgG and one for a Fab or an Fv; one chain for a single-domain antibody
+  (a VHH) or an scFv; and for other, any one chain or pair, such as an Fc
+  fusion's chain, or blinatumomab's, two scFvs of two specificities on one
+  chain. Two with the same chains and copies are the same antibody, so
+  assembling one again finds its registry entry. Its format and isotype are its
+  chains': an IgG1 and an IgG4 of the same variable domains have different
+  heavy chains, so they're different antibodies, and a heavy and a light
+  variable domain alone are an Fv. One of more kinds of chain, such as a
+  bispecific IgG's two heavy and two light chains, or more copies, such as an
+  IgM pentamer's ten of each and its J chain, is a protein complex.
 hrid: { prefix: ABY }
 # Its parts are its chains (ADR 0164): a heavy chain, and a light chain unless it's a VHH
 # or an scFv, each a protein.

@@ -308,6 +308,14 @@ MARGIN = 3
 #: A domain is compared on its own only where the chain has at least this many residues
 #: of it: fewer can't tell subclasses apart.
 MIN_DOMAIN = 10
+#: A constant region at least this identical to the nearest reference aligns with it
+#: domain by domain, whether or not it's that isotype: another mammal's IgG is (a mouse's
+#: IgG1, P01868, is 64% identical to human IgG2's), so which domains it has is read off
+#: the alignment. Less, and where its domains are can't be told from these references.
+HOMOLOGOUS = 0.5
+#: A chain has all of a domain when it has at least this share of the reference's
+#: residues of it: a whole IgG's CH3 without its C-terminal lysine, or two, has 98%.
+COMPLETE = 0.9
 
 _ALIGNER = Align.PairwiseAligner(
     mode="global",
@@ -420,12 +428,31 @@ class Call:
     def match(self, isotype: str) -> Match:
         return next(m for m in self.matches if m.isotype == isotype)
 
+    @property
+    def homologous(self) -> bool:
+        """Whether it aligns with the nearest reference well enough for its domains to be
+        read off it (:data:`HOMOLOGOUS`), whether or not it's that isotype."""
+        return self.matches[0].identity >= HOMOLOGOUS
+
     def has(self, domain: str) -> bool:
         """Whether the chain has enough of `domain` for it to be called, as the nearest
         reference aligns it: at least :data:`MIN_DOMAIN` residues. Only for a constant
-        region a reference matches."""
+        region that's :attr:`homologous`."""
         found = self.matches[0].domains.get(domain)
         return found is not None and found[1] >= MIN_DOMAIN
+
+    def residues(self, domain: str) -> tuple[int, int]:
+        """How many residues of `domain` the chain has, as the nearest reference aligns it,
+        and how many the reference has."""
+        nearest = self.matches[0]
+        found = nearest.domains.get(domain)
+        return (found[1] if found else 0), len(dict(REFERENCES[nearest.isotype][3])[domain])
+
+    def covers(self, domain: str) -> bool:
+        """Whether the chain has all of `domain`: at least :data:`COMPLETE` of the nearest
+        reference's residues of it."""
+        has, of = self.residues(domain)
+        return has >= COMPLETE * of
 
     def describe(self) -> str:
         """What it is, and how sure, for a run's messages: "is IgG1's, 99.4% identical to

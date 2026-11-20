@@ -16,7 +16,11 @@ description: >-
   its chains, two copies of each for an IgG and one for a Fab, an Fv, an scFv
   or a VHH, and for an IgG1 or an IgG4 its chains' disulfides are given as the
   subclass places them: each light chain to its heavy chain, and the heavy
-  chains to each other at the hinge.
+  chains to each other at the hinge. A bond one of whose cysteines a chain
+  hasn't is left out and said, and its bond map says whether its bonds are
+  all it has: not an IgG2's or IgG3's between its chains, which aren't given,
+  and only the predominant form's for a native IgG4's hinge. An IgM's chains
+  make one of its subunits: its pentamer or hexamer is a protein complex.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -47,7 +51,8 @@ params:
     max: 2
     description: >-
       How many copies of each chain, for `other` only: two for a chain with an
-      Fc, which pairs, and one without, if left out.
+      Fc's CH3 (or an IgM's or IgE's CH4), which pairs, and one without, such as
+      an isolated CH2, if left out.
 effects:
   creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]
 software:

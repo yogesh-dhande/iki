@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 from jsonschema import Draft202012Validator
+from test_antibody_isotype import run_assemble
 
 from iki_spec import schemas
 
@@ -452,3 +453,47 @@ def test_a_run_keeps_at_most_100_messages(tmp_path: Path) -> None:
 
     assert len(output["messages"]) == 100
     assert output["messages"][-1] == {"level": "warning", "text": "And 51 more warnings."}
+
+
+# --- A variable domain's own disulfide, where its numbering puts it ------------------------
+
+
+def numbered(tmp_path: Path, name: str, scheme: str) -> dict[str, Any]:
+    """A chain as `number_chains` leaves it, numbered in `scheme`."""
+    _, output = run(tmp_path, [protein(1, SEQUENCES[name], name)], scheme=scheme)
+    (update,) = output["updates"]["protein"]
+    values = {"name": name, "sequence": SEQUENCES[name], **update["values"]}
+    return {"id": name, "hrid": "PRT-000001", "values": values}
+
+
+@pytest.mark.parametrize("scheme", ["imgt", "kabat", "chothia", "martin", "aho"])
+def test_a_vhhs_own_disulfide_is_where_each_scheme_numbers_it(tmp_path: Path, scheme: str) -> None:
+    """cAb-Lys3 (PDB 1MEL) has four cysteines, C22, C33, C96 and C109: its domain's own
+    disulfide, C22-C96, and one from CDR1 to CDR3. Each scheme numbers C22 and C96 as its
+    canonical pair (IMGT's 23 and 104, Kabat's H22 and H92, AHo's 23 and 106), so each
+    gives the domain the same one, AHo too."""
+    code, log, output = run_assemble(
+        tmp_path, numbered(tmp_path, "cab_lys3", scheme), None, format="vhh"
+    )
+    assert code == 0, log
+    bonds = output["creates"][0]["values"]["bonds"]
+    assert [(b["residue"], b["partner_residue"]) for b in bonds] == [(22, 96)]
+    assert output["creates"][0]["values"]["bond_map"] == "complete"
+
+
+def test_a_domain_cut_short_of_its_first_cysteine_has_no_disulfide_of_its_own(
+    tmp_path: Path,
+) -> None:
+    """cAb-Lys3's IMGT numbering cut to IMGT 24 to 104, after its C22 and to its C96: the
+    two cysteines left, C33 and C96, aren't its domain's pair (PDB 1MEL bonds them to C109
+    and C22), so it's given none, though it has just two."""
+    vhh = numbered(tmp_path, "cab_lys3", "imgt")
+    (domain,) = vhh["values"]["variable_domains"]
+    kept = [i for i, (n, _, _) in enumerate(domain["numbering"]) if 23 < n <= 104]
+    domain["numbering"] = domain["numbering"][kept[0] : kept[-1] + 1]
+    domain["start"], domain["end"] = domain["start"] + kept[0], domain["start"] + kept[-1]
+    window = vhh["values"]["sequence"][domain["start"] - 1 : domain["end"]]
+    assert [i + domain["start"] for i, aa in enumerate(window) if aa == "C"] == [33, 96]
+    code, log, output = run_assemble(tmp_path, vhh, None, format="vhh")
+    assert code == 0, log
+    assert "bonds" not in output["creates"][0]["values"]
