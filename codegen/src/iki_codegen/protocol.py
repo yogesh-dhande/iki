@@ -186,10 +186,12 @@ class _Generator:
         return "\n".join(out) + "\n"
 
 
-#: Paths served outside the OpenAPI document, as async views that wait (ADR 0043). Both
-#: take ``?wait=`` seconds. The lease answers a ``RunInput`` or 204; a job's watch takes
-#: ``{"lease_token": …}`` and answers ``{"cancel_requested": bool}``.
-_OTHER_PATHS = ("/worker/v1/lease", "/worker/v1/jobs/{job_id}/watch")
+#: Paths served outside the OpenAPI document, as async views that wait (ADR 0043). Each
+#: takes ``?wait=`` seconds. The lease answers a ``RunInput`` or 204; a job's watch takes
+#: ``{"lease_token": …}`` and answers ``{"cancel_requested": bool}``; a watch of several
+#: (ADR 0167) takes ``{"jobs": {job ID: lease token}}`` and answers the IDs of those
+#: ``cancel_requested`` and ``stale``.
+_OTHER_PATHS = ("/worker/v1/lease", "/worker/v1/jobs/{job_id}/watch", "/worker/v1/watch")
 
 
 def _paths(document: dict[str, Any]) -> list[tuple[str, str]]:

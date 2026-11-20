@@ -187,7 +187,7 @@ impl LogMarks {
         };
         let marks = marks();
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        if *kept != Some(marks) {
+        if kept.as_ref() != Some(&marks) {
             keep(&marks);
             *kept = Some(marks);
         }
@@ -286,9 +286,17 @@ impl Job {
         self.log.resume(mark);
     }
 
-    /// Keeps the log's marks with `keep` before each chunk is sent.
+    /// Keeps the log's marks with `keep` before each chunk is sent. Before anything is
+    /// pushed: only a log that keeps marks makes them.
     pub(crate) fn keep_log_marks(&self, keep: impl Fn(&logs::Marks) + Send + Sync + 'static) {
+        self.log.keep_marks();
         let _ = self.log_marks.keep.set(Box::new(keep));
+    }
+
+    /// Someone asked for the run to stop: the supervisor stops its command, as a heartbeat
+    /// saying so does.
+    pub(crate) fn cancel(&self) {
+        self.signals.cancel.store(true, Ordering::SeqCst);
     }
 
     fn path(&self, template: &str) -> String {
@@ -490,8 +498,8 @@ impl Host for Job {
     }
 }
 
-/// Reads what the command prints, line by line, for its host. `read` is how much of the
-/// stream's file was read before it, for a stream read from a file.
+/// Reads what the command prints, line by line, with `mask` applied, for its host. `read`
+/// is how much of the stream's file was read before it, for a stream read from a file.
 pub(crate) fn read_lines(
     host: &impl Host,
     stream: impl Read,
@@ -499,15 +507,22 @@ pub(crate) fn read_lines(
     said: &Mutex<Option<String>>,
     mask: &logs::Mask,
 ) {
-    each_line(stream, |line| {
-        read += line.len() as u64;
-        let raw = String::from_utf8_lossy(line);
-        let text = mask.apply(&raw);
+    let mut masking = logs::Masking::new(mask.clone());
+    let mut line = |(text, bytes): (String, u64)| {
+        read += bytes;
         if let Some(why) = logs::error(&text) {
             *said.lock().unwrap_or_else(PoisonError::into_inner) = Some(why);
         }
         host.line_read(&text, read);
+    };
+    each_line(stream, |piece| {
+        if let Some(masked) = masking.piece(piece) {
+            line(masked);
+        }
     });
+    if let Some(rest) = masking.end() {
+        line(rest);
+    }
 }
 
 /// Calls `each` with each line `stream` holds, up to 64 KiB at a time, until it ends.
@@ -1899,6 +1914,25 @@ mod tests {
         );
         assert!(lines.contains(r#""lease_token": "***""#), "{lines}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_secret_in_a_line_longer_than_a_read_is_hidden_where_the_reads_split_it() {
+        let secret = "iki-sentinel-6f1c2d";
+        // Its first 64 KiB read ends 10 bytes into the secret, and the line says why the
+        // command failed.
+        let mut printed = format!("::error {}", "x".repeat(65_536 - 8 - 10));
+        printed.push_str(secret);
+        printed.push_str(" tail\n");
+        let host = Saving::default();
+        let said = Mutex::new(None);
+        let mask = logs::Mask::new([secret]);
+        read_lines(&host, printed.as_bytes(), 0, &said, &mask);
+        let lines = host.lines.lock().unwrap().join("");
+        assert!(!lines.contains("sentinel"), "{}", &lines[65_000..]);
+        assert!(lines.ends_with("x*** tail\n"));
+        let why = said.lock().unwrap().clone().unwrap_or_default();
+        assert!(!why.contains("sentinel"));
     }
 
     #[test]

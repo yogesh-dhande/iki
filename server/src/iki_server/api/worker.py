@@ -8,7 +8,7 @@ report names the lease token it got with the job; one that isn't current
 answers 409 ``stale_lease``, and the worker should stop that job. While a job
 runs, ``POST /worker/v1/jobs/{id}/watch`` waits the same way for its run to
 be cancelled, so a cancel reaches the command at once, not at the next
-heartbeat.
+heartbeat; ``POST /worker/v1/watch`` does so for every job a worker holds.
 
 Its OpenAPI document is at ``/worker/v1/openapi.json``.
 """
@@ -523,9 +523,11 @@ class HeartbeatOut(Schema):
     cancel_requested: bool = Field(
         description="Someone cancelled the run: stop the command, then report `cancelled`."
     )
-    log_offset: int = Field(
+    log_offset: int | None = Field(
+        None,
         description="How much of the job's log the server has, in bytes of UTF-8: where a "
-        "worker that restarted sends the rest from."
+        "worker that restarted sends the rest from. Always given; optional for workers, "
+        "since servers before it don't give it (ADR 0167).",
     )
 
 
@@ -1066,6 +1068,65 @@ async def watch(request: HttpRequest, job_id: UUID) -> HttpResponseBase:
                 )
             )
         await waker.wait(queue.watch_key(job_id), min(left, RECHECK))
+
+
+def _leases(request: HttpRequest) -> dict[UUID, UUID]:
+    """A watch's ``{"jobs": {job ID: lease token, …}}``."""
+    try:
+        body = json.loads(request.body or b"{}")
+    except ValueError:
+        raise Problem(400, "The request body isn’t valid JSON.", code="invalid_json") from None
+    given = body.get("jobs") if isinstance(body, dict) else None
+    invalid = Problem(
+        422,
+        "Some fields are invalid.",
+        errors=[
+            {
+                "pointer": "#/jobs",
+                "detail": f"Each job's ID, with its lease token: from 1 to "
+                f"{queue.MAX_WATCHED} of them.",
+            }
+        ],
+    )
+    if not isinstance(given, dict) or not 0 < len(given) <= queue.MAX_WATCHED:
+        raise invalid
+    try:
+        return {UUID(str(job)): UUID(str(token)) for job, token in given.items()}
+    except ValueError:
+        raise invalid from None
+
+
+@csrf_exempt
+async def watch_jobs(request: HttpRequest) -> HttpResponseBase:
+    """``POST /worker/v1/watch?wait=30`` with ``{"jobs": {job ID: lease token, …}}``: a
+    job's watch for every job a worker holds, in one request, as a cluster's worker holds
+    many (ADR 0167). Answers ``{"cancel_requested": [...], "stale": [...]}`` the moment
+    someone cancels any of their runs, or any isn't the worker's any more (as
+    ``stale_lease`` says of one), or both empty after ``wait`` seconds, and the worker asks
+    again. It doesn't renew the leases: heartbeats do that.
+    """
+    if request.method != "POST":
+        return response(Problem(405, headers={"Allow": "POST"}))
+    try:
+        wait = _wait(request)
+        worker = await db(_authenticate, request)
+        leases = _leases(request)
+    except Problem as problem:
+        return response(problem)
+    waker = wakeup.waker()
+    keys = [queue.watch_key(job) for job in leases]
+    loop_time = asyncio.get_running_loop().time
+    deadline = loop_time() + wait
+    while True:
+        found = await db(queue.watched, worker, leases)
+        left = deadline - loop_time()
+        if found.cancel_requested or found.stale or left <= 0 or waker.closing.is_set():
+            answer = {
+                "cancel_requested": [str(j) for j in found.cancel_requested],
+                "stale": [str(j) for j in found.stale],
+            }
+            return _no_store(HttpResponse(json.dumps(answer), content_type="application/json"))
+        await waker.wait_any(keys, min(left, RECHECK))
 
 
 @csrf_exempt

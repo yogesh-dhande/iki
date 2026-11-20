@@ -1,5 +1,6 @@
 """Wakes workers waiting in ``POST /worker/v1/lease`` when a job is queued on their tier,
-and in ``POST /worker/v1/jobs/{id}/watch`` when their job's run is cancelled.
+and in ``POST /worker/v1/jobs/{id}/watch`` (or ``/worker/v1/watch``, for several) when their
+job's run is cancelled.
 
 Like the realtime hub, each web process holds one dedicated LISTEN
 connection however many workers are waiting, and none while nobody is.
@@ -11,6 +12,7 @@ connection comes back.
 import asyncio
 import contextlib
 import weakref
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,20 +39,26 @@ class Waker:
     async def wait(self, tier: str, timeout: float) -> bool:
         """Waits up to `timeout` seconds for a job on `tier` (or news of a job, for its
         ``queue.watch_key``). True if it came."""
+        return await self.wait_any([tier], timeout)
+
+    async def wait_any(self, keys: Collection[str], timeout: float) -> bool:
+        """Waits up to `timeout` seconds for news on any of `keys`, as :meth:`wait` does
+        for one: of any of a worker's jobs, for ``POST /worker/v1/watch``. True if it
+        came."""
         if self._listener is None or self._listener.done():
             self._listener = asyncio.get_running_loop().create_task(self._listen())
-        event = self.events.setdefault(tier, asyncio.Event())
+        events = [self.events.setdefault(key, asyncio.Event()) for key in set(keys)]
         self.waiting += 1
-        queued = asyncio.ensure_future(event.wait())
+        woken = [asyncio.ensure_future(event.wait()) for event in events]
         closing = asyncio.ensure_future(self.closing.wait())
         try:
             await asyncio.wait(
-                {queued, closing}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                {*woken, closing}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
             )
-            return event.is_set()
+            return any(event.is_set() for event in events)
         finally:
-            queued.cancel()
-            closing.cancel()
+            for each in (*woken, closing):
+                each.cancel()
             self.waiting -= 1
 
     def wake(self, tier: str | None) -> None:

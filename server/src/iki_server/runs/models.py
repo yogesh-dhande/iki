@@ -24,7 +24,7 @@ from typing import ClassVar
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from django.db.models.functions import Lower, Now
 
 from iki_server.core.ids import uuid7
@@ -1426,8 +1426,11 @@ class JobLog(models.Model):
 
 class RunOutputQuerySet(models.QuerySet["RunOutput"]):
     def final(self) -> "RunOutputQuerySet":
-        """Each run's output: its latest attempt's, what its command reported last."""
-        return self.order_by("run_id", "-job__attempt").distinct("run_id")
+        """Each run's output: its last attempt's, if that attempt's command reported one. An
+        earlier attempt's isn't the run's: a parked attempt's metrics aren't those of the
+        attempt that resumed it and failed (ADR 0130)."""
+        last = Job.objects.filter(run=OuterRef("run")).order_by("-attempt").values("attempt")
+        return self.filter(job__attempt=Subquery(last[:1])).order_by("run_id")
 
 
 class RunOutput(models.Model):

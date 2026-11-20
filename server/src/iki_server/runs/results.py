@@ -476,11 +476,7 @@ def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) 
     fields = shape(type_name).fields()
     for name, value in values.items():
         f = fields.get(name)
-        holds_files = f is not None and (
-            f.type == "file"
-            or (f.type == "list" and f.items is not None and f.items.type == "file")
-        )
-        if holds_files and value not in (None, []):
+        if f is not None and input_files.files_in(f, value):
             check.error(
                 f"{at}/values/{name}",
                 "Creates in a file can't attach files: give these in `creates`.",

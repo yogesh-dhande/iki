@@ -4,10 +4,10 @@ starts.
 The run input lists them (``files``, by ID, with name, size and SHA-256), and the worker
 asks for each through ``POST /worker/v1/jobs/{id}/files/{file_id}``, which answers a
 short-lived download URL. The job keeps the set its run input listed when it was leased:
-the files its inputs hold, and those of the runs packed into it (ADR 0055), at the
-revisions they were launched on; those their included references hold, at the revisions
-pinned (ADR 0105); and those its file params name. Its worker can download those, and
-only those, and only while it holds the job's lease.
+the files its inputs hold, in their rows too (ADR 0137), and those of the runs packed
+into it (ADR 0055), at the revisions they were launched on; those their included
+references hold, at the revisions pinned (ADR 0105); and those its file params name. Its
+worker can download those, and only those, and only while it holds the job's lease.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from iki_server.runs.models import ActionRun, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
 
-__all__ = ["describe", "download", "file_ids", "is_file_list", "of_params"]
+__all__ = ["describe", "download", "file_ids", "files_in", "is_file_list", "of_params"]
 
 
 def is_file_list(f: Field) -> bool:
@@ -31,18 +31,32 @@ def is_file_list(f: Field) -> bool:
     return f.type == "list" and f.items is not None and f.items.type == "file"
 
 
-def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field's value
-    """The file IDs in a value of field `f`; unreadable ones are left for its own check."""
+def files_in(f: Field, value: Any) -> list[Any]:  # noqa: ANN401 - a field's value
+    """The files a value of field `f` names, as given: a file field's, a list of files',
+    or those its rows' file fields hold (ADR 0137)."""
     if value is None:
-        return set()
+        return []
     if is_file_list(f):
-        items = value if isinstance(value, list) else []
-    elif f.type == "file":
-        items = [value]
-    else:
-        return set()
+        return [item for item in value if item is not None] if isinstance(value, list) else []
+    if f.type == "file":
+        return [value]
+    if f.is_rows and f.items is not None and isinstance(value, list):
+        cells = f.items.fields.items()
+        return [
+            item
+            for row in value
+            if isinstance(row, dict)
+            for name, cell in cells
+            for item in files_in(cell, row.get(name))
+        ]
+    return []
+
+
+def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field's value
+    """The file IDs in a value of field `f`, its rows' included; unreadable ones are left
+    for its own check."""
     out: set[uuid.UUID] = set()
-    for item in items:
+    for item in files_in(f, value):
         try:
             out.add(item if isinstance(item, uuid.UUID) else uuid.UUID(str(item)))
         except ValueError:

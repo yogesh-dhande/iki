@@ -27,7 +27,7 @@ retried, on its own.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 from urllib.parse import urlsplit
@@ -688,6 +688,55 @@ def cancel_requested(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> boo
     it doesn't renew the lease, as heartbeats do."""
     job = _holds(Job.objects.filter(pk=job_id, worker=worker).first(), token)
     return _cancelled(_in_scope(worker, job))
+
+
+#: The most jobs one watch covers (``POST /worker/v1/watch``): a cluster's worker holds at
+#: most this many (``IKI_SLURM_MAX_JOBS``).
+MAX_WATCHED = 1000
+
+
+class Watched(NamedTuple):
+    """What a watch of several jobs answers."""
+
+    #: Jobs whose runs were cancelled: the worker should stop them and report ``cancelled``.
+    cancel_requested: list[uuid.UUID]
+    #: Jobs this worker doesn't hold any more, as ``stale_lease`` says of one.
+    stale: list[uuid.UUID]
+
+
+def watched(worker: Worker, leases: Mapping[uuid.UUID, uuid.UUID]) -> Watched:
+    """Of the jobs in `leases` (each with the lease token the worker holds it by), those
+    whose runs were cancelled and those it doesn't hold, as :func:`cancel_requested` says of
+    one, in as many queries however many there are. Reads only."""
+    found = {j.pk: j for j in Job.objects.filter(pk__in=leases, worker=worker)}
+    held: list[Job] = []
+    stale: list[uuid.UUID] = []
+    for job_id, token in leases.items():
+        try:
+            held.append(_holds(found.get(job_id), token))
+        except Stale:
+            stale.append(job_id)
+    if worker.tier == workers.SELF_HOSTED and held:
+        covered = set(
+            workers.covered(worker)
+            .filter(pk__in={j.project_id for j in held})
+            .values_list("pk", flat=True)
+        )
+        stale += [j.pk for j in held if j.project_id not in covered]
+        held = [j for j in held if j.project_id in covered]
+    # A job goes on while any of its runs does: its own, or one packed into it.
+    going = set(
+        ActionRun.objects.filter(
+            pk__in=[j.run_id for j in held], cancel_requested_at__isnull=True
+        ).values_list("pk", flat=True)
+    )
+    packing = set(
+        Job.objects.filter(
+            packed_into__in=[j.pk for j in held], run__cancel_requested_at__isnull=True
+        ).values_list("packed_into_id", flat=True)
+    )
+    cancelled = [j.pk for j in held if j.run_id not in going and j.pk not in packing]
+    return Watched(sorted(cancelled), sorted(stale))
 
 
 def _cancelled(job: Job) -> bool:

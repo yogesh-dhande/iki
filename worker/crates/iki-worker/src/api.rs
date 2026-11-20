@@ -247,6 +247,74 @@ pub fn retrying<T>(
     }
 }
 
+/// A stand-in server for tests: it answers each request with what `answer` says for its
+/// path and JSON body (a status and a JSON body), and counts them.
+#[cfg(test)]
+pub(crate) fn serving(
+    answer: impl Fn(&str, &serde_json::Value) -> (u16, serde_json::Value) + Send + Sync + 'static,
+) -> (Api, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&calls);
+    let answer = Arc::new(answer);
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let answer = Arc::clone(&answer);
+            let counted = Arc::clone(&counted);
+            thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                let _ = reader.read_line(&mut request);
+                let path = request.split(' ').nth(1).unwrap_or_default().to_owned();
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some((k, v)) = line.split_once(':')
+                        && k.eq_ignore_ascii_case("content-length")
+                    {
+                        length = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                let _ = reader.read_exact(&mut body);
+                let body = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+                counted.fetch_add(1, Ordering::SeqCst);
+                let (status, reply) = answer(&path, &body);
+                let reply = reply.to_string();
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+            });
+        }
+    });
+    (Api::new(&url, "token"), calls)
+}
+
+/// A stand-in server that answers each request with the next of `answers`, then the last
+/// again, whatever it asks.
+#[cfg(test)]
+pub(crate) fn answering(
+    answers: Vec<(u16, serde_json::Value)>,
+) -> (Api, Arc<std::sync::atomic::AtomicUsize>) {
+    let next = std::sync::Mutex::new(0usize);
+    serving(move |_, _| {
+        let mut n = next.lock().unwrap();
+        let found = answers[(*n).min(answers.len() - 1)].clone();
+        *n += 1;
+        found
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

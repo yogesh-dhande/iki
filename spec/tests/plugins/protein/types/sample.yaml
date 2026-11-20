@@ -26,6 +26,8 @@ fields:
         amount: { type: quantity, unit: ug, min: 0 }
         added_on: { type: date }
         note: { type: string, max_length: 200 }
+        # Its certificate of analysis: a file a row holds.
+        certificate: { type: file }
   notes: { type: text }
   # People in records (ADR 0122): who tests it, who reviews it, and when it's due.
   analyst:

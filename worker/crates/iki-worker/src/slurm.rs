@@ -12,13 +12,15 @@
 //!
 //! While it waits in the cluster's queue and runs, the worker renews its lease, says what
 //! Slurm reports of it, and streams the log its command writes. One `squeue` asks after
-//! every job the worker holds, every `IKI_SLURM_POLL_SECONDS`. A cancelled run is
-//! `scancel`led. Once a job has left the queue, `sacct` says how it ended and what it
+//! every job the worker holds, every `IKI_SLURM_POLL_SECONDS`. One long-poll watches every
+//! job it holds for cancels, besides their heartbeats, so a cancelled run is `scancel`led
+//! at once (ADR 0167). Once a job has left the queue, `sacct` says how it ended and what it
 //! used, which the server prices it by; its results go up from the login node.
 //!
 //! The worker can restart while its jobs wait and run: their leases outlast it, and each
 //! job's directory keeps what it needs (`slurm.json`) to pick the job up again, and how
-//! far its log has reached the server (`log.json`), to carry on from there. A job whose
+//! far its log has reached the server (`log.json`), to carry on from there, with why its
+//! command said it failed up to there. A job whose
 //! lease went elsewhere meanwhile is `scancel`led; one whose server can't be reached waits
 //! until it can say.
 
@@ -105,12 +107,20 @@ impl Settings {
                 )?,
                 cosign: get("IKI_COSIGN").unwrap_or_else(|| "cosign".to_owned()),
             },
-            max_jobs: usize::try_from(number("IKI_SLURM_MAX_JOBS", 100)?).unwrap_or(100),
+            max_jobs: match number("IKI_SLURM_MAX_JOBS", 100)? {
+                n if n > MAX_JOBS as u64 => {
+                    return Err(format!("IKI_SLURM_MAX_JOBS must be at most {MAX_JOBS}."));
+                }
+                n => usize::try_from(n).unwrap_or(100),
+            },
             poll_every: Duration::from_secs(number("IKI_SLURM_POLL_SECONDS", 15)?),
             work_dir,
         }))
     }
 }
+
+/// The most jobs a worker holds at once: as many as one watch for cancels covers.
+const MAX_JOBS: usize = 1000;
 
 /// `program`'s absolute path: as given if it's a path, else the first on `path`.
 fn found(program: &str, path: Option<&str>) -> Option<String> {
@@ -296,6 +306,132 @@ impl Poller {
     }
 }
 
+// --- Watching every job for cancels at once -----------------------------------------------
+
+/// What a watch of several jobs answers (`paths::WATCH`, an async view the generated types
+/// don't cover).
+#[derive(Debug, Default, Deserialize)]
+struct WatchedOut {
+    #[serde(default)]
+    cancel_requested: Vec<String>,
+    #[serde(default)]
+    stale: Vec<String>,
+}
+
+/// Holds one long-poll for every job the worker holds, which answers the moment any of
+/// their runs is cancelled (ADR 0167): a cancel reaches the cluster at once, and still
+/// does when heartbeats fail. A server without it leaves cancels to heartbeats.
+struct Watcher {
+    /// Each job it watches, and whether the server has already said what became of it.
+    jobs: Mutex<BTreeMap<String, (Arc<Job>, bool)>>,
+}
+
+/// Seconds a watch waits for news.
+const WATCH_WAIT: u32 = 25;
+
+impl Watcher {
+    fn start(api: Api, stopping: Arc<AtomicBool>) -> Arc<Self> {
+        let watcher = Arc::new(Self {
+            jobs: Mutex::default(),
+        });
+        let watching = Arc::clone(&watcher);
+        thread::spawn(move || {
+            let path = format!("{}?wait={WATCH_WAIT}", paths::WATCH);
+            let mut failures = 0;
+            while !stopping.load(Ordering::SeqCst) {
+                let leases = watching.leases();
+                if leases.is_empty() {
+                    pause(Duration::from_secs(1), &stopping);
+                    continue;
+                }
+                let body = serde_json::json!({ "jobs": leases });
+                match api.post::<_, WatchedOut>(&path, &body) {
+                    Ok(answer) => {
+                        failures = 0;
+                        watching.heard(&answer.unwrap_or_default());
+                    }
+                    Err(Error::Transient(_)) => {
+                        failures += 1;
+                        pause(api::backoff(failures), &stopping);
+                    }
+                    // A server without it, or one that won't say: heartbeats still carry
+                    // cancels, and a newer server may say later.
+                    Err(error) => {
+                        say::warn(
+                            "Couldn't watch the cluster's jobs for cancels; leaving them to \
+                             heartbeats for now.",
+                            &[("detail", &error)],
+                        );
+                        pause(Duration::from_secs(300), &stopping);
+                    }
+                }
+            }
+        });
+        watcher
+    }
+
+    /// Each job to ask after, by its ID, with its lease token: those the server hasn't
+    /// said anything of.
+    fn leases(&self) -> BTreeMap<String, String> {
+        self.jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, (_, told))| !told)
+            .map(|(id, (job, _))| (id.clone(), job.lease_token.clone()))
+            .collect()
+    }
+
+    /// Acts on what the server said: a cancelled run's job stops, and one the worker
+    /// doesn't hold any more is let go, as their heartbeats would say.
+    fn heard(&self, answer: &WatchedOut) {
+        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        for (ids, cancelled) in [(&answer.cancel_requested, true), (&answer.stale, false)] {
+            for id in ids {
+                let Some((job, told)) = jobs.get_mut(id) else {
+                    continue;
+                };
+                *told = true;
+                if cancelled {
+                    job.cancel();
+                } else {
+                    job.lost(&Error::Stale(
+                        "The server says this worker doesn't hold the job any more.".into(),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Watches `job` until what's returned is dropped.
+    fn watch(self: &Arc<Self>, job: &Arc<Job>) -> Watching {
+        self.jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(job.id.clone(), (Arc::clone(job), false));
+        Watching {
+            watcher: Arc::clone(self),
+            id: job.id.clone(),
+        }
+    }
+}
+
+/// A job the watcher watches, until this is dropped.
+struct Watching {
+    watcher: Arc<Watcher>,
+    id: String,
+}
+
+impl Drop for Watching {
+    fn drop(&mut self) {
+        self.watcher
+            .jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.id);
+    }
+}
+
 // --- Serving the cluster's jobs ------------------------------------------------------------
 
 /// What every job's thread shares.
@@ -305,6 +441,7 @@ struct Cluster {
     settings: Settings,
     have: Mutex<plugins::Have>,
     poller: Arc<Poller>,
+    watcher: Arc<Watcher>,
     interrupted: Arc<AtomicBool>,
     unauthorized: AtomicBool,
     held: AtomicUsize,
@@ -339,6 +476,7 @@ pub fn serve(
             settings.poll_every,
             Arc::clone(interrupted),
         ),
+        watcher: Watcher::start(api.clone(), Arc::clone(interrupted)),
         interrupted: Arc::clone(interrupted),
         unauthorized: AtomicBool::new(false),
         held: AtomicUsize::new(0),
@@ -484,6 +622,7 @@ fn submit(cluster: &Arc<Cluster>, raw: &serde_json::Value) -> Ended {
         input.job.heartbeat_every,
         false,
     );
+    let _watching = cluster.watcher.watch(&held.job);
     let dirs = cluster.dirs(&input.job.id);
     keep_log_marks(&held.job, &dirs);
     say::info(
@@ -1197,13 +1336,17 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
         kept.heartbeat_every,
         false,
     );
-    // The log carries on where the server's copy ends, from that point in the file.
+    let _watching = cluster.watcher.watch(&held.job);
+    // The log carries on where the server's copy ends, from that point in the file. A
+    // server that doesn't say (one older than `log_offset`) has at least what the worker
+    // last knew it had.
     let mark = log_marks(&dirs).resume_at(
         beat.as_ref()
-            .map(|b| u64::try_from(b.log_offset).unwrap_or(0)),
+            .and_then(|b| b.log_offset)
+            .map(|offset| u64::try_from(offset).unwrap_or(0)),
     );
-    held.job.resume_log(mark);
     keep_log_marks(&held.job, &dirs);
+    held.job.resume_log(mark.clone());
     let raw = std::fs::read(&dirs.input)
         .ok()
         .and_then(|t| serde_json::from_slice::<serde_json::Value>(&t).ok());
@@ -1241,6 +1384,11 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
     // It's hidden in what the job prints on its node (`step`); the worker hides what it
     // can again here: the attempt's credentials, from its input.
     let report = job::conclude(&host, &plan, &dirs, |host, said, mask| {
+        // Why the command said it failed, if it did so before the restart: it isn't read
+        // again.
+        said.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone_from(&mark.error);
         let from = Following {
             read: mark.read,
             was: (!waiting).then_some(Phase::Running),
@@ -1314,6 +1462,7 @@ fn reclaim(api: &Api, kept: &Kept, interrupted: &AtomicBool) -> Reclaimed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::{answering, serving};
 
     fn settings(given: &[(&str, &str)]) -> Result<Option<Settings>, String> {
         let given: BTreeMap<String, String> = given
@@ -1355,46 +1504,6 @@ mod tests {
         assert!(zero.unwrap_err().contains("IKI_SLURM_MAX_JOBS"));
     }
 
-    /// A server that answers each request with the next of `answers` (status and body),
-    /// then the last again, and counts them.
-    fn answering(answers: Vec<(u16, serde_json::Value)>) -> (Api, Arc<AtomicUsize>) {
-        use std::io::{BufRead, BufReader, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let calls = Arc::new(AtomicUsize::new(0));
-        let counted = Arc::clone(&calls);
-        thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { return };
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut length = 0;
-                loop {
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                        break;
-                    }
-                    if let Some((k, v)) = line.split_once(':')
-                        && k.eq_ignore_ascii_case("content-length")
-                    {
-                        length = v.trim().parse().unwrap();
-                    }
-                }
-                let mut body = vec![0; length];
-                let _ = reader.read_exact(&mut body);
-                let n = counted.fetch_add(1, Ordering::SeqCst);
-                let (status, answer) = answers[n.min(answers.len() - 1)].clone();
-                let answer = answer.to_string();
-                let _ = write!(
-                    stream,
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
-                     Content-Length: {}\r\nConnection: close\r\n\r\n{answer}",
-                    answer.len()
-                );
-            }
-        });
-        (Api::new(&url, "token"), calls)
-    }
-
     fn kept() -> Kept {
         Kept {
             job: "0190a1b2-0000-7000-8000-000000000001".into(),
@@ -1415,10 +1524,164 @@ mod tests {
         let (api, calls) = answering(vec![(503, busy.clone()), (429, busy), (200, beat)]);
         let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
         assert!(
-            matches!(&reclaimed, Reclaimed::Held(beat) if beat.log_offset == 812),
+            matches!(&reclaimed, Reclaimed::Held(beat) if beat.log_offset == Some(812)),
             "{reclaimed:?}"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn a_restarted_worker_picks_its_job_up_again_from_a_server_older_than_log_offset() {
+        // A heartbeat as servers answered before it said how much of the log they have.
+        let beat = serde_json::json!({
+            "lease_expires_at": "2026-11-19T10:10:00Z", "cancel_requested": false,
+        });
+        let (api, calls) = answering(vec![(200, beat)]);
+        let reclaimed = reclaim(&api, &kept(), &AtomicBool::new(false));
+        assert!(
+            matches!(&reclaimed, Reclaimed::Held(beat) if beat.log_offset.is_none()),
+            "{reclaimed:?}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // It carries on from what it last knew the server had.
+        let marks = logs::Marks {
+            acked: logs::Mark {
+                sent: 10,
+                read: 6,
+                error: None,
+            },
+            sending: None,
+        };
+        assert_eq!(marks.resume_at(None).sent, 10);
+    }
+
+    /// A stand-in server whose heartbeats answer `beat`, and whose watch says the job's run
+    /// was cancelled when `watch` is set. It notes what each watch asked after.
+    fn cluster_server(
+        beat: (u16, serde_json::Value),
+        watch: (u16, serde_json::Value),
+    ) -> (Api, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let noted = Arc::clone(&asked);
+        let (api, _) = serving(move |path, body| {
+            if path.starts_with(paths::WATCH) {
+                noted.lock().unwrap().push(body.clone());
+                watch.clone()
+            } else {
+                beat.clone()
+            }
+        });
+        (api, asked)
+    }
+
+    fn until(what: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if what() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    fn a_cancel_reaches_a_cluster_job_whose_heartbeats_fail() {
+        let kept = kept();
+        let cancelled = serde_json::json!({"cancel_requested": [kept.job], "stale": []});
+        let (api, asked) = cluster_server((503, serde_json::json!({})), (200, cancelled));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let watcher = Watcher::start(api.clone(), Arc::clone(&stopping));
+        let held = Held::start(
+            &api,
+            &kept.job,
+            &kept.lease_token,
+            HeartbeatInState::Running,
+            20,
+            false,
+        );
+        let watching = watcher.watch(&held.job);
+        assert!(until(|| held.job.stop_for() == Some(Stop::Cancelled)));
+        // One watch for every job it holds, each by its lease.
+        let first = asked.lock().unwrap()[0].clone();
+        assert_eq!(
+            first,
+            serde_json::json!({"jobs": {kept.job.clone(): kept.lease_token.clone()}})
+        );
+        // Told, it isn't asked after again; let go, it's forgotten.
+        assert!(watcher.leases().is_empty());
+        drop(watching);
+        assert!(watcher.jobs.lock().unwrap().is_empty());
+        stopping.store(true, Ordering::SeqCst);
+        held.job.cancel();
+        let _ = held.detach();
+    }
+
+    #[test]
+    fn a_job_the_watch_says_is_gone_is_let_go() {
+        let kept = kept();
+        let gone = serde_json::json!({"cancel_requested": [], "stale": [kept.job]});
+        let (api, _) = cluster_server((503, serde_json::json!({})), (200, gone));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let watcher = Watcher::start(api.clone(), Arc::clone(&stopping));
+        let held = Held::start(
+            &api,
+            &kept.job,
+            &kept.lease_token,
+            HeartbeatInState::Running,
+            20,
+            false,
+        );
+        let _watching = watcher.watch(&held.job);
+        assert!(until(|| held.job.is_lost()));
+        stopping.store(true, Ordering::SeqCst);
+        let _ = held.detach();
+    }
+
+    #[test]
+    fn a_server_without_the_watch_leaves_cancels_to_heartbeats() {
+        let kept = kept();
+        // Before the watch, and before log_offset: a heartbeat as such a server answers.
+        let beat = serde_json::json!({
+            "lease_expires_at": "2026-11-19T10:10:00Z", "cancel_requested": true,
+        });
+        let missing = serde_json::json!({"detail": "Not found."});
+        let (api, asked) = cluster_server((200, beat), (404, missing));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let watcher = Watcher::start(api.clone(), Arc::clone(&stopping));
+        let held = Held::start(
+            &api,
+            &kept.job,
+            &kept.lease_token,
+            HeartbeatInState::Running,
+            20,
+            false,
+        );
+        let _watching = watcher.watch(&held.job);
+        assert!(until(|| held.job.stop_for() == Some(Stop::Cancelled)));
+        // Asked once, then left alone a while, not asked again and again.
+        assert!(until(|| !asked.lock().unwrap().is_empty()));
+        thread::sleep(Duration::from_millis(1500));
+        assert_eq!(asked.lock().unwrap().len(), 1);
+        stopping.store(true, Ordering::SeqCst);
+        let _ = held.detach();
+    }
+
+    #[test]
+    fn a_worker_holds_as_many_jobs_as_one_watch_covers() {
+        let bin = std::env::temp_dir().join(format!("iki-slurm-max-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("apptainer"), "").unwrap();
+        let path = bin.to_string_lossy().into_owned();
+        let at = |n: &str| {
+            settings(&[
+                ("IKI_SLURM_WORK_DIR", "/scratch/iki"),
+                ("PATH", &path),
+                ("IKI_SLURM_MAX_JOBS", n),
+            ])
+        };
+        assert_eq!(at("1000").unwrap().unwrap().max_jobs, 1000);
+        assert!(at("1001").unwrap_err().contains("at most 1000"));
     }
 
     #[test]
