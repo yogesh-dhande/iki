@@ -483,3 +483,30 @@ expect:
       - { type: iki/oligo.Monomer }
       - { type: iki/oligo.Monomer }
   tolerance: 1.0e-4
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_empty_strand_is_skipped_like_any_row_that_isnt_helm
+description: >-
+  A CSV of ACGT and a strand with no monomers (RNA1{}), skipping errors: ACGT is
+  imported and the other row named, as iki-wasm refuses it ("Expected a monomer").
+action: import_oligonucleotides
+params:
+  file: { $file: oligos }
+  on_error: skip
+files: { oligos: tests/data/an-empty-strand.csv }
+expect:
+  output:
+    creates:
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - { type: iki/oligo.Monomer }
+      - type: iki/oligo.Oligonucleotide
+        values: { name: plain primer, bases: ACGT }
+    metrics: { rows: 2, skipped: 1 }
+    messages:
+      - level: warning
+        text: "Row 2: RNA1 has a unit with no monomer in it: HELM separates monomer units with “.”, such as R(A)P.R(C)."

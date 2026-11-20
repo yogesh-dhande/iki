@@ -123,3 +123,33 @@ def test_phosphorothioate_stereo_reads_as_its_symbol_says() -> None:
         built = chemistry.build(helm.read(f"RNA1{{[dR](T)[{link}].[dR](T)}}$$$$V2.0"), library)
         labels[link] = chemistry.stereo_labels(built.mol)
     assert labels == {"Rsp": ["R"], "Ssp": ["S"], "sP": [""]}
+
+
+# A repeated group of units is one position as written (HELM 2.04, 5.3.2): in the first,
+# position 4 is the 3′ phosphate after it, as position 9 is once the repeat is written out.
+AFTER_A_GROUP = (
+    "RNA1{([dR](A)P)'2'.[dR](C)P}|CHEM1{[BHQ1]}$RNA1,CHEM1,4:R2-1:R1$$$V2.0",
+    "RNA1{[dR](A)P.[dR](A)P.[dR](C)P}|CHEM1{[BHQ1]}$RNA1,CHEM1,9:R2-1:R1$$$V2.0",
+)
+
+
+@pytest.mark.wasm
+def test_a_connection_after_a_repeated_group_joins_where_iki_reads_it() -> None:
+    grouped, written_out = AFTER_A_GROUP
+    assert iki_helm.canonical(grouped) == iki_helm.canonical(written_out)
+    library = chemistry.library()
+    built = [chemistry.build(helm.read(t), library) for t in AFTER_A_GROUP]
+    assert len({chemistry.formula(b.mol) for b in built}) == 1
+    assert len({round(chemistry.average_weight(b.mol), 4) for b in built}) == 1
+    # And a position past the polymer's last is refused, as iki-wasm refuses it.
+    with pytest.raises(helm.HelmError, match="has 4"):
+        helm.read(grouped.replace("4:R2", "10:R2"))
+
+
+@pytest.mark.parametrize(
+    "text", ["RNA1{}$$$$V2.0", "RNA1{R(A)P..R(C)}$$$$V2.0", "RNA1{R(A)P.}$$$$V2.0"]
+)
+def test_a_polymer_or_unit_without_a_monomer_isnt_helm(text: str) -> None:
+    """As iki-wasm refuses them: "Expected a monomer"."""
+    with pytest.raises(helm.HelmError, match="no monomer"):
+        helm.read(text)
