@@ -81,8 +81,8 @@ def ready(
     return found
 
 
-def lot(world: World, label: str = "LOT A") -> dict[str, Any]:
-    made = create(api_as(world, "editor"), world.project, {"label": label}, LOT)
+def lot(world: World, label: str = "LOT A", **values: Any) -> dict[str, Any]:
+    made = create(api_as(world, "editor"), world.project, {"label": label, **values}, LOT)
     assert made.status_code == 201, made.content
     body: dict[str, Any] = made.json()
     return body

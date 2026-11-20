@@ -8,6 +8,7 @@ each HELM here is read by both and compared, position by position. And one molec
 written two ways, one canonical HELM, must weigh the same.
 """
 
+import hashlib
 import importlib
 import sys
 from pathlib import Path
@@ -123,3 +124,35 @@ def test_phosphorothioate_stereo_reads_as_its_symbol_says() -> None:
         built = chemistry.build(helm.read(f"RNA1{{[dR](T)[{link}].[dR](T)}}$$$$V2.0"), library)
         labels[link] = chemistry.stereo_labels(built.mol)
     assert labels == {"Rsp": ["R"], "Ssp": ["S"], "sP": [""]}
+
+
+#: A CSV file as Excel writes one, lines ending CRLF: two records whose descriptions span
+#: two lines and end alike, one with a LINE SEPARATOR (U+2028) in a cell, which isn't a
+#: line end in CSV, and one after them.
+MULTILINE_CSV = (
+    "name,helm,description\r\n"
+    'two-line,RNA1{[dR](A)P.[dR](C)}$$$$V2.0,"first line\r\nsame end"\r\n'
+    'other two-line,RNA1{[dR](G)P.[dR](T)}$$$$V2.0,"other line\r\nsame end"\r\n'
+    "\r\n"
+    "separator,RNA1{[dR](A)P.[dR](T)}$$$$V2.0,A\u2028B\r\n"
+    "after,RNA1{[dR](C)P.[dR](G)}$$$$V2.0,plain"
+)
+
+
+def test_each_csv_record_is_digested_whole_as_written() -> None:
+    """ADR 0052: a create's origin has the SHA-256 of the record it came from, as the file
+    has it. Each record here is every line it spans, with its line ends; the blank line
+    between two isn't either's. The digests were computed apart from Python, with
+    ``printf '…' | shasum -a 256`` of each record's bytes."""
+    (oligos,) = _modules("oligos")
+    rows = oligos._rows_csv(MULTILINE_CSV)
+    assert [r["name"] for r in rows] == ["two-line", "other two-line", "separator", "after"]
+    assert rows[0]["description"] == "first line\r\nsame end"
+    assert rows[2]["description"] == "A\u2028B"
+    assert [hashlib.sha256(r[""].encode()).hexdigest() for r in rows] == [
+        "486164aadd808391e7d7d9f12ff93dfe33dd1ec896dc4f114bf1921e7d2f5557",
+        "9396ffd5e05d4428713792f3f324d328435a114c2db48555d64c38e3c724820b",
+        "f81f2ff0e4aa4802a58b30546a83a85a8de90ea0401c8212ea932bb07556b435",
+        # The last record, with no line end after it.
+        "8e227151ba2f8fa77cb101bbe58d425e3212ccf8f122b6f5f5a3a17d2f8f5e55",
+    ]

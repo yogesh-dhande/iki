@@ -720,11 +720,13 @@ def content_of(
     values: dict[str, Any] = {}
     units: dict[str, str] = {}
     file_ids: set[str] = set()
+    entry_fields: set[str] = set()
     for part in form.parts:
         if part.entry:
             if own or entry is None or entry_revision is None:
                 continue
             key, at = entry
+            entry_fields.update(part.fields)
         else:
             key, at = entity.pk, revision
         row = (
@@ -763,6 +765,7 @@ def content_of(
         values=values,
         units=units,
         files={str(k): v for k, v in files.items()},
+        entry_fields=entry_fields,
     )
 
 
@@ -776,22 +779,58 @@ def history_seen() -> int:
 
 
 def since(signature: Signature, entity: Entity) -> list[dict[str, Any]]:
-    """What plugins' migrations have done to the record's kept history since ``signature``
-    was signed (ADR 0148), in order: renamed its fields, converted its quantities to other
-    units, renamed its type. For an imported one, what was done where it came from first,
-    as its bundle said. Only changes to the tables the record's fields are in count, as
-    those tables were named then. Raises :class:`proof.Unexplained` for one that this
-    deployment's signing key didn't sign: not a migration's."""
+    """What has been done to the record's kept history since ``signature`` was signed, in
+    order: plugins' migrations here renamed its fields, converted its quantities to other
+    units, renamed its type (ADR 0148). For an imported one, first what it was read through
+    when it came (``read_through``): what was done where it came from, and how the import
+    named here the people and registry entries it names (ADR 0096), which this deployment
+    vouched for then with its signing key. Only migrations' changes to the tables the
+    record's fields are in count, as those tables were named then. Raises
+    :class:`proof.Unexplained` for anything this deployment's signing key didn't sign."""
     kept = history_changes(entity, signature.history_seen)
-    if kept:
-        own = signing_keys.mine()
-        for row in kept:
-            if row.key not in own or not keys.verify(row.key, bytes(row.signature), row.signed()):
-                raise proof.Unexplained(
-                    f"a change to its history recorded since ({row.kind} of `{row.name}`) "
-                    "isn’t signed by this deployment’s key, as a migration’s is."
-                )
-    return [*(signature.migrated or []), *(r.change() for r in kept)]
+    own = signing_keys.mine() if kept or signature.read_through else set()
+    for row in kept:
+        if row.key not in own or not keys.verify(row.key, bytes(row.signature), row.signed()):
+            raise proof.Unexplained(
+                f"a change to its history recorded since ({row.kind} of `{row.name}`) "
+                "isn’t signed by this deployment’s key, as a migration’s is."
+            )
+    try:
+        before = proof.vouched(
+            signature.read_through or None,
+            {"id": signature.pk, "record": signature.entity_id, "revision": signature.revision},
+            dict.fromkeys(own, deployment()),
+        )
+    except proof.Unexplained:
+        raise proof.Unexplained(
+            "what was done to its history before it came here isn’t signed by this "
+            "deployment’s key, as an import’s is."
+        ) from None
+    return [*before, *(r.change() for r in kept)]
+
+
+def read_through(signature: Mapping[str, Any], changes: list[dict[str, Any]]) -> dict[str, str]:
+    """``changes``, what was done to a signature's record's history since it was signed,
+    vouched for by this deployment's signing key (:func:`proof.read_through`): for a
+    bundle to carry, or an import to keep. ``signature``: its ``id``, ``record`` and
+    ``revision``. Empty if nothing was done."""
+    if not changes:
+        return {}
+    key, private = signing_keys.current()
+    document = proof.canonical(
+        proof.read_through(
+            signature=signature,
+            changes=changes,
+            deployment=deployment(),
+            key=key.public,
+            made_at=_instant(timezone.now()),
+        )
+    )
+    return {
+        "document": document,
+        "key": key.public,
+        "signature": proof.b64(private.sign(document.encode())),
+    }
 
 
 def history_changes(entity: Entity, seen: int) -> list[HistoryChange]:
@@ -1042,35 +1081,32 @@ def _holds(signature: Signature, entity: Entity, changes: list[dict[str, Any]]) 
     said = f"{entity.hrid}’s revision {signature.revision} still holds what was signed"
     if not changes:
         return said + "."
-    return f"{said}, as plugins’ migrations have kept it since: {proof.described(changes)}."
+    return f"{said}, read through what was done to it since: {proof.described(changes)}."
 
 
 def _imported_check(signature: Signature, entity: Entity) -> proof.Check:
     """For a signature an import brought: the record's own fields here are what was signed,
-    naming registry entries by their IDs here. Its entry's fields signed are bound by the
-    signature and its content's SHA-256 alone: this registry keeps its own history of the
-    entry, with its own revisions."""
+    read through what was done since, naming people and registry entries as they are here.
+    Its entry's fields signed are bound by the signature and its content's SHA-256 alone:
+    this registry keeps its own history of the entry, with its own revisions."""
     try:
         changes = since(signature, entity)
         signed = proof.migrated(json.loads(signature.content), changes)
         now = content_of(entity, signature.revision, signature.entry_revision, own=True)
-        entry_fields = {n for p in shape(entity.type).parts if p.entry for n in p.fields}
     except proof.Unexplained as unexplained:
         return _changed(signature, entity, [], str(unexplained))
     except (ValueError, TypeError, KeyError, LookupError):
         return _changed(signature, entity, [])
-    renamed: dict[str, str] = signature.renamed or {}
-
-    def here(value: Any) -> Any:  # noqa: ANN401 - JSON
-        if isinstance(value, list):
-            return [here(v) for v in value]
-        return renamed.get(value, value) if isinstance(value, str) else value
-
-    values = {k: here(v) for k, v in signed.get("values", {}).items() if k not in entry_fields}
+    entry_fields = set(signed.get("entry_fields") or ())
+    values = {k: v for k, v in signed.get("values", {}).items() if k not in entry_fields}
     units = {k: u for k, u in signed.get("units", {}).items() if k in values}
     named = _strings(values)
     files = {k: v for k, v in signed.get("files", {}).items() if k in named}
-    if values == now["values"] and units == now["units"] and files == now["files"]:
+    if (
+        proof.canonical(values) == proof.canonical(now["values"])
+        and units == now["units"]
+        and files == now["files"]
+    ):
         said = _holds(signature, entity, changes)
         if entry_fields and entity.entry_id:
             said = (

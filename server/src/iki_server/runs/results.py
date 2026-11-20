@@ -427,14 +427,10 @@ def check_line(
     point at ``#/creates_file/<line>``. Its values are checked as it's written. ``keys``:
     the keys of the output's ``creates``, which a line may refer to (ADR 0140)."""
     at = ("creates_file", line)
-    for name, key, where in created_refs(item):
-        if key not in keys:
-            check.error(
-                _pointer(*at, "values", name, *where),
-                f"No create in `creates` has the key {key!r}: a line can refer only to those.",
-            )
-            return None
-    return _create(check, item, at, None)
+    found = outputs.creates_line(check.action, item, at, keys, INSTALLED, check.error)
+    if found is None:
+        return None
+    return _create(check, item, at, None, found)
 
 
 def _create(
@@ -442,26 +438,16 @@ def _create(
     item: Mapping[str, Any],
     at: tuple[object, ...],
     counts: dict[int, int] | None,
+    found: tuple[int, Creates] | None = None,
 ) -> _Create | None:
-    """``counts``: how many of each declared effect so far; None for a creates file."""
-    found = outputs.declared(check.action, item, at, counts, INSTALLED, check.error)
+    """``counts``: how many of each declared effect so far; None for a creates file, whose
+    line ``found`` is the declared create :func:`outputs.creates_line` found it is."""
+    if found is None:
+        found = outputs.declared(check.action, item, at, counts, INSTALLED, check.error)
     if found is None:
         return None
     _, effect = found
     if counts is None:
-        if "key" in item:
-            check.error(
-                _pointer(*at, "key"),
-                "A creates file's lines can't refer to one another: give the creates they "
-                "refer to in `creates`, with a `key`, and refer to them with `$create`.",
-            )
-            return None
-        if "fills" in item:
-            check.error(
-                _pointer(*at, "fills"),
-                "A creates file's lines can't fill entries: give the creates that do in `creates`.",
-            )
-            return None
         _no_files(check, _pointer(*at), item["type"], item["values"])
     else:
         _check_files(check, _pointer(*at), item["type"], item["values"])

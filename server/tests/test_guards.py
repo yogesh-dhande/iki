@@ -7,7 +7,7 @@ import pytest
 from api_client import problem
 from org_world import World
 from test_api_entities import api_as
-from test_rules import BATCH, _bsl3, _proteins, change, made
+from test_rules import BATCH, _bsl3, _proteins, change, made, purged
 from test_runs import world
 from test_signatures import begin, evidence, ready, signed
 from test_states import ANALYST, QA, REVIEWER, put, roles, set_
@@ -89,6 +89,22 @@ def test_a_guard_over_a_list_reads_every_member(world: World) -> None:
     _bsl3(world, Entity.objects.get(pk=listed[200]))
     assert offered(world, "admin", batch["id"])["released"] == (
         "A batch of a BSL-3 protein isn't released.",
+        "proteins_not_bsl3",
+    )
+    body = problem(put(world, "admin", batch["id"], "status", "released"), 409, "guard_refused")
+    assert body["guard"] == "proteins_not_bsl3"
+
+
+def test_a_guard_reading_a_record_of_a_purged_plugin_refuses_and_says_why(world: World) -> None:
+    """A protein kept as a tombstone of a purged plugin (ADR 0092) can't be read: releasing
+    is refused, naming the field, rather than worked out on the rest."""
+    roles(world, editor=(ANALYST,), admin=(QA,))
+    listed = _proteins(world, 2)
+    batch = made(world, {"result": "pass", "purity": 95.0, "proteins": listed})
+    purged(listed[1])
+    assert offered(world, "admin", batch["id"])["released"] == (
+        "A batch of a BSL-3 protein isn't released. (It couldn’t be checked: proteins refers "
+        "to 1 record it can’t read, so it isn’t worked out on the rest.)",
         "proteins_not_bsl3",
     )
     body = problem(put(world, "admin", batch["id"], "status", "released"), 409, "guard_refused")

@@ -252,8 +252,8 @@ result = None
         ("S2", 2.6 * 1000, 4.0 + 273.15),
     ]
     since = (
-        "as plugins’ migrations have kept it since: `name` renamed `title`, `mass` converted "
-        "from g to mg, `temperature` converted from Cel to K."
+        "read through what was done to it since: `name` renamed `title`, `mass` converted "
+        "from g to mg (× 1000), `temperature` converted from Cel to K (× 1 + 273.15)."
     )
     after = verified(out, database)
     assert after["SMP-000001"] == (
@@ -269,7 +269,7 @@ result = None
     sync(before, database)
     back = verified(before, database)
     assert back["SMP-000001"][0] is True, back
-    for undone in ("`mass` converted from mg to g", "`title` renamed `name`"):
+    for undone in ("`mass` converted from mg to g (× 0.001)", "`title` renamed `name`"):
         assert undone in back["SMP-000001"][1]
     assert back["SMP-000002"] == changed
 
@@ -406,8 +406,8 @@ result = None
     assert verified(out, database) == {
         "SMP-000001": (
             True,
-            "SMP-000001’s revision 1 still holds what was signed, as plugins’ migrations have "
-            "kept it since: its type renamed acme/lab.Specimen.",
+            "SMP-000001’s revision 1 still holds what was signed, read through what was done "
+            "to it since: its type renamed acme/lab.Specimen.",
         )
     }
     # Each change recorded is signed by the deployment's key, as a signature is.

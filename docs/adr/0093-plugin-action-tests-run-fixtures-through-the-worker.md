@@ -38,7 +38,8 @@ action with `iki-worker run --local`, the same code as a leased job.
 Then:
 
 - it checks the output against `run-output/v1`, and against the action's
-  declared effects, as the server would before writing it;
+  declared effects, as the server would before writing it: a bulk run's
+  creates file (ADR 0056) too, line by line, each problem naming its line;
 - it compares the output with `expect.output`. A mapping must have every
   key given, a list the same items in order, and a number equal to
   within `expect.tolerance` (relative; 1e-9 unless given). Anything left

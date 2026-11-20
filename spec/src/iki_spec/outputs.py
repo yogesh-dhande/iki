@@ -8,16 +8,20 @@ these, so a plugin's action test fails where a real run's output would be refuse
   its cardinality allows
 - each key is used once, and a ``{"$create": key}`` names an earlier create's
 - ``fills`` names values the create gives, of its registry entry's facts, not its identity
+- a creates file's line (ADR 0056) is of a type the action declares, many of, refers only
+  to the keys of ``creates``, and has no key or ``fills`` of its own
 
 Each problem is reported with a JSON pointer into the output, as ``#/creates/0/fills/1``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from iki_spec import schemas
 from iki_spec.model import Action, Creates, EntityType, Extension, Field, split_entry
 
 __all__ = [
@@ -25,7 +29,9 @@ __all__ = [
     "SpecTypes",
     "Types",
     "check_creates",
+    "check_creates_file",
     "created_refs",
+    "creates_line",
     "declared",
     "fills",
     "keys",
@@ -187,6 +193,76 @@ def check_creates(
         keys(item, at, seen, types, report)
         if declared(action, item, at, counts, types, report) is not None:
             fills(item, at, types, report)
+    return out
+
+
+def creates_line(
+    action: Action,
+    item: Mapping[str, Any],
+    at: tuple[object, ...],
+    keys: frozenset[str],
+    types: Types,
+    report: Report,
+) -> tuple[int, Creates] | None:
+    """Which of the action's declared creates a line of a creates file (ADR 0056) is, as
+    :func:`declared` says; None, reported, if it isn't one. ``keys``: those of the output's
+    ``creates``, the only ones a line may refer to (ADR 0140)."""
+    for name, key, where in created_refs(item, types):
+        if key not in keys:
+            report(
+                pointer(*at, "values", name, *where),
+                f"No create in `creates` has the key {key!r}: a line can refer only to those.",
+            )
+            return None
+    found = declared(action, item, at, None, types, report)
+    if found is None:
+        return None
+    if "key" in item:
+        report(
+            pointer(*at, "key"),
+            "A creates file's lines can't refer to one another: give the creates they "
+            "refer to in `creates`, with a `key`, and refer to them with `$create`.",
+        )
+        return None
+    if "fills" in item:
+        report(
+            pointer(*at, "fills"),
+            "A creates file's lines can't fill entries: give the creates that do in `creates`.",
+        )
+        return None
+    return found
+
+
+def check_creates_file(
+    action: Action,
+    lines: Iterable[str | bytes],
+    creates: Sequence[Mapping[str, Any]],
+    types: Types,
+) -> list[Problem]:
+    """What's wrong with a creates file's lines (ADR 0056), as the server would refuse them,
+    of what needs no database: each line JSON, a create as ``run-output`` has them, and one
+    :func:`creates_line` accepts. Problems point at ``#/creates_file/<line>``, from 1;
+    blank lines are skipped. ``creates``: the output's own."""
+    out: list[Problem] = []
+
+    def report(at: str, detail: str) -> None:
+        out.append(Problem(at, detail))
+
+    keys = frozenset(c["key"] for c in creates if isinstance(c.get("key"), str))
+    for number, raw in enumerate(lines, start=1):
+        if not raw.strip():
+            continue
+        at = ("creates_file", number)
+        try:
+            item = json.loads(raw)
+        except ValueError as error:
+            report(pointer(*at), f"The line isn't JSON: {error}.")
+            continue
+        issues = schemas.check("run-output", item, part="create")
+        for issue in issues:
+            report(pointer(*at, *issue.path), issue.message)
+        if not issues:
+            creates_line(action, item, at, keys, types, report)
     return out
 
 

@@ -126,16 +126,16 @@ class Signature(models.Model):
         on_delete=models.PROTECT,
         related_name="+",
     )
-    #: For an imported one: the registry entries its content names by their IDs where it
-    #: was signed, by their IDs here, where those differ.
-    renamed = models.JSONField(default=dict, blank=True)
     #: How far migrations' changes to kept history (``iki_history_change``) had got here
     #: when it was signed, or imported: those after it are what its record's history is read
     #: through (ADR 0148).
     history_seen = models.PositiveBigIntegerField(default=0)
-    #: For an imported one: what migrations where it came from had done to its record's
-    #: history since it was signed, as its bundle said (ADR 0148).
-    migrated = models.JSONField(default=list, blank=True)
+    #: For an imported one: what its record's history was read through when it came, in
+    #: order, signed by this deployment's key then (``proof.read_through``: its ``document``,
+    #: ``key`` and ``signature``). What migrations where it came from had done since it was
+    #: signed, as its bundle vouched, then how the import named here the people and registry
+    #: entries it names (ADR 0148, ADR 0096). Empty if nothing was.
+    read_through = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "iki_signature"

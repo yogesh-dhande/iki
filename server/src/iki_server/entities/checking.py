@@ -216,12 +216,13 @@ def _load(ids: set[Any]) -> dict[Any, dict[str, Any]]:
 
     if not ids:
         return {}
-    found = list(Entity.objects.filter(pk__in=ids))
+    # A record of a type no longer installed (its plugin purged, its row kept) can't be
+    # read: :func:`unread` says which fields refer to one.
+    installed = registry.types()
+    found = [e for e in Entity.objects.filter(pk__in=ids) if e.type in installed]
     values_of = current_values_of(found)
     out: dict[Any, dict[str, Any]] = {}
     for entity in found:
-        if entity.type not in registry.types():
-            continue
         form = shape(entity.type)
         own = form.entry_fields() if entity.registry_id is not None else form.fields()
         stored = values_of.get(entity.pk, {})

@@ -12,6 +12,18 @@ fields:
   protein: { type: ref, to: Protein }
   yield_mg: { type: float, min: 0 }
   report: { type: file }
+  # Who made it, and what went into it, each by whom (ADR 0122, ADR 0137): what a bundle
+  # names by the IDs where it was made, and an import by the IDs where it arrives.
+  made_by: { type: person }
+  inputs:
+    type: list
+    max_items: 10
+    items:
+      type: row
+      fields:
+        protein: { type: ref, to: Protein, required: true }
+        amount_mg: { type: float, min: 0 }
+        by: { type: person }
   # Its state field (ADR 0125), whose states past Open are each set by signing for it
   # (ADR 0126).
   status:

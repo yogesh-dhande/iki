@@ -12,7 +12,8 @@ from iki_cli.main import main
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 
 #: Answers `run --local input.json …` with what $FAKE_ANSWERS gives for the run's
-#: first entity's sequence, or its params' accession; records each input it was given.
+#: first entity's sequence, its params' accession, or its action; records each input it
+#: was given.
 WORKER = """\
 import json, os, sys
 given = json.load(open(sys.argv[3]))
@@ -20,8 +21,21 @@ with open(os.environ["FAKE_SEEN"], "a") as seen:
     seen.write(json.dumps({"input": given, "argv": sys.argv[1:]}) + "\\n")
 answers = json.load(open(os.environ["FAKE_ANSWERS"]))
 key = next(iter(given["inputs"].get("protein") or [{}]), {}).get("values", {}).get("sequence")
-answer = answers[key or given["params"].get("accession")]
+answer = answers[key or given["params"].get("accession") or given["run"]["action"]]
 sys.stderr.write(answer.get("log", ""))
+if "creates_file" in answer:
+    # As iki-worker run --local describes a file the command wrote: in its own directory,
+    # which is gone once the run is over.
+    import hashlib
+    path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[3])), "creates.ndjson")
+    with open(path, "w") as written:
+        written.write(answer["creates_file"])
+    data = open(path, "rb").read()
+    answer["output"]["creates_file"] = {
+        "$file": "creates.ndjson", "name": "creates.ndjson", "path": path,
+        "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+        "media_type": "application/x-ndjson",
+    }
 if "output" in answer:
     print(json.dumps(answer["output"]))
 sys.exit(answer.get("code", 0))
@@ -180,6 +194,58 @@ def test_an_output_the_server_would_refuse_fails_it(
         "registered already has." in out
     )
     assert "output.json at #/creates/1: The action creates at most one acme/protein.Protein" in out
+
+
+def test_a_creates_file_the_server_would_refuse_fails_it(
+    plugin: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bulk run's creates file (ADR 0056) is checked line by line, as the server checks
+    each before writing it: an undeclared type fails a test in the file as it does in
+    `creates`."""
+    fixture(plugin, FETCHED)
+    sample = {"type": "acme/protein.Sample", "values": {"label": "S-1"}}
+    answer(plugin, P69905={"output": {**OUTPUT, "creates": [sample]}})
+    assert run(plugin) == 1
+    inline = capsys.readouterr().out
+    assert (
+        "output.json at #/creates/0/type: The action doesn't declare that it creates "
+        "acme/protein.Sample (it creates: acme/protein.Protein)." in inline
+    )
+    protein = {"type": "acme/protein.Protein", "values": {"sequence": "MVLSPADKTNV"}}
+    lines = [json.dumps(protein), "", json.dumps(sample), "{not json", json.dumps({"type": 1})]
+    answer(plugin, P69905={"output": dict(OUTPUT), "creates_file": "\n".join(lines) + "\n"})
+    assert run(plugin) == 1
+    out = capsys.readouterr().out
+    assert "  FAILED  fetched  (" in out
+    assert (
+        "creates.ndjson at #/creates_file/1: The action creates at most one "
+        "acme/protein.Protein per run: give it in `creates`." in out
+    )
+    assert (
+        "creates.ndjson at #/creates_file/3/type: The action doesn't declare that it creates "
+        "acme/protein.Sample (it creates: acme/protein.Protein)." in out
+    )
+    assert "creates.ndjson at #/creates_file/4: The line isn't JSON: " in out
+    assert "creates.ndjson at #/creates_file/5/type: " in out
+    # What it declares, in the file, passes.
+    fixture(plugin, IMPORTED)
+    (plugin / "tests" / "abl1.fasta").write_text(">ABL1\nMLEICLKLVG\n")
+    imported: dict[str, object] = {
+        "output": dict(OUTPUT),
+        "creates_file": json.dumps({**protein, "values": {"sequence": "MLEICLKLVG"}}),
+    }
+    answer(plugin, **{"acme/protein.import_proteins": imported})
+    assert run(plugin) == 0, capsys.readouterr().out
+
+
+IMPORTED = """\
+apiVersion: iki/v1
+kind: ActionTest
+name: imported
+action: import_proteins
+params: { file: { $file: fasta } }
+files: { fasta: tests/abl1.fasta }
+"""
 
 
 def test_a_broken_fixture_runs_nothing(plugin: Path, capsys: pytest.CaptureFixture[str]) -> None:
