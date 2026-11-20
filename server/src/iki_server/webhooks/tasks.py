@@ -40,9 +40,7 @@ def deliver(context: TaskContext[Any, Any], delivery_id: str) -> str:
         return delivery.status
     webhook = delivery.webhook
     final = context.attempt >= ATTEMPTS
-    if not webhook.active or (
-        webhook.project is not None and not services.project_webhooks_allowed()
-    ):
+    if not services.may_send(webhook):
         services.record_attempt(
             delivery_id, sender.Result(None, "The webhook is turned off.", 0), final=True
         )

@@ -65,7 +65,9 @@ because the person narrowed or revoked their consent, the app was blocked,
 the delegation ran out, or the person left or lost the role, Iki turns the
 webhook off instead of sending, audits `webhook.disabled` with reason
 `app`, and tells the webhook's managers. Iki looks when the consent
-changes, before each message, and in `iki-server maintain`. A webhook a
+changes, when an event queues a message, again before each attempt to send
+it, retries included, and in `iki-server maintain`. A message queued before
+the app lost its access isn't sent. A webhook a
 person added in the browser is theirs, as before. Whoever turns an app's
 webhook back on answers for it from then on: a person in the browser makes
 it theirs; another app makes it its own.

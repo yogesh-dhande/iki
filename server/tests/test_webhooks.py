@@ -800,14 +800,16 @@ def test_tokens_need_the_webhooks_scope(world: World) -> None:
 # --- Webhooks apps add (ADR 0152) ---------------------------------------------------
 
 
-def added_by_app(world: World, **choice: Any) -> tuple[Any, Webhook]:
+def added_by_app(
+    world: World, url: str = "https://hooks.example.com/app", **choice: Any
+) -> tuple[Any, Webhook]:
     """A project webhook the project's Admin added through an app, with a token."""
     client, tokens = signed_in_token(world, "admin", scope="read webhooks", **choice)
     made = bearer(
         tokens["access_token"],
         "POST",
         f"/projects/{world.project.pk}/webhooks",
-        {"url": "https://hooks.example.com/app", "events": ["project.updated"]},
+        {"url": url, "events": ["project.updated"]},
     )
     assert made.status_code == 201, made.content
     return client, Webhook.objects.get(pk=made.json()["id"])
@@ -901,6 +903,47 @@ def test_an_apps_webhook_sends_nothing_once_its_person_may_no_longer_add_it(
     hook.refresh_from_db()
     assert hook.active  # until there's something to send
     assert_turned_off_for_its_app(world, hook, told=("editor",))
+
+
+def assert_queued_message_not_sent(found: Receiver, hook: Webhook, sent: int) -> None:
+    """The message queued while the app had access went nowhere, and Iki turned the webhook
+    off as it would at the next event."""
+    TaskRecord.objects.update(run_after=timezone.now())
+    run_tasks()
+    assert len(found.requests) == sent
+    ping = hook.deliveries.get()
+    assert ping.status == DeliveryStatus.FAILED
+    assert ping.attempts[-1]["error"] == "The webhook is turned off."
+    hook.refresh_from_db()
+    assert not hook.active and hook.disabled_reason == DisabledReason.APP
+    event = AuditEvent.objects.get(action="webhook.disabled")
+    assert event.data["reason"] == "app" and event.agent is None
+
+
+def test_a_message_queued_before_its_person_lost_the_role_isnt_sent(
+    world: World, receiver: tuple[Receiver, str]
+) -> None:
+    found, url = receiver
+    _, hook = added_by_app(world, url)  # its ping is queued
+    by = world.users["org_admin"]
+    org.grant_project_role(world.project, ProjectRole.ADMIN, user=world.users["editor"], by=by)
+    org.grant_project_role(world.project, ProjectRole.EDITOR, user=world.users["admin"], by=by)
+    assert_queued_message_not_sent(found, hook, sent=0)
+
+
+def test_a_retry_after_the_apps_access_ran_out_isnt_sent(
+    world: World, receiver: tuple[Receiver, str]
+) -> None:
+    """The consent expires between attempts, before ``iki-server maintain`` finds it out."""
+    found, url = receiver
+    found.status = 500
+    client, hook = added_by_app(world, url)
+    run_tasks()
+    assert len(found.requests) == 1
+    assert hook.deliveries.get().status == DeliveryStatus.PENDING
+    found.status = 204
+    Consent.objects.filter(client=client).update(expires_at=timezone.now())
+    assert_queued_message_not_sent(found, hook, sent=1)
 
 
 def test_an_agents_webhook_stops_when_its_delegation_runs_out(world: World) -> None:
