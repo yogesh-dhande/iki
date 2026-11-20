@@ -143,7 +143,17 @@ parts), at least 90% identity`.
   fragment from each part makes is tried, in both orientations, and the ones whose ends
   all pair are the plan's products. Two ends pair when their overhangs are the same
   kind, the same length and the same bases — which is how Golden Gate's four-base
-  overhangs direct an assembly, and why a blunt plan has many products.
+  overhangs direct an assembly, and why a blunt plan has many products. A 5′ overhang's
+  bases are the ones after the cut in the top strand and a 3′ overhang's the ones before
+  it, as REBASE writes them (EcoRI `G^AATT_C`, PstI `C_TGCA^G`), so PstI's TGCA and
+  KpnI's GTAC don't pair although both are four bases of 3′ overhang. A fragment turned
+  round offers the strand that was its other one, which is why an insert can go in
+  either way and keep a whole site at each junction.
+  - **A cut is one break in the strands, not one enzyme's work**: isoschizomers that
+    recognise the same site and break the same bonds (SacI and SstI, BsaI and Eco31I)
+    give the fragments either one gives alone, with both names kept against the
+    boundary. Two enzymes that cut the same bond but leave different overhangs don't
+    describe one molecule, and the run says so rather than choosing.
   - **The backbone goes in as the band cut out of the gel**: its longest fragment, which
     is what a vector digest is purified down to, so a double digest's little piece can't
     carry the insert instead. Every other part offers any of its fragments, as a

@@ -8,6 +8,13 @@ from 0) and ``overhang``, negative for a 5' overhang of that many bases, positiv
 3' one, zero for a blunt cut, as Biopython's restriction enzymes give it (``ovhg``). The
 bottom strand is then cut ``at - overhang``.
 
+An **end**'s bases are the overhang's bases at that boundary, read along the top strand
+of the molecule being cut, which is where Biopython's ``elucidate()`` puts them: a 5'
+overhang lies after the top-strand cut (EcoRI is ``G^AATT_C``, so AATT), and a 3' one
+before it (PstI is ``C_TGCA^G``, so TGCA). Read that way one stretch belongs to both of
+the ends a cut makes, so two ends that came from the same kind of cut are equal, and two
+ends whose overhangs differ -- PstI's TGCA against KpnI's GTAC -- are not.
+
 A **fragment** is one piece of a digest, held as the top strand between two cuts, with
 each end's overhang and the bases it's made of. Two ends ligate when their overhangs are
 the same kind, the same length and the same bases: at that point the two top strands,
@@ -118,7 +125,15 @@ class End:
 @dataclass(frozen=True)
 class Fragment:
     """A piece of a digest, or a whole linear molecule: its top strand, its two ends, and
-    which part of the plan it came from."""
+    which part of the plan it came from.
+
+    ``bases`` runs from the cut in the top strand on the left to the cut in the top strand
+    on the right, so writing neighbouring fragments one after another spells the molecule
+    again. The other strand's stretch is not the same one: it begins where a 5' overhang
+    on the left ends and runs on through a 5' overhang on the right, and the other way
+    round for 3' overhangs. ``other_strand`` is that stretch, which is what this fragment
+    offers as its top strand when it goes in the other way round.
+    """
 
     part: str
     bases: str
@@ -126,10 +141,22 @@ class Fragment:
     right: End
     cut_with: tuple[str, ...] = ()
 
+    def other_strand(self) -> str:
+        """The strand ``bases`` is paired with, read along the top strand (so not yet
+        complemented). The ends' bases say what lies outside ``bases``, which is how this
+        can be read without the molecule the fragment was cut from."""
+        before = self.left.bases if self.left.overhang > 0 else ""
+        after = self.right.bases if self.right.overhang < 0 else ""
+        start = max(-self.left.overhang, 0)
+        stop = len(self.bases) - max(self.right.overhang, 0)
+        return before + self.bases[start:stop] + after
+
     def reversed(self) -> Fragment:
+        """This fragment the other way round: what was the other strand read as the top
+        one, and each end on the other strand."""
         return Fragment(
             part=self.part,
-            bases=reverse_complement(self.bases),
+            bases=reverse_complement(self.other_strand()),
             left=self.right.flipped(),
             right=self.left.flipped(),
             cut_with=self.cut_with,
@@ -155,16 +182,49 @@ def enzyme(name: str) -> object:
     return found
 
 
-def cuts(bases: str, circular: bool, names: Sequence[str]) -> list[tuple[int, int, str]]:
+def cuts(
+    bases: str, circular: bool, names: Sequence[str]
+) -> list[tuple[int, int, tuple[str, ...]]]:
     """Where ``names``'s enzymes cut ``bases``: each cut's boundary index (from 0), the
-    overhang it leaves, and the enzyme that made it, in order along the molecule."""
-    found: list[tuple[int, int, str]] = []
+    overhang it leaves, and every enzyme that makes that cut, in order along the molecule.
+
+    A cut is one place where the strands are broken, not one enzyme's work: isoschizomers
+    such as SacI and SstI, or BsaI and Eco31I, recognise the same site and break the same
+    bonds, so a digest with both gives the fragments either one gives alone, with both
+    names recorded against each boundary.
+    """
+    found: dict[int, tuple[int, list[str]]] = {}
     sequence = Seq(bases.upper())
     for name in names:
         cutter = enzyme(name)
-        at = cutter.search(sequence, linear=not circular)  # type: ignore[attr-defined]
-        found.extend((position - 1, cutter.ovhg, name) for position in at)  # type: ignore[attr-defined]
-    return sorted(set(found))
+        overhang: int = cutter.ovhg  # type: ignore[attr-defined]
+        for position in cutter.search(sequence, linear=not circular):  # type: ignore[attr-defined]
+            at = position - 1
+            known = found.setdefault(at, (overhang, []))
+            if known[0] != overhang:
+                raise Impossible(
+                    f"{name} and {known[1][0]} both cut the top strand after base {at}, "
+                    f"but leave different overhangs ({overhang} and {known[0]}), so what "
+                    "they make together isn't one molecule: digest with one of them."
+                )
+            if name not in known[1]:
+                known[1].append(name)
+    return [(at, found[at][0], tuple(sorted(found[at][1]))) for at in sorted(found)]
+
+
+def end_at(at: int, overhang: int, bases: str, circular: bool) -> End:
+    """The end a cut at boundary ``at`` leaves, read on the top strand.
+
+    A 5' overhang's bases are the ``overhang`` bases just after the top-strand cut, a 3'
+    one's the bases just before it, as ``elucidate()`` writes them. Either stretch can
+    cross a circular molecule's origin, so both are read from the doubled sequence.
+    """
+    if overhang == 0:
+        return End(0, "")
+    length = len(bases)
+    start = at if overhang < 0 else at - overhang
+    start = start % length if circular else max(start, 0)
+    return End(overhang, (bases + bases)[start : start + abs(overhang)])
 
 
 def digest(part: str, bases: str, circular: bool, names: Sequence[str]) -> list[Fragment]:
@@ -177,15 +237,13 @@ def digest(part: str, bases: str, circular: bool, names: Sequence[str]) -> list[
     if not made:
         return [] if circular else [Fragment(part, bases, End(0, ""), End(0, ""), ())]
     doubled = bases + bases
-    ends = {
-        at: End(o, doubled[at : at - o] if o < 0 else doubled[at + o : at]) for at, o, _ in made
-    }
-    by_at = {at: name for at, _, name in made}
+    ends = {at: end_at(at, o, bases, circular) for at, o, _ in made}
+    by_at = {at: made_by for at, _, made_by in made}
     out: list[Fragment] = []
     if circular:
         for (left, _, _), (right, _, _) in zip(made, [*made[1:], made[0]], strict=True):
             stop = right if right > left else right + length
-            cut_with = (by_at[left], by_at[right])
+            cut_with = (*by_at[left], *by_at[right])
             out.append(Fragment(part, doubled[left:stop], ends[left], ends[right], cut_with))
     else:
         edges = [0, *[at for at, _, _ in made], length]
@@ -196,7 +254,7 @@ def digest(part: str, bases: str, circular: bool, names: Sequence[str]) -> list[
                     bases[left:right],
                     ends.get(left, End(0, "")),
                     ends.get(right, End(0, "")),
-                    tuple(by_at[at] for at in (left, right) if at in by_at),
+                    tuple(name for at in (left, right) for name in by_at.get(at, ())),
                 )
             )
     return [fragment for fragment in out if fragment.bases]
