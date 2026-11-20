@@ -1,0 +1,52 @@
+{
+  "video": "entities",
+  "title": "Entities: one record, its whole history",
+  "description": "In Iki, each molecule is one entity: a typed record, defined by a plugin, registered once, with every revision kept and links to everything made from it. This video follows the antibody trastuzumab from five spreadsheets and a notebook to one record in Iki.\n\nChapters\n0:00 The problem: one antibody, many copies\n0:18 One entity, defined by a plugin\n0:30 Identity and the registry\n0:48 Every revision kept\n0:58 Links, lineage and signatures",
+  "tags": [
+    "Iki",
+    "scientific data management",
+    "LIMS",
+    "biologics registry",
+    "antibody registration",
+    "audit trail",
+    "data lineage",
+    "electronic signatures",
+    "trastuzumab"
+  ],
+  "chapters": [
+    {
+      "start": 0,
+      "time": "0:00",
+      "title": "The problem: one antibody, many copies"
+    },
+    {
+      "start": 18,
+      "time": "0:18",
+      "title": "One entity, defined by a plugin"
+    },
+    {
+      "start": 30,
+      "time": "0:30",
+      "title": "Identity and the registry"
+    },
+    {
+      "start": 48,
+      "time": "0:48",
+      "title": "Every revision kept"
+    },
+    {
+      "start": 58,
+      "time": "0:58",
+      "title": "Links, lineage and signatures"
+    }
+  ],
+  "duration": 77.478,
+  "language": "en",
+  "files": {
+    "video": "entities.mp4",
+    "captioned": "entities.captioned.mp4",
+    "vtt": "entities.vtt",
+    "srt": "entities.srt",
+    "thumbnail": "entities.thumbnail.png"
+  }
+}

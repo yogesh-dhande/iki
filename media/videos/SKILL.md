@@ -37,9 +37,9 @@ your report. Common traps:
 
 ## 3. Write the script
 
-1. `git ls-files media/videos/src` shows the existing videos. Copy `scene.tsx`,
-   `project.ts` and `custom.ts` from `src/entities/` into `src/<video>/`, and change the
-   script path in `scene.tsx`. Empty `custom` to `{}`.
+1. `git ls-files media/videos/src` shows the existing videos. Copy `scene.tsx` and
+   `project.ts` from `src/entities/` into `src/<video>/`, and change the script path in
+   `scene.tsx`.
 2. Write `src/<video>/script.yaml`, starting with the schema comment line. Use
    `src/specimen/script.yaml`, which shows every layout once, and `src/entities/script.yaml`
    as models. Choose layouts from the table in AUTHORING.md.
@@ -51,7 +51,15 @@ your report. Common traps:
      duration names.
 4. Give each HRID in a caption a `say` that reads it aloud ("A B Y one").
 5. Name the ADRs and files behind each scene in a YAML comment above it.
-6. Run `make video-check`. Fix everything it reports.
+6. Keep every product name, HRID, label and quoted message in the script, never in code.
+   List the product's own words it shows under `quotes`, each with the folder the product
+   says it in, so a later rename flags the video.
+7. Give scenes `chapter`s (at least 3, each at least 10 seconds: join short scenes), and
+   write `publish`: a description held to the accuracy rule, and tags.
+8. Run `make video-check`. Fix everything it reports.
+
+To show several things becoming one (copies into a record), use the `merge` transition:
+`transition: { merge: { into: <part> } }`. Don't write custom code for it.
 
 Custom code goes in `src/<video>/custom.ts` only when no layout or named step can show the
 idea. It must take every number from the theme: ESLint refuses literals in a video's
@@ -61,11 +69,13 @@ folder. List each custom step in your report as a candidate for the system.
 
 ```sh
 make video VIDEO=<video>
-pnpm --filter @ikisci/videos frames <video> <scratch dir>
+media/videos/tools/container.sh node tools/frames.ts <video> review/frames
 ```
 
-Run heavy renders through the machine's test-slot wrapper, if it has one. Open every frame
-and check it against "The reviewer's checklist" in AUTHORING.md:
+Both run in the render image and need Docker; never commit a render made outside it
+(`IKI_VIDEO_NATIVE=1`). Run heavy renders through the machine's test-slot wrapper, if it has
+one. Open every frame in `media/videos/review/frames/`, and the thumbnail, and check them
+against "The reviewer's checklist" in AUTHORING.md:
 
 - overlaps and clipping;
 - nothing in the caption band;
@@ -78,9 +88,13 @@ again.
 
 ## 5. Commit
 
-Commit `src/<video>/`, `out/<video>.mp4` (Git LFS: run `git lfs install --local` once per
-clone), `out/<video>.vtt` and `out/<video>.json` together. Check `git lfs ls-files` lists
-the MP4.
+Commit `src/<video>/` and every `out/<video>.*` file together: both MP4s (Git LFS: run
+`git lfs install --local` once per clone), the `.vtt` and `.srt`, the thumbnail, the
+publishing files and the manifest. Check `git lfs ls-files` lists both MP4s.
+
+When the product changes under a video (a quote test fails, or `make video-check` says a
+render is stale), the fix is the same: edit the script if the product's words changed, run
+`make video VIDEO=<video>`, review, and commit everything together.
 
 Before committing, run:
 

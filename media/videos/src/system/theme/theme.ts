@@ -59,10 +59,15 @@ export const tones = {
 
 export type Tone = keyof typeof tones;
 
-/** The app's font stacks: system UI for text, the system monospace for IDs and sequences. */
+/**
+ * The bundled fonts (fonts.ts): Inter for text, JetBrains Mono for IDs and sequences, in
+ * place of the app's system font stacks, which differ from machine to machine.
+ */
+export const fontFamily = { text: "Iki Video Text", mono: "Iki Video Mono" } as const;
+
 export const font = {
-  text: cssTokens.font,
-  mono: cssTokens.mono,
+  text: `"${fontFamily.text}"`,
+  mono: `"${fontFamily.mono}"`,
 } as const;
 
 /** Weights the app uses: 400 body, 600 emphasis and badges, 700 headings. */

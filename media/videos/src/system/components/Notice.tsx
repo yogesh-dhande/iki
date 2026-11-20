@@ -10,7 +10,7 @@ import {
   tones,
   type as typeScale,
 } from "../theme/theme.ts";
-import { Text } from "./Text.tsx";
+import { Text, unbrokenIds } from "./Text.tsx";
 
 export interface NoticeProps {
   notice: NoticeData;
@@ -54,7 +54,7 @@ export function Notice(props: NoticeProps): Rect {
         width="100%"
       >
         {[
-          <Txt text={before} />,
+          <Txt text={unbrokenIds(before)} />,
           ...(after === undefined
             ? []
             : [
@@ -64,7 +64,7 @@ export function Notice(props: NoticeProps): Rect {
                   fontFamily={font.mono}
                   fontWeight={typeScale.label.weight}
                 />,
-                <Txt text={after} />,
+                <Txt text={unbrokenIds(after)} />,
               ]),
         ]}
       </Txt>

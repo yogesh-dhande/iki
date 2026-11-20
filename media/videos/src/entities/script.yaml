@@ -7,9 +7,42 @@ id: entities
 title: "Entities: one record, its whole history"
 series: Iki concepts
 target: 75
+publish:
+  description: >-
+    In Iki, each molecule is one entity: a typed record, defined by a plugin, registered
+    once, with every revision kept and links to everything made from it. This video follows
+    the antibody trastuzumab from five spreadsheets and a notebook to one record in Iki.
+  tags:
+    - Iki
+    - scientific data management
+    - LIMS
+    - biologics registry
+    - antibody registration
+    - audit trail
+    - data lineage
+    - electronic signatures
+    - trastuzumab
+# The product's own words, which a check finds in its source: when one changes, this
+# video is stale (README: "After product changes").
+quotes:
+  - text: Revisions can’t be changed or removed, by anyone.
+  - text: was registered already, so
+  - text: now has its own record of it.
+  - text: Registry entry
+  - text: Heavy chain
+    in: plugins/antibody/types
+  - text: Light chain
+    in: plugins/antibody/types
+  - text: Protein lot
+    in: plugins/lots/types
+  - text: Predict structure with ImmuneBuilder
+    in: plugins/antibody/actions
+  - text: Protein structure
+    in: plugins/protein/types
 scenes:
   - id: title
     layout: title
+    chapter: "The problem: one antibody, many copies"
     slots:
       eyebrow: Iki concepts
       title: Entities
@@ -102,9 +135,9 @@ scenes:
   # HRID prefix is ABY, numbered from 1 per deployment (ADR 0096).
   - id: entity
     layout: record-inset
+    chapter: One entity, defined by a plugin
     transition:
-      custom: collapse
-      length: deliberate
+      merge: { into: record }
     slots:
       record:
         type: Antibody
@@ -152,6 +185,7 @@ scenes:
   # its own record of the entry: web/app/src/registries.ts's createdMessage.
   - id: identity
     layout: split
+    chapter: Identity and the registry
     slots:
       left:
         label: Biosimilars registers
@@ -247,6 +281,7 @@ scenes:
   # changed or removed, by anyone."
   - id: history
     layout: timeline
+    chapter: Every revision kept
     slots:
       subject: { type: Antibody, hrid: ABY-000001, name: Trastuzumab }
       revisions:
@@ -294,6 +329,7 @@ scenes:
   # to sign.
   - id: lineage
     layout: graph
+    chapter: Links, lineage and signatures
     slots:
       direction: right
       nodes:

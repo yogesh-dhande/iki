@@ -19,7 +19,7 @@ export function Text(props: TextProps): Txt {
   return (
     <Txt
       ref={props.ref}
-      text={props.text}
+      text={props.mono ? props.text : unbrokenIds(props.text)}
       fill={ink[props.ink ?? "text"]}
       fontFamily={props.mono ? font.mono : font.text}
       fontSize={role.size}
@@ -30,6 +30,14 @@ export function Text(props: TextProps): Txt {
       textAlign={props.align ?? "left"}
     />
   ) as Txt;
+}
+
+/**
+ * HRIDs (ABY-000001) with a non-breaking hyphen, so wrapping never splits one across
+ * lines. Inter has the glyph; monospaced text never wraps, and JetBrains Mono lacks it.
+ */
+export function unbrokenIds(text: string): string {
+  return text.replace(/\b([A-Z]{2,})-(\d+)\b/g, "$1\u2011$2");
 }
 
 /** A value cut to its first `length` characters, with an ellipsis if it was longer. */

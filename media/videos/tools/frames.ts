@@ -1,15 +1,17 @@
 // Pulls review frames from a rendered video: one near the end of each beat, when its
-// steps have finished and its caption is still up, plus each transition's middle.
+// steps have finished and its caption is still up, plus each transition's middle. They
+// come from the captioned render, so each caption can be checked against its scene.
 //   node tools/frames.ts entities <dir>
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { outputFiles } from "../src/system/script/publish.ts";
 import { duration } from "../src/system/theme/motion.ts";
 import { ffmpeg, outDir, planFor } from "./lib.ts";
 
 const [video, dir] = process.argv.slice(2);
 if (!video || !dir) throw new Error("node tools/frames.ts <video> <dir>");
-const movie = join(outDir, `${video}.mp4`);
+const movie = join(outDir, outputFiles(video).captioned);
 if (!existsSync(movie)) throw new Error(`Render it first: make video VIDEO=${video}`);
 mkdirSync(dir, { recursive: true });
 

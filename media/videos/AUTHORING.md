@@ -51,9 +51,9 @@ names, dates, HRID numbers. Keep them plausible, and the same across a video.
 
 ## 3. Write the script
 
-Make `src/<video>/script.yaml`. Copy `scene.tsx`, `project.ts` and an empty `custom.ts`
-from `src/entities/`, changing the script's path in `scene.tsx`. Your editor checks the
-YAML as you type, through the schema named on its first line.
+Make `src/<video>/script.yaml`. Copy `scene.tsx` and `project.ts` from `src/entities/`,
+changing the script's path in `scene.tsx`. Your editor checks the YAML as you type,
+through the schema named on its first line.
 
 ```yaml
 # yaml-language-server: $schema=../../script.schema.json
@@ -61,9 +61,18 @@ id: actions
 title: "Actions: what Iki does to entities"
 series: Iki concepts
 target: 75 # seconds; the check notes it when the video runs 15% over or under
+publish:
+  description: >-
+    Actions are what Iki does to entities: each one takes entities in, runs, and records
+    what it made, linked to what it came from.
+  tags: [Iki, LIMS, scientific data management, data lineage]
+quotes:
+  - text: Predict structure with ImmuneBuilder # the product's words it shows: an action's title
+    in: plugins/antibody
 scenes:
   - id: title
     layout: title
+    chapter: What an action is
     slots: { eyebrow: Iki concepts, title: Actions, subtitle: What Iki does to entities }
     beats:
       - id: title
@@ -95,7 +104,14 @@ scenes:
 ### Scenes and beats
 
 - **A scene** is one layout, filled through its slots. It arrives by a `transition`:
-  `fade` (the default), `slide` or `cut`.
+  - `fade`, the default;
+  - `slide`;
+  - `cut`;
+  - `merge`, when several things in the scene before become one thing in this one, such
+    as copies collapsing into a record: `transition: { merge: { into: record } }`. The scene
+    before's gallery items fly into the `into` part and shrink away as it appears. Name
+    other parts to merge with `from: [part, …]`. It takes `deliberate` time unless you give
+    it a `length`.
 - **A beat** is one caption line and what happens while it's up. Its `id` must stay the
   same through edits: the voice-over's audio is filed under it.
 - **`do`** lists steps in order. Each starts when the one before it finishes. Steps under
@@ -147,6 +163,34 @@ The content a slot takes, in the app's own terms:
 - **A signature:** its `verb` (Approved, Reviewed…), the `meaning` its state gives it,
   `by` and `when`. Only states that need signatures have them: check the type's YAML.
 
+### Names live in the script
+
+Product names, HRIDs, field labels, type names and quoted UI text appear only in the
+script, never in scene code: the layouts and components take them as data. So when the
+product renames something, updating a video is a script edit and a render.
+
+List the product's own words the video shows under `quotes`: messages, labels, type and
+field names. Give each the folder the product says it in (`in`; `web/app/src` by default,
+`plugins/<plugin>/types` for a type's labels). A test fails when a quote no longer appears
+there, so a reworded message or a renamed field flags the video. Quote exactly, and only
+what the script shows: the check refuses a quote the script doesn't contain. A template
+message, such as "ABY-000001 was registered already, so Biosimilars now has its own record
+of it.", is quoted by its fixed parts ("was registered already, so").
+
+### Chapters and publishing
+
+- **`chapter`** on a scene starts a chapter: the website's and YouTube's chapter list.
+  The first scene starts one, and a scene without one belongs to the chapter before.
+  YouTube shows chapters only when there are at least 3, each at least 10 seconds long,
+  and `make video-check` holds you to that: join short scenes into one chapter.
+- **`publish`** has the `description`, a paragraph or two of plain text on what the viewer
+  learns, the same accuracy rule applying, and the `tags`, search terms within YouTube's
+  500 characters. `thumbnail` names the beat whose end is the thumbnail; by default it's the
+  title card.
+
+The render writes the title, the description with its chapters in YouTube's format, and
+the tags to `out/<video>.publish.json` and `.md`. Never edit those: they're regenerated.
+
 ### Lines: voice and caption style
 
 - **Plain and short.** One idea a line, in the words a scientist uses. Prefer "register"
@@ -177,11 +221,14 @@ reading needs.
 
 ### When the layouts aren't enough
 
-Some motion is particular to one video, such as copies collapsing into one record. Write it
-in `src/<video>/custom.ts` as a custom step (`{ custom: <name>, length: <duration> }`) or a
-custom transition (`transition: { custom: <name>, length: <duration> }`). A custom function
-gets the scene's parts, the previous scene's parts, and `length`, the seconds it must
-finish in. The runtime fails the render if it runs over.
+Look again first: copies collapsing into one record began as one video's custom code, and
+is now the system's `merge` transition. If something really is particular to one video,
+write it in `src/<video>/custom.ts`, exporting `custom`, and pass it as `videoScene`'s
+third argument in `scene.tsx`. Use it from the script as a custom step
+(`{ custom: <name>, length: <duration> }`) or a custom transition
+(`transition: { custom: <name>, length: <duration> }`). A custom function gets the scene's
+parts, the previous scene's parts, and `length`, the seconds it must finish in. The runtime
+fails the render if it runs over.
 
 Even custom code takes every number, colour and duration from the theme: ESLint refuses
 literals in a video's folder, beyond 0 and 1. When a second video needs the same custom
@@ -190,12 +237,14 @@ code, move it into the system as a named step, transition or layout.
 ## 4. Render and review
 
 ```sh
-make video-check                    # the scripts, their captions, a still of every scene
-make video VIDEO=<video>            # the MP4, the .vtt and the manifest
-pnpm --filter @ikisci/videos frames <video> /tmp/<video>-frames
+make video-check                    # the scripts, their outputs, a still of every scene
+make video VIDEO=<video>            # both MP4s, the captions, the thumbnail, the publishing files
+media/videos/tools/container.sh node tools/frames.ts <video> review/frames
 ```
 
-Look at every frame. Then watch the whole video once at full size, and once on a phone.
+Both run in the render image, so you need Docker. Look at every frame, and at
+`out/<video>.thumbnail.png`. Then watch the whole video once at full size, and once on a
+phone, and read `out/<video>.publish.md`.
 
 ## The reviewer's checklist
 
@@ -206,6 +255,8 @@ Look at every frame. Then watch the whole video once at full size, and once on a
 - [ ] Nothing claims more than Iki does. Optional things, such as a revision's reason, are
       shown as optional.
 - [ ] Sequences and values are real, from the repo or a primary source.
+- [ ] The product's words the video shows are listed under `quotes`.
+- [ ] The description and tags are as accurate as the captions.
 - [ ] Examples are plausible and consistent: the same people, projects and dates
       throughout.
 
@@ -227,5 +278,7 @@ Look at every frame. Then watch the whole video once at full size, and once on a
 
 **Files**
 
-- [ ] `make video-check` passes, with no stale renders listed.
-- [ ] `out/<video>.mp4` (in Git LFS), `.vtt` and `.json` are committed with the script.
+- [ ] `make video-check` passes: no stale render, and YouTube takes the chapters.
+- [ ] The thumbnail shows the video's subject, legibly at a small size.
+- [ ] Everything in `out/` for the video is committed with the script: both MP4s (in Git
+      LFS), the `.vtt` and `.srt`, the thumbnail, the publishing files and the manifest.

@@ -46,7 +46,7 @@ export const exits = ["fade", "sink"] as const;
 export type Exit = (typeof exits)[number];
 
 /** Named transitions between scenes. */
-export const transitions = ["fade", "slide", "cut", "custom"] as const;
+export const transitions = ["fade", "slide", "cut", "merge", "custom"] as const;
 export type Transition = (typeof transitions)[number];
 
 /** How long each named step takes, so a script's timing is known before it renders. */

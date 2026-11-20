@@ -1,11 +1,22 @@
 // The theme can't drift from the web app's design tokens, and its colours stay readable.
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { TOKENS_CSS, lightTokens, tokensModule } from "../src/system/theme/css-tokens.ts";
-import { caption, color, ink, tones, type } from "../src/system/theme/theme.ts";
+import { fontFaces } from "../src/system/theme/fonts.ts";
+import {
+  caption,
+  color,
+  font,
+  fontFamily,
+  ink,
+  tones,
+  type,
+  weight,
+} from "../src/system/theme/theme.ts";
 
 const root = join(import.meta.dirname, "..");
+const fontsDir = join(root, "fonts");
 
 /** WCAG 2.2's contrast ratio between two #rrggbb colours. */
 function contrast(a: string, b: string): number {
@@ -62,5 +73,25 @@ describe("the theme", () => {
   it("has no text smaller than the label size", () => {
     for (const role of Object.values(type))
       expect(role.size).toBeGreaterThanOrEqual(type.label.size);
+  });
+});
+
+describe("the fonts", () => {
+  it("are bundled, with their licences, in every weight the theme uses", () => {
+    for (const { file } of fontFaces) {
+      expect(existsSync(join(fontsDir, file)), file).toBe(true);
+      expect(existsSync(join(fontsDir, dirname(file), "OFL.txt")), `${dirname(file)}/OFL.txt`).toBe(
+        true,
+      );
+    }
+    for (const family of Object.values(fontFamily)) {
+      const weights = fontFaces.filter((face) => face.family === family).map((face) => face.weight);
+      expect(weights.sort()).toEqual(Object.values(weight).sort());
+    }
+  });
+
+  it("are the only fonts the theme names, never the machine's own", () => {
+    expect(font.text).toBe(`"${fontFamily.text}"`);
+    expect(font.mono).toBe(`"${fontFamily.mono}"`);
   });
 });

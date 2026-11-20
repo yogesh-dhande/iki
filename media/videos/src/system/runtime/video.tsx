@@ -12,6 +12,7 @@ import type { Scene, Step, Video } from "../script/schema.ts";
 import { easing } from "../theme/easing.ts";
 import { travel } from "../theme/motion.ts";
 import { color, frame } from "../theme/theme.ts";
+import { mergeTransition } from "./merge.ts";
 import { dim, emphasize, enter, exit, prepareEntrance, wait } from "./steps.ts";
 
 /** What a custom step or transition gets: the scene's parts, and the scene before's. */
@@ -121,7 +122,9 @@ function* transition(
     previous?.root.remove();
     return;
   }
-  if (typeof how === "object") {
+  if (typeof how === "object" && "merge" in how) {
+    yield* mergeTransition(how.merge, context.parts, previous, length);
+  } else if (typeof how === "object") {
     const run = custom[how.custom];
     if (!run) throw new Error(`No custom transition "${how.custom}" in this video's custom.ts.`);
     yield* run({ ...context, length, args: {} });
@@ -144,18 +147,28 @@ function* transition(
 }
 
 /** Plays the whole video in `view`. */
+export interface PlayOptions {
+  /** The video's own steps and transitions, if it has any (src/<video>/custom.ts). */
+  custom?: CustomSteps;
+  /** The voice-over's line lengths, which retime the plan (src/<video>/voice.json). */
+  voice?: Voice | undefined;
+  /** Burn the captions in: false for the clean render, whose captions are the sidecars. */
+  captions?: boolean;
+}
+
 export function* playVideo(
   view: View2D,
   video: Video,
-  custom: CustomSteps = {},
-  voice?: Voice,
+  { custom = {}, voice, captions: burnIn = true }: PlayOptions = {},
 ): ThreadGenerator {
   view.fill(color.canvas);
   const plan = planVideo(video, voice);
   const stage = <Node />;
   const captions = new CaptionTrack();
   view.add(stage);
-  view.add(captions.node());
+  // The clean render leaves the captions out of the picture: its captions are the sidecars.
+  const track = captions.node();
+  if (burnIn) view.add(track);
   let previous: { root: Node; parts: Parts } | null = null;
   for (const planned of plan.scenes) {
     const { root, parts } = buildScene(planned);

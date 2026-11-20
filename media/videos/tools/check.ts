@@ -1,6 +1,8 @@
 // Checks every video without rendering it whole: each script against the schema and the
-// rules, its captions against out/<video>.vtt, the JSON Schema against the Zod schema,
-// and, unless --no-render, a still from every scene, rendered headless as a smoke test.
+// rules, the product's words it quotes against the product, its committed captions and
+// publishing files against the script, its render against what it was made from (a stale
+// render fails), the JSON Schema against the Zod schema, and, unless --no-render, a still
+// from every scene, rendered headless as a smoke test.
 //   node tools/check.ts [--no-render] [--stills <dir>] [video…]
 import {
   existsSync,
@@ -8,13 +10,13 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  renameSync,
+  copyFileSync,
   rmSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { toVtt } from "../src/system/script/captions.ts";
+import { chapterProblems } from "../src/system/script/publish.ts";
 import { scriptJsonSchema } from "../src/system/script/json-schema.ts";
 import { ScriptError } from "../src/system/script/load.ts";
 import type { Plan } from "../src/system/script/plan.ts";
@@ -29,8 +31,10 @@ import {
   renderPage,
   root,
   serve,
+  textOutputs,
   videos,
 } from "./lib.ts";
+import { staleQuotes } from "./quotes.ts";
 
 /** A still smaller than this is blank, or nearly: a scene that drew nothing. */
 const BLANK_BYTES = 20_000;
@@ -48,40 +52,50 @@ if (readFileSync(join(root, "script.schema.json"), "utf8") !== scriptJsonSchema(
   problems.push("script.schema.json is out of date: run `pnpm --filter @ikisci/videos schema`.");
 }
 
-/** A published video's committed captions match its script, and its render is current. */
+/**
+ * A published video's committed outputs are current: its captions and publishing files
+ * match its script, and its render was made from what's here now.
+ */
 function checkRender(video: string, plan: Plan): void {
-  const vtt = join(outDir, `${video}.vtt`);
-  if (!existsSync(vtt) || readFileSync(vtt, "utf8") !== toVtt(plan)) {
-    problems.push(
-      `${video}: out/${video}.vtt doesn't match its script: run \`make video VIDEO=${video}\` (or node tools/captions.ts ${video}).`,
-    );
+  const regenerate = `run \`make video VIDEO=${video}\` to render it again`;
+  for (const [name, text] of Object.entries(textOutputs(video))) {
+    const file = join(outDir, name);
+    if (!existsSync(file) || readFileSync(file, "utf8") !== text) {
+      problems.push(`${video}: out/${name} doesn't match its script: ${regenerate}.`);
+    }
   }
   const manifest = join(outDir, `${video}.json`);
   if (!existsSync(manifest)) {
-    notes.push(`${video}: not rendered yet: make video VIDEO=${video}`);
+    problems.push(`${video}: never rendered: ${regenerate}.`);
   } else if (
     (JSON.parse(readFileSync(manifest, "utf8")) as { inputs: string }).inputs !== inputsHash(video)
   ) {
-    notes.push(
-      `${video}: its script or the design system changed since out/${video}.mp4 was rendered: make video VIDEO=${video}`,
+    problems.push(
+      `${video}: out/${video}.mp4 is stale: its script, the design system, the fonts or Motion Canvas changed since it was rendered. ${regenerate[0]?.toUpperCase() ?? ""}${regenerate.slice(1)}, review its frames, and commit the render with the change.`,
     );
   }
+  problems.push(...chapterProblems(plan).map((problem) => `${video}: ${problem}`));
 }
 
 const checked: { video: string; times: number[] }[] = [];
 for (const video of named.length > 0 ? named : videos()) {
   try {
-    const { target, specimen } = readVideo(video);
+    const script = readVideo(video);
     const plan = planFor(video);
-    if (Math.abs(plan.duration - target) > target * TARGET_SLACK) {
+    if (Math.abs(plan.duration - script.target) > script.target * TARGET_SLACK) {
       notes.push(
-        `${video}: runs ${plan.duration.toFixed(1)} s, against a target of ${String(target)} s.`,
+        `${video}: runs ${plan.duration.toFixed(1)} s, against a target of ${String(script.target)} s.`,
       );
     }
+    problems.push(...staleQuotes(script));
     // A specimen is checked and its stills rendered, but never published: no render to check.
-    if (!specimen) checkRender(video, plan);
-    // A still near the end of every scene: every layout built, every step run up to it.
-    checked.push({ video, times: plan.scenes.map((scene) => scene.end - duration.quick) });
+    if (!script.specimen) checkRender(video, plan);
+    // A still as each scene's last line ends: every layout built, every step run, and the
+    // caption still up.
+    checked.push({
+      video,
+      times: plan.scenes.map((scene) => (scene.beats.at(-1)?.end ?? scene.end) - duration.quick),
+    });
     console.log(`${video}: ${String(plan.scenes.length)} scenes, ${plan.duration.toFixed(1)} s.`);
   } catch (error) {
     problems.push(error instanceof ScriptError ? error.message : `${video}: ${String(error)}`);
@@ -112,7 +126,7 @@ if (render && checked.length > 0 && problems.length === 0) {
           problems.push(`${video}: the still at frame ${still} is blank.`);
         if (stillsAt !== undefined) {
           mkdirSync(stillsAt, { recursive: true });
-          renameSync(file, join(stillsAt, `${video}-${still}`));
+          copyFileSync(file, join(stillsAt, `${video}-${still}`));
         }
       }
       rmSync(dir, { recursive: true, force: true });

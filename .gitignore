@@ -65,5 +65,7 @@ deploy/gcp/*/.teardown-key-rings
 # Claude Code's git worktrees: other checkouts of this repository.
 .claude/worktrees/
 
-# Motion Canvas's frames, when the editor exports them (tools/render.ts uses a temporary folder).
+# Motion Canvas's frames, when the editor exports them (tools/render.ts uses a temporary
+# folder), and stills and frames pulled out for review.
 media/videos/frames/
+media/videos/review/

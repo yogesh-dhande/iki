@@ -153,8 +153,21 @@ export const Beat = z.strictObject({
   hold: z.enum(holdNames).default("none"),
 });
 
+/**
+ * Several things in the scene before become one thing in this one: copies collapsing into
+ * a record, files into a registry entry. Each `from` part flies to the `into` part's place
+ * and shrinks away as `into` appears there; the rest of the scene before fades.
+ */
+const Merge = z.strictObject({
+  /** The scene before's parts that merge: every gallery item (`item:<n>`) if left out. */
+  from: z.array(text).min(1).optional(),
+  /** This scene's part they merge into. */
+  into: text,
+});
+
 const Transition = z.union([
   z.enum(["fade", "slide", "cut"]),
+  z.strictObject({ merge: Merge, length: z.enum(durationNames).default("deliberate") }),
   z.strictObject({ custom: id, length: z.enum(durationNames) }),
 ]);
 
@@ -199,6 +212,11 @@ function scene<L extends keyof typeof slots>(layout: L) {
     id,
     layout: z.literal(layout),
     slots: slots[layout],
+    /**
+     * Starts a chapter: its title in the website's and YouTube's chapter list. The first
+     * scene starts one; a scene without a chapter belongs to the one before.
+     */
+    chapter: text.optional(),
     /** How this scene arrives (and the previous one leaves). */
     transition: Transition.default("fade"),
     beats: z.array(Beat).min(1),
@@ -216,6 +234,28 @@ export const Scene = z.discriminatedUnion("layout", [
   scene("closing"),
 ]);
 
+/** How the video is published, on the website and YouTube (out/<video>.publish.json). */
+const Publish = z.strictObject({
+  /** A paragraph or two of plain text: what the viewer learns. The chapters follow it. */
+  description: z.string().min(1),
+  /** Search terms, for YouTube: 500 characters at most, all together. */
+  tags: z.array(text).min(1),
+  /** The beat whose end is the thumbnail: the first beat's, the title card, if left out. */
+  thumbnail: id.optional(),
+});
+
+/**
+ * Words the script quotes from the product, which must still be there: a check fails when
+ * a quote no longer appears in the product's source, so a renamed label or a reworded
+ * message flags the videos that show it.
+ */
+const Quote = z.strictObject({
+  /** Exactly as the product has it, typographic apostrophes and all. */
+  text: z.string().min(1),
+  /** Where the product says it, from the repository's root. */
+  in: z.string().default("web/app/src"),
+});
+
 export const Video = z.strictObject({
   id,
   title: text,
@@ -228,6 +268,9 @@ export const Video = z.strictObject({
    * are rendered, but it's never published, so it has no committed render or captions.
    */
   specimen: z.boolean().default(false),
+  /** Every published video has this. */
+  publish: Publish.optional(),
+  quotes: z.array(Quote).default([]),
   scenes: z.array(Scene).min(1),
 });
 

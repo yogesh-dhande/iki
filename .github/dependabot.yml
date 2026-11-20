@@ -35,6 +35,6 @@ updates:
 
   - package-ecosystem: docker
     # Dockerfiles and the image references in the dev Kubernetes manifests.
-    directories: ["/server", "/deploy/dev/manifests"]
+    directories: ["/server", "/deploy/dev/manifests", "/media/videos"]
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }

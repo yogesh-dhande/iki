@@ -2,10 +2,17 @@
 // headless Chromium through them.
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
+import { toSrt, toVtt } from "../src/system/script/captions.ts";
 import { loadScript } from "../src/system/script/load.ts";
+import {
+  outputFiles,
+  publishing,
+  publishingJson,
+  publishingMarkdown,
+} from "../src/system/script/publish.ts";
 import type { Plan } from "../src/system/script/plan.ts";
 import { planVideo, type Voice } from "../src/system/script/plan.ts";
 import type { Video } from "../src/system/script/schema.ts";
@@ -47,21 +54,56 @@ function filesUnder(dir: string): string[] {
 }
 
 /**
- * A hash of everything a video's render depends on: its folder, the design system, and
- * the pinned packages. The render's manifest keeps it, so a stale render shows.
+ * A hash of everything a video's render depends on: its folder, the design system, the
+ * fonts, the render's page and encoder settings, and the pinned packages (Motion Canvas's
+ * version among them). The render's manifest keeps it; `make video-check` fails when it no
+ * longer matches, so a render can't silently fall behind its script.
  */
 export function inputsHash(video: string): string {
   const hash = createHash("sha256");
+  // The script as it draws: without what only publishing reads (the description, tags,
+  // quotes, chapters and target length) and without comments, so editing those doesn't
+  // call for a render.
+  const drawn: Partial<Video> = { ...readVideo(video) };
+  delete drawn.publish;
+  delete drawn.quotes;
+  delete drawn.target;
+  hash.update(
+    JSON.stringify({
+      ...drawn,
+      scenes: drawn.scenes?.map((scene) => ({ ...scene, chapter: undefined })),
+    }),
+  );
   const files = [
-    ...filesUnder(join(root, "src", video)),
+    ...filesUnder(join(root, "src", video)).filter((file) => !file.endsWith("script.yaml")),
     ...filesUnder(join(root, "src", "system")),
+    ...filesUnder(join(root, "fonts")),
+    join(root, "render.html"),
+    join(root, "tools", "render.ts"),
     join(root, "package.json"),
   ];
   for (const file of files) {
-    hash.update(relative(root, file));
+    hash.update(relative(root, file).split(sep).join("/"));
     hash.update(readFileSync(file));
   }
   return hash.digest("hex");
+}
+
+/**
+ * A published video's text outputs, by file name under out/: its captions as WebVTT and
+ * SubRip, and what publishing it needs. All of them come from the script and its plan.
+ */
+export function textOutputs(video: string): Record<string, string> {
+  const script = readVideo(video);
+  const plan = planFor(video);
+  const files = outputFiles(video);
+  const publish = publishing(script, plan);
+  return {
+    [files.vtt]: toVtt(plan),
+    [files.srt]: toSrt(plan),
+    [`${video}.publish.json`]: publishingJson(publish),
+    [`${video}.publish.md`]: publishingMarkdown(publish),
+  };
 }
 
 /** Serves the package with Vite, writing exported frames under `frames`. */
