@@ -48,19 +48,37 @@ typed, at which character, and why.
    `R(A)P.R(A)P`); a range of counts (`'2-5'`) stays, as it's another
    molecule from each count.
 3. The members of a list are in order, and so are a mixture's, each ratio
-   without trailing zeros (`(T:0.50+C:0.5)` is `(C:0.5+T:0.5)`).
-4. Annotations are left out: the molecule is the same whatever's said of it,
+   without trailing zeros (`(T:0.50+C:0.5)` is `(C:0.5+T:0.5)`). Without
+   ratios, each member is written once, as Pistoia's page on mixtures and lists
+   says `(A+A+L+L+A+V)` "is exactly the same as" `(A+L+V)`, and a list of one
+   monomer is that monomer. With ratios, the members stay as written.
+4. A missing monomer (`_`) on its own, or as a base, is left out, since
+   Pistoia's page on ambiguous monomers says it adds nothing there: `A._.G`
+   is `A.G`, and `R(_)P` is `RP`. In a list (`(K,_)`, a lysine or none) it
+   says something, so it stays. A connection to a missing monomer is refused.
+5. Annotations are left out: the molecule is the same whatever's said of it,
    including a polymer's `"sense"`. A strand's role in a duplex belongs to the
    duplex, not to its HELM.
-5. Polymers are in order of their type (PEPTIDE, RNA, CHEM, BLOB) and their
+6. A ring is written from the unit it reads least from. A ring is a PEPTIDE
+   or RNA polymer whose last backbone monomer's R2 is joined to its first
+   one's R1: a head-to-tail cyclic peptide, or a cyclic oligonucleotide. Its
+   units are ranked by how they're written, and the least rotation of that
+   order is taken, so the same ring written from any unit is one form. Its
+   closing bond and its other connections move with it. A ring that repeats,
+   such as `(A.C)` twice, reads least from more than one unit, and each of
+   those is tried, as identical polymers' numberings are (step 7). A ring
+   with a range of repeats is left as written, and a disulfide or another
+   side-chain bridge doesn't make a ring of the backbone.
+7. Polymers are in order of their type (PEPTIDE, RNA, CHEM, BLOB) and their
    notation, and numbered from 1 within their type. Identical polymers, such
    as the two strands of a self-complementary duplex, are numbered whichever
    way makes their connections least, so the order they were written in makes
-   no difference (up to 40,320 numberings; more refuses it).
-6. A connection's lesser end comes first, ordering by polymer, position and
+   no difference (up to 40,320 numberings, rings' turns among them; more
+   refuses it).
+8. A connection's lesser end comes first, ordering by polymer, position and
    attachment point, and the connections are in order. Base pairs (`pair`)
    are kept: they're how a duplex in one HELM string is written.
-7. The version is `V2.0`.
+9. The version is `V2.0`.
 
 Positions are counted as HELM 2.04 counts them (5.2.3), each monomer, a
 branch's too, with a list or a group of units counted once, as its reference
@@ -77,6 +95,12 @@ sensitive: `[MOE]` and `[moe]` are two monomers in a library that has both.
 **HELM can be read without being saved.** `POST /helm/read`, in both SDKs,
 and MCP's `read_helm` give each string's canonical form, its
 polymers' monomers in order and its connections, or what's wrong and where.
+Each polymer says how long it may be (the fewest and most amino acids, or
+nucleotides with a base, for a range, `*` or a list with `_`), and whether
+it's ambiguous: a range, a list, or a monomer HELM keeps for an unknown one
+(`*`, `_`, a PEPTIDE's `X` or an RNA's `N`). Its polymer groups are listed
+with whether each is a mixture (`+`) or one of its members (`,`), so a form
+can say "either" for one and "a mixture" for the other.
 
 ## Consequences
 
@@ -88,7 +112,10 @@ polymers' monomers in order and its connections, or what's wrong and where.
 - What a monomer ID means isn't the format's: it's its monomer library's.
   For oligonucleotides, that's the `iki/oligo` plugin's registry of monomers
   (ADR 0145).
-- Cyclic peptides aren't put in their least rotation, as HELM 1's canonical
-  form does: one written from another residue is another record. Cyclic
-  oligonucleotides are rare, and the peptides are the complexes' and
-  conjugates' (step 62).
+- A cyclic peptide or oligonucleotide is one record whichever residue it's
+  written from, as a cyclic sequence is (ADR 0138). One read in the other
+  direction is another molecule, and another record.
+- Steps 3, 4 and 6 came after records were first made from this form (on
+  2026-11-20). Before M1 there are no databases to keep, so nothing was
+  migrated: a database made before then is made again, and so are the
+  identity keys of anything with a HELM field.
