@@ -405,7 +405,8 @@ apiVersion: iki/v1
 kind: ActionTest
 name: symbols_are_compared_exactly
 description: >-
-  [moe] isn't [MOE]: HELM's monomer IDs are case-sensitive, so the run fails, saying
+  [moe] isn't [MOE]: the HELM monomer libraries compare symbols exactly, as Iki does
+  (HELM 2.04 itself calls its notation case-insensitive), so the run fails, saying
   which it may have meant.
 action: register_oligonucleotide
 params:

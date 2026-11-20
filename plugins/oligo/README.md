@@ -39,9 +39,11 @@ extinction and bases are computed from the monomers' structures.
     was weighed from it. A wrong one is superseded by the registry's
     registrars: a new monomer, and the old one's oligonucleotides registered
     again.
-  - Its structure key, the SHA-256 of its polymer type and RDKit's canonical
-    SMILES with its attachment points as `[*:n]`, is unique: two symbols can't
-    name one structure.
+  - Its structure key, the SHA-256 of its polymer type, RDKit's canonical
+    SMILES with its attachment points as `[*:n]`, and each attachment point's
+    cap (`R1=H`), is unique: two symbols can't name one structure. The caps are
+    in it because a free one stays on the molecule: a methyl capped with H is
+    methane, and with OH methanol.
 - **`iki/oligo.Duplex`** (`DUP-000001`): two strands annealed, by their roles
   (sense and antisense). Its identity is its strands by role, in either order
   (ADR 0138's rows); the same strands with their roles swapped is another
@@ -60,7 +62,9 @@ BSD-3-Clause), the small_molecule plugin's release, which asks for 512 MiB.
   registry's: one given to the run (a lab's own), or else the library's,
   registered with it if the registry hasn't got it. A library monomer the
   registry has with another structure fails the run: the structure is a fixed
-  fact. A symbol in another case (`[moe]`) fails it, saying which it may mean.
+  fact. A symbol in another case (`[moe]`) fails it, saying which it may mean:
+  HELM 2.04 says its notation is case-insensitive, but the HELM monomer
+  libraries and toolkits compare symbols exactly, and so does Iki.
 - **`design_oligonucleotide`**: registers one from its bases and a pattern of
   chemistry: its sugar (DNA, RNA, 2′-MOE, LNA, (S)-cEt, 2′-OMe, 2′-F), a
   gapmer's wings (`5-10-5`) and their sugar, its backbone (phosphorothioate,
@@ -104,24 +108,40 @@ bond, keeping every atom's stereochemistry.
   atomic weights (Prohaska et al., _Pure Appl. Chem._ 94, 573, 2022), sulfur
   32.06; the monoisotopic mass from each element's most abundant isotope.
   RDKit's own table, which the small_molecule plugin uses, has sulfur at
-  32.067, so a phosphorothioate weighs a little more there.
+  32.067, so a phosphorothioate weighs a little more there. An atom a
+  monomer's structure labels with its isotope (`[13CH]`, `[2H]`) weighs its
+  nuclide's mass (RDKit's, from AME2020) in both, and the formula writes it as
+  itself: ribose-¹³C₅ uridine is C4[13C]5H12N2O6, 249.16 g/mol.
+- **One molecule**: each chemical group (CHEM) is joined to the strand,
+  directly or through another group. One written but not connected is
+  refused, naming it: the oligonucleotide is one molecule, and a dye beside it
+  isn't part of its weight.
 - **ε260** is by nearest neighbours
   ([ADR 0146](../../docs/adr/0146-extinction-by-nearest-neighbours-only-where-it-holds.md)),
   for a single strand of natural DNA (Cantor, Warshaw & Shapiro,
   _Biopolymers_ 9, 1059, 1970) or natural RNA (Puglisi & Tinoco, _Methods
   Enzymol._ 180, 304, 1989): the doublets' sum less the inner nucleotides'.
-  Phosphorothioates are read as phosphates, and the note says so. A dye's own
+  Phosphorothioates are read as phosphates, whether their phosphorus is
+  undefined, Rp (`[Rsp]`) or Sp (`[Ssp]`), and the note says so. A dye's own
   ε260, as its supplier gives it, is added. A strand with any other sugar or
   base (2′-MOE, LNA, 2′-OMe, 2′-F, 5-methylcytosine) or that mixes DNA and RNA
   has none: no published nearest-neighbour parameters describe them, and the
-  note names which, so it's measured instead. A duplex has none.
+  note names which, so it's measured instead. A strand with an abasic site,
+  whose neighbours aren't neighbours, has none, and nor does a ring (a strand
+  joined to itself), since the model's end correction describes a linear
+  strand. A duplex has none.
 - **Bases** are each base's natural analogue, 5′ to 3′ (5-methylcytosine is
-  C; T on a ribose stays T), which a search by bases finds plain and modified
-  oligonucleotides alike by
+  C; T on a ribose stays T; `-` an abasic site, a sugar with no base), which a
+  search by bases finds plain and modified oligonucleotides alike by
   ([ADR 0147](../../docs/adr/0147-oligonucleotides-are-found-by-their-bases.md)).
+- **Length** is its nucleotides: its units with a sugar, an abasic site
+  among them. A unit without one, such as a 5′ phosphate, isn't a nucleotide:
+  the Chemistry tab draws it at the end it's on.
 - **The duplex region** is where the strands, antiparallel, pair longest:
   Watson–Crick pairs, with no two non-pairs in a row; the stretch with most
-  pairs, then fewest mismatches. A G·U wobble counts as a mismatch.
+  pairs, then fewest mismatches. A G·U wobble counts as a mismatch. Its length
+  is the region's, from its first pair to its last, mismatches included; its
+  mismatches are counted apart.
 
 They're checked against published molecules in `tests/` (`iki plugin test
 plugins/oligo`), each cited: nusinersen, mipomersen, fomivirsen, both strands
