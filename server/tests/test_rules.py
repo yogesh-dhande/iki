@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from api_client import problem
 from django.db import IntegrityError, connection, transaction
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_runs import protein, world
@@ -181,6 +182,28 @@ def test_a_rule_over_a_list_it_cant_read_all_of_isnt_worked_out(world: World) ->
         "“None of its proteins is BSL-3” couldn’t be checked: proteins refers to 1 record it "
         "can’t read, so it isn’t worked out on the rest."
     )
+    # A record kept as a tombstone, of a type whose plugin was purged (ADR 0092): the same,
+    # for a list and for one reference.
+    purged(safe[1])
+    [[broken]] = checking.broken(BATCH, [checking.Saving({"name": "L-1", "proteins": safe}.get)])
+    assert (broken.rule.key, broken.message) == (
+        "proteins_not_bsl3",
+        "“None of its proteins is BSL-3” couldn’t be checked: proteins refers to 1 record it "
+        "can’t read, so it isn’t worked out on the rest.",
+    )
+    [[broken]] = checking.broken(BATCH, [checking.Saving({"name": "L-1", "protein": safe[1]}.get)])
+    assert broken.rule.key == "protein_not_bsl3"
+    assert "protein refers to 1 record it can’t read" in broken.message
+
+
+def purged(entity_id: uuid.UUID | str) -> None:
+    """As a plugin's purge leaves a record of its type, and its registry entry: each kept as
+    a tombstone, and their type, with the plugin, gone."""
+    made = Entity.objects.get(pk=entity_id)
+    Entity.objects.filter(pk__in=[made.pk, made.entry_id]).update(
+        type="acme/purged.Protein", purged_at=timezone.now()
+    )
+    assert "acme/purged.Protein" not in registry.types()
 
 
 def test_an_extensions_rule_is_named_by_its_plugin(world: World) -> None:
