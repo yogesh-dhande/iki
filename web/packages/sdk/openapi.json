@@ -19694,6 +19694,18 @@
             "title": "Label",
             "type": "string"
           },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.",
+            "title": "Material"
+          },
           "unit": {
             "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
             "title": "Unit",
@@ -19707,7 +19719,8 @@
           "display_unit",
           "concentration",
           "aliquots",
-          "aliquots_of"
+          "aliquots_of",
+          "material"
         ],
         "title": "TypeAmountOut",
         "type": "object"

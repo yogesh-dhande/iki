@@ -15,6 +15,12 @@ through the record's concentration, rounded to 12 places, and is refused if that
 Pooling changes what a record holds, so a transfer into a record with a concentration
 sets it to what the pool's is: the solute of both over their volume, when the record it
 came from has a concentration too, and unknown when it hasn't.
+
+A transfer can't change what a record is. Into a record whose type says what its amount
+is of (``material``, such as a lot's molecule), only material of that entity goes, and an
+aliquot split off it is of that entity too (ADR 0162). Into a record a state locks, such
+as a released lot, only material in that same state goes: what's added to released
+material has been released too (ADR 0157).
 """
 
 from __future__ import annotations
@@ -29,7 +35,14 @@ from django.db import connection, transaction
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
-from iki_server.amounts.models import DIGITS, PLACES, Amount, Movement, MovementKind
+from iki_server.amounts.models import (
+    DIGITS,
+    GIVEN_PLACES,
+    PLACES,
+    Amount,
+    Movement,
+    MovementKind,
+)
 from iki_server.audit import log
 from iki_server.audit.log import current_agent, current_oauth_client, current_via
 from iki_server.core.ids import uuid7
@@ -75,6 +88,27 @@ class Given:
             raise Wrong({name: ["needs a `value`: a number."]}) from None
         if not value.is_finite() or value < 0 or (value == 0 and not zero):
             raise Wrong({name: ["must be more than zero." if not zero else "can't be below zero."]})
+        # Kept as it was given (ADR 0139), so refused if the ledger couldn't keep it all.
+        _sign, digits, exponent = value.normalize(_EXACT).as_tuple()
+        assert isinstance(exponent, int)  # noqa: S101 - it's finite
+        if -exponent > GIVEN_PLACES:
+            raise Wrong(
+                {
+                    name: [
+                        f"has more than the {GIVEN_PLACES} decimal places a ledger keeps of "
+                        "what's asked for."
+                    ]
+                }
+            )
+        if len(digits) + exponent > GIVEN_PLACES:
+            raise Wrong(
+                {
+                    name: [
+                        f"has more than the {GIVEN_PLACES} digits before its point a ledger "
+                        "keeps of what's asked for."
+                    ]
+                }
+            )
         if not isinstance(unit, str) or not unit:
             raise Wrong({name: ["needs a `unit`, in UCUM, such as uL or mg."]})
         try:
@@ -233,6 +267,7 @@ def transfer(
     with transaction.atomic():
         _ensure(target, wanted.unit)
         locked = dict(zip((source.pk, target.pk), _locked([source, target]), strict=True))
+        _what_it_takes(source, target)
         out = _taking(source, locked[source.pk], given)
         here = units.parse(locked[source.pk].unit)
         there = units.parse(locked[target.pk].unit)
@@ -341,12 +376,27 @@ def split(
         total = _EXACT.multiply(one, count)
         _taking(source, amount, Given(total, amount.unit), values=current)
         base = _copied(source, current) if wanted.aliquots is None else {}
+        theirs = spec(kind)
+        of = _material_of(source, current)
         operation = uuid7()
         made: list[Entity] = []
         for index, own in enumerate(given):
             mine = {**base, **own}
             if wanted.aliquots_of is not None:
                 mine[wanted.aliquots_of] = str(source.pk)
+            if theirs is not None and theirs.material is not None and of is not None:
+                # An aliquot is of what it was split from: it can't be given another.
+                named = own.get(theirs.material)
+                if named is not None and _entry(named) != _entry(of):
+                    raise Wrong(
+                        {
+                            f"values/{index}/{theirs.material}": [
+                                f"is what it's split from's: an aliquot of {source.hrid} is "
+                                f"of {_hrid(of)}, as it is."
+                            ]
+                        }
+                    )
+                mine[theirs.material] = str(of)
             try:
                 saved = services.create(user, kind, project, mine, reason=reason)
             except Invalid as error:
@@ -376,6 +426,80 @@ def split(
 
 
 # --- The parts ----------------------------------------------------------------------------------
+
+
+def _material_of(entity: Entity, values: Mapping[str, Any] | None = None) -> Any:  # noqa: ANN401 - an ID
+    """What ``entity``'s amount is of, by its type's ``material``: the entity its reference
+    names, or None if its type doesn't say."""
+    wanted = spec(entity.type)
+    if wanted is None or wanted.material is None:
+        return None
+    if values is None:
+        from iki_server.entities import services
+
+        values = services.current_values_of([entity])[entity.pk]
+    return values.get(wanted.material)
+
+
+def _entry(ref: Any) -> str:  # noqa: ANN401 - an ID
+    """The entity ``ref`` names, as its registry entry if it has one: a reference to a
+    molecule may name its entry or a project's record of it, and they're one molecule."""
+    found = Entity.objects.filter(pk=ref).values_list("entry_id", flat=True).first()
+    return str(found or ref)
+
+
+def _hrid(ref: Any) -> str:  # noqa: ANN401 - an ID
+    found = Entity.objects.filter(pk=ref).values_list("hrid", flat=True).first()
+    return str(found or ref)
+
+
+def _what_it_takes(source: Entity, target: Entity) -> None:
+    """Refuses a transfer that would change what ``target`` is: material of another entity
+    than its type says it's of, or material that isn't in the state a state locking it
+    is in (a quarantined lot's into a released one). Neither is changed."""
+    from iki_server.entities import services
+
+    values = services.current_values_of([source, target])
+    theirs, mine = values[source.pk], values[target.pk]
+    wanted = spec(target.type)
+    assert wanted is not None  # noqa: S101 - only records with an amount get here
+    if wanted.material is not None:
+        of = mine.get(wanted.material)
+        given = _material_of(source, theirs)
+        if given is None or of is None or _entry(given) != _entry(of):
+            said = (
+                f"{source.hrid}'s amount isn't of one entity, as its type doesn't say"
+                if given is None
+                else f"{source.hrid} is of {_hrid(given)}"
+            )
+            raise Wrong(
+                {
+                    "to": [
+                        f"{target.hrid} is of {_hrid(of) if of is not None else 'nothing yet'}, "
+                        f"and {said}: pooling them would put another material in it, so "
+                        "neither was changed. Record a mixture as a record of its own."
+                    ]
+                }
+            )
+    held_in = states.state_fields(source.type)
+    for name, f in states.state_fields(target.type).items():
+        state = f.states.get(mine.get(name) or "")
+        if state is None or not state.locks:
+            continue
+        if name in held_in and theirs.get(name) == mine.get(name):
+            continue
+        other = held_in.get(name)
+        now = other.states.get(theirs.get(name) or "") if other is not None else None
+        raise Wrong(
+            {
+                "to": [
+                    f"{target.hrid} is {state.label}, which locks it, so only material that's "
+                    f"{state.label} too goes into it, and {source.hrid} "
+                    + (f"is {now.label}" if now is not None else "isn't")
+                    + ": neither was changed."
+                ]
+            }
+        )
 
 
 def _usable(entity: Entity) -> None:

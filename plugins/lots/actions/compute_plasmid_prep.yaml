@@ -6,11 +6,12 @@ label: Compute a plasmid prep's concentration from its A260
 description: >-
   A plasmid prep's DNA concentration from its A260: 50 ng/µL of double-stranded DNA for
   an absorbance of 1 over 1 cm, times its dilution, over its path length. Only while its
-  concentration method is a260; otherwise its concentration is as measured.
+  concentration method is a260; otherwise its concentration is as measured. A
+  concentration a pool set, or one entered, since its A260 was read is kept.
 inputs:
   lot: { type: PlasmidPrep, schema: ">=1" }
 effects:
-  updates: [{ input: lot, fields: [concentration] }]
+  updates: [{ input: lot, fields: [a260_concentration, concentration] }]
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, plasmid]
 deterministic: true

@@ -13,12 +13,13 @@ description: >-
   until QA reviews it.
 hrid: { prefix: OLOT }
 # How much of it is left (ADR 0139): kept in nmol, drawn by volume at its
-# concentration, so 5 nmol of a 100 µM solution is 50 µL.
+# concentration, so 5 nmol of a 100 µM solution is 50 µL; only its oligonucleotide's.
 amount:
   unit: nmol
   label: Amount
   description: How much of it is left.
   concentration: concentration
+  material: oligonucleotide
 fields:
   oligonucleotide:
     type: ref
@@ -59,7 +60,7 @@ fields:
     description: >-
       Its molar extinction coefficient at 260 nm, such as its supplier's, for one
       whose oligonucleotide has none worked out (modified sugars or bases, ADR 0146).
-      Left empty, its oligonucleotide's is used.
+      More than 0. Left empty, its oligonucleotide's is used.
   yield_amount:
     type: quantity
     label: Yield (nmol)
@@ -121,21 +122,54 @@ fields:
     label: Mass difference
     unit: u
     computed: true
-    description: Its measured mass less its expected mass.
+    description: Its measured mass less its expected mass, exactly as the two differ.
+# Its identity by ESI-MS is checked at every save from what's measured and what its
+# oligonucleotide's HELM gives, not from the mass difference a run writes later, so a
+# lot is held the moment its mass is out of its specification, or can't be checked,
+# with or without its triggers on (ADR 0127, ADR 0162). They're compared to a
+# micro-dalton (0.000001), far finer than any mass spectrometer resolves, so the binary
+# rounding of two decimals' difference doesn't move one out of its tolerance.
 rules:
   mass_within_tolerance:
     label: Its mass is its oligonucleotide's
     description: >-
       Identity by ESI-MS: its measured mass within its tolerance of its
-      oligonucleotide's. A lot outside it is kept as measured, and held until QA
-      reviews it.
+      oligonucleotide's monoisotopic or average mass. A lot outside it is kept as
+      measured, and held until QA reviews it.
     check: >-
-      record.mass_error >= -record.mass_tolerance &&
-      record.mass_error <= record.mass_tolerance
+      record.measured_mass - (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) <= record.mass_tolerance + 0.000001 &&
+      (record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) - record.measured_mass <=
+      record.mass_tolerance + 0.000001
     message: >-
-      Its measured mass is {{ record.mass_error }} Da from its oligonucleotide's,
-      outside its tolerance of ±{{ record.mass_tolerance }} Da.
+      Its measured mass, {{ record.measured_mass }} Da, is outside its tolerance of
+      ±{{ record.mass_tolerance }} Da of its oligonucleotide's {{ record.mass_basis }}
+      mass, {{ record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass }} Da.
     fields: [measured_mass]
     hold: { reviewed_by: [qa] }
+  mass_is_checked:
+    label: Its mass is checked against its oligonucleotide's
+    description: >-
+      A lot whose measured mass can't be checked, because its oligonucleotide's mass
+      isn't computed, is held until QA reviews its identity another way.
+    check: >-
+      record.measured_mass == null ||
+      (record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) != null
+    message: >-
+      Its measured mass can't be checked: its oligonucleotide's {{ record.mass_basis }}
+      mass isn't computed, as for a monomer whose structure isn't known.
+    fields: [measured_mass]
+    hold: { reviewed_by: [qa] }
+  extinction_260_is_positive:
+    label: Its ε260 is more than 0
+    check: record.extinction_260 > 0
+    message: >-
+      Its ε260 is {{ record.extinction_260 }} L/(mol·cm): an OD260 is nmol only through
+      an ε260 above 0.
+    fields: [extinction_260]
 display:
   title: "{{ hrid }}"

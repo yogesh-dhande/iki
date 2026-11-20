@@ -12,6 +12,15 @@ description: >-
   from its A280 and its sequence's ε280 (Pace et al., 1995), its purity and
   aggregates by SEC, and its endotoxin.
 hrid: { prefix: PLOT }
+# How much of it is left (ADR 0139): kept by protein mass, drawn by volume at its
+# concentration, so 5 mg of a 2 mg/mL lot is 2.5 mL; only its protein's, so a transfer into it
+# takes only another lot of the same protein or complex.
+amount:
+  unit: mg
+  label: Amount
+  description: How much protein is left.
+  concentration: concentration
+  material: protein
 fields:
   protein:
     type: ref

@@ -52,13 +52,23 @@ name: adcetris_by_its_reduced_chains
 description: >-
   Adcetris reduced, by RP-HPLC and Q-TOF (Agilent application note 5991-6559EN, Table
   1): LC 43.3%, LC+1 56.7%; HC 19.9%, HC+1 36.1%, HC+2 25.4%, HC+3 18.6%, which Agilent
-  gives as a weighted average DAR of 4.0: 2 × (0.567 + 1.427) = 3.988. A reduced
+  gives as a weighted average DAR of 4.0. Brentuximab is an IgG1, its two light and two
+  heavy chains each carrying drugs: 2 × 0.567 + 2 × 1.427 = 3.988. A reduced
   distribution has no intact DAR 0, so no unconjugated share. Its A280 with its
   measured ε280 gives its concentration.
 action: compute_conjugate_lot
 inputs:
   lot:
-    - values:
+    - included:
+        conjugate:
+          - type: iki/antibody.Antibody
+            values:
+              name: brentuximab
+              format: igg
+              components:
+                - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: heavy }
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: light }
+      values:
         dar_method: rp_hplc_reduced
         a280: 0.9
         dilution_factor: 10
@@ -76,4 +86,41 @@ expect:
   output:
     updates:
       lot:
-        - values: { dar: 3.99, a280_extinction: 1.5, concentration: 6 }
+        - values:
+            {
+              dar: 3.99,
+              distribution_dar: 3.99,
+              a280_extinction: 1.5,
+              a280_concentration: 6,
+              concentration: 6,
+            }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_fab_has_one_of_each_chain
+description: >-
+  A Fab is one light chain and one heavy chain's Fd (IMGT), so a drug on its heavy
+  fragment and none on its light chain is DAR 1, not the 2 an IgG's four chains would
+  give.
+action: compute_conjugate_lot
+inputs:
+  lot:
+    - included:
+        conjugate:
+          - type: iki/antibody.Antibody
+            values:
+              name: a Fab
+              format: fab
+              components:
+                - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
+                - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: light }
+      values:
+        dar_method: lc_ms_reduced
+        drug_loads:
+          - { chain: light, drug_load: 0, area: 100 }
+          - { chain: heavy, drug_load: 1, area: 100 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { dar: 1, distribution_dar: 1 }

@@ -233,6 +233,10 @@
           "description": "A quantity field of the type saying how much each unit of volume holds, so it can be drawn in a unit the concentration converts it to: 50 ug of a sample at 2 mg/mL is 25 uL.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
+        "material": {
+          "description": "A required, immutable reference of the type naming what its amount is of, such as a lot's molecule. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "aliquots": {
           "description": "What its aliquots are: records of another type, with a reference to the record each was split from. Its own type, by default.",
           "type": "object",

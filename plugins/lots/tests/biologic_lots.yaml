@@ -3,9 +3,11 @@ kind: ActionTest
 name: lysozyme_by_its_sequences_e280
 description: >-
   Hen egg-white lysozyme, its 129 mature residues (UniProt P00698, 19–147): 6 Trp, 3 Tyr
-  and 4 cystines give 37,970 L/(mol·cm) (Pace et al., 1995), over 14,313.0 g/mol, 2.6528
-  mL/(mg·cm), within 0.5% of the 2.64 measured (E1% 26.4 at 281.5 nm; Aune & Tanford,
-  1969). An A280 of 0.53 diluted 1 in 10 is 0.53 × 10 / 2.6528 = 1.9979 mg/mL.
+  and 4 cystines give 37,970 L/(mol·cm) (Pace et al., 1995). Its sequence weighs
+  14,313.0 g/mol; its 4 cystines take 8 H (8.06 g/mol) off, 14,304.94, as a complex's
+  disulfides do, so 2.6543 mL/(mg·cm), within 0.6% of the 2.64 measured (E1% 26.4 at
+  281.5 nm; Aune & Tanford, 1969). An A280 of 0.53 diluted 1 in 10 is 0.53 × 10 /
+  2.6543 = 1.9967 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -28,7 +30,7 @@ expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 2.6528, concentration: 1.9979 }
+        - values: { a280_extinction: 2.6543, a280_concentration: 1.9967, concentration: 1.9967 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -98,12 +100,15 @@ inputs:
       included:
         protein:
           - type: iki/protein.Protein
-            values: { molecular_weight: 14313.0, extinction_coefficient_oxidized: 37970 }
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
 expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 2.6528 }
+        - values: { a280_extinction: 2.6543 }
 ---
 apiVersion: iki/v1
 kind: ActionTest

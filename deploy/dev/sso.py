@@ -2124,7 +2124,7 @@ LYSOZYME = (
 def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     """The lots plugin, in its environment: an inotersen lot's mass by ESI-MS checked against
     the one its HELM gives, and its nmol drawn by volume at its concentration; and a
-    lysozyme lot's concentration from its A280 and its sequence's ε280."""
+    lysozyme lot's concentration from its A280 and its sequence's ε280, with its cystines."""
     run = launch(alice, project, "iki/oligo.register_oligonucleotide", {}, {"helm": INOTERSEN})
     (oligo,) = [e for e in run["effects"] if e["type"] == "iki/oligo.Oligonucleotide"]
     weight = record(alice, oligo["entity"])["values"].get("molecular_weight")
@@ -2190,11 +2190,12 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.6528, 1.9979):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9979 mg/mL at 2.6528")
+    # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.6543, 1.9967):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
-        f"1.9979 mg/mL of lysozyme at its sequence's 2.6528 mL/(mg·cm) ({run['hrid']})"
+        f"1.9967 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
     )
 
 

@@ -34,6 +34,9 @@ INOTERSEN = (
     + "}$$$$V2.0"
 )
 
+#: M13 forward (GTAAAACGACGGCCAGTG), plain DNA.
+M13 = "RNA1{" + "P.".join(f"[dR]({b})" for b in "GTAAAACGACGGCCAGTG") + "}$$$$V2.0"
+
 __all__ = ["database"]
 
 
@@ -67,10 +70,10 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "ConjugateLot": "iki/lots.BiologicLot",
     }
     # Each kind's amount is in the unit it's made and used in: one lot type for any
-    # entity couldn't have one unit for them all.
-    biologic = types["iki/lots.BiologicLot"].amount
-    assert biologic is not None
-    units = {name: (t.amount or biologic).unit for name, t in concrete.items()}
+    # entity couldn't have one unit for them all. And it's of what the lot is of, so a
+    # transfer into one takes only the same molecule's (ADR 0162).
+    assert all(t.amount is not None for t in concrete.values())
+    units = {name: t.amount.unit for name, t in concrete.items() if t.amount is not None}
     assert units == {
         "GenericLot": "mg",
         "OligoLot": "nmol",
@@ -78,6 +81,15 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "PolymerLot": "mg",
         "ProteinLot": "mg",
         "ConjugateLot": "mg",
+    }
+    materials = {n: t.amount.material for n, t in concrete.items() if t.amount is not None}
+    assert materials == {
+        "GenericLot": "of",
+        "OligoLot": "oligonucleotide",
+        "PlasmidPrep": "plasmid",
+        "PolymerLot": "polymer",
+        "ProteinLot": "protein",
+        "ConjugateLot": "conjugate",
     }
     # Each names what it's a lot of, by its type where one is registered.
     refs = {
@@ -105,7 +117,10 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     assert set(states["released"].guards) == {
         "from_quarantine",
         "has_a_certificate",
+        "says_where_it_came_from",
+        "names_its_maker",
         "not_its_maker",
+        "not_who_recorded_it",
         "a_person",
     }
     assert {s for st in states.values() for s in st.set_by} == {"iki/lots.qa"}
@@ -197,16 +212,248 @@ def test_an_intact_dar_is_the_mean_load_by_area(
     assert unconjugated == pytest.approx(100 * rows[0][1] / sum(a for _, a in rows))
 
 
-def test_a_reduced_dar_is_twice_each_chains_mean() -> None:
-    """Agilent 5991-6559EN, Table 1: Adcetris reduced, LC 43.3/56.7, HC 19.9/36.1/25.4/18.6,
-    weighted average DAR 4.0: 2 × (0.567 + 1.427)."""
+def test_an_iggs_reduced_dar_is_twice_each_chains_mean() -> None:
+    """Agilent 5991-6559EN, Table 1: Adcetris (an IgG1, two light and two heavy chains)
+    reduced, LC 43.3/56.7, HC 19.9/36.1/25.4/18.6, weighted average DAR 4.0: 2 × 0.567 +
+    2 × 1.427."""
     rows = [("light", 0, 43.3), ("light", 1, 56.7)] + [
         ("heavy", k, a) for k, a in ((0, 19.9), (1, 36.1), (2, 25.4), (3, 18.6))
     ]
-    dar, unconjugated, how = lots.dar([{"chain": c, "drug_load": k, "area": a} for c, k, a in rows])
+    distribution = [{"chain": c, "drug_load": k, "area": a} for c, k, a in rows]
+    dar, unconjugated, how = lots.dar(distribution, (2, 2))
     assert dar == pytest.approx(3.988)
     assert unconjugated is None
-    assert how == "2 × (0.5670 light + 1.4270 heavy)"
+    assert how == "2 × 0.5670 light + 2 × 1.4270 heavy"
+
+
+def test_a_reduced_dar_counts_the_chains_its_conjugate_has() -> None:
+    """A Fab carries one heavy fragment and one light chain (IMGT), so one drug on its
+    heavy fragment and none on its light chain is DAR 1, not an IgG's 2; and a conjugate
+    that doesn't say what chains it has gets no reduced DAR, rather than an IgG's."""
+    rows = [
+        {"chain": "light", "drug_load": 0, "area": 100},
+        {"chain": "heavy", "drug_load": 1, "area": 100},
+    ]
+    fab = (1, 1)
+    assert lots.dar(rows, fab)[0] == pytest.approx(1.0)
+    assert lots.dar(rows, (2, 2))[0] == pytest.approx(2.0)
+    dar, _, why = lots.dar(rows, None)
+    assert dar is None
+    assert "doesn't say how many light and heavy chains" in why
+    parts = [
+        {"part": "00000000-0000-7000-8003-000000000001", "copies": 1, "role": "heavy"},
+        {"part": "00000000-0000-7000-8003-000000000002", "copies": 1, "role": "light"},
+    ]
+    assert lots.chains({"components": parts}) == fab
+    assert lots.chains({"name": "an ADC registered as something else"}) is None
+
+
+def compute(kind: str, *entities: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = lots.compute(kind, {"inputs": {"lot": list(entities)}})
+    return result
+
+
+def changes(output: dict[str, Any]) -> list[dict[str, Any]]:
+    return [u["values"] for u in output["updates"]["lot"]]
+
+
+def test_run_logs_keep_a_whole_numbers_zeros(capsys: pytest.CaptureFixture[str]) -> None:
+    """M13 forward's ε260 is 182,800 L/(mol·cm) (Eurogentec's worked example), not
+    182,8; 10 OD260 at it is 54.7 nmol."""
+    compute(
+        "oligo",
+        lot(1, yield_od=10, extinction_260=182800),
+        lot(2, yield_od=1, extinction_260=1500),
+    )
+    out = capsys.readouterr().out
+    assert "LOT-1: 10 OD260 at ε260 182,800 L/(mol·cm) is 54.7 nmol" in out
+    assert "at ε260 1,500 L/(mol·cm)" in out
+    assert lots._shown(100, 0) == "100"
+    assert lots._shown(2.50) == "2.5"
+
+
+def test_a_mass_is_compared_with_its_tolerance_as_its_specification_gives_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """M13 forward's monoisotopic mass is 5554.9825 Da; a measured 5555.03254 is 0.05004
+    Da heavy, outside a specification of ±0.05001 Da, however close: the difference isn't
+    rounded to 0.0500 first, and the log shows the tolerance as given."""
+    m13 = {"monoisotopic_mass": 5554.9825}
+    out = compute(
+        "oligo",
+        lot(1, measured_mass=5555.03254, mass_basis="monoisotopic", mass_tolerance=0.05001)
+        | {"included": {"oligonucleotide": [{"values": m13}]}},
+        lot(2, measured_mass=5554.995, mass_basis="monoisotopic", mass_tolerance=0.015)
+        | {"included": {"oligonucleotide": [{"values": m13}]}},
+    )
+    assert [c["mass_error"] for c in changes(out)] == [pytest.approx(0.05004, abs=1e-12), 0.0125]
+    log = capsys.readouterr().out
+    assert "LOT-1: measured 5,555.03254 Da, expected 5,554.9825 Da (monoisotopic), " in log
+    assert "+0.05004 Da, outside ±0.05001 Da" in log
+    assert "+0.0125 Da, within ±0.015 Da" in log
+
+
+@pytest.mark.parametrize(
+    ("kind", "values", "said"),
+    [
+        # A260 1 over 0 cm isn't 50 ng/uL: there's no path to divide by.
+        ("plasmid", {"a260": 1, "dilution_factor": 1, "path_length": 0}, "path length is 0 cm"),
+        ("plasmid", {"a260": 1, "dilution_factor": 1}, "it has no path length"),
+        (
+            "protein",
+            {"a280": 1, "dilution_factor": 1, "path_length": 0, "extinction_coefficient": 1.5},
+            "path length is 0 cm",
+        ),
+        # A measured e280 of 0 isn't replaced by its sequence's.
+        (
+            "protein",
+            {"a280": 1, "dilution_factor": 1, "path_length": 1, "extinction_coefficient": 0},
+            "its measured ε280 is 0 mL/(mg·cm)",
+        ),
+        # Nor an e260 of 0 by its oligonucleotide's.
+        ("oligo", {"yield_od": 1, "extinction_260": 0}, "the ε260 it gives is 0"),
+    ],
+)
+def test_a_zero_path_or_coefficient_gives_nothing(
+    kind: str, values: dict[str, Any], said: str
+) -> None:
+    lysozyme = {
+        "molecular_weight": 14313.0,
+        "extinction_coefficient_oxidized": 37970,
+        "extinction_coefficient_reduced": 37470,
+    }
+    m13 = {"monoisotopic_mass": 5554.9825, "extinction_260": 182800}
+    entity = lot(1, **values) | {
+        "included": {"protein": [{"values": lysozyme}], "oligonucleotide": [{"values": m13}]}
+    }
+    out = compute(kind, entity)
+    assert not any(
+        c.get("concentration") or c.get("yield_amount") or c.get("a280_concentration")
+        for c in changes(out)
+    )
+    assert [m["level"] for m in out["messages"]] == ["warning"]
+    assert said in out["messages"][0]["text"]
+
+
+def test_a_concentration_follows_its_reading_not_an_older_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """What an A260 or an A280 gives is kept beside the concentration, which follows it.
+    A reading taken out empties a concentration it gave (420 ng/µL, its A260 gone; 2
+    mg/mL, its ε280 gone). One pooled since (ADR 0157: 1 mL at 1 mg/mL into 1 mL at 3 is
+    2 mg/mL) or entered since isn't put back to what the reading before the pool gave,
+    whatever else changes, such as a conjugate's drug loads."""
+    lysozyme = {"molecular_weight": 14313.0, "extinction_coefficient_oxidized": 37970}
+    out = compute(
+        "plasmid",
+        lot(1, concentration_method="a260", concentration=420, a260_concentration=420),
+        lot(2, concentration_method="a260", concentration=500, a260_concentration=420),
+    )
+    assert changes(out) == [
+        {"a260_concentration": None, "concentration": None},
+        {"a260_concentration": None},
+    ]
+    assert out["messages"][0]["text"] == (
+        "LOT-1: its concentration is emptied: it was its A260's, which gives none now."
+    )
+    gone = compute(
+        "protein",
+        lot(3, a280=1, path_length=1, concentration=2, a280_concentration=2, a280_extinction=0.5)
+        | {"included": {"protein": [{"values": lysozyme}]}},
+    )
+    assert changes(gone) == [
+        {"a280_extinction": None, "a280_concentration": None, "concentration": None}
+    ]
+    pooled = {
+        "a280": 3,
+        "dilution_factor": 1,
+        "path_length": 1,
+        "extinction_coefficient": 1,
+        "concentration_method": "a280",
+        "a280_extinction": 1,
+        "a280_concentration": 3,
+    }
+    out = compute(
+        "conjugate",
+        lot(
+            4,
+            concentration=2,
+            dar=3.29,
+            distribution_dar=3.29,
+            drug_loads=[
+                {"chain": "intact", "drug_load": 0, "area": 8.11},
+                {"chain": "intact", "drug_load": 4, "area": 91.89},
+            ],
+            **pooled,
+        ),
+        lot(5, concentration=None, **pooled),
+    )
+    assert [c.get("concentration", "kept") for c in changes(out)] == ["kept"]
+    log = capsys.readouterr().out
+    assert "LOT-4: its concentration is kept as it is, 2: it was set since its A280 gave 3" in log
+    assert "LOT-5: its concentration is kept as it is, not known" in log
+    # A new reading of the pool is what it's worked out from.
+    again = compute("protein", lot(6, **{**pooled, "a280": 2.1, "concentration": 2}))
+    assert changes(again) == [{"a280_concentration": 2.1, "concentration": 2.1}]
+
+
+def test_a_dar_follows_its_distribution_unless_its_measured_another_way() -> None:
+    """A DAR measured by UV/Vis is as entered, whatever distribution there is; one its
+    distribution gave is emptied when the distribution gives none (its areas all 0, or
+    its rows gone)."""
+    intact = [
+        {"chain": "intact", "drug_load": 0, "area": 0},
+        {"chain": "intact", "drug_load": 4, "area": 0},
+    ]
+    four = [{"chain": "intact", "drug_load": 4, "area": 100}]
+    out = compute(
+        "conjugate",
+        lot(1, dar_method="uv_vis", dar=3.4, drug_loads=four),
+        lot(2, dar_method="hic", dar=4, distribution_dar=4, drug_loads=intact),
+        lot(3, dar_method="hic", dar=4, distribution_dar=4, unconjugated=0),
+    )
+    assert changes(out) == [
+        {"unconjugated": 0},
+        {"distribution_dar": None, "dar": None},
+        {"unconjugated": None, "distribution_dar": None, "dar": None},
+    ]
+
+
+def test_a_proteins_cystines_take_their_hydrogens_off_as_a_complexs_do(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Hen lysozyme (UniProt P00698, 19–147) has four disulfides: 14,313.0 g/mol by its
+    sequence less 8 H (8.06 g/mol) is 14,304.94, so its 37,970 L/(mol·cm) is 2.6543
+    mL/(mg·cm), as a complex's cystines are weighed; reduced, its sequence's 37,470 over
+    14,313.0. A complex's disulfides are said only when its ε280 is what's used."""
+    lysozyme = {
+        "molecular_weight": 14313.0,
+        "extinction_coefficient_oxidized": 37970,
+        "extinction_coefficient_reduced": 37470,
+    }
+    out = compute(
+        "protein",
+        lot(1, a280=0.53, dilution_factor=10, path_length=1, cysteines="cystines")
+        | {"included": {"protein": [{"values": lysozyme}]}},
+    )
+    assert changes(out) == [
+        {"a280_extinction": 2.6543, "a280_concentration": 1.9967, "concentration": 1.9967}
+    ]
+    assert "its protein's 4 cystines take 8.06 g/mol off" in capsys.readouterr().out
+    hemoglobin = {
+        "molecular_weight": 64000.0,
+        "extinction_coefficient_reduced": 125000,
+        "components": [],
+        "bonds": [{"kind": "disulfide"}],
+    }
+    compute(
+        "protein",
+        lot(2, a280=1, path_length=1, extinction_coefficient=1.4)
+        | {"included": {"protein": [{"values": hemoglobin}]}},
+    )
+    log = capsys.readouterr().out
+    assert "disulfide" not in log
+    assert "by its measured ε280" in log
 
 
 def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
@@ -277,23 +524,18 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             expected_revision=made.revision, by_run=True,
         )
         within = [h.rule for h in holds.open_holds(made)]
-        # Another lot, whose mass is volanesorsen's: held with the run as its reason.
-        mixed = services.create(
-            alice, "iki/lots.OligoLot", project,
-            {{"oligonucleotide": str(oligo.pk), "mass_basis": "average",
-              "measured_mass": 7164.3}},
-            amount={{"value": 200, "unit": "nmol"}},
-        ).entity
-        mixed.refresh_from_db()
-        mass = {{"expected_mass": 7183.08, "mass_error": -18.78}}
-        refused_unheld = errors(lambda: services.update(
-            alice, mixed, mass, expected_revision=mixed.revision, by_run=True,
+        # Another lot, whose mass is volanesorsen's: held as it's saved, from its measured
+        # mass and inotersen's, with no run needed, saying why.
+        mixed_values = {{"oligonucleotide": str(oligo.pk), "mass_basis": "average",
+                         "measured_mass": 7164.3}}
+        refused_unheld = errors(lambda: services.create(
+            alice, "iki/lots.OligoLot", project, mixed_values,
         ))
-        mixed.refresh_from_db()
-        services.update(
-            alice, mixed, mass, expected_revision=mixed.revision, by_run=True,
-            hold_reason="Run RUN-000001's results",
-        )
+        mixed = services.create(
+            alice, "iki/lots.OligoLot", project, mixed_values,
+            amount={{"value": 200, "unit": "nmol"}},
+            hold_reason="Its ESI-MS, as its supplier's certificate gives it",
+        ).entity
         outside = [h.rule for h in holds.open_holds(mixed)]
 
         # On hold, an oligonucleotide lot's nmol can't be drawn: the abstract Lot's state
@@ -431,3 +673,262 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         "iki/lots.ProteinLot",
     ]
     assert result["hrids"] == ["GLOT", "OLOT", "OLOT", "PLOT", "PREP"]
+
+
+def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
+    tmp_path: Path, database: str
+) -> None:
+    """QA releases a lot knowing where it came from and that someone else made it and
+    recorded it; its identity by ESI-MS is checked as it's saved, without a run, so an
+    edit out of its tolerance, or a mass that can't be checked, holds it from release;
+    and a transfer can't change what a lot is: a released one takes only released
+    material, and any lot only its own molecule's, as an aliquot is its source's."""
+    out = tmp_path / "build"
+    built = iki("plugin", "build", *DEPENDENCIES, COMPLEX, LOTS, "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    result = orm(
+        out,
+        database,
+        f"""
+        from decimal import Decimal
+        from django.db import transaction
+        from iki_server.accounts.models import User
+        from iki_server.amounts import services as amounts
+        from iki_server.entities import holds, services, states
+        from iki_server.entities.models import Entity
+        from iki_server.files.models import File
+        from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
+        from iki_server.org.services import Refused
+
+        alice, quinn, eve = (
+            User.objects.create_user(f"{{n}}@example.com") for n in ("alice", "quinn", "eve")
+        )
+        for user in (alice, quinn, eve):
+            m = ProjectMembership.objects.create(
+                project=project, user=user, role=ProjectRole.EDITOR
+            )
+            if user is not eve:
+                LabRoleGrant.objects.create(membership=m, role="iki/lots.qa")
+        coa = File.objects.create(
+            blob=blob, name="CoA.pdf", media_type="application/pdf", project=project
+        )
+        disposition = states.state_fields("iki/lots.OligoLot")["disposition"]
+        released = disposition.states["released"]
+
+        def errors(do):
+            try:
+                do()
+            except services.Invalid as invalid:
+                return invalid.errors
+            except (Refused, amounts.Wrong) as refused:
+                return getattr(refused, "errors", None) or str(refused)
+            return None
+
+        def why_not(who, lot):
+            lot.refresh_from_db()
+            return states.condition(who, lot, "disposition", released)
+
+        def release(lot):
+            # As its last signature does (ADR 0126), once its guards let it.
+            with transaction.atomic():
+                locked = Entity.objects.select_for_update().get(pk=lot.pk)
+                assert states.condition(quinn, locked, "disposition", released) is None
+                states.write(locked, disposition, "released", quinn, "")
+            lot.refresh_from_db()
+
+        # Inotersen and M13 forward, their masses computed by a run, and an
+        # oligonucleotide of an unknown monomer, whose masses can't be.
+        inotersen, m13, unknown = (
+            services.create(alice, "iki/oligo.Oligonucleotide", project, v, by_run=True).entity
+            for v in (
+                {{"helm": {INOTERSEN!r}, "bases": "TCTTGGTTACATGAAATCCC",
+                  "molecular_weight": 7183.08, "monoisotopic_mass": 7178.056}},
+                {{"helm": {M13!r}, "bases": "GTAAAACGACGGCCAGTG",
+                  "molecular_weight": 5557.68, "monoisotopic_mass": 5554.9825}},
+                {{"helm": "RNA1{{[dR](A)P.[dR](C)}}$$$$V2.0", "bases": "AC"}},
+            )
+        )
+
+        def oligo_lot(who, of=inotersen, hold_reason="", **values):
+            return services.create(
+                who, "iki/lots.OligoLot", project,
+                {{"oligonucleotide": str(of.pk), "mass_basis": "average",
+                  "certificates": [str(coa.pk)], "concentration": 100, **values}},
+                amount={{"value": 50, "unit": "nmol"}}, hold_reason=hold_reason,
+            ).entity
+
+        # Who may release it: QA who neither made it nor recorded it, knowing where it
+        # came from. Made by left empty isn't someone else.
+        unsaid = oligo_lot(alice)
+        nobody = oligo_lot(alice, source="made")
+        by_eve = oligo_lot(alice, source="made", made_by=str(eve.pk))
+        bought = oligo_lot(alice, source="bought", supplier="IDT")
+        who = {{
+            "unsaid": why_not(alice, unsaid),
+            "nobody": why_not(alice, nobody),
+            "nobody_by_quinn": why_not(quinn, nobody),
+            "recorded_by_alice": why_not(alice, by_eve),
+            "recorded_by_alice_by_quinn": why_not(quinn, by_eve),
+            "bought_by_whoever_recorded_it": why_not(alice, bought),
+        }}
+
+        # Its mass, checked as it's saved: an edit 18.8 Da off is held at once, with no
+        # run, so it can't be released; exactly 2 Da off is within 2 Da, however the two
+        # decimals' difference rounds in binary; a mass that can't be checked is held.
+        lot = oligo_lot(eve, source="made", made_by=str(eve.pk), measured_mass=7182.2)
+        within = [h.rule for h in holds.open_holds(lot)]
+        lot.refresh_from_db()
+        edit = {{"measured_mass": 7164.3}}
+        unheld = errors(lambda: services.update(eve, lot, edit, expected_revision=lot.revision))
+        lot.refresh_from_db()
+        services.update(
+            eve, lot, edit, expected_revision=lot.revision, hold_reason="Re-run on the QTOF",
+        )
+        edited = [h.rule for h in holds.open_holds(lot)]
+        held_release = why_not(quinn, lot)
+        edge = oligo_lot(eve, source="bought", measured_mass=7185.08)
+        past = errors(lambda: oligo_lot(eve, source="bought", measured_mass=7185.09))
+        unchecked = oligo_lot(
+            eve, of=unknown, source="bought", measured_mass=600.1, hold_reason="New monomer"
+        )
+        mass = {{
+            "within": within,
+            "unheld": sorted(unheld),
+            "edited": edited,
+            "held_release": held_release,
+            "edge": [h.rule for h in holds.open_holds(edge)],
+            "past": sorted(past),
+            "unchecked": [h.rule for h in holds.open_holds(unchecked)],
+        }}
+
+        # What goes into a lot: a released lot takes only released material, even at the
+        # same 100 uM; any lot takes only its own molecule's; an aliquot is its source's.
+        target = oligo_lot(eve, source="bought")
+        release(target)
+        quarantined = oligo_lot(eve, source="bought")
+        ten_ul = amounts.Given(Decimal("10"), "uL")
+        into_released = errors(lambda: amounts.transfer(eve, quarantined, target, ten_ul))
+        other = oligo_lot(eve, source="bought")
+        release(other)
+        amounts.transfer(eve, other, target, ten_ul, reason="Topped up")
+        of_m13 = oligo_lot(eve, of=m13, source="bought")
+        mixed = errors(lambda: amounts.transfer(eve, of_m13, quarantined, ten_ul))
+        sequence = services.create(
+            alice, "iki/dna.DNASequence", project,
+            {{"bases": "GTAAAACGACGGCCAGTG", "name": "M13 forward, as a sequence"}},
+        ).entity
+        generic = {{
+            name: services.create(
+                eve, "iki/lots.GenericLot", project, {{"of": str(of.pk), "concentration": 1}},
+                amount={{"value": 25, "unit": "mg"}},
+            ).entity
+            for name, of in (("sequence", sequence), ("oligo", inotersen), ("again", inotersen))
+        }}
+        generic_mixed = errors(lambda: amounts.transfer(
+            eve, generic["sequence"], generic["oligo"], amounts.Given(Decimal("1"), "mg"),
+        ))
+        amounts.transfer(
+            eve, generic["again"], generic["oligo"], amounts.Given(Decimal("1"), "mg"),
+        )
+        split = errors(lambda: amounts.split(
+            eve, quarantined, 1, amounts.Given(Decimal("1"), "nmol"),
+            values={{"oligonucleotide": str(m13.pk)}},
+        ))
+        (aliquot,) = amounts.split(
+            eve, quarantined, 1, amounts.Given(Decimal("1"), "nmol"),
+        ).aliquots
+        left = amounts.amounts_of([target, quarantined, of_m13, generic["oligo"]])
+        moved = {{
+            "into_released": into_released,
+            "mixed": mixed,
+            "generic_mixed": generic_mixed,
+            "split": split,
+            "aliquot_of": str(services.current_values_of([aliquot])[aliquot.pk]["oligonucleotide"]),
+            "inotersen": str(inotersen.entry_id or inotersen.pk),
+            "left": {{
+                e.hrid: str(left[e.pk].value)
+                for e in (target, quarantined, of_m13, generic["oligo"])
+            }},
+            "hrids": {{
+                n: e.hrid for n, e in (
+                    ("target", target), ("quarantined", quarantined), ("of_m13", of_m13),
+                    ("sequence", sequence), ("generic", generic["oligo"]),
+                    ("generic_sequence", generic["sequence"]), ("inotersen", inotersen),
+                    ("m13", m13),
+                )
+            }},
+        }}
+
+        # A plasmid is a duplex, which its preps' A260 assumes.
+        ss = services.create(
+            alice, "iki/dna.DNASequence", project,
+            {{"bases": "ACGTACGTAC", "topology": "circular", "strandedness": "single"}},
+        ).entity
+        single = errors(lambda: services.create(
+            alice, "iki/plasmid.Plasmid", project, {{"sequence": str(ss.entry_id)}},
+        ))
+        result = {{"who": who, "mass": mass, "moved": moved, "single": single}}
+        """,
+    )
+    assert result["who"] == {
+        "unsaid": "Say whether it was made or bought before releasing it.",
+        "nobody": "Say who made it before releasing it.",
+        "nobody_by_quinn": "Say who made it before releasing it.",
+        "recorded_by_alice": "You recorded this lot, so someone else in QA releases it.",
+        "recorded_by_alice_by_quinn": None,
+        "bought_by_whoever_recorded_it": None,
+    }
+    mass = result["mass"]
+    assert mass["within"] == []
+    assert mass["unheld"] == ["measured_mass"]
+    assert mass["edited"] == ["mass_within_tolerance"]
+    assert mass["held_release"] == (
+        "OLOT-000005 is held for review (“Its mass is its oligonucleotide's”): it can't be "
+        "set to a state that locks it until its holds are reviewed."
+    )
+    assert mass["edge"] == []
+    assert mass["past"] == ["measured_mass"]
+    assert mass["unchecked"] == ["mass_is_checked"]
+    moved = result["moved"]
+    h = moved["hrids"]
+    assert moved["into_released"] == {
+        "to": [
+            f"{h['target']} is Released, which locks it, so only material that's Released "
+            f"too goes into it, and {h['quarantined']} is Quarantined: neither was changed."
+        ]
+    }
+    of_another = "pooling them would put another material in it, so neither was changed."
+    assert moved["mixed"] == {
+        "to": [
+            f"{h['quarantined']} is of {h['inotersen']}, and {h['of_m13']} is of {h['m13']}: "
+            f"{of_another} Record a mixture as a record of its own."
+        ]
+    }
+    assert moved["generic_mixed"] == {
+        "to": [
+            f"{h['generic']} is of {h['inotersen']}, and {h['generic_sequence']} is of "
+            f"{h['sequence']}: {of_another} Record a mixture as a record of its own."
+        ]
+    }
+    assert moved["split"] == {
+        "values/0/oligonucleotide": [
+            f"is what it's split from's: an aliquot of {h['quarantined']} is of "
+            f"{h['inotersen']}, as it is."
+        ]
+    }
+    assert moved["aliquot_of"] == moved["inotersen"]
+    # 10 uL at 100 uM is 1 nmol: only the released top-up went in, and nothing else moved.
+    assert {k: Decimal(v) for k, v in moved["left"].items()} == {
+        h["target"]: Decimal(51),
+        h["quarantined"]: Decimal(49),
+        h["of_m13"]: Decimal(50),
+        h["generic"]: Decimal(26),
+    }
+    assert result["single"] == {
+        "sequence": [
+            "A plasmid is a double-stranded molecule, and DNA-000002 is single-stranded. "
+            "Register a single-stranded circle, such as a phage's genome, as a DNA sequence."
+        ]
+    }

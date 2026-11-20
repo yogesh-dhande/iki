@@ -654,7 +654,9 @@ with a reason. Each change is a movement of the record's ledger, with who
 made it, how, when and why; two people drawing at once take turns. It isn't
 one of the record's values, so it isn't in its revisions, and a state that
 locks the record doesn't stop it being drawn. A state that `holds_amount`
-does.
+does. What's moved into a record can't change what it is: a record a state
+locks takes only material in that same state, and a record whose amount is
+of one entity (`material`) takes only that entity's.
 
 ```yaml
 amount:
@@ -663,7 +665,9 @@ amount:
   display_unit: mL # shown in mL; kept in uL
   concentration: concentration # draw 50 ug of a 2 mg/mL sample: 25 uL
   aliquots: { type: Aliquot, of: sample }
+  material: protein # it's of one protein: only that protein's goes into it
 fields:
+  protein: { type: ref, to: Protein, required: true, immutable: true }
   concentration: { type: quantity, unit: mg/mL, min: 0 }
   status:
     type: state
@@ -676,8 +680,9 @@ fields:
 - `unit` measures how much there is of something: a volume, a mass, an
   amount of substance or a count, never a temperature or a ratio
   (`amount-unit`). An amount is given in its unit or any that converts to
-  it, and kept exactly, as a decimal. `display_unit` measures the same thing
-  (`amount-unit`).
+  it, and kept exactly, as a decimal; each movement keeps what was asked
+  for as it was given, to 40 places either side of its point. `display_unit`
+  measures the same thing (`amount-unit`).
 - `concentration` names a quantity field of the type whose unit, times a
   volume, is a mass or an amount of substance (mg/mL, mmol/L), or the
   other way about (`amount-concentration`). Then an amount in a volume
@@ -692,6 +697,16 @@ fields:
   split from (`amount-aliquots`). Each aliquot depends on what it was
   split from, and a record transferred into depends on what was moved into
   it: edges of the graph (`aliquot`, `transfer`), walked as references are.
+- `material` names a required, immutable reference of the type to what its
+  amount is of, such as a lot's molecule (`amount-material`). A transfer
+  into one of its records takes only material of that entity, from a record
+  whose type says so too (a reference to a registry entry and one to a
+  project's record of it are the same entity), and its aliquots are of it
+  too, whatever they're given. Pooling different materials is a mixture: a
+  record of its own.
+- A transfer into a record that a state locks, such as a released lot,
+  takes only material from a record in that same state, so nothing that
+  wasn't released becomes part of what was.
 - A record has one amount: a subtype has its parent's (`amount-twice`).
   A type with an identity has none (`amount-on-identity`): each project
   has one record of each entry, which isn't a thing in the lab.

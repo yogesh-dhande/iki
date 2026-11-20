@@ -6,14 +6,15 @@ label: Compute a protein lot's concentration from its A280
 description: >-
   A protein lot's concentration from its A280: c = A280 × dilution / (ε × path length),
   with ε its measured ε280, or the molar ε280 (Pace et al., 1995) over the molecular
-  weight of what it's a lot of: a protein's, with its cysteines as cystines or reduced
-  as the lot says; or a complex's, such as an antibody's, with each disulfide its bonds
-  place applied while its cysteines are cystines. Only while its concentration method
-  is a280; otherwise its concentration is as measured.
+  weight of what it's a lot of: a protein's, with its cysteines as cystines (each two
+  hydrogens lighter) or reduced as the lot says; or a complex's, such as an antibody's,
+  with each disulfide its bonds place applied while its cysteines are cystines. Only
+  while its concentration method is a280; otherwise its concentration is as measured.
+  A concentration a pool set, or one entered, since its A280 was read is kept.
 inputs:
   lot: { type: ProteinLot, schema: ">=1", include: [protein] }
 effects:
-  updates: [{ input: lot, fields: [a280_extinction, concentration] }]
+  updates: [{ input: lot, fields: [a280_extinction, a280_concentration, concentration] }]
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, protein]
 deterministic: true

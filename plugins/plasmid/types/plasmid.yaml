@@ -253,6 +253,17 @@ rules:
       A plasmid is a circular molecule, and {{ record.sequence }} is linear. Register a
       linear construct as a DNA sequence, or register the circle it closes into.
     fields: [sequence]
+  a_plasmid_is_double_stranded:
+    label: A plasmid's sequence is double-stranded
+    description: >-
+      A plasmid is a duplex, which its preps are quantified as (50 µg/mL of
+      double-stranded DNA for an A260 of 1).
+    check: record.sequence.strandedness == "double"
+    message: >-
+      A plasmid is a double-stranded molecule, and {{ record.sequence }} is
+      single-stranded. Register a single-stranded circle, such as a phage's genome, as a
+      DNA sequence.
+    fields: [sequence]
   an_mta_is_named:
     label: A plasmid under an MTA names the agreement
     check: record.mta_reference != null
