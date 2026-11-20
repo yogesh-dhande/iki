@@ -336,7 +336,7 @@ def test_differences_from_puc19_are_named_as_hgvs_names_them(tmp_path: Path) -> 
         + "T"  # 201 C to T
         + PUC19[201:220]
         + PUC19[221:250]  # one of 221-224's As gone
-        + "TG"  # 251-252 CA to TG
+        + "TT"  # 251-252 CA to TT, two changed bases side by side
         + PUC19[252:322]
         + "G"  # a sixth G after 318-322's five
         + PUC19[322:400]
@@ -350,10 +350,133 @@ def test_differences_from_puc19_are_named_as_hgvs_names_them(tmp_path: Path) -> 
 
     assert output is not None
     assert texts(output)[1] == (
-        "Differences from DNA-000001: o.201C>T (r1); o.224del (r1); o.251_252delinsTG (r1); "
+        "Differences from DNA-000001: o.201C>T (r1); o.224del (r1); o.251_252delinsTT (r1); "
         "o.322dup (r1); o.400_401insG (r1)."
     )
     assert output["metrics"]["differences"] == 5
+
+
+def names_for(reference: str, read: str, *, circular: bool = False) -> list[str]:
+    """What the module names a read's differences, from the placement itself: the naming
+    on its own, with no aligner choosing where the read lies."""
+    module = script()
+    placed = module.Placed(
+        module.Read("r", read, None, "r.fasta"),
+        False,
+        0,
+        len(read),
+        dict(enumerate(read)),
+        span=(0, len(read)),
+    )
+    return [name for _, name, _ in module.differences(placed, reference, circular)]
+
+
+def test_bases_replaced_by_their_reverse_complement_are_an_inversion() -> None:
+    """HGVS's inversion recommendation: a change where more than one nucleotide replacing
+    the original sequence is the reverse complement of that sequence is an inversion,
+    g.3_6inv, not a deletion-insertion. A single base's reverse complement stays a
+    substitution, as that recommendation disallows a one-base inversion, and a
+    replacement that isn't the reverse complement stays a deletion-insertion."""
+    # The shape of HGVS's own example, NC_000023.10:g.32361330_32361333inv: four bases
+    # for their reverse complement, with the flanks unchanged.
+    assert names_for("CATCAGCCT", "CACTGACCT") == ["g.3_6inv"]
+    assert names_for("GGCAGG", "GGTGGG") == ["g.3_4inv"]
+    assert names_for("GGCAGG", "GGTTGG") == ["g.3_4delinsTT"]
+    assert names_for("GGCAGG", "GGGAGG") == ["g.3C>G"]
+    # pUC19's 251-252 is CA, so TG there is an inversion and TT a deletion-insertion.
+    assert PUC19[250:252] == "CA"
+    assert names_for(PUC19, PUC19[:250] + "TG" + PUC19[252:], circular=True) == ["o.251_252inv"]
+    assert names_for(PUC19, PUC19[:250] + "TT" + PUC19[252:], circular=True) == [
+        "o.251_252delinsTT"
+    ]
+
+
+def test_a_deletion_and_a_change_in_the_same_repeat_are_one_change(tmp_path: Path) -> None:
+    """pUC19's 221-224 are AAAA, with a G before and a T after. A read with AAC there has
+    lost one A and changed another, and the aligner places the gap and the mismatch apart.
+    Named on their own, the 3' rule carries the deletion onto the very base the
+    substitution names: no sequence has both a base deleted and that base changed. They
+    are one change over the stretch that differs, o.223_224delinsC, which spells the
+    read's bases back exactly."""
+    assert PUC19[219:225] == "GAAAAT"
+    read = PUC19[150:220] + "AAC" + PUC19[224:450]
+
+    _, output = run(
+        tmp_path, {"r.fasta": f">r\n{read}\n".encode()}, bases=PUC19, topology="circular"
+    )
+
+    assert output is not None
+    assert texts(output)[1] == "Differences from DNA-000001: o.223_224delinsC (r)."
+    # Applying that change to the reference gives the read's bases back: 223-224 (AA) out,
+    # C in, so pUC19's GAAAAT reads GAACT.
+    assert PUC19[219:222] + "C" + PUC19[224] == "GAACT"
+    assert read[69:74] == "GAACT"
+    # A deletion or a duplication alone in the same repeat still normalises as before.
+    for bases, want in (("AAA", "o.224del"), ("AAAAA", "o.224dup")):
+        _, output = run(
+            tmp_path,
+            {"r.fasta": f">r\n{PUC19[150:220] + bases + PUC19[224:450]}\n".encode()},
+            bases=PUC19,
+            topology="circular",
+        )
+        assert output is not None, want
+        assert texts(output)[1] == f"Differences from DNA-000001: {want} (r)."
+
+
+def test_a_read_that_lies_equally_well_in_two_places_is_left_out(tmp_path: Path) -> None:
+    """A read inside one of two identical copies of a stretch lies as well on either, and
+    bowtie2 gives such a read a mapping quality of 0. Neither the coverage nor a difference
+    in it belongs to one copy rather than the other, so the read is left out with that
+    reason instead of being attributed to the copy the aligner happened to return."""
+    copy = made_up(30, 3)
+    reference = copy + made_up(10, 4) + copy
+    changed = "G" if copy[14] != "G" else "T"
+    tied = copy[:14] + changed + copy[15:]
+    # A read over the join lies in one place only, so the run has something to align.
+    only = reference[20:55]
+
+    _, output = run(
+        tmp_path,
+        {"r.fasta": f">tied\n{tied}\n>only\n{only}\n".encode()},
+        bases=reference,
+        topology="linear",
+    )
+
+    assert output is not None
+    assert output["metrics"]["aligned"] == 1
+    assert output["metrics"]["differences"] == 0
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert warnings == [
+        "tied lies equally well in 2 places on DNA-000001, so nothing it shows belongs to "
+        "one of them rather than another: it's left out."
+    ]
+    left = (tmp_path / "out" / "left_out.tsv").read_text().splitlines()
+    assert left[0] == "read\tfile\twhy"
+    assert "lies equally well in 2 places on DNA-000001" in left[1]
+
+
+def test_a_read_round_a_circular_reference_twice_is_left_out(tmp_path: Path) -> None:
+    """A read longer than a circular reference passes each base more than once, and the
+    alignment holds one base per place: two passes that disagree can't both be shown, so
+    one observation would be lost and the other claimed twice. Such a read is left out,
+    with what to do about it."""
+    small = PUC19[:80]
+    read = small + small
+    good = small[:60]
+
+    _, output = run(
+        tmp_path,
+        {"r.fasta": f">twice\n{read}\n>once\n{good}\n".encode()},
+        bases=small,
+        topology="circular",
+    )
+
+    assert output is not None
+    assert output["metrics"]["aligned"] == 1
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert len(warnings) == 1
+    assert "twice reads round DNA-000001 more than once (160 bases of its 80)" in warnings[0]
+    assert "Align it in parts." in warnings[0]
 
 
 def test_a_read_across_the_origin_lies_across_anothers_insertion_there(tmp_path: Path) -> None:
