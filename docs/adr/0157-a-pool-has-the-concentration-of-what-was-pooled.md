@@ -42,7 +42,10 @@ the transfer as its reason, so the record's history says why its
 concentration changed. A record that can't take the change, because a state
 locks it or the field is required, refuses the transfer, saying why, and
 nothing moves. Pooling into a released sample changes what was released, so
-it's refused, unless its concentration stays the same.
+it takes only material in the same state, released too, and then only if
+its concentration stays the same. An equal concentration isn't enough on
+its own: quarantined material at the same 100 µM is still untested (ADR
+0162).
 
 **Every movement is exact on both sides.** A quantity given in another unit
 is converted with UCUM's factors as fractions, as before. If the record's 12
@@ -64,4 +67,6 @@ to nothing.
   places (a picolitre). Its type should keep a finer unit if it needs them.
 - A record's concentration is the solute's, not one analyte's. A pool of two
   different materials has their total concentration. Tracking each analyte of
-  a mixture would need a record of its contents, which Iki doesn't model.
+  a mixture would need a record of its contents, which Iki doesn't model. So
+  a type whose amount is of one entity (`material`, such as a lot) refuses
+  material of another (ADR 0162): a mixture is a record of its own.

@@ -50,7 +50,9 @@ split into aliquots, or adjusted (with a reason required). Each operation
 appends movements to `iki_amount_movement`, append-only for every role as
 history is (the same triggers as revisions). A movement keeps its kind, the
 signed change, the balance after, what was asked for in the unit it was
-asked in, the other record, an operation ID shared by a transfer's two
+asked in (exactly as given, to 40 places either side of the point, and
+refused beyond them, since 0.0000000000001 L is exactly 0.0000001 µL), the
+other record, an operation ID shared by a transfer's two
 sides and a split's movements, and who did it, via what, with which agent
 (ADR 0072), and why. Each is an audit event and a webhook
 event, `entity.amount_moved`.

@@ -14,6 +14,10 @@ from iki_server.entities.models import Entity
 #: litres and a genome's copies in units.
 DIGITS = 40
 PLACES = 12
+#: What's asked for is kept as it was given, in its own unit, which can be finer or coarser
+#: than the record's: 0.0000000000001 L is exactly 0.0000001 uL. So to 40 places each
+#: side of the point, which no conversion between UCUM's units a record keeps outgrows.
+GIVEN_PLACES = 40
 
 
 class Amount(models.Model):
@@ -64,8 +68,11 @@ class Movement(models.Model):
         max_digits=DIGITS, decimal_places=PLACES, db_comment="How much it had after."
     )
     unit = models.CharField(max_length=50)
-    #: What was asked for, in the unit it was asked in (50 ug of a sample kept in uL).
-    given_value = models.DecimalField(max_digits=DIGITS, decimal_places=PLACES, null=True)
+    #: What was asked for, in the unit it was asked in (50 ug of a sample kept in uL),
+    #: exactly as it was given.
+    given_value = models.DecimalField(
+        max_digits=2 * GIVEN_PLACES, decimal_places=GIVEN_PLACES, null=True
+    )
     given_unit = models.CharField(max_length=50, blank=True, default="")
     #: The other record: where a transfer went or came from, an aliquot's source.
     counterpart = models.ForeignKey(

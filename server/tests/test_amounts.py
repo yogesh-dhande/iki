@@ -436,7 +436,7 @@ def test_pooling_sets_the_concentration_to_the_pools(world: World) -> None:
     assert api.get(f"/entities/{empty['hrid']}").json()["values"]["concentration"] == 0
 
 
-def test_pooling_into_a_locked_record_that_would_change_it_is_refused(world: World) -> None:
+def test_a_locked_record_takes_nothing_that_would_change_it(world: World) -> None:
     api = api_as(world)
     source = sample(
         world, "S-1", {"value": 1, "unit": "mL"}, concentration={"value": 1, "unit": "mg/mL"}
@@ -450,15 +450,16 @@ def test_pooling_into_a_locked_record_that_would_change_it_is_refused(world: Wor
         f"/entities/{source['hrid']}/amount/transfer",
         {"to": target["hrid"], "amount": {"value": 1, "unit": "mL"}},
     )
-    detail = errors(refused)["#/to"]
-    assert detail.startswith(
-        f"would change {target['hrid']}'s concentration to 2 mg/mL, the pool's, which it "
-        "can't take: "
-    )
+    assert errors(refused) == {
+        "#/to": f"{target['hrid']} is Quarantined, which locks it, so only material that's "
+        f"Quarantined too goes into it, and {source['hrid']} is In the lab: neither was "
+        "changed."
+    }
     # Nothing moved.
     assert api.get(f"/entities/{source['hrid']}/amount").json()["value"] == "1000"
     assert api.get(f"/entities/{target['hrid']}/amount").json()["value"] == "1000"
-    # The same concentration leaves it as it is, so that may be pooled.
+    # The same concentration would leave its values as they are, but not what it holds:
+    # only material that's quarantined too goes into it.
     same = sample(
         world, "S-3", {"value": 1, "unit": "mL"}, concentration={"value": 3, "unit": "mg/mL"}
     )
@@ -466,8 +467,12 @@ def test_pooling_into_a_locked_record_that_would_change_it_is_refused(world: Wor
         f"/entities/{same['hrid']}/amount/transfer",
         {"to": target["hrid"], "amount": {"value": 1, "unit": "mL"}},
     )
-    assert kept.status_code == 200, kept.content
-    assert api.get(f"/entities/{target['hrid']}/amount").json()["value"] == "2000"
+    assert errors(kept) == {
+        "#/to": f"{target['hrid']} is Quarantined, which locks it, so only material that's "
+        f"Quarantined too goes into it, and {same['hrid']} is In the lab: neither was changed."
+    }
+    assert api.get(f"/entities/{same['hrid']}/amount").json()["value"] == "1000"
+    assert api.get(f"/entities/{target['hrid']}/amount").json()["value"] == "1000"
 
 
 def test_what_its_unit_cant_hold_exactly_isnt_moved(world: World) -> None:
@@ -525,4 +530,30 @@ def test_what_its_unit_cant_hold_exactly_isnt_moved(world: World) -> None:
     assert errors(tiny) == {
         "#/amount": f"is 0.0000000000000001 mg, which at {dilute['hrid']}'s concentration is "
         "less than the 0.000000000001 uL its amount is kept to."
+    }
+
+
+def test_the_ledger_keeps_what_was_asked_for_exactly(world: World) -> None:
+    """ADR 0139 keeps what was asked for, in its unit: 0.0000000000001 L is exactly 0.0000001
+    uL, which the sample's 12 places hold, so the movement says 0.0000000000001 L was
+    asked for, as its audit event does, not 0 L. What its ledger can't hold exactly is
+    refused, not rounded."""
+    api = api_as(world)
+    tube = sample(world, "S-1", {"value": 10, "unit": "uL"})
+    drawn = api.post(
+        f"/entities/{tube['hrid']}/amount/draw",
+        {"amount": {"value": "0.0000000000001", "unit": "L"}},
+    )
+    assert drawn.status_code == 200, drawn.content
+    assert drawn.json()["movement"]["change"] == "-0.0000001"
+    assert drawn.json()["movement"]["given"] == {"value": "0.0000000000001", "unit": "L"}
+    (listed, *_) = api.get(f"/entities/{tube['hrid']}/amount/movements").json()["items"]
+    assert listed["given"] == {"value": "0.0000000000001", "unit": "L"}
+    assert Movement.objects.get(pk=listed["id"]).given_value == Decimal("1E-13")
+    beyond = api.post(
+        f"/entities/{tube['hrid']}/amount/draw",
+        {"amount": {"value": "0." + "0" * 40 + "1", "unit": "GL"}},
+    )
+    assert errors(beyond) == {
+        "#/amount": "has more than the 40 decimal places a ledger keeps of what's asked for."
     }
