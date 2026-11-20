@@ -9,8 +9,13 @@
  * such as where a read doesn't reach, or across a circular reference's origin), a gap
  * outside its span, or an ambiguous residue that could be the reference's (an N, say):
  * none of those covers the reference or differs from it. Residues compare as the sets
- * their IUPAC codes stand for, the same either way round: a row differs only where none of
- * what it could be is anything the reference could be. Where a row's header says what an
+ * their IUPAC codes stand for: a row differs only where none of what it could be is
+ * anything the reference could be. A protein's row is the same where all it could be is
+ * what the reference allows, as the protein plugin's `align_reads` calls it: a codon that
+ * can only be Asp or Asn covers an Asx (B). A bare X of a row could be anything, a stop
+ * too, so it says nothing even of an X. A nucleotide's row is the same only where it's one
+ * base the reference allows, as the DNA plugin's `align_reads` has it, so an R says nothing
+ * of an R. Where a row's header says what an
  * X of it could be (`possible=21:KN`, as the protein plugin's `align_reads` writes for a
  * codon such as AAN, which is K or N), that set is what it's compared as, so a K-or-N where
  * the reference has A differs, as the run said, where an X alone would say nothing.
@@ -78,22 +83,30 @@ export function possibleOf(description: string): Map<number, string> {
   return found;
 }
 
-/** How a row's residue compares with the reference's: `same` if it's one residue the
- * reference could be, `differs` if it can be none of what the reference could be, and
- * `unresolved` if it's ambiguous and could be the reference's, which says nothing. `could`
- * is what the row's residue could be, where its header says. */
+/** How a row's residue compares with the reference's: `differs` if it can be none of what
+ * the reference could be; `same` if it can only be what the reference allows (for a
+ * nucleotide, one base it allows); and `unresolved` if it's ambiguous and could be the
+ * reference's or not, which says nothing. `could` is what the row's residue could be,
+ * where its header says. */
 export function call(
   mine: string,
   theirs: string,
   alphabet: Alphabet,
   could?: string,
 ): "same" | "differs" | "unresolved" {
-  const a = could ?? standsFor(mine, alphabet);
+  // A bare X in a protein's row, such as a read's NNN, could be a stop as well.
+  const bare = alphabet === "protein" && could === undefined && mine.toUpperCase() === "X";
+  const a = could ?? standsFor(mine, alphabet) + (bare ? "*" : "");
   const b = standsFor(theirs, alphabet);
   let shared = false;
-  for (let i = 0; i < a.length && !shared; i++) shared = b.includes(a.charAt(i));
+  let within = true;
+  for (let i = 0; i < a.length; i++) {
+    if (b.includes(a.charAt(i))) shared = true;
+    else within = false;
+  }
   if (!shared) return "differs";
-  return a.length === 1 ? "same" : "unresolved";
+  if (alphabet === "nucleotide") return a.length === 1 ? "same" : "unresolved";
+  return within ? "same" : "unresolved";
 }
 
 const GAP = "-";
