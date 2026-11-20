@@ -22,7 +22,8 @@ Properties are Biopython's ProtParam, which follows ExPASy's ProtParam tool:
 
 Each property needs residues it has values for, and the stops (*) at its end are left
 out of them (M** is M, as it is to its identity). An isoelectric point past pH 0 to 14,
-which the model gives only for a run of one charged residue, isn't saved, saying why.
+which the model gives only for an extreme composition (charged residues nearly all of one
+sign), isn't saved, saying why; it's checked before it's rounded.
 All take the 20 standard amino acids. Molecular weight also takes selenocysteine (U) and
 pyrrolysine (O), whose masses are known, and J (I or L, which weigh the same).
 The isoelectric point and extinction coefficients also take J: neither I nor L is
@@ -133,7 +134,8 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
     analysis = ProteinAnalysis(residues.replace("J", "L"))
     compute = {
         "molecular_weight": lambda: {"molecular_weight": round(analysis.molecular_weight(), 2)},
-        "isoelectric_point": lambda: {"isoelectric_point": round(isoelectric_point(residues), 2)},
+        # Kept unrounded until it's checked against the scale, then rounded.
+        "isoelectric_point": lambda: {"isoelectric_point": isoelectric_point(residues)},
         "extinction_coefficient_oxidized": lambda: dict(
             zip(
                 ("extinction_coefficient_reduced", "extinction_coefficient_oxidized"),
@@ -153,6 +155,8 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
         else:
             stopped.setdefault(found, []).append(label)
     beyond = _beyond_scale(values)
+    if "isoelectric_point" in values:
+        values["isoelectric_point"] = round(values["isoelectric_point"], 2)
     if not stopped:
         return values, beyond
     said = []
@@ -168,17 +172,20 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
 
 
 def _beyond_scale(values: dict[str, Any]) -> str | None:
-    """Takes out an isoelectric point past pH 0 to 14, saying why; the other properties are
-    kept. Bjellqvist's model gives one only for a run of one charged residue, such as 120
-    arginines (14.08): past pH 14 is over 1 M hydroxide, where Henderson-Hasselbalch's
-    charges and the pK values, measured by focusing proteins in gels, don't hold."""
+    """Takes out an isoelectric point past pH 0 to 14, unrounded, saying why; the other
+    properties are kept. Bjellqvist's model gives one only for an extreme composition,
+    charged residues nearly all of one sign, such as 120 arginines (14.08) or (RAKR)x60
+    (14.08): past pH 14 is over 1 M hydroxide, where Henderson-Hasselbalch's charges and
+    the pK values, measured by focusing proteins in gels, don't hold. One that rounds to
+    0.00 or 14.00 is said to four places, so it's seen to be past them."""
     found = values.get("isoelectric_point")
     if found is None or 0 <= found <= 14:
         return None
     del values["isoelectric_point"]
     side = "above 14" if found > 14 else "below 0"
+    shown = f"{found:.2f}" if round(found, 2) not in (0, 14) else f"{found:.4f}"
     return (
-        f"Its isoelectric point by Bjellqvist's model would be pH {found:.2f}, {side}, "
+        f"Its isoelectric point by Bjellqvist's model would be pH {shown}, {side}, "
         "where the model's pK values don't hold, so it wasn't saved."
     )
 
@@ -225,26 +232,38 @@ IUPAC = {
 }  # fmt: skip
 
 
-def could_end(codon: str, table: int) -> str:
-    """If a codon could be, by its bases (an IUPAC code being any it stands for), one of the
-    code's codons that are a stop or an amino acid by where they are (codes 27, 28 and 31),
-    the amino acids it could be, such as Q, or Q, W for TRA in code 28; else empty."""
+def readings_of(codon: str) -> list[str]:
+    """Every codon a codon's bases could be, an IUPAC code being any it stands for."""
     if len(codon) != 3:
-        return ""
-    either = dual(table)
-    found = code(table)
-    readings = [
+        return []
+    return [
         a + b + c
         for a in IUPAC.get(codon[0], "")
         for b in IUPAC.get(codon[1], "")
         for c in IUPAC.get(codon[2], "")
     ]
+
+
+def could_end(codon: str, table: int) -> str:
+    """If a codon could be, by its bases, one of the code's codons that are a stop or an
+    amino acid by where they are (codes 27, 28 and 31), the amino acids it could be, such
+    as Q, or Q, W for TRA in code 28; else empty."""
+    readings = readings_of(codon)
+    either = dual(table)
+    found = code(table)
     if not any(each in either for each in readings):
         return ""
     residues = sorted(
         {found.forward_table[each] for each in readings if each in found.forward_table}
     )
     return ", ".join(residues)
+
+
+def never_stops(codon: str, table: int) -> list[str]:
+    """The codons a codon could be that are never a stop in the code: a complete coding
+    sequence can't end with it unless there are none."""
+    stops = set(code(table).stop_codons)
+    return [each for each in readings_of(codon) if each not in stops]
 
 
 def frame_of(bases: str, strand: str, frame: int) -> Seq:
@@ -336,17 +355,24 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
             could = could_end(last, table)
             if not cds and could:
                 kept = sequence[-1]
-                messages.append(
-                    {
-                        "level": "info",
-                        "text": (
-                            f"{label}'s last codon in {where}, {last}, is {could} or a stop "
-                            f"in genetic code {table}, so it was kept as {kept}: translate "
-                            "it as a complete coding sequence to end it there."
-                        ),
-                        "entity": entity["id"],
-                    }
+                said = (
+                    f"{label}'s last codon in {where}, {last}, is {could} or a stop "
+                    f"in genetic code {table}, so it was kept as {kept}"
                 )
+                # Biopython's complete coding sequence ends only with a codon every
+                # reading of which is a stop.
+                if others := never_stops(last, table):
+                    listed = " and ".join(
+                        [", ".join(others[:-1]), others[-1]] if others[:-1] else others
+                    )
+                    said += (
+                        ". It can't end a complete coding sequence: "
+                        f"{listed}, which it could be, {'is' if len(others) == 1 else 'are'} "
+                        "never a stop."
+                    )
+                else:
+                    said += ": translate it as a complete coding sequence to end it there."
+                messages.append({"level": "info", "text": said, "entity": entity["id"]})
             how = ", as a complete coding sequence," if cds else ","
             values: dict[str, Any] = {
                 "name": f"{label} ({sign}{frame})"[:MAX_NAME],

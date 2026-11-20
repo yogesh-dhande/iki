@@ -355,6 +355,24 @@ def test_an_isoelectric_point_beyond_ph_14_isnt_saved_but_the_rest_are(tmp_path:
     assert found["1"]["isoelectric_point"] == 12.95
 
 
+def test_an_isoelectric_point_just_past_ph_14_isnt_saved_though_it_rounds_to_14(
+    tmp_path: Path,
+) -> None:
+    """Bjellqvist's model, by bisection of Biopython's charge_at_pH, puts R102's charge at
+    zero at pH 14.0043, which rounds to 14.00 but is past the scale; R101's is 14.00003.
+    Composition beyond a run of one residue does it too: (RAKR)x60, 14.0777."""
+    found, messages = properties(tmp_path, "R" * 102, "R" * 101, "RAKR" * 60)
+    assert ["isoelectric_point" in found[k] for k in "012"] == [False, False, False]
+    assert [m["text"] for m in messages] == [
+        "Its isoelectric point by Bjellqvist's model would be pH 14.0043, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+        "Its isoelectric point by Bjellqvist's model would be pH 14.0000, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+        "Its isoelectric point by Bjellqvist's model would be pH 14.08, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+    ]
+
+
 def test_stops_at_the_end_are_all_left_out(tmp_path: Path) -> None:
     found, messages = properties(tmp_path, "M**", "M*", "M")
     # Methionine alone: 131.1926 + 18.0153 = 149.21 Da (Biopython's average masses), pI 5.28.
@@ -585,6 +603,26 @@ def test_an_ambiguous_last_codon_says_it_could_have_been_a_stop(
     _, plain = translated(tmp_path, [entity(1, bases="ATGTGG")], table=table, to_stop=False)
     assert plain is not None
     assert plain["messages"] == []
+
+
+def test_an_ambiguous_last_codon_that_can_also_be_only_an_amino_acid_isnt_sent_to_a_cds(
+    tmp_path: Path,
+) -> None:
+    """NCBI code 28: TAN is TAA or TAG (Q, or a stop), or TAC or TAT, which are Tyr and
+    never a stop, so a complete coding sequence can't end with it: the run doesn't say to
+    translate it as one."""
+    _, frame = translated(
+        tmp_path, [entity(1, bases="ATGTAN", name="pCiliate")], table=28, to_stop=False
+    )
+    assert frame is not None
+    assert [m["text"] for m in frame["messages"]] == [
+        "pCiliate's last codon in frame +1, TAN, is Q, Y or a stop in genetic code 28, so it "
+        "was kept as X. It can't end a complete coding sequence: TAC and TAT, which it could "
+        "be, are never a stop."
+    ]
+    _, cds = translated(tmp_path, [entity(1, bases="ATGTAN")], table=28, complete_cds=True)
+    assert cds is not None
+    assert cds["creates"] == []
 
 
 def test_a_genetic_code_ncbi_doesnt_use_fails_the_run(tmp_path: Path) -> None:

@@ -199,8 +199,10 @@ Each needs residues it has values for, and the stops at its end are left out
 point and extinction coefficients also take J, as neither I nor L is charged
 or absorbs at 280 nm. For B, Z, X, an inner stop, or a residue a property has
 no value for, the run warns which residue left which properties out. An
-isoelectric point past pH 0 to 14, which the model gives only for a run of one
-charged residue (120 arginines: 14.08), isn't saved, and the run says why:
+isoelectric point past pH 0 to 14, which the model gives only for an extreme
+composition, charged residues nearly all of one sign (120 arginines: 14.08;
+102: 14.004; (RAKR)×60: 14.08), isn't saved, checked before it's rounded, and the
+run says why:
 past pH 14 is over 1 M hydroxide, where the model's pK values don't hold. The
 other properties are.
 
@@ -215,7 +217,9 @@ V), its last a stop, with no other stop and no bases left over. In codes 27,
 says which: those codes can't stop at the first stop codon, and a frame keeps
 such codons as amino acids, saying so of a last one that could have ended it,
 an ambiguous one too (TAR in code 28 is TAA or TAG, so Q or a stop; TRA is
-TAA or TGA, so Q, W or a stop, and is kept as X).
+TAA or TGA, so Q, W or a stop, and is kept as X). It says to translate a
+complete coding sequence to end there only when every codon the last could be
+is a stop: TAN in code 28 could also be TAC or TAT, Tyr and never a stop.
 A DNA sequence that gives no residues (no whole codon, only stops, or a stop
 first), or isn't the complete coding sequence asked for, fails its own run
 and the rest go on.
