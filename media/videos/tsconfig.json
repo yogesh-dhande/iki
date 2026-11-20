@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@motion-canvas/2d/lib",
+    "types": ["vite/client", "node", "@motion-canvas/core/project"],
+    // Node runs the tools' TypeScript as it is, and Vite the scenes', so imports name files.
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    // Motion Canvas's props don't spell out `| undefined`, so optional props can't be
+    // passed along under this check.
+    "exactOptionalPropertyTypes": false,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true
+  },
+  "include": ["src", "tools", "tests", "vite.config.ts", "vitest.config.ts"]
+}

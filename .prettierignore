@@ -36,3 +36,8 @@ plugins/small_molecule/components/depiction.js
 spec/src/iki_spec/first_party_trees.json
 # Built by plugins/oligo/data/build_monomers.py.
 plugins/oligo/data/monomers.json
+# The videos' generated files: the theme's tokens (from iki.css), the script's JSON Schema
+# (from its Zod schema), and the renders' captions and manifests.
+media/videos/src/system/theme/tokens.generated.ts
+media/videos/script.schema.json
+media/videos/out/

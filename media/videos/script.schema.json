@@ -1,0 +1,4378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "series": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "specimen": {
+      "default": false,
+      "type": "boolean"
+    },
+    "publish": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "thumbnail": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        }
+      },
+      "required": [
+        "description",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "quotes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "in": {
+            "default": "web/app/src",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "scenes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "title"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "eyebrow": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "eyebrow",
+                  "title"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "focus"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "object": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "record": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "hrid": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2,6}-\\d{6}$"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "fields": {
+                                "default": [],
+                                "maxItems": 6,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "value": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "kind": {
+                                      "default": "text",
+                                      "type": "string",
+                                      "enum": [
+                                        "text",
+                                        "sequence",
+                                        "id"
+                                      ]
+                                    },
+                                    "detail": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "detailKind": {
+                                      "default": "text",
+                                      "type": "string",
+                                      "enum": [
+                                        "text",
+                                        "sequence"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "value"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "footer": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "record"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "notice": {
+                            "type": "object",
+                            "properties": {
+                              "tone": {
+                                "type": "string",
+                                "enum": [
+                                  "neutral",
+                                  "accent",
+                                  "warning",
+                                  "error",
+                                  "success"
+                                ]
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "text": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "link": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "tone",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "notice"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "fragment": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "spreadsheet",
+                                  "notebook"
+                                ]
+                              },
+                              "file": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "columns": {
+                                "default": [],
+                                "maxItems": 3,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "rows": {
+                                "minItems": 1,
+                                "maxItems": 4,
+                                "type": "array",
+                                "items": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "highlight": {
+                                "default": [],
+                                "type": "array",
+                                "items": {
+                                  "type": "array",
+                                  "prefixItems": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  ],
+                                  "items": false,
+                                  "minItems": 2,
+                                  "maxItems": 2
+                                }
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "file",
+                              "rows"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "fragment"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "object"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "gallery"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "items": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "record": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "hrid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z]{2,6}-\\d{6}$"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "fields": {
+                                  "default": [],
+                                  "maxItems": 6,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "label": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "value": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "kind": {
+                                        "default": "text",
+                                        "type": "string",
+                                        "enum": [
+                                          "text",
+                                          "sequence",
+                                          "id"
+                                        ]
+                                      },
+                                      "detail": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "detailKind": {
+                                        "default": "text",
+                                        "type": "string",
+                                        "enum": [
+                                          "text",
+                                          "sequence"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "label",
+                                      "value"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "footer": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "record"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "notice": {
+                              "type": "object",
+                              "properties": {
+                                "tone": {
+                                  "type": "string",
+                                  "enum": [
+                                    "neutral",
+                                    "accent",
+                                    "warning",
+                                    "error",
+                                    "success"
+                                  ]
+                                },
+                                "title": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "link": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "tone",
+                                "text"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "notice"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "fragment": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "spreadsheet",
+                                    "notebook"
+                                  ]
+                                },
+                                "file": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "columns": {
+                                  "default": [],
+                                  "maxItems": 3,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "rows": {
+                                  "minItems": 1,
+                                  "maxItems": 4,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "highlight": {
+                                  "default": [],
+                                  "type": "array",
+                                  "items": {
+                                    "type": "array",
+                                    "prefixItems": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    ],
+                                    "items": false,
+                                    "minItems": 2,
+                                    "maxItems": 2
+                                  }
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "file",
+                                "rows"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "fragment"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "split"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "left": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "content": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "record": {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "hrid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z]{2,6}-\\d{6}$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "fields": {
+                                    "default": [],
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "value": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "kind": {
+                                          "default": "text",
+                                          "type": "string",
+                                          "enum": [
+                                            "text",
+                                            "sequence",
+                                            "id"
+                                          ]
+                                        },
+                                        "detail": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "detailKind": {
+                                          "default": "text",
+                                          "type": "string",
+                                          "enum": [
+                                            "text",
+                                            "sequence"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "label",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "footer": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "record"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "notice": {
+                                "type": "object",
+                                "properties": {
+                                  "tone": {
+                                    "type": "string",
+                                    "enum": [
+                                      "neutral",
+                                      "accent",
+                                      "warning",
+                                      "error",
+                                      "success"
+                                    ]
+                                  },
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "link": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "tone",
+                                  "text"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "notice"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "fragment": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "spreadsheet",
+                                      "notebook"
+                                    ]
+                                  },
+                                  "file": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "columns": {
+                                    "default": [],
+                                    "maxItems": 3,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "rows": {
+                                    "minItems": 1,
+                                    "maxItems": 4,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "highlight": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        }
+                                      ],
+                                      "items": false,
+                                      "minItems": 2,
+                                      "maxItems": 2
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "file",
+                                  "rows"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "fragment"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "content"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "right": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "content": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "record": {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "hrid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z]{2,6}-\\d{6}$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "fields": {
+                                    "default": [],
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "value": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "kind": {
+                                          "default": "text",
+                                          "type": "string",
+                                          "enum": [
+                                            "text",
+                                            "sequence",
+                                            "id"
+                                          ]
+                                        },
+                                        "detail": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "detailKind": {
+                                          "default": "text",
+                                          "type": "string",
+                                          "enum": [
+                                            "text",
+                                            "sequence"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "label",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "footer": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "record"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "notice": {
+                                "type": "object",
+                                "properties": {
+                                  "tone": {
+                                    "type": "string",
+                                    "enum": [
+                                      "neutral",
+                                      "accent",
+                                      "warning",
+                                      "error",
+                                      "success"
+                                    ]
+                                  },
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "link": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "tone",
+                                  "text"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "notice"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "fragment": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "spreadsheet",
+                                      "notebook"
+                                    ]
+                                  },
+                                  "file": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "columns": {
+                                    "default": [],
+                                    "maxItems": 3,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "rows": {
+                                    "minItems": 1,
+                                    "maxItems": 4,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "highlight": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        }
+                                      ],
+                                      "items": false,
+                                      "minItems": 2,
+                                      "maxItems": 2
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "file",
+                                  "rows"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "fragment"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "content"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "link": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "note": {
+                    "type": "object",
+                    "properties": {
+                      "tone": {
+                        "type": "string",
+                        "enum": [
+                          "neutral",
+                          "accent",
+                          "warning",
+                          "error",
+                          "success"
+                        ]
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "text": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "link": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "tone",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "left",
+                  "right"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "record-inset"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "record": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "hrid": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{2,6}-\\d{6}$"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "fields": {
+                        "default": [],
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "value": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "kind": {
+                              "default": "text",
+                              "type": "string",
+                              "enum": [
+                                "text",
+                                "sequence",
+                                "id"
+                              ]
+                            },
+                            "detail": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "detailKind": {
+                              "default": "text",
+                              "type": "string",
+                              "enum": [
+                                "text",
+                                "sequence"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "value"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "footer": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "inset": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "provides": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "fields": {
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "type": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "provides",
+                      "fields"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "link": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "record",
+                  "inset"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "timeline"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "subject": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "hrid": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "hrid",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "revisions": {
+                    "minItems": 2,
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "number": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "what": {
+                          "type": "string",
+                          "enum": [
+                            "Created",
+                            "Edited",
+                            "Archived",
+                            "Restored",
+                            "Facts changed",
+                            "Superseded",
+                            "Moved",
+                            "State set"
+                          ]
+                        },
+                        "who": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "when": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "why": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "signature": {
+                          "type": "object",
+                          "properties": {
+                            "verb": {
+                              "type": "string",
+                              "enum": [
+                                "Authored",
+                                "Reviewed",
+                                "Approved",
+                                "Verified",
+                                "Signed off",
+                                "Witnessed"
+                              ]
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "by": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "when": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "verb",
+                            "meaning",
+                            "by",
+                            "when"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "number",
+                        "what",
+                        "who",
+                        "when"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "subject",
+                  "revisions"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "graph"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "direction": {
+                    "default": "right",
+                    "type": "string",
+                    "enum": [
+                      "right",
+                      "down"
+                    ]
+                  },
+                  "nodes": {
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9-]*$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "hrid": {
+                          "type": "string"
+                        },
+                        "focus": {
+                          "default": false,
+                          "type": "boolean"
+                        },
+                        "signature": {
+                          "type": "object",
+                          "properties": {
+                            "verb": {
+                              "type": "string",
+                              "enum": [
+                                "Authored",
+                                "Reviewed",
+                                "Approved",
+                                "Verified",
+                                "Signed off",
+                                "Witnessed"
+                              ]
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "by": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "when": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "verb",
+                            "meaning",
+                            "by",
+                            "when"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "edges": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9-]*$"
+                        },
+                        "to": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9-]*$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "nodes",
+                  "edges"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "layout": {
+                "type": "string",
+                "const": "closing"
+              },
+              "slots": {
+                "type": "object",
+                "properties": {
+                  "statement": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "next": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "statement"
+                ],
+                "additionalProperties": false
+              },
+              "chapter": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transition": {
+                "default": "fade",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "slide",
+                      "cut"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "merge": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "into": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "into"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "length": {
+                        "default": "deliberate",
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "merge"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "custom": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      },
+                      "length": {
+                        "type": "string",
+                        "enum": [
+                          "instant",
+                          "quick",
+                          "base",
+                          "slow",
+                          "deliberate",
+                          "transition"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "custom",
+                      "length"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "beats": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "say": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "do": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "show": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "rise",
+                                      "pop",
+                                      "draw"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "show"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "hide": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "as": {
+                                    "default": "fade",
+                                    "type": "string",
+                                    "enum": [
+                                      "fade",
+                                      "sink"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "hide"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "emphasize": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "emphasize"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "dim": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "dim"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "custom": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]*$"
+                                  },
+                                  "length": {
+                                    "type": "string",
+                                    "enum": [
+                                      "instant",
+                                      "quick",
+                                      "base",
+                                      "slow",
+                                      "deliberate",
+                                      "transition"
+                                    ]
+                                  },
+                                  "args": {
+                                    "default": {},
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "custom",
+                                  "length"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "together": {
+                                "minItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "show": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "rise",
+                                            "pop",
+                                            "draw"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "show"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "hide": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "as": {
+                                          "default": "fade",
+                                          "type": "string",
+                                          "enum": [
+                                            "fade",
+                                            "sink"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "hide"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "emphasize": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "emphasize"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "dim": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        }
+                                      },
+                                      "required": [
+                                        "dim"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "custom": {
+                                          "type": "string",
+                                          "pattern": "^[a-z][a-z0-9-]*$"
+                                        },
+                                        "length": {
+                                          "type": "string",
+                                          "enum": [
+                                            "instant",
+                                            "quick",
+                                            "base",
+                                            "slow",
+                                            "deliberate",
+                                            "transition"
+                                          ]
+                                        },
+                                        "args": {
+                                          "default": {},
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {}
+                                        }
+                                      },
+                                      "required": [
+                                        "custom",
+                                        "length"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "together"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "hold": {
+                      "default": "none",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "short",
+                        "medium",
+                        "long"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "layout",
+              "slots",
+              "beats"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "series",
+    "target",
+    "scenes"
+  ],
+  "additionalProperties": false,
+  "title": "An Iki video's script"
+}

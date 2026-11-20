@@ -28,6 +28,7 @@ jobs:
       contents: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      videos: ${{ steps.diff.outputs.videos }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -367,6 +368,35 @@ jobs:
         run: scripts/check-client.sh
       - name: Build
         run: pnpm build
+
+  # The explainer videos (media/videos): every script against its schema and rules, its
+  # captions against the committed .vtt, and a still from every scene, rendered headless.
+  # Only when they, the design tokens or the packages changed. The rendered MP4s are in
+  # Git LFS, which checkout doesn't fetch; nothing here reads them.
+  videos:
+    name: Videos
+    needs: changes
+    if: needs.changes.outputs.videos == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # In the videos' render image (media/videos/Dockerfile), as every render is made, so
+      # these stills match one made anywhere else.
+      - name: Scripts, outputs, stale renders, and a still from every scene
+        run: make video-check VIDEO_CHECK_ARGS="--stills review/stills"
+      # For reviewing a change to a video without Git LFS: what each scene looks like.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: video-stills
+          path: media/videos/review/stills/
+          if-no-files-found: ignore
+          retention-days: 14
 
   rust:
     name: Rust
@@ -751,6 +781,7 @@ jobs:
         python-tests,
         python-summary,
         web,
+        videos,
         rust,
         server-image,
         worker-image,

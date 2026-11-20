@@ -91,6 +91,20 @@ check-python: ## Ruff, mypy (strict) and pytest
 	uv run mypy
 	uv run pytest $(PYTEST_PARALLEL)
 
+# The explainer videos (media/videos/README.md). Not part of `check`: rendering is slow.
+# Both run in the videos' render image (media/videos/Dockerfile), so renders match on every
+# machine; they need Docker.
+VIDEO ?= entities
+VIDEO_CHECK_ARGS ?=
+
+.PHONY: video
+video: ## Render a video in its render image: make video VIDEO=entities (into media/videos/out/)
+	media/videos/tools/container.sh node tools/render.ts $(VIDEO)
+
+.PHONY: video-check
+video-check: ## Check every video's script, outputs and render, and render a still of each scene
+	media/videos/tools/container.sh node tools/check.ts $(VIDEO_CHECK_ARGS)
+
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations
 	uv run python scripts/build_core.py

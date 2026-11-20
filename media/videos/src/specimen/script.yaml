@@ -1,0 +1,233 @@
+# yaml-language-server: $schema=../../script.schema.json
+#
+# The specimen: every layout and component once, for reference and as the check's smoke
+# test. Never published. Its content is held to the same accuracy rule as a video's:
+# lots, their states and QA's release signature are plugins/lots/types/lot.yaml's.
+id: specimen
+title: "Specimen: every layout"
+series: Iki concepts
+target: 45
+specimen: true
+scenes:
+  - id: title
+    layout: title
+    slots:
+      eyebrow: Iki concepts
+      title: Specimen
+      subtitle: Every layout, once
+    beats:
+      - id: title
+        say: "Specimen: every layout, once."
+        do:
+          - together:
+              - show: eyebrow
+              - show: title
+                as: rise
+              - show: subtitle
+                as: rise
+
+  - id: focus-notice
+    layout: focus
+    slots:
+      heading: focus, with a notice
+      object:
+        notice:
+          tone: warning
+          text: PLOT-000001 is Released, which locks it.
+          link: PLOT-000001
+    beats:
+      - id: focus-notice
+        caption: A focus scene shows one thing on its own.
+        do:
+          - show: object
+            as: pop
+
+  - id: focus-record
+    layout: focus
+    slots:
+      heading: focus, with a record
+      object:
+        record:
+          type: Protein lot
+          hrid: PLOT-000001
+          name: Lot 26-031
+          fields:
+            - { label: Lot of, value: ABY-000001, kind: id }
+            - { label: Lot number, value: 26-031 }
+            - { label: Source, value: made }
+          footer: Released by QA
+    beats:
+      - id: focus-record
+        caption: Its fields can be drawn out one at a time.
+        do:
+          - emphasize: field:Lot of
+
+  - id: gallery
+    layout: gallery
+    slots:
+      heading: gallery, of records
+      items:
+        - record:
+            type: Protein lot
+            hrid: PLOT-000001
+            name: Lot 26-031
+            fields: [{ label: Source, value: made }]
+        - record:
+            type: Protein lot
+            hrid: PLOT-000002
+            name: Lot 26-044
+            fields: [{ label: Source, value: bought }]
+        - notice:
+            tone: success
+            text: Every lot of ABY-000001 is here.
+            link: ABY-000001
+    beats:
+      - id: gallery
+        caption: A gallery shows up to three cards, or six files.
+        do:
+          - together:
+              - show: item:1
+                as: rise
+              - show: item:2
+                as: rise
+              - show: item:3
+                as: rise
+
+  - id: split
+    layout: split
+    transition: slide
+    slots:
+      heading: split
+      left:
+        label: Outside Iki
+        content:
+          fragment:
+            kind: spreadsheet
+            file: lots.xlsx
+            columns: [Lot, Status]
+            rows:
+              - [26-031, OK to use]
+            highlight: [[0, 1]]
+      right:
+        label: In Iki
+        content:
+          record:
+            type: Protein lot
+            hrid: PLOT-000001
+            name: Lot 26-031
+            fields: [{ label: State, value: Released }]
+      link: becomes
+      note:
+        tone: neutral
+        text: A lot’s state is set by QA, saying why.
+    beats:
+      - id: split
+        caption: A split compares two things, and says how they relate.
+        do:
+          - show: link
+            as: draw
+          - show: note
+            as: rise
+
+  - id: record-inset
+    layout: record-inset
+    transition: cut
+    slots:
+      record:
+        type: Protein lot
+        hrid: PLOT-000001
+        name: Lot 26-031
+        fields:
+          - { label: Lot of, value: ABY-000001, kind: id }
+          - { label: Lot number, value: 26-031 }
+      inset:
+        name: iki/lots
+        provides: Defines the Protein lot type
+        fields:
+          - { name: protein, type: what it’s a lot of }
+          - { name: lot_number, type: text }
+          - { name: source, type: "made or bought" }
+      link: defines its type
+    beats:
+      - id: record-inset
+        caption: A record and the plugin that defines its type.
+        do:
+          - show: inset
+            as: rise
+          - show: link
+            as: draw
+
+  - id: timeline
+    layout: timeline
+    slots:
+      subject: { type: Protein lot, hrid: PLOT-000001, name: Lot 26-031 }
+      revisions:
+        - number: 1
+          what: Created
+          who: Priya Shah
+          when: 2 Jun 2026, in the web app
+        - number: 2
+          what: Edited
+          who: Priya Shah
+          when: 5 Jun 2026, in the web app
+          why: Certificate of analysis attached
+        - number: 3
+          what: State set
+          who: Dana Kim
+          when: 10 Jun 2026, in the web app
+          why: Meets its specification
+          signature:
+            verb: Approved
+            by: Dana Kim
+            when: on 2026-06-10 at 14:03:22 UTC
+            meaning: QA release
+    beats:
+      - id: timeline
+        caption: A timeline shows revisions, oldest first, with their signatures.
+        do:
+          - show: axis
+            as: draw
+          - together:
+              - show: revision:1
+                as: rise
+              - show: revision:2
+                as: rise
+              - show: revision:3
+                as: rise
+          - show: signature:3
+            as: pop
+
+  - id: graph
+    layout: graph
+    slots:
+      heading: graph, going down
+      direction: down
+      nodes:
+        - { id: antibody, kind: Antibody, title: Trastuzumab, hrid: ABY-000001, focus: true }
+        - { id: lot-a, kind: Protein lot, title: Lot 26-031, hrid: PLOT-000001 }
+        - { id: lot-b, kind: Protein lot, title: Lot 26-044, hrid: PLOT-000002 }
+      edges:
+        - { from: antibody, to: lot-a, label: lot of it }
+        - { from: antibody, to: lot-b, label: lot of it }
+    beats:
+      - id: graph
+        caption: A graph shows how things connect, across or down.
+        do:
+          - together:
+              - show: edge:antibody>lot-a
+                as: draw
+              - show: edge:antibody>lot-b
+                as: draw
+          - dim: node:lot-b
+
+  - id: close
+    layout: closing
+    slots:
+      statement: Every video is built from these.
+      next: "Next: your script"
+    beats:
+      - id: close
+        say: "Every video is built from these. Next: your script."
+        do:
+          - show: next
+            as: rise
