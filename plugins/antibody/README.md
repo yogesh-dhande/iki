@@ -72,8 +72,10 @@ within each domain, each from a copy's cysteine to another's.
 - **Proteins' sequence liabilities** (the same extension of `iki/protein.Protein`):
   the motifs a developability screen reports in a numbered chain
   (`liabilities`), each with where it is, whether it falls in a CDR or in
-  framework, and how severe published screens call it; how many of each kind it
-  has (`liability_counts`); and how many in all (`liability_count`, indexed, so
+  framework (or an `unknown` region, in a domain whose CDRs numbering couldn't
+  find, where the motifs that count only in a CDR aren't looked for), and how
+  severe published screens call it; how many of each kind it has
+  (`liability_counts`); and how many in all (`liability_count`, indexed, so
   chains can be sorted and filtered by it). A chain with none has
   `liability_count` 0, which is not the same as one that hasn't been screened
   (it has none of the three fields).
