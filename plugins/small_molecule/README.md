@@ -97,15 +97,24 @@ so the identity is Iki's computation, beside the record's origin.
   and underscores, and by the names suppliers and PubChem give them (`CAS`,
   `PUBCHEM_COMPOUND_CID`, `Catalog_No`, `Lot`, `Purity`…); the run says which
   others it left out. A salt an SD field gives must agree with the structure's,
-  and so must its equivalents; one only the field gives (an HCl salt drawn as
-  its free base) is the batch's, even when the structure is itself an acid Iki
-  knows as a counterion (benzoic acid with `Salt` Na is sodium benzoate).
+  and so must its equivalents, whether it's taken off as the parent's salt or
+  registered whole, and whether it's drawn as Iki weighs it or with an isotope
+  (lithium-6 is still lithium, so `Salt` Li adds no more). One only the field
+  gives (an HCl salt drawn as its free base) is the batch's, even when the
+  structure is itself an acid Iki knows as a counterion, drawn alone or with
+  its water (benzoic acid with `Salt` Na is sodium benzoate, and acetic acid
+  with three waters sodium acetate trihydrate). Its equivalents, when no
+  `Salt_eq` field gives them, are as the batch type says: one, or for calcium,
+  magnesium or zinc what charge balance says
+  ([ADR 0166](../../docs/adr/0166-a-salts-ratio-is-stated-or-follows-from-charge-balance.md)),
+  and the run says which. A `Salt` of `N/A`, `none` or `free base` is no salt.
   Without the parent, a salt drawn whole is the compound itself, so a Salt
   field naming it adds nothing to its batch, and the run says so. A record's
   name, synonyms, CAS number, PubChem CID and ChEMBL ID are its material's: a
-  salt's, when it's drawn as one, or when its Salt field makes it one. So a
-  compound that isn't that material (its parent, or the free base drawn) takes
-  none of them, and the run says so; its batch takes the name. An amount in a
+  salt's, when it's drawn as one, or when its Salt field makes it one, with
+  batches or without. So a compound that isn't that material (its parent, or
+  the free base drawn) takes none of them, and the run says so; its batch, if
+  it has one, takes the name. An amount in a
   field whose name doesn't give its unit (`Amount`, `Mass`, `Quantity`) needs
   one, such as `25 mg`: a bare number there could be a molecular mass, so it's
   left out, saying so; in `Amount_mg` or `Mass_mg` it's in mg. Each
@@ -190,23 +199,40 @@ aspirinate is JZLOKWGVGHYBKD-UHFFFAOYSA-M, not aspirin.
 
 Enhanced stereochemistry (a V3000 molfile's or CXSMILES's AND and OR groups)
 is something a standard InChI can't hold: it would give the one stereoisomer
-drawn, so a racemate would be its enantiomer. A group of one stereocentre (both
-configurations, or one not known which) says no more than that centre
+drawn, so a mixture of two would be one of them. A group of one stereocentre
+(both configurations, or one not known which) says no more than that centre
 undefined, so it's registered undefined, as a racemate drawn without wedges
-is, and the run says so. A group of several centres also says how they relate
-(cis, not trans), which no standard InChIKey holds, so the structure fails its
-line or record, saying why: draw those centres without wedges and record what's
-known as the compound's stereochemistry.
+is, and the run says so. For an AND group it says what the two configurations
+are: the structure's two enantiomers when nothing else in it is chiral, or two
+epimers (diastereomers, such as L-threonine and L-allothreonine) when the rest
+of its stereochemistry is defined. It doesn't call either a racemate, which is
+an equimolar pair of enantiomers: a group says nothing of proportions. A
+group of several centres also says how they relate (cis, not trans), which no
+standard InChIKey holds, so the structure fails its line or record, saying
+why: draw those centres without wedges and record what's known as the
+compound's stereochemistry.
 
-Nor can a standard InChI hold axial chirality. RDKit reads an atropisomer's
-axis (a hindered biaryl's, as in BINOL or sotorasib) from a wedge beside it,
-but (R)- and (S)-BINOL have one standard InChIKey, as PubChem's one record of
-them shows (CID 11762), and so would be one compound. A structure with an axis
+Nor does a standard InChI record an atropisomer's axis, a hindered single
+bond's. RDKit reads one (a biaryl's, as in BINOL or sotorasib) from a wedge
+beside it, but (R)- and (S)-BINOL have one standard InChIKey, as PubChem's one
+record of them shows (CID 11762), and so would be one compound. A structure with an axis
 drawn with its configuration fails its line or record, saying which bond it
 is: draw the axis without the wedge, which is the compound, whichever
 atropisomer it is, and say which in its name. An axis alone in an AND or OR
 group says no more than it undefined, so it's registered undefined, as a single
 centre in one is, and the run says so.
+
+A cumulene's configuration is the other way about: a standard InChI records it,
+but no SMILES does. An allene with two different groups at each end is axially
+chiral (penta-2,3-diene's two enantiomers), and three cumulated double bonds
+are E or Z, and InChI reads either from a drawing's coordinates (its /t and /b
+layers), but RDKit's SMILES has no way to write it. Both enantiomers would be
+one SMILES, which a compound's descriptors, depiction and exports are made
+from, and which InChI reads as neither. So whenever a structure's InChI has
+stereochemistry its SMILES doesn't give back, it fails its line or record,
+saying where: draw it without its configuration (in 2D, without wedges), say
+which it is in its name, and record what's known as the compound's
+stereochemistry.
 
 The parent is what registration systems register: fragments that are salts or
 solvents Iki knows are taken off (matched by their structure, neutralised, so
@@ -224,7 +250,10 @@ with batches, its batch has no formula weight, since the part is in the
 material but what it adds isn't known (hydroxyzine pamoate's would be about
 half what it is), and the run says so, with what the drawing weighs for each parent;
 two different salts, or solvents, in one structure fail its line, since a
-batch records one of each. A name given with a structure is that structure's,
+batch records one of each. A structure of nothing but salts and solvents is
+what it is (sodium chloride), unless, with its solvents set aside, it's one
+compound, drawn once or more: acetic acid drawn with three waters is acetic
+acid, its batch a trihydrate. A name given with a structure is that structure's,
 so when the parent registered isn't the structure (aspirin from "aspirin
 sodium"), its compound isn't given it, nor, from PubChem or ChEMBL, the
 record's synonyms or IDs; with batches, the name is its batch's.
@@ -233,7 +262,14 @@ A batch's formula weight is its compound's molecular weight, with each
 equivalent of its salt and solvent. An acid or a base forms its salt whole (an
 amine's hydrochloride adds HCl, 36.46 g/mol); a metal takes the place of its
 acid's hydrogens (a sodium salt adds Na less H, 21.98 g/mol; a calcium salt,
-for each calcium, Ca less two H). A parent that keeps a charge, such as a
+for each calcium, Ca less two H). So a calcium salt of an acid with one acid
+group is half a calcium for each (calcium acetate, PubChem CID 6116, is 79.08
+g/mol for each acetate), and with its equivalents blank, that's what it's
+given. One whose compound has two acid groups, or none that Iki counts (a
+carboxylic acid, a sulfonic or sulfuric acid, a phosphorus acid's OH, a
+tetrazole), could be either, so with its equivalents blank it has no formula
+weight, and the run says to give them
+([ADR 0166](../../docs/adr/0166-a-salts-ratio-is-stated-or-follows-from-charge-balance.md)). A parent that keeps a charge, such as a
 quaternary ammonium, is already the salt's ion, so each unit of its charge is a
 hydrogen the salt doesn't add: choline chloride is 139.63 g/mol, choline's
 cation and Cl. Equivalents are kept whole (a third for a citrate of three

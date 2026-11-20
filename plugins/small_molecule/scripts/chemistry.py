@@ -236,14 +236,123 @@ def known_part(fragment: Chem.Mol) -> tuple[str, Counterion] | None:
     return KNOWN.get(_constitution(fragment))
 
 
-def drawn_salts(mol: Chem.Mol) -> set[str]:
-    """The salts Iki knows among a structure's parts, by name."""
-    found = set()
-    for fragment in Chem.GetMolFrags(mol, asMols=True):
-        known = known_part(fragment)
-        if known is not None and known[0] == "salt":
-            found.add(known[1].name)
+def labelled_salt(fragment: Chem.Mol) -> Counterion | None:
+    """The salt Iki knows a part is, whether or not it's drawn with an isotope: lithium-6
+    is lithium, and a deuterated mesylate a mesylate. Iki doesn't weigh them as the salt
+    (`_constitution`), but a structure with one has that salt already."""
+    plain = Chem.RWMol(fragment)
+    for atom in plain.GetAtoms():
+        atom.SetIsotope(0)
+    with rdkit_messages():
+        unlabelled = Chem.RemoveHs(plain.GetMol())
+    known = known_part(unlabelled)
+    return known[1] if known is not None and known[0] == "salt" else None
+
+
+def whole_salts(mol: Chem.Mol) -> dict[str, float]:
+    """The salts a structure registered whole has, by name, isotope-labelled ones too
+    (`labelled_salt`), with how many of each for each parent. A structure of one part,
+    once its solvents are set aside (acetic acid with its water), is a parent, not a salt,
+    though it be an acid Iki knows as a counterion."""
+    parts = [
+        f
+        for f in Chem.GetMolFrags(mol, asMols=True)
+        if (known_part(f) or ("salt",))[0] != "solvate"
+    ]
+    if len(parts) < 2:
+        return {}
+    named = [labelled_salt(f) for f in parts]
+    found: dict[str, float] = {}
+    for name in {c.name for c in named if c is not None}:
+        others = [f for f, c in zip(parts, named, strict=True) if c is None or c.name != name]
+        if not others:
+            continue
+        combined = others[0]
+        for other in others[1:]:
+            combined = Chem.CombineMols(combined, other)
+        key = _neutral(rdMolStandardize.LargestFragmentChooser().choose(combined))
+        parents = sum(_neutral(f) == key for f in others)
+        found[name] = _equivalents(sum(c is not None and c.name == name for c in named), parents)
     return found
+
+
+#: Acid groups whose hydrogen a metal can take the place of, as SMARTS, with or without
+#: it: a carboxylic acid, a sulfonic acid or sulfate's, each OH of a phosphorus acid, and
+#: a tetrazole's NH (a carboxylic acid's isostere, as in losartan).
+ACID_GROUPS = {
+    ("a carboxylic acid", "carboxylic acids"): "[CX3](=O)[OX2H1,OX1-]",
+    ("a sulfonic or sulfuric acid", "sulfonic or sulfuric acids"): "[SX4](=O)(=O)[OX2H1,OX1-]",
+    ("a phosphorus acid's OH", "phosphorus acids' OHs"): "[PX4](=O)[OX2H1,OX1-]",
+    ("a tetrazole", "tetrazoles"): "[$([nH1,n-]1nnnc1),$([nH1,n-]1nncn1)]",
+}
+_ACID_PATTERNS = {names: Chem.MolFromSmarts(smarts) for names, smarts in ACID_GROUPS.items()}
+_NUMBERS = {1: "one", 2: "two", 3: "three"}
+
+
+def acid_groups(mol: Chem.Mol) -> list[tuple[str, str]]:
+    """Its acid groups (`ACID_GROUPS`), one (singular, plural) name for each."""
+    return [
+        names for names, pattern in _ACID_PATTERNS.items() for _ in mol.GetSubstructMatches(pattern)
+    ]
+
+
+@dataclass(frozen=True)
+class Balance:
+    """How many of a salt there are for each parent when nothing says: `equivalents`, or
+    None when that isn't known; why, as a sentence (empty when it's the usual one); and
+    an example to give when it isn't known."""
+
+    equivalents: float | None
+    why: str = ""
+    example: str = ""
+
+
+def unstated_equivalents(parent: Chem.Mol, salt: str) -> Balance:
+    """How many of a salt there are for each parent when nothing says.
+
+    A salt is one for each parent unless it says otherwise, as a hydrochloride or a
+    sodium salt is. But a metal of charge 2 takes the place of two hydrogens, so one for
+    each would take two from each parent: from acetic acid, which has one, that's no
+    compound at all. Calcium acetate is one calcium for two acetates. So it's as charge
+    balance says: 1/2 for a parent with one acid group, the only ratio that balances. A
+    parent with more (folinic acid's two, which calcium takes both of, or one each of two)
+    or none Iki counts (esomeprazole's, a benzimidazole's NH) doesn't say, so the number
+    isn't known, and nor is the formula weight.
+    """
+    counterion = SALTS[salt]
+    charge = METAL_CHARGE.get(counterion.metal, 1)
+    if charge == 1:
+        return Balance(1.0)
+    name = counterion.name
+    groups = acid_groups(parent)
+    example = f"such as {1 / charge:g} for one {name} for {_NUMBERS[charge]} of it"
+    if len(groups) == 1:
+        each = 1 / charge
+        return Balance(
+            each,
+            f"{name.capitalize()} is {charge}+, and its compound has one acid group to give a "
+            f"hydrogen for it ({groups[0][0]}), so by charge balance it's {each:g}: one "
+            f"{name} for {_NUMBERS[charge]} of it",
+        )
+    if not groups:
+        return Balance(
+            None,
+            f"{name.capitalize()} is {charge}+, and Iki finds no acid group in its compound "
+            "to give a hydrogen for it, so charge balance doesn't say how many",
+            example,
+        )
+    kinds = list(dict.fromkeys(groups))
+    if len(kinds) == 1:
+        listed = kinds[0][1]
+    else:
+        each_kind = [k[0] if groups.count(k) == 1 else f"{groups.count(k)} {k[1]}" for k in kinds]
+        listed = ", ".join(each_kind[:-1]) + " and " + each_kind[-1]
+    return Balance(
+        None,
+        f"{name.capitalize()} is {charge}+, and its compound has {len(groups)} acid groups "
+        f"({listed}), so charge balance doesn't say how many",
+        f"such as 1 for one {name} for each of it",
+    )
 
 
 def contribution(counterion: Counterion) -> float:
@@ -262,8 +371,9 @@ def formula_weight(
     salt_equivalents: float | None,
     solvate: str | None,
     solvate_equivalents: float | None,
-) -> float:
-    """A batch's formula weight: its parent's, with its salt and solvate.
+) -> float | None:
+    """A batch's formula weight: its parent's, with its salt and solvate; or None, when
+    its salt's equivalents aren't given and nothing says how many (`unstated_equivalents`).
 
     A salt's contribution is what it adds to a neutral parent. A parent that keeps a charge
     (a quaternary ammonium, which no proton can neutralise) is already the salt's ion, so
@@ -272,9 +382,11 @@ def formula_weight(
     """
     weight = float(Descriptors.MolWt(parent))
     if salt:
-        weight += contribution(SALTS[salt]) * (
-            1.0 if salt_equivalents is None else salt_equivalents
-        )
+        if salt_equivalents is None:
+            salt_equivalents = unstated_equivalents(parent, salt).equivalents
+            if salt_equivalents is None:
+                return None
+        weight += contribution(SALTS[salt]) * salt_equivalents
         hydrogen = Chem.GetPeriodicTable().GetAtomicWeight("H")
         weight -= Chem.GetFormalCharge(parent) * hydrogen
     if solvate:
@@ -329,17 +441,20 @@ def _equivalents(count: int, parents: int) -> float:
     return count / parents
 
 
-#: What each kind of enhanced stereo group means: of one centre, and of several.
+#: What each kind of enhanced stereo group means: of one centre, and of several. A group
+#: says nothing of proportions, and its members are enantiomers only when nothing else in
+#: the structure is chiral (`_members`): so not a racemate, which IUPAC keeps for an
+#: equimolar pair of enantiomers.
 _GROUP_KINDS = {
     Chem.StereoGroupType.STEREO_AND: (
         "AND",
-        "both configurations together (a racemate there)",
-        "both enantiomers are present",
+        "both configurations together",
+        "both of the group's configurations are present",
     ),
     Chem.StereoGroupType.STEREO_OR: (
         "OR",
         "one configuration, not known which",
-        "not which enantiomer it is",
+        "not which of the group's two configurations it is",
     ),
 }
 #: A single bond's configuration as an atropisomer's axis (RDKit's, from a wedge beside it).
@@ -352,21 +467,52 @@ def _axis(mol: Chem.Mol, bond: Chem.Bond) -> str:
     return "-".join(f"{a.GetSymbol()}{a.GetIdx() + 1}" for a in ends)
 
 
+def _members(mol: Chem.Mol, atoms: list[int], bonds: list[int]) -> str:
+    """What the two configurations of one AND group's centre or axis are of each other:
+    enantiomers when nothing else in the structure is chiral; epimers (diastereomers) when
+    the rest of its stereochemistry is defined; and not known when some of it isn't."""
+    grouped = {a.GetIdx() for g in mol.GetStereoGroups() for a in g.GetAtoms()}
+    grouped_bonds = {b.GetIdx() for g in mol.GetStereoGroups() for b in g.GetBonds()}
+    centres = [
+        i
+        for i, _ in Chem.FindMolChiralCenters(
+            mol, includeUnassigned=True, useLegacyImplementation=False
+        )
+        if i not in atoms
+    ]
+    axes = [
+        b.GetIdx() for b in mol.GetBonds() if b.GetStereo() in _AXIAL and b.GetIdx() not in bonds
+    ]
+    if not centres and not axes:
+        return " (its two enantiomers)"
+    defined = all(
+        i not in grouped and mol.GetAtomWithIdx(i).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        for i in centres
+    ) and not grouped_bonds.intersection(axes)
+    if defined:
+        return (
+            " (two epimers, diastereomers of each other, as the rest of its stereochemistry "
+            "is defined)"
+        )
+    return ""
+
+
 def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
     """The structure with its enhanced stereochemistry as a standard InChIKey can hold it,
     and what was changed.
 
     A V3000 molfile or CXSMILES can mark stereocentres, or an atropisomer's axis, as an AND
     group (both configurations) or an OR group (one, not known which). A standard InChI
-    can't, so it would give the single stereoisomer drawn, and a racemate would be its
-    enantiomer. A group of one centre or one axis says no more than it undefined, as a
+    can't, so it would give the single stereoisomer drawn, and a mixture of the two would
+    be one of them. A group of one centre or one axis says no more than it undefined, as a
     racemate drawn without wedges says, so it's registered undefined. A group of several
     also says how they relate (cis, not trans), which nothing in a standard InChIKey holds,
     so it can't be registered.
 
     Nor can an axis drawn with its configuration (by a wedge beside it, as RDKit reads
-    one): a standard InChI has no layer for axial chirality, so (R)- and (S)-BINOL, or
-    sotorasib and its atropisomer, would have one InChIKey, and be one compound.
+    one): a standard InChI doesn't record an atropisomer's axis, a single bond's, so (R)-
+    and (S)-BINOL, or sotorasib and its atropisomer, would have one InChIKey, and be one
+    compound. (It does record an allene's, which `_lost_stereo` keeps from being lost.)
     """
     groups = list(mol.GetStereoGroups())
     relative = [g for g in groups if g.GetGroupType() in _GROUP_KINDS]
@@ -387,6 +533,8 @@ def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
                 "would be the single stereoisomer drawn. Draw them without wedges "
                 "(undefined), and record what's known as the compound's stereochemistry"
             )
+        if kind == "AND":
+            meaning += _members(mol, atoms, bonds)
         if atoms:
             changed.GetAtomWithIdx(atoms[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
             what = f"Its stereocentre {named} is"
@@ -404,7 +552,7 @@ def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
         raise UnreadableError(
             f"its bond{'' if one else 's'} {named} {'is a' if one else 'are'} stereogenic "
             f"ax{'is' if one else 'es'} drawn with {'its' if one else 'their'} configuration "
-            "(an atropisomer). A standard InChI has no layer for axial chirality, so both "
+            "(an atropisomer). A standard InChI doesn't record an atropisomer's axis, so both "
             "atropisomers would have one InChIKey, and be one compound. Draw the axis without "
             "a wedge beside it (undefined), say which atropisomer it is in its name, and "
             "record what's known as the compound's stereochemistry"
@@ -431,15 +579,49 @@ def standardise(mol: Chem.Mol, parent: bool) -> Registered:
     if len(smiles) > LIMITS["smiles"]:
         raise UnreadableError(f"its SMILES is over {LIMITS['smiles']:,} characters")
     inchi, key, warnings = identify(found.mol)
+    _lost_stereo(found.mol, smiles, inchi)
     found.smiles, found.inchi, found.inchikey = smiles, inchi, key
     found.warnings.extend(f"InChI: {w}." for w in warnings if w != "Omitted undefined stereo")
     return found
+
+
+def _lost_stereo(mol: Chem.Mol, smiles: str, inchi: str) -> None:
+    """Refuses a structure whose standard InChI has stereochemistry its SMILES can't hold,
+    so the compound's SMILES, which its descriptors, depiction and exports are made from,
+    always gives its InChIKey.
+
+    That's a cumulene's: an allene with two different groups at each end is axially
+    chiral (penta-2,3-diene's two enantiomers), and one of three double bonds is E or Z.
+    InChI reads either from a drawing's coordinates, but no SMILES RDKit reads or writes
+    holds it, so both would be one SMILES, which InChI reads as neither."""
+    if "/t" not in inchi and "/b" not in inchi:
+        return  # it has no stereochemistry to lose
+    if identify(from_smiles(smiles))[0] == inchi:
+        return
+    meet = [
+        f"{a.GetSymbol()}{a.GetIdx() + 1}"
+        for a in mol.GetAtoms()
+        if sum(b.GetBondType() == Chem.BondType.DOUBLE for b in a.GetBonds()) == 2
+    ]
+    where = (
+        f"its configuration at {', '.join(meet)}, where its double bonds meet (an allene's "
+        "or cumulene's), is"
+        if meet
+        else "its configuration is"
+    )
+    raise UnreadableError(
+        f"{where} in its standard InChI, from its drawing's coordinates, but no SMILES holds "
+        "it, so its compound's SMILES would be another stereoisomer's too. Draw it without "
+        "its configuration (in 2D, without wedges), say which it is in its name, and record "
+        "what's known as the compound's stereochemistry"
+    )
 
 
 def _parent(cleaned: Chem.Mol) -> Registered:
     fragments = list(Chem.GetMolFrags(cleaned, asMols=True))
     taken: dict[tuple[str, str], int] = {}
     rest: list[Chem.Mol] = []
+    salts: list[Chem.Mol] = []
     for fragment in fragments:
         known = known_part(fragment)
         if known is None:
@@ -447,10 +629,17 @@ def _parent(cleaned: Chem.Mol) -> Registered:
         else:
             kind, counterion = known
             taken[kind, counterion.name] = taken.get((kind, counterion.name), 0) + 1
+            if kind == "salt":
+                salts.append(fragment)
     warnings: list[str] = []
     if not rest:
-        # Nothing but salts or solvents (sodium chloride, say): it is what it is.
-        return Registered(cleaned, "", "", "", warnings=warnings)
+        # Nothing but salts or solvents. With its solvents set aside, one compound, drawn
+        # once or more, is the parent, though it's an acid Iki knows as a counterion:
+        # acetic acid drawn with its water. Anything else (sodium chloride, say) is what it is.
+        if not salts or len({_neutral(f) for f in salts}) > 1:
+            return Registered(cleaned, "", "", "", warnings=warnings)
+        rest = salts
+        taken = {k: n for k, n in taken.items() if k[0] == "solvate"}
     combined = rest[0]
     for fragment in rest[1:]:
         combined = Chem.CombineMols(combined, fragment)
@@ -485,7 +674,7 @@ def _parent(cleaned: Chem.Mol) -> Registered:
         computed = formula_weight(
             neutral, found.salt, found.salt_equivalents, found.solvate, found.solvate_equivalents
         )
-        if abs(drawn - computed) > 0.01:
+        if computed is not None and abs(drawn - computed) > 0.01:
             found.warnings.append(
                 f"Its formula weight from its parent, salt and solvent is {computed:.3f} g/mol, "
                 f"but its structure as drawn weighs {drawn:.3f} g/mol for each parent: its "
@@ -572,10 +761,13 @@ def stripped(registered: Registered) -> bool:
     return registered.as_drawn != registered.smiles or registered.salt_from_field
 
 
-def given_as(registered: Registered) -> str:
+def given_as(registered: Registered, batches: bool = True) -> str:
     """What a name or an ID given with a stripped structure (`stripped`) is of, as the run
-    says it: its structure as drawn, or the salt its fields give."""
+    says it: its structure as drawn, or the salt its fields give (its batch's, with
+    batches)."""
     if registered.salt_from_field:
+        if not batches:
+            return f"a {registered.salt} salt's, by its salt field"
         return f"its batch's, a {registered.salt} salt by its salt field"
     return "its structure's as drawn"
 
@@ -599,7 +791,7 @@ def name_left_out(registered: Registered, name: str, batches: bool) -> str | Non
     if not name or not stripped(registered):
         return None
     return (
-        f"Its name, {cut(name, LIMITS['name'])}, is {given_as(registered)}, not its "
+        f"Its name, {cut(name, LIMITS['name'])}, is {given_as(registered, batches)}, not its "
         f"{'compound' if registered.salt_from_field else 'parent'}'s, so its compound wasn't "
         "given it" + ("; its batch was." if batches else ".")
     )
@@ -623,7 +815,8 @@ def weight_withheld(registered: Registered) -> str | None:
 
 def batch_values(registered: Registered) -> dict[str, Any]:
     """A batch's salt form, from what was taken off its compound, and its formula weight,
-    unless parts of it that aren't salts or solvents were left out (`weight_withheld`)."""
+    unless parts of it that aren't salts or solvents were left out (`weight_withheld`), or
+    how many of its salt there are isn't known (`unstated_equivalents`)."""
     values: dict[str, Any] = {}
     if registered.as_drawn:
         values["structure_as_drawn"] = registered.as_drawn
@@ -632,16 +825,15 @@ def batch_values(registered: Registered) -> dict[str, Any]:
             values[name] = getattr(registered, name)
     if registered.left_out:
         return values
-    values["formula_weight"] = round(
-        formula_weight(
-            registered.mol,
-            registered.salt,
-            registered.salt_equivalents,
-            registered.solvate,
-            registered.solvate_equivalents,
-        ),
-        3,
+    weight = formula_weight(
+        registered.mol,
+        registered.salt,
+        registered.salt_equivalents,
+        registered.solvate,
+        registered.solvate_equivalents,
     )
+    if weight is not None:
+        values["formula_weight"] = round(weight, 3)
     return values
 
 

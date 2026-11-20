@@ -798,7 +798,7 @@ def test_enhanced_stereo_isnt_registered_as_the_stereoisomer_drawn(tmp_path: Pat
         {
             "level": "warning",
             "text": "Record 2 (DL): Its stereocentre C2 is in an AND group, both configurations "
-            "together (a racemate there), which a standard InChIKey can't record, so it was "
+            "together (its two enantiomers), which a standard InChIKey can't record, so it was "
             "registered undefined.",
         },
         {
@@ -829,7 +829,7 @@ def test_relative_stereo_in_a_group_cant_be_registered(tmp_path: Path, group: st
 
 #: 1,1'-Bi-2-naphthol (BINOL), as PubChem gives it (CID 11762), whose two atropisomers,
 #: (R) and (S), are one standard InChIKey there, PPTXVXKCQZKFBN-UHFFFAOYSA-N: a standard
-#: InChI has no layer for axial chirality. Its axis is the bond between atoms 9 and 10.
+#: InChI doesn't record an atropisomer's axis. Its axis is the bond between atoms 9 and 10.
 BINOL = "C1=CC=C2C(=C1)C=CC(=C2C3=C(C=CC4=CC=CC=C43)O)O"
 #: Sotorasib, as PubChem gives it (CID 137278711, NXQKSXLFSAEQCZ-SFHVURJKSA-N, with only
 #: its stereocentre in it): one atropisomer, its axis from its pyrimidinone's N1 (atom 11)
@@ -886,8 +886,8 @@ def test_an_atropisomer_isnt_registered_as_its_axis_undefined(tmp_path: Path) ->
     assert "2 of 3 records can't be imported, so none was." in error
     assert (
         "Record 1 (BINOL): its bond C10-C11 is a stereogenic axis drawn with its "
-        "configuration (an atropisomer). A standard InChI has no layer for axial chirality, "
-        "so both atropisomers would have one InChIKey, and be one compound."
+        "configuration (an atropisomer). A standard InChI doesn't record an atropisomer's "
+        "axis, so both atropisomers would have one InChIKey, and be one compound."
     ) in error
     assert "Record 2 (its enantiomer): its bond C10-C11 is a stereogenic axis" in error
     # Drawn without the wedge, its axis is undefined: BINOL, whichever it is.
@@ -941,7 +941,7 @@ def test_an_axis_in_a_group_of_its_own_is_registered_undefined(
     keys = [c["values"]["inchikey"] for c in output["creates"]]
     assert keys == ["PPTXVXKCQZKFBN-UHFFFAOYSA-N", "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"]
     meaning = (
-        "both configurations together (a racemate there)"
+        "both configurations together (its two enantiomers)"
         if kind == "AND"
         else "one configuration, not known which"
     )
@@ -953,6 +953,105 @@ def test_an_axis_in_a_group_of_its_own_is_registered_undefined(
             "registered undefined.",
         }
     ]
+
+
+def test_a_centre_in_a_group_with_the_rest_defined_is_a_mixture_of_epimers(
+    tmp_path: Path,
+) -> None:
+    # Threonine drawn (2S,3R), L-threonine (PubChem CID 6288), with an AND group on C3
+    # alone: (2S,3R) with (2S,3S), L-threonine with L-allothreonine (CID 99289). They're
+    # diastereomers, not enantiomers, so the mixture isn't a racemate, which IUPAC keeps for
+    # an equimolar pair of enantiomers (Gold Book, R05025). Its C3 is the CXSMILES's atom 2.
+    text = v3000("C[C@@H](O)[C@H](N)C(=O)O |&1:1|", "threonines") + v3000(
+        "C[C@@H](O)C(N)C(=O)O |&1:1|", "C2 undefined"
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "Record 1 (threonines): Its stereocentre C2 is in an AND group, both "
+            "configurations together (two epimers, diastereomers of each other, as the rest of "
+            "its stereochemistry is defined), which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        },
+        # With its other centre undefined, how the two relate isn't known either.
+        {
+            "level": "warning",
+            "text": "Record 2 (C2 undefined): Its stereocentre C2 is in an AND group, both "
+            "configurations together, which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        },
+    ]
+    # Registered with C3 undefined and C2 kept: (2S)-threonine, either configuration at C3.
+    keys = [c["values"]["inchikey"] for c in output["creates"]]
+    assert keys == ["AYFVYJQAPQTCCC-NFJMKROFSA-N", "AYFVYJQAPQTCCC-UHFFFAOYSA-N"]
+
+
+def _mirrored_3d(smiles: str, title: str) -> tuple[str, str]:
+    """SDF records of a structure embedded in 3D, and of its mirror image."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from rdkit.Geometry import Point3D
+
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    assert AllChem.EmbedMolecule(mol, randomSeed=7) == 0  # type: ignore[attr-defined]
+    mirror = Chem.Mol(mol)
+    conformer = mirror.GetConformer()
+    for i in range(mirror.GetNumAtoms()):
+        at = conformer.GetAtomPosition(i)
+        conformer.SetAtomPosition(i, Point3D(-at.x, at.y, at.z))
+    return tuple(  # type: ignore[return-value]
+        f"{title}{n}\n" + Chem.MolToMolBlock(m).split("\n", 1)[1] + "$$$$\n"
+        for n, m in ((1, mol), (2, mirror))
+    )
+
+
+def test_a_cumulenes_configuration_isnt_registered_without_it(tmp_path: Path) -> None:
+    from rdkit import Chem
+    from rdkit.Chem import rdinchi
+
+    # Penta-2,3-diene (PubChem CID 136378) is axially chiral, as an allene with two
+    # different groups at each end is. A standard InChI records which enantiomer from 3D
+    # coordinates, in its /t layer (the InChI Trust's technical FAQ), but no SMILES RDKit
+    # reads or writes holds it, so both would be CC=C=CC, which InChI reads as neither.
+    allene = _mirrored_3d("CC=C=CC", "penta-2,3-diene ")
+    inchis = {rdinchi.MolBlockToInchi(r.removesuffix("$$$$\n"))[0] for r in allene}
+    assert inchis == {
+        "InChI=1S/C5H8/c1-3-5-4-2/h3-4H,1-2H3/t5-/m0/s1",
+        "InChI=1S/C5H8/c1-3-5-4-2/h3-4H,1-2H3/t5-/m1/s1",
+    }
+    # Hexa-2,3,4-triene, a cumulene of three double bonds, is E or Z, which InChI records
+    # (/b) and no SMILES does either.
+    (cumulene, _) = _mirrored_3d("CC=C=C=CC", "hexa-2,3,4-triene ")
+    flat = Chem.MolFromSmiles("CC=C=CC")
+    flat.SetProp("_Name", "penta-2,3-diene")
+    text = "".join(allene) + cumulene + Chem.MolToMolBlock(flat) + "$$$$\n"
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 1
+    assert output is None
+    error = last_error(result)
+    assert "3 of 4 records can't be imported, so none was." in error
+    for n, name, at in (
+        (1, "penta-2,3-diene 1", "C3"),
+        (2, "penta-2,3-diene 2", "C3"),
+        (3, "hexa-2,3,4-triene 1", "C3, C4"),
+    ):
+        assert (
+            f"Record {n} ({name}): its configuration at {at}, where its double bonds meet (an "
+            "allene's or cumulene's), is in its standard InChI, from its drawing's "
+            "coordinates, but no SMILES holds it, so its compound's SMILES would be another "
+            "stereoisomer's too. Draw it without its configuration (in 2D, without wedges), "
+            "say which it is in its name, and record what's known as the compound's "
+            "stereochemistry."
+        ) in error
+    # Drawn without its configuration, it's the compound whichever enantiomer it is.
+    result, output = imported(tmp_path, text, on_error="skip")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert [c["values"]["inchikey"] for c in output["creates"]] == ["PODAMDNJNMAKAZ-UHFFFAOYSA-N"]
+    assert output["metrics"] == {"records": 4, "skipped": 3}
 
 
 def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Path) -> None:
@@ -1049,6 +1148,10 @@ def test_a_salt_field_gives_a_salt_of_an_acid_iki_knows_as_a_counterion(
         ("Cc1ccccc1C(=O)O", "o-toluic acid", {"Salt": "sodium"}),
         # Drawn as sodium benzoate, whole, its Salt field adds nothing.
         ("[Na+].[O-]C(=O)c1ccccc1", "sodium benzoate", {"Salt": "Na"}),
+        # Drawn with its water, the acid is still the parent: sodium acetate trihydrate,
+        # C2H9NaO5 (CID 23665404), 136.08 g/mol; sodium benzoate monohydrate, 162.12.
+        ("CC(=O)O.O.O.O", "sodium acetate trihydrate", {"Salt": "Na"}),
+        ("OC(=O)c1ccccc1.O", "sodium benzoate hydrate", {"Salt": "Na"}),
     )
     for parent in (False, True):
         result, output = imported(tmp_path, text, parent=parent, batches=True)
@@ -1064,7 +1167,237 @@ def test_a_salt_field_gives_a_salt_of_an_acid_iki_knows_as_a_counterion(
             ("sodium", 82.034),
             ("sodium", 158.132),
             (None, 144.105),
+            ("sodium", 136.079),
+            ("sodium", 162.12),
         ]
+        # The parent is the acid, its water the solvate; registered whole, the water is in
+        # the compound.
+        assert [(b.get("solvate"), b.get("solvate_equivalents")) for b in batches[4:]] == (
+            [("water", 3.0), ("water", 1.0)] if parent else [(None, None)] * 2
+        )
+        assert not [m for m in output["messages"] if "formula weight" in m["text"]]
+
+
+#: Atorvastatin, as PubChem gives it in its calcium salt (CID 60822), its acid's hydrogen on.
+ATORVASTATIN = (
+    "CC(C)C1=C(C(=C(N1CC[C@H](C[C@H](CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4"
+)
+#: Folinic acid (leucovorin), as PubChem gives it in its calcium salt (CID 135403647), its
+#: two acids' hydrogens on.
+FOLINIC_ACID = "C1C(N(C2=C(N1)N=C(NC2=O)N)C=O)CNC3=CC=C(C=C3)C(=O)N[C@@H](CCC(=O)O)C(=O)O"
+#: Esomeprazole, as PubChem gives it in its magnesium salt (CID 9568613), whose
+#: benzimidazole gives the magnesium its hydrogen.
+ESOMEPRAZOLE = "CC1=CN=C(C(=C1OC)C)C[S@](=O)C2=NC3=C(N2)C=CC(=C3)OC"
+
+
+def test_a_divalent_metals_equivalents_are_from_charge_balance(tmp_path: Path) -> None:
+    text = sdf_text(
+        # Calcium acetate, Ca(C2H3O2)2 (CID 6116, 158.17 g/mol): one calcium for two
+        # acetates, each with one acid's hydrogen to give, so 79.083 g/mol for each.
+        ("CC(=O)O", "calcium acetate", {"Salt": "Ca"}),
+        # Atorvastatin calcium (CID 60822, C66H68CaF2N4O10, 1155.36 g/mol): 577.681 each.
+        (ATORVASTATIN, "atorvastatin calcium", {"Salt": "calcium"}),
+        # Zinc gluconate (CID 443445, C12H22O14Zn, 455.68 g/mol): 227.842 each.
+        ("C([C@H]([C@H]([C@@H]([C@H](C(=O)O)O)O)O)O)O", "zinc gluconate", {"Salt": "Zn"}),
+        # Magnesium valproate (CID 147515, C16H30MgO4, 310.72 g/mol): 155.358 each.
+        ("CCCC(CCC)C(=O)O", "magnesium valproate", {"Salt": "Mg"}),
+        # Folinic acid has two acids: calcium folinate is one to one (CID 135403647,
+        # C20H21CaN7O7, 511.5 g/mol), but a calcium of two hydrogen folinates balances too.
+        (FOLINIC_ACID, "calcium folinate", {"Salt": "Ca"}),
+        (FOLINIC_ACID, "calcium folinate", {"Salt": "Ca", "Salt_eq": "1"}),
+        # Esomeprazole magnesium (CID 9568613, 713.1 g/mol) is two to one, but by its
+        # benzimidazole's NH, which isn't an acid Iki counts.
+        (ESOMEPRAZOLE, "esomeprazole magnesium", {"Salt": "Mg"}),
+        (ESOMEPRAZOLE, "esomeprazole magnesium", {"Salt": "Mg", "Salt_eq": "0.5"}),
+    )
+    for parent in (False, True):
+        result, output = imported(tmp_path, text, parent=parent, batches=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert output is not None
+        batches = [
+            c["values"]
+            for c in output["creates"]
+            if c["type"] == "iki/small_molecule.CompoundBatch"
+        ]
+        assert [
+            (b["salt"], b.get("salt_equivalents"), b.get("formula_weight")) for b in batches
+        ] == [
+            ("calcium", 0.5, 79.083),
+            ("calcium", 0.5, 577.681),
+            ("zinc", 0.5, 227.842),
+            ("magnesium", 0.5, 155.358),
+            ("calcium", None, None),
+            ("calcium", 1.0, 511.508),
+            ("magnesium", None, None),
+            ("magnesium", 0.5, 356.569),
+        ]
+        said = [m["text"] for m in output["messages"] if "salt field says" in m["text"]]
+        assert said == [
+            *(
+                f"Record {n} ({name}): Its salt field says {salt} but not how many for each "
+                f"of its compound. {salt.capitalize()} is 2+, and its compound has one acid "
+                "group to give a hydrogen for it (a carboxylic acid), so by charge balance "
+                f"it's 0.5: one {salt} for two of it."
+                for n, name, salt in (
+                    (1, "calcium acetate", "calcium"),
+                    (2, "atorvastatin calcium", "calcium"),
+                    (3, "zinc gluconate", "zinc"),
+                    (4, "magnesium valproate", "magnesium"),
+                )
+            ),
+            "Record 5 (calcium folinate): Its batch has no formula weight: its salt field "
+            "says calcium but not how many for each of its compound. Calcium is 2+, and its "
+            "compound has 2 acid groups (carboxylic acids), so charge balance doesn't say how "
+            "many: give its Salt_eq field, such as 1 for one calcium for each of it.",
+            "Record 7 (esomeprazole magnesium): Its batch has no formula weight: its salt "
+            "field says magnesium but not how many for each of its compound. Magnesium is 2+, "
+            "and Iki finds no acid group in its compound to give a hydrogen for it, so charge "
+            "balance doesn't say how many: give its Salt_eq field, such as 0.5 for one "
+            "magnesium for two of it.",
+        ]
+    # Recomputing a batch whose equivalents are blank does the same.
+    batches = [
+        {**entity(i, salt=salt), "included": {"compound": [entity(100 + i, smiles=smiles)]}}
+        for i, (smiles, salt) in enumerate(
+            [("CC(=O)O", "calcium"), (FOLINIC_ACID, "calcium"), ("CC(=O)O", "sodium")], start=1
+        )
+    ]
+    batches[1]["values"]["formula_weight"] = 609.6
+    result, recomputed = script(
+        tmp_path, "descriptors.py", {"inputs": {"batch": batches}}, "batches"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recomputed is not None
+    assert recomputed["updates"]["batch"] == [
+        {"entity": batches[0]["id"], "values": {"formula_weight": 79.083}},
+        {"entity": batches[1]["id"], "values": {"formula_weight": None}},
+        # A sodium salt, one equivalent unless it says otherwise: sodium acetate, 82.034.
+        {"entity": batches[2]["id"], "values": {"formula_weight": 82.034}},
+    ]
+    assert [(m["level"], m["text"]) for m in recomputed["messages"]] == [
+        (
+            "info",
+            "X-1's salt, calcium, has no equivalents. Calcium is 2+, and its compound has one "
+            "acid group to give a hydrogen for it (a carboxylic acid), so by charge balance "
+            "it's 0.5: one calcium for two of it.",
+        ),
+        (
+            "warning",
+            "X-2 has no formula weight: its salt, calcium, has no equivalents. Calcium is 2+, "
+            "and its compound has 2 acid groups (carboxylic acids), so charge balance doesn't "
+            "say how many: give its salt equivalents, such as 1 for one calcium for each of it.",
+        ),
+    ]
+
+
+def test_a_salt_field_isnt_counted_again_on_a_salt_drawn_with_an_isotope(
+    tmp_path: Path,
+) -> None:
+    # Lithium-6 aspirinate (185.166 g/mol: aspirinate's 179.151 and lithium-6's 6.015, NIST)
+    # with its Salt field Li: its lithium is drawn, as lithium-6, so the field adds none.
+    lithium_6 = "CC(=O)Oc1ccccc1C(=O)[O-].[6Li+]"
+    text = sdf_text((lithium_6, "lithium-6 aspirinate", {"Salt": "Li"}))
+    result, output = imported(tmp_path, text, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    batch = output["creates"][1]["values"]
+    assert "salt" not in batch
+    assert batch["formula_weight"] == 185.166
+    assert (
+        "Record 1 (lithium-6 aspirinate): Its salt field says lithium, which its structure, "
+        "registered whole, already has, so its batch doesn't add it again. Register its "
+        "parent to record the salt on its batch."
+    ) in [m["text"] for m in output["messages"]]
+    # Its parent leaves the lithium-6 out, as a part Iki doesn't know: its batch has no
+    # formula weight, and its field doesn't make it a lithium salt again.
+    result, output = imported(tmp_path, text, batches=True, parent=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    batch = output["creates"][1]["values"]
+    assert "salt" not in batch
+    assert "formula_weight" not in batch
+    # Another salt contradicts it, either way.
+    for parent in (False, True):
+        result, _ = imported(
+            tmp_path,
+            sdf_text((lithium_6, "lithium-6 aspirinate", {"Salt": "Na"})),
+            batches=True,
+            parent=parent,
+        )
+        assert result.returncode == 1
+        assert "its salt field says sodium, but its structure" in last_error(result)
+        assert "is a lithium salt" in last_error(result)
+
+
+def test_salt_equivalents_must_agree_with_a_salt_registered_whole(tmp_path: Path) -> None:
+    sodium = "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"
+    result, _ = imported(
+        tmp_path,
+        sdf_text((sodium, "aspirin sodium", {"Salt": "Na", "Salt_eq": "2"})),
+        batches=True,
+    )
+    assert result.returncode == 1
+    assert (
+        "Record 1 (aspirin sodium): its salt equivalents field says 2, but its structure has "
+        "1 sodium for each parent"
+    ) in last_error(result)
+    # Calcium aspirinate, drawn two to one, agrees with 0.5.
+    calcium = "[Ca+2].CC(=O)Oc1ccccc1C(=O)[O-].CC(=O)Oc1ccccc1C(=O)[O-]"
+    result, _ = imported(
+        tmp_path,
+        sdf_text((calcium, "aspirin calcium", {"Salt": "Ca", "Salt_eq": "0.5"})),
+        batches=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_a_salt_fields_names_and_ids_arent_its_compounds_without_batches(
+    tmp_path: Path,
+) -> None:
+    # Aspirin drawn neutral, its Salt field and its supplier's title, CAS number, CID and
+    # synonym those of its sodium salt (CAS 493-53-8, CID 23666729): aspirin is CID 2244.
+    text = sdf_text(
+        (
+            ASPIRIN,
+            "aspirin sodium",
+            {
+                "Salt": "Na",
+                "CAS": "493-53-8",
+                "PUBCHEM_COMPOUND_CID": "23666729",
+                "Synonyms": "sodium acetylsalicylate",
+            },
+        )
+    )
+    for parent in (False, True):
+        result, output = imported(tmp_path, text, parent=parent)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert output is not None
+        (compound,) = output["creates"]
+        assert compound["values"] == {
+            "smiles": ASPIRIN,
+            "inchikey": ASPIRIN_KEY,
+            "inchi": "InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)",
+        }
+        assert [m["text"] for m in output["messages"]] == [
+            "Record 1 (aspirin sodium): Its name, aspirin sodium, is a sodium salt's, by its "
+            "salt field, not its compound's, so its compound wasn't given it.",
+            "Record 1 (aspirin sodium): Its CAS number, PubChem CID and synonyms are a sodium "
+            "salt's, by its salt field, not its compound's, so they were left out.",
+            "These SD fields aren't fields of compounds, so they weren't kept: Salt (1).",
+        ]
+
+
+@pytest.mark.parametrize("says", ["N/A", "n/a", "None", "free base", "Free acid", "-"])
+def test_a_salt_field_saying_there_is_none_is_no_salt(tmp_path: Path, says: str) -> None:
+    # "N/A", stripped to its letters, would read as Na: aspirin isn't its sodium salt.
+    text = sdf_text((ASPIRIN, "aspirin", {"Salt": says}))
+    result, output = imported(tmp_path, text, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    compound, batch = output["creates"]
+    assert compound["values"]["name"] == "aspirin"
+    assert "salt" not in batch["values"]
+    assert batch["values"]["formula_weight"] == 180.159
 
 
 def test_a_salts_names_and_ids_stay_with_its_batch(tmp_path: Path) -> None:
