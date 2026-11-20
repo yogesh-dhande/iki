@@ -5,6 +5,8 @@ inventory never takes a listing it couldn't make as empty, and tearing down may 
 nothing that was there before."""
 
 import json
+import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -320,8 +322,6 @@ def test_waiting_on_the_vm_tier_asks_again_when_a_request_stalls_and_keeps_evide
 ) -> None:
     """A long wait goes through the port-forward, which can stall for a moment: that's asked
     again, not a failure. Each time, what the VM tier's machines are is written down."""
-    import time
-
     import requests
 
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
@@ -349,41 +349,159 @@ def test_waiting_on_the_vm_tier_asks_again_when_a_request_stalls_and_keeps_evide
         found: dict[str, Any] = answer
         return found
 
-    d: Any = SimpleNamespace(gcp=Machines(), settings=settings, machine_observations=[])
+    d: Any = SimpleNamespace(gcp=Machines(), settings=settings)
     assert live.followed(d, "the run", look, {"succeeded", "failed"}, 60) == {"status": "succeeded"}
     written = (tmp_path / "logs" / "machines.log").read_text()
     assert "asking for the run failed: read timed out" in written
     assert written.count("iki-test-11190800-run-1") == 4
-    assert len(d.machine_observations) == 4
 
 
-def test_vm_attempt_requires_one_observed_instance_for_its_logical_worker() -> None:
-    launch = "01a1d3a1-04c4-7657-86e7-9bdd0aa33e57"
-    worker = "iki-run-" + launch.replace("-", "")
-    labels = {"iki-test": "true", "iki-launch": launch, "iki-deployment": SETTINGS.name}
-    vm: dict[str, Any] = {
-        "id": "101",
-        "name": f"{SETTINGS.name}-run-a",
-        "zone": "us-central1-b",
-        "labels": labels,
-    }
-    observations = [
-        {**vm, "name": f"{SETTINGS.name}other-run-a"},
-        {**vm, "labels": {**labels, "iki-test": "false"}},
-        {**vm, "labels": {**labels, "iki-launch": "another-launch"}},
-        {**vm, "labels": {}},
-    ]
-    deployment: Any = SimpleNamespace(settings=SETTINGS, machine_observations=observations)
-    with pytest.raises(AssertionError, match="expected one"):
-        live.check_attempt_machine(deployment, worker)
-    observations.append({**vm, "labels": {**labels, "iki-deployment": "other"}})
-    with pytest.raises(AssertionError):
-        live.check_attempt_machine(deployment, worker)
-    observations.pop()
-    observations.extend([vm, {**vm, "status": "STOPPING"}])
-    live.check_attempt_machine(deployment, worker)
+LAUNCH = "01a1d3a1-04c4-7657-86e7-9bdd0aa33e57"
+PROVISIONER = "run-provisioner@shared-lab.iam.gserviceaccount.com"
+
+
+def vm_activity(instance: str = "101") -> list[dict[str, Any]]:
+    zone = SETTINGS.zones[0]
+    path = f"projects/{SETTINGS.project}/zones/{zone}/instances/{SETTINGS.name}-run-a"
+    labels = {**SETTINGS.labels, "iki-launch": LAUNCH}
+    rows: list[dict[str, Any]] = []
+    for method, phase in (("insert", "first"), ("insert", "last"), ("delete", "last")):
+        payload: dict[str, Any] = {
+            "methodName": "v1.compute.instances." + method,
+            "resourceName": path,
+        }
+        if phase == "first":
+            payload["authenticationInfo"] = {"principalEmail": PROVISIONER}
+            payload["request"] = {"labels": [{"key": k, "value": v} for k, v in labels.items()]}
+        rows.append(
+            {
+                "operation": {"id": f"{method}-{instance}", phase: True},
+                "resource": {
+                    "labels": {
+                        "instance_id": instance,
+                        "project_id": SETTINGS.project,
+                        "zone": zone,
+                    }
+                },
+                "protoPayload": payload,
+            }
+        )
+    return rows
+
+
+def test_a_machine_created_and_deleted_between_live_lists_is_verified_by_its_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The only in-flight list times out. The labelled VM is gone when the retry succeeds."""
+    s = replace(SETTINGS, workdir=tmp_path)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    production = tmp_path / "deploy/gcp/production"
+    production.mkdir(parents=True)
+    (production / "values-gcp.yaml").write_text(
+        json.dumps(
+            {
+                "vmTier": {
+                    "serviceAccountAnnotations": {"iam.gke.io/gcp-service-account": PROVISIONER}
+                }
+            }
+        )
+    )
+    (tmp_path / "gcp-window.json").write_text('{"start":"2026-01-01T00:00:00Z"}')
+    activity = vm_activity()
+    reads: Iterator[AssertionError | str] = iter(
+        [AssertionError("gcloud crashed (ReadTimeout)"), AssertionError("read timed out"), "[]"]
+    )
+    audits = iter([activity[:2], activity])
+    delays: list[float] = []
+    monkeypatch.setattr(time, "sleep", delays.append)
+
+    class Gcp:
+        def gcloud(self, *args: str) -> str:
+            if args[:2] == ("logging", "read"):
+                assert "cloudaudit.googleapis.com%2Factivity" in args[2]
+                assert "protoPayload.request.labels" in args[3]
+                return json.dumps(next(audits))
+            assert args[:3] == ("compute", "instances", "list")
+            reply = next(reads)
+            if isinstance(reply, AssertionError):
+                raise reply
+            return reply
+
+    d: Any = SimpleNamespace(settings=s, gcp=Gcp())
+    assert live.machines(d) == []
+    assert delays == [1, 2]
+    live.check_attempt_machine(d, "iki-run-" + LAUNCH.replace("-", ""))
+    assert json.loads((logs / "vm-activity.json").read_text()) == activity
     with pytest.raises(AssertionError, match="invalid VM-tier worker name"):
-        live.check_attempt_machine(deployment, vm["name"])
-    observations.append({**vm, "id": "102"})
-    with pytest.raises(AssertionError, match="expected one"):
-        live.check_attempt_machine(deployment, worker)
+        live.check_attempt_machine(d, f"{s.name}-run-a")
+
+
+def test_audit_requires_one_distinct_instance_even_if_only_one_was_deleted() -> None:
+    a = vm_activity()
+    assert live.audited_machine(a[::-1] + a, SETTINGS, PROVISIONER, LAUNCH)
+    with pytest.raises(AssertionError, match="multiple GCE instances"):
+        live.audited_machine(a + vm_activity("102")[:2], SETTINGS, PROVISIONER, LAUNCH)
+
+
+def test_audit_requires_the_provisioner_launch_and_both_ownership_labels() -> None:
+    assert not live.audited_machine(vm_activity(), SETTINGS, "other-account", LAUNCH)
+    assert not live.audited_machine(vm_activity(), SETTINGS, PROVISIONER, "another-launch")
+    for key in ("iki-test", "iki-deployment"):
+        rows = vm_activity()
+        labels = rows[0]["protoPayload"]["request"]["labels"]
+        next(item for item in labels if item["key"] == key)["value"] = "wrong"
+        with pytest.raises(AssertionError, match="ownership labels"):
+            live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+    for key in ("project_id", "zone"):
+        rows = vm_activity()
+        for row in rows:
+            row["resource"]["labels"][key] = "other"
+        assert not live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+    rows = vm_activity()
+    for row in rows:
+        row["protoPayload"]["resourceName"] = row["protoPayload"]["resourceName"].replace(
+            SETTINGS.name, SETTINGS.name + "other"
+        )
+    assert not live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+
+
+def test_audit_needs_a_successful_insert_and_delete_of_the_very_same_instance() -> None:
+    rows = vm_activity()
+    assert not live.audited_machine([], SETTINGS, PROVISIONER, LAUNCH)
+    assert not live.audited_machine(rows[:2], SETTINGS, PROVISIONER, LAUNCH)
+    assert not live.audited_machine(
+        rows[:2] + vm_activity("102")[2:], SETTINGS, PROVISIONER, LAUNCH
+    )
+    for index in range(3):
+        rows = vm_activity()
+        rows[index]["protoPayload"]["status"] = {"code": 7}
+        assert not live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+    rows = vm_activity()
+    rows[1]["operation"]["id"] = "different-insert"
+    assert not live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+    rows = vm_activity()
+    rows[2]["operation"] = {"id": "delete-101", "first": True}
+    assert not live.audited_machine(rows, SETTINGS, PROVISIONER, LAUNCH)
+
+
+def test_listing_errors_cannot_establish_that_the_vm_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delays: list[float] = []
+    monkeypatch.setattr(time, "sleep", delays.append)
+
+    class Denied:
+        def gcloud(self, *args: str) -> str:
+            raise AssertionError("permission denied")
+
+    class TimedOut:
+        def gcloud(self, *args: str) -> str:
+            raise AssertionError("gcloud crashed (ReadTimeout)")
+
+    with pytest.raises(AssertionError, match="permission denied"):
+        live.vm_listing(Denied())  # type: ignore[arg-type]
+    assert not delays
+    with pytest.raises(AssertionError, match="ReadTimeout"):
+        live.vm_listing(TimedOut())  # type: ignore[arg-type]
+    assert delays == [1, 2]

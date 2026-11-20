@@ -65,6 +65,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -83,7 +84,7 @@ from iki_live import REPO, Iki, until
 pytestmark = pytest.mark.gcp_live
 
 #: Bumped when what the suite checks changes: recorded with each passing run.
-SUITE_VERSION = "5"
+SUITE_VERSION = "6"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -658,7 +659,6 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
 @dataclass
 class Deployment(iki_live.Live):
     settings: Settings = None  # type: ignore[assignment]
-    machine_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def gcp(self) -> Gcp:
@@ -1277,38 +1277,113 @@ def setup_build(deployment: Deployment, compute_admin: Iki) -> dict[str, Any]:
 # --- What the VM tier's machines say, while they're there ------------------------------------
 
 
+def vm_listing(gcp: Gcp, *args: str) -> list[dict[str, Any]]:
+    """Retry a transient gcloud read timeout. A failed listing never proves absence."""
+    retries = 0
+    while True:
+        try:
+            rows: list[dict[str, Any]] = json.loads(gcp.gcloud(*args))
+            return rows
+        except (AssertionError, subprocess.TimeoutExpired) as error:
+            if retries == 2 or not re.search(
+                r"timed out|timeout|deadline.exceeded", str(error), re.I
+            ):
+                raise
+            time.sleep(2**retries)
+            retries += 1
+
+
 def machines(d: Deployment) -> list[dict[str, Any]]:
-    """List the deployment's current VMs and remember them after the provisioner deletes them."""
-    listed = d.gcp.gcloud(
+    """The deployment's current VMs, for diagnostics and checking that they are gone."""
+    return vm_listing(
+        d.gcp,
         "compute",
         "instances",
         "list",
         f"--filter=name~^{d.settings.name}-",
         "--format=json(id,name,zone.basename(),status,labels)",
     )
-    found: list[dict[str, Any]] = json.loads(listed or "[]")
-    d.machine_observations.extend(found)
-    return found
 
 
-def check_attempt_machine(deployment: Deployment, worker: str | None) -> None:
-    """Link the logical worker name to exactly one GCE instance observed during the run."""
-    launch = re.fullmatch(r"iki-run-([0-9a-f]{32})", worker or "")
-    assert launch, f"invalid VM-tier worker name: {worker!r}"
-    launch_id = str(UUID(launch[1]))
-    owner = deployment.settings.name
-    matches = {
-        (vm["zone"], vm["id"]): vm
-        for vm in deployment.machine_observations
-        if vm["name"].startswith(f"{owner}-")
-        and vm.get("labels", {}).get("iki-test") == "true"
-        and vm["labels"].get("iki-launch") == launch_id
-    }
-    assert len(matches) == 1, (
-        f"expected one {owner} GCE instance for {worker}, found {list(matches)}"
+def audited_machine(rows: list[dict[str, Any]], s: Settings, provisioner: str, launch: str) -> bool:
+    """Join the labelled insert request to its completion and delete, even after the VM is gone."""
+    requested: set[tuple[str, str, str]] = set()
+    inserted: set[tuple[str, str, str]] = set()
+    deleted: set[tuple[str, str]] = set()
+    for row in rows:
+        payload = row["protoPayload"]
+        resource = row["resource"]["labels"]
+        instance = resource.get("instance_id", "")
+        path = payload["resourceName"]
+        prefix = f"projects/{s.project}/zones/{resource.get('zone')}/instances/{s.name}-"
+        if (
+            resource.get("project_id") != s.project
+            or not instance.isdecimal()
+            or not path.startswith(prefix)
+        ):
+            continue
+        op = row.get("operation", {})
+        if not op.get("id") or payload.get("status", {}).get("code", 0) != 0:
+            continue
+        identity = (instance, path)
+        method = payload["methodName"]
+        if method == "v1.compute.instances.delete" and op.get("last"):
+            deleted.add(identity)
+        if method != "v1.compute.instances.insert":
+            continue
+        insert = (*identity, op["id"])
+        if op.get("last"):
+            inserted.add(insert)
+        if (
+            op.get("first")
+            and payload.get("authenticationInfo", {}).get("principalEmail") == provisioner
+        ):
+            labels = {
+                item["key"]: item["value"] for item in payload.get("request", {}).get("labels", [])
+            }
+            if labels.get("iki-launch") == launch:
+                assert all(labels.get(k) == v for k, v in s.labels.items()), (
+                    f"incorrect ownership labels for {path}"
+                )
+                requested.add(insert)
+    identities = {(instance, path) for instance, path, _ in requested}
+    assert len(identities) <= 1, f"multiple GCE instances for launch {launch}: {sorted(identities)}"
+    return bool(requested & inserted) and bool(identities & deleted)
+
+
+def check_attempt_machine(d: Deployment, worker: str | None) -> None:
+    """One physical machine created by this provisioner for the logical worker, then deleted."""
+    match = re.fullmatch(r"iki-run-([0-9a-f]{32})", worker or "")
+    assert match, f"invalid VM-tier worker name: {worker!r}"
+    launch = str(UUID(match[1]))
+    s = d.settings
+    values = yaml.safe_load((s.workdir / "deploy/gcp/production/values-gcp.yaml").read_text())
+    provisioner = values["vmTier"]["serviceAccountAnnotations"]["iam.gke.io/gcp-service-account"]
+    assert provisioner, "the deployment has no provisioner service account"
+    started = json.loads((s.workdir / "gcp-window.json").read_text())["start"]
+    query = (
+        f'logName="projects/{s.project}/logs/cloudaudit.googleapis.com%2Factivity" '
+        f'AND timestamp >= "{started}" AND resource.type="gce_instance" '
+        'AND protoPayload.serviceName="compute.googleapis.com" '
+        f'AND protoPayload.resourceName:"/instances/{s.name}-" '
+        'AND (protoPayload.methodName="v1.compute.instances.insert" '
+        'OR protoPayload.methodName="v1.compute.instances.delete")'
     )
-    (machine,) = matches.values()
-    assert machine["labels"].get("iki-deployment") == owner, machine
+    # The complete insert request contains the startup script and its launch token.
+    # Project only the identity, caller, labels and operation outcome.
+    projection = (
+        "--format=json(operation,resource.labels,protoPayload.methodName,protoPayload.resourceName,"
+        "protoPayload.authenticationInfo.principalEmail,protoPayload.request.labels,protoPayload.status.code)"
+    )
+
+    def recorded() -> bool:
+        rows = vm_listing(d.gcp, "logging", "read", query, projection)
+        (s.workdir / "logs" / "vm-activity.json").write_text(json.dumps(rows, indent=2))
+        return audited_machine(rows, s, provisioner, launch)
+
+    until(
+        f"one completed provisioner insert and delete for {worker} in Admin Activity", recorded, 300
+    )
 
 
 def keep_evidence(d: Deployment) -> list[dict[str, Any]]:
@@ -1321,7 +1396,7 @@ def keep_evidence(d: Deployment) -> list[dict[str, Any]]:
     logs.mkdir(parents=True, exist_ok=True)
     try:
         found = machines(d)
-    except AssertionError as error:
+    except (AssertionError, subprocess.TimeoutExpired) as error:
         with (logs / "machines.log").open("a") as out:
             out.write(f"listing failed: {error}\n")
         return []
