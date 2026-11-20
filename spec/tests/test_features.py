@@ -511,3 +511,94 @@ def test_from_any_origin_on_either_strand_every_part_covers_the_same_bases(
             assert back == features, (offset, reverse)
             for f, original in zip(along, back, strict=True):
                 assert read(original, bases) == read(f, text), (offset, reverse, f)
+
+
+# --- the qualifiers that name a position ---------------------------------------------
+
+
+def test_a_translation_exception_names_the_codon_it_is_on() -> None:
+    """INSDC's `/transl_except=(pos:<location>,aa:<amino acid>)` names the codon whose
+    translation is exceptional, in the record's own numbering. A selenoprotein's CDS
+    read from another origin keeps its geometry, and the qualifier has to follow it or
+    it names another codon: submitted as ATGTGAAAA with `CDS 1..9` and the exception on
+    4..6 (TGA, read as Sec), and stored from the entry's own origin as AAAAATGTG, that
+    codon lies on 8, 9 and 1 -- which is where the qualifier has to say it is."""
+    submitted = "ATGTGAAAA"
+    assert submitted[3:6] == "TGA"
+    # The entry's own sequence is the least rotation of the molecule, five bases along.
+    placement = Placement(offset=5)
+    stored = submitted[5:] + submitted[:5]
+    assert stored == "AAAAATGTG"
+    cds = {
+        "type": "CDS",
+        "start": 1,
+        "end": 9,
+        "strand": "forward",
+        "qualifiers": {"transl_except": "(pos:4..6,aa:Sec)"},
+    }
+    out = place_feature(cds, placement, len(submitted), circular=True)
+    assert out["qualifiers"]["transl_except"] == "(pos:join(8..9,1..1),aa:Sec)"
+    # Those three bases of the entry's sequence are the codon the record meant.
+    assert stored[7] + stored[8] + stored[0] == "TGA"
+    # Placed back along the record's own sequence it reads as it was submitted, which is
+    # how every other coordinate here keeps what the record said.
+    back = place_feature(out, Placement(offset=len(submitted) - 5), len(submitted), circular=True)
+    assert back["qualifiers"]["transl_except"] == "(pos:4..6,aa:Sec)"
+
+
+def test_an_anticodon_and_a_repeat_range_are_written_along_the_entry() -> None:
+    """`/anticodon` and `/rpt_unit_range` name positions in the record's own numbering
+    too, so they move with the feature. Only the `pos:` of an anticodon moves; the amino
+    acid and the bases beside it are left alone."""
+    placement = Placement(offset=10)
+    trna = {
+        "type": "tRNA",
+        "start": 1,
+        "end": 72,
+        "strand": "forward",
+        "qualifiers": {"anticodon": "(pos:34..36,aa:Phe,seq:gaa)", "note": "tRNA-Phe"},
+    }
+    out = place_feature(trna, placement, 100, circular=True)
+    assert out["qualifiers"] == {
+        "anticodon": "(pos:24..26,aa:Phe,seq:gaa)",
+        "note": "tRNA-Phe",
+    }
+    repeat = {
+        "type": "repeat_region",
+        "start": 20,
+        "end": 60,
+        "qualifiers": {"rpt_unit_range": "20..25"},
+    }
+    assert place_feature(repeat, placement, 100, circular=True)["qualifiers"] == {
+        "rpt_unit_range": "10..15"
+    }
+
+
+def test_a_position_on_a_linear_duplex_follows_its_reversal() -> None:
+    """A linear duplex whose reverse complement sorts first is stored reversed, with no
+    offset, so a position has to be reflected there as well -- not only round a circular
+    origin. Submitted TTTTTTTGACCC, whose reverse complement GGGTCAAAAAAA sorts first,
+    with `CDS 1..12` and the exception on 7..9 (TGA): on the stored strand those bases
+    are 4..6, read the other way."""
+    submitted = "TTTTTTTGACCC"
+    assert submitted[6:9] == "TGA"
+    cds = {
+        "type": "CDS",
+        "start": 1,
+        "end": 12,
+        "strand": "forward",
+        "qualifiers": {"transl_except": "(pos:7..9,aa:Sec)"},
+    }
+    out = place_feature(cds, Placement(reverse=True), len(submitted), circular=False)
+    assert out["strand"] == "reverse"
+    assert out["qualifiers"]["transl_except"] == "(pos:complement(4..6),aa:Sec)"
+
+
+def test_a_position_that_isnt_one_here_is_left_as_it_is() -> None:
+    """A qualifier with no `pos:`, or one naming another record or running off this
+    sequence, is left as the record gave it: there's nothing of this sequence to move."""
+    placement = Placement(offset=10)
+    for value in ("(aa:Sec)", "(pos:J02400.1:4..6,aa:Sec)", "(pos:1..6000,aa:Sec)"):
+        f = {"type": "CDS", "start": 1, "end": 9, "qualifiers": {"transl_except": value}}
+        out = place_feature(f, placement, 5243, circular=True)
+        assert out["qualifiers"]["transl_except"] == value, value
