@@ -266,6 +266,21 @@ describe("home", () => {
     );
   });
 
+  it("opens a project named Others from an Org Admin's home page", async () => {
+    // Whether there are others to see is cached beside each project: a project whose slug
+    // is "others" is a project, not that answer.
+    signedIn({ can: { ...ME.can, manage_org: true } });
+    const others = project({ id: "p4", name: "Others", slug: "others", my_role: null });
+    answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
+      page(query.get("member") === "true" ? [] : [others]),
+    );
+    const { user } = await renderApp("/");
+    await user.click(await screen.findByRole("link", { name: "See all projects" }));
+    await user.click(await screen.findByRole("link", { name: "Others" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Others" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Overview" })).toBeVisible();
+  });
+
   it("points Org Admins without a team at teams", async () => {
     signedIn({
       can: {

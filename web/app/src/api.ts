@@ -231,9 +231,11 @@ export function projectByIdQuery(id: string) {
   });
 }
 
+/** One project, by its slug. Its key says "by-slug": a slug is whatever people name a
+ * project, so it mustn't share a place with the other answers kept under "projects". */
 export function projectQuery(slug: string) {
   return queryOptions({
-    queryKey: ["projects", slug],
+    queryKey: ["projects", "by-slug", slug],
     queryFn: async () => {
       const found = unwrap(await iki.GET("/api/v1/projects", { params: { query: { slug } } }));
       const project = found.items[0];
