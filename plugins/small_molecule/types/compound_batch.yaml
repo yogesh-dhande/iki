@@ -76,6 +76,9 @@ fields:
     description: >-
       How many of its salt there are for each of the compound: 1 for a
       hydrochloride, 0.5 for a hemisulfate or for a calcium salt of an acid.
+      Left blank, it's 1; for calcium, magnesium or zinc, it's what charge
+      balance says, 0.5 for a compound with one acid group, and otherwise
+      unknown, so the batch has no formula weight.
   solvate:
     type: enum
     values:

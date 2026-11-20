@@ -9,7 +9,9 @@ its run fails, naming both keys, and the rest of a batch go on.
 A batch's formula weight is its compound's molecular weight, from the compound's SMILES,
 with its salt and solvent (`chemistry.formula_weight`). A batch whose structure as drawn
 has parts that are neither its compound nor a salt or solvent Iki knows has none: what
-they add to the material isn't known (`chemistry.weight_withheld`).
+they add to the material isn't known (`chemistry.weight_withheld`). Nor has one whose
+salt's equivalents are blank when charge balance doesn't say how many
+(`chemistry.unstated_equivalents`), such as a calcium salt of a compound with two acids.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from chemistry import (
     identify,
     run_input,
     standardise,
+    unstated_equivalents,
     write_output,
 )
 
@@ -96,13 +99,30 @@ def batches(run: dict[str, Any]) -> dict[str, Any]:
             if values.get("formula_weight") is not None:
                 updates.append({"entity": entity["id"], "values": {"formula_weight": None}})
             continue
+        salt = values.get("salt")
         weight = formula_weight(
             mol,
-            values.get("salt"),
+            salt,
             values.get("salt_equivalents"),
             values.get("solvate"),
             values.get("solvate_equivalents"),
         )
+        if salt and values.get("salt_equivalents") is None:
+            balance = unstated_equivalents(mol, salt)
+            said = f"salt, {salt}, has no equivalents. {balance.why}"
+            if weight is None:
+                messages.add(
+                    "warning",
+                    f"{entity['hrid']} has no formula weight: its {said}: give its salt "
+                    f"equivalents, {balance.example}.",
+                    entity["id"],
+                )
+            elif balance.why:
+                messages.add("info", f"{entity['hrid']}'s {said}.", entity["id"])
+        if weight is None:
+            if values.get("formula_weight") is not None:
+                updates.append({"entity": entity["id"], "values": {"formula_weight": None}})
+            continue
         updates.append({"entity": entity["id"], "values": {"formula_weight": round(weight, 3)}})
         print(f"{entity['hrid']} of {found[0]['hrid']}: {weight:.3f} g/mol")
     return {"updates": {"batch": updates}, "messages": messages.output()}

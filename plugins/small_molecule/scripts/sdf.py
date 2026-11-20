@@ -8,8 +8,8 @@ compound's fields (or, with batches, a batch's) are kept, matched by name whatev
 their case, spaces and underscores, and by the names suppliers and PubChem give them
 (`FIELDS`); the run says which others it left out. A record's names and IDs are its
 material's, so a compound that isn't that material (a salt's parent, drawn so or made a
-salt by the record's Salt field) isn't given them. Each records which file and record it
-came from, with the record's SHA-256.
+salt by the record's Salt field, with batches or without) isn't given them. Each records
+which file and record it came from, with the record's SHA-256.
 
 A record that can't be registered fails the import, which names each such record and
 says why, so nothing is half imported; or, with `on_error: skip`, is left out, saying
@@ -43,16 +43,18 @@ from chemistry import (
     cas_number,
     compound_values,
     cut,
-    drawn_salts,
     fail,
     from_smiles,
     given_as,
+    labelled_salt,
     name_left_out,
     rdkit_messages,
     run_input,
     standardise,
     stripped,
+    unstated_equivalents,
     weight_withheld,
+    whole_salts,
     why_not,
     write_output,
 )
@@ -130,6 +132,11 @@ SALT_NAMES = {
     "tosilate": "tosylate",
     "nh4": "ammonium",
 }
+#: What a Salt field says when the material is its compound, not a salt of it.
+NO_SALT = {"", "-", "n/a", "none", "free base", "freebase", "free acid", "free-base", "neutral"}
+#: The batch's fields that say what its material is, so a record's names and IDs are a
+#: salt's: read whether or not the run makes batches.
+MATERIAL = {"salt", "salt_equivalents"}
 AMOUNT = re.compile(r"^([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*(mg|g|ug|µg|μg|kg)?$")
 #: The amount's fields whose names give its unit, so a bare number in them is in mg. In
 #: others (Amount, Mass, Quantity) a bare number could be anything, a molecular mass say.
@@ -228,7 +235,11 @@ def label(record: Record, name: str) -> str:
 # --- Values --------------------------------------------------------------------------------------
 
 
-def _salt(text: str) -> str:
+def _salt(text: str) -> str | None:
+    """The salt a Salt field names, or None when it says there's none (`NO_SALT`): "N/A"
+    isn't Na."""
+    if " ".join(text.lower().split()) in NO_SALT:
+        return None
     word = re.sub(r"[^a-z0-9]", "", text.lower())
     found = SALT_NAMES.get(word, word)
     if found not in SALTS:
@@ -268,15 +279,18 @@ def _date(text: str) -> str:
 
 
 def field_values(record: Record, batches: bool) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
-    """The compound's and the batch's values its SD fields give, and the fields left out."""
+    """The compound's and the batch's values its SD fields give, and the fields left out.
+    Without batches, the batch's are only its salt form (`MATERIAL`), which says what the
+    material is, and they're left out too."""
     compound: dict[str, Any] = {}
     batch: dict[str, Any] = {}
     left: list[str] = []
     for sd_name, text in record.fields.items():
         found = FIELDS.get(_key(sd_name))
-        if found is None or (found[0] == "batch" and not batches) or not text:
+        if found is None or not text or (found[0] == "batch" and not batches):
             left.append(sd_name)
-            continue
+            if found is None or not text or found[1] not in MATERIAL:
+                continue
         name = found[1]
         text = text[:MAX_FIELD]
         if name == "synonyms":
@@ -319,7 +333,9 @@ def field_values(record: Record, batches: bool) -> tuple[dict[str, Any], dict[st
         elif name == "received":
             batch["received"] = _date(text)
         elif name == "salt":
-            batch["salt"] = _salt(text)
+            salt = _salt(text)
+            if salt is not None:
+                batch["salt"] = salt
         elif name == "salt_equivalents":
             batch["salt_equivalents"] = _number(text, "salt equivalents", 0, 10)
         else:
@@ -327,45 +343,83 @@ def field_values(record: Record, batches: bool) -> tuple[dict[str, Any], dict[st
     return compound, batch, left
 
 
-def _batch(registered: Registered, given: dict[str, Any]) -> dict[str, Any]:
-    """The batch's values: what the structure says of its salt form, with what its SD
-    fields give, which must agree. A salt is counted once: from the structure when it
-    shows one, else from the fields."""
+def _salt_form(registered: Registered, given: dict[str, Any]) -> list[str]:
+    """Settles the record's salt form from what its structure shows and what its Salt and
+    Salt_eq fields say, which must agree, and what to say of it on its batch. A salt is
+    counted once: from the structure when it shows one, else from the fields, which then
+    make the material a salt of the compound (`salt_from_field`), so its names and IDs
+    aren't the compound's, with a batch or without one."""
     drawn = registered.salt
-    if given.get("salt") and drawn and given["salt"] != drawn:
+    salt, each = given.get("salt"), given.get("salt_equivalents")
+    if salt and drawn and salt != drawn:
+        raise UnreadableError(f"its salt field says {salt}, but its structure is a {drawn} salt")
+    if each is not None and drawn:
+        _agree(each, drawn, registered.salt_equivalents or 0.0)
+    if drawn or not (salt or each is not None):
+        return []
+    whole = whole_salts(registered.mol)
+    if whole:
+        # Registered whole, the compound is the salt already: the fields add nothing.
+        if salt and salt not in whole:
+            raise UnreadableError(
+                f"its salt field says {salt}, but its structure, registered whole, is a "
+                f"{', '.join(sorted(whole))} salt"
+            )
+        named = salt or (next(iter(whole)) if len(whole) == 1 else None)
+        if each is not None and named is not None:
+            _agree(each, named, whole[named])
+        if not salt:
+            return []
+        return [
+            f"Its salt field says {salt}, which its structure, registered whole, already has, "
+            "so its batch doesn't add it again. Register its parent to record the salt on its "
+            "batch."
+        ]
+    # A part its parent left out may be a salt drawn with an isotope (lithium-6): the
+    # material has it, as that isotope, so a field naming it doesn't add it again.
+    labelled = {
+        part: found.name
+        for part in registered.left_out
+        if (found := labelled_salt(from_smiles(part))) is not None
+    }
+    if salt and labelled:
+        if salt not in labelled.values():
+            raise UnreadableError(
+                f"its salt field says {salt}, but its structure is a "
+                f"{', '.join(sorted(set(labelled.values())))} salt"
+            )
+        parts = ", ".join(p for p, name in labelled.items() if name == salt)
+        return [
+            f"Its salt field says {salt}, which its structure has already, drawn as {parts}, "
+            "so its batch doesn't add it again."
+        ]
+    if not salt:
+        return []
+    # A salt only its field gives: the material is that salt of the structure drawn. A
+    # structure of one part (benzoic acid, say, though benzoate is a salt Iki knows) is the
+    # parent its field's salt is of.
+    registered.salt = salt
+    registered.salt_from_field = True
+    if each is not None:
+        registered.salt_equivalents = each
+        return []
+    balance = unstated_equivalents(registered.mol, salt)
+    registered.salt_equivalents = balance.equivalents
+    said = f"Its salt field says {salt} but not how many for each of its compound. "
+    if balance.equivalents is None:
+        return [
+            f"Its batch has no formula weight: {said[0].lower()}{said[1:]}{balance.why}: give "
+            f"its Salt_eq field, {balance.example}."
+        ]
+    return [f"{said}{balance.why}."] if balance.why else []
+
+
+def _agree(given: float, salt: str, each: float) -> None:
+    if abs(given - each) > 0.01:
         raise UnreadableError(
-            f"its salt field says {given['salt']}, but its structure is a {drawn} salt"
+            f"its salt equivalents field says {given:g}, but its structure has {each:g} "
+            f"{salt} for each parent"
         )
-    if "salt_equivalents" in given and drawn:
-        each = registered.salt_equivalents or 0.0
-        if abs(given["salt_equivalents"] - each) > 0.01:
-            raise UnreadableError(
-                f"its salt equivalents field says {given['salt_equivalents']:g}, but its "
-                f"structure has {each:g} {drawn} for each parent"
-            )
-    if given.get("salt") and not drawn:
-        # A salt it's registered as whole is a part of it: a structure of one part (benzoic
-        # acid, say, though benzoate is a salt Iki knows) is the parent its field's salt is of.
-        parts = len(Chem.GetMolFrags(registered.mol))
-        whole = drawn_salts(registered.mol) if parts > 1 else set()
-        if whole and given["salt"] not in whole:
-            raise UnreadableError(
-                f"its salt field says {given['salt']}, but its structure, registered whole, "
-                f"is a {', '.join(sorted(whole))} salt"
-            )
-        if whole:
-            # Registered whole, the compound is the salt already: its batch adds nothing.
-            registered.warnings.append(
-                f"Its salt field says {given['salt']}, which its structure, registered whole, "
-                "already has, so its batch doesn't add it again. Register its parent to "
-                "record the salt on its batch."
-            )
-        else:
-            registered.salt = given["salt"]
-            registered.salt_equivalents = given.get("salt_equivalents", 1.0)
-            registered.salt_from_field = True
-    rest = {k: v for k, v in given.items() if k not in ("salt", "salt_equivalents")}
-    return {**batch_values(registered), **rest}
 
 
 # --- Importing -----------------------------------------------------------------------------------
@@ -386,9 +440,9 @@ def _creates(
     standardised structure; and the SD fields it left out."""
     compound, batch, left = field_values(record, batches)
     registered = standardise(structure(record), parent)
-    # Its batch first: a salt its Salt field gives makes the material that salt, not the
-    # compound, so the record's names and IDs aren't the compound's.
-    lot_values = _batch(registered, batch) if batches else {}
+    # Its salt form first: a salt its Salt field gives makes the material that salt, not
+    # the compound, so the record's names and IDs aren't the compound's.
+    said = _salt_form(registered, batch)
     left_out = name_left_out(registered, name, batches)
     if left_out:
         record.warnings.append(left_out)
@@ -404,7 +458,7 @@ def _creates(
             listed = ", ".join(theirs[:-1]) + " and " + theirs[-1] if len(theirs) > 1 else theirs[0]
             record.warnings.append(
                 f"Its {listed} {'are' if many else 'is'} "
-                f"{given_as(registered)}, not its "
+                f"{given_as(registered, batches)}, not its "
                 f"{'compound' if registered.salt_from_field else 'parent'}'s, so "
                 f"{'they were' if many else 'it was'} left out."
             )
@@ -423,12 +477,14 @@ def _creates(
         return [made], registered, left
     key = f"record-{record.number}"
     named = {"name": name} if name else {}
+    record.warnings.extend(said)
     withheld = weight_withheld(registered)
     if withheld:
         record.warnings.append(withheld)
+    rest = {k: v for k, v in batch.items() if k not in MATERIAL}
     lot = {
         "type": "iki/small_molecule.CompoundBatch",
-        "values": {"compound": {"$create": key}, **named, **lot_values},
+        "values": {"compound": {"$create": key}, **named, **batch_values(registered), **rest},
         "origin": origin,
     }
     return [{**made, "key": key}, lot], registered, left
