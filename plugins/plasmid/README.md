@@ -168,13 +168,23 @@ parts), at least 90% identity`.
 - **Gateway LR and BP, and TOPO** are recorded as what was done, and not simulated: the
   run says so.
 - A plan that makes **no** circle says that no arrangement joins all the way round; one
-  that makes **several** says how many and how long each is, and makes none, since the
-  plan doesn't say which. Giving the product and checking the plan against it settles an
-  ambiguous plan.
+  that makes **several** says how many and how long each is, and `assemble` makes none,
+  since the plan doesn't say which. The **check** does settle such a plan: the clone's
+  sequence says which of the circles was made, so the product being one of them is a
+  match, with a warning that the plan on its own didn't predict it. A product that is
+  none of them doesn't match, and then no length or junctions are claimed either.
 - The check compares what the plan makes with the product's sequence **as molecules**:
   the same bases from any origin and on either strand are the same molecule (ADR 0138),
   found by the least rotation of each strand (Booth's algorithm, in linear time). So a
-  clone sequenced from another origin, or on the other strand, matches its plan.
+  clone sequenced from another origin, or on the other strand, matches its plan. A
+  molecule is its bases, its topology and its strand count, so a linear or
+  single-stranded product isn't what a plan closing a duplex circle makes, however its
+  bases read.
+- **A result stands for the plan it was found from.** A plan's method, enzymes, backbone
+  or inserts changing checks it again, and a check that can't reach a result clears the
+  old one rather than leaving it to be read as current. Built and Verified each need the
+  plan to match at that moment, not only when it was first checked — Verified locks the
+  record, so what it attests has to hold then.
 
 Nothing here models partly double-stranded molecules beyond an end's overhang,
 methylation, star activity or a nick left by a ligation: a plan whose ends don't pair

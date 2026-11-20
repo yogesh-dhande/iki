@@ -65,11 +65,23 @@ def command(tmp_path: Path, which: str, run: dict[str, Any]) -> tuple[dict[str, 
     return output, result.stdout
 
 
-def sequence(n: int, bases: str, *, topology: str = "circular", name: str = "") -> dict[str, Any]:
+def sequence(
+    n: int,
+    bases: str,
+    *,
+    topology: str = "circular",
+    name: str = "",
+    strandedness: str = "double",
+) -> dict[str, Any]:
     return {
         "id": f"00000000-0000-0000-0000-{n:012d}",
         "hrid": f"DNA-{n:06d}",
-        "values": {"bases": bases, "topology": topology, "name": name},
+        "values": {
+            "bases": bases,
+            "topology": topology,
+            "strandedness": strandedness,
+            "name": name,
+        },
     }
 
 
@@ -244,29 +256,6 @@ def test_a_fragment_turned_round_twice_is_itself_again(cloning: ModuleType) -> N
     assert both_on_top.reversed().reversed() == both_on_top
     both_below = both_on_top.reversed()
     assert len(both_below.other_strand()) == len(both_below.bases) + 8
-
-
-def test_an_insert_goes_in_either_way_round_and_keeps_both_sites(tmp_path: Path) -> None:
-    """The neo gene with an EcoRI site at each end, ligated into EcoRI-cut pUC19: the
-    ordinary non-directional cloning that gives both orientations. Each product is
-    3,487 bp, has the gene on one strand or the other, and has its two EcoRI sites back --
-    a GAATTC at each junction, which is what makes the clone cuttable again."""
-    puc, _, _ = read("L09137.2")
-    _, gene = neo_insert()
-    insert = "TT" + "GAATTC" + gene + "GAATTC" + "TT"
-    output, log = command(
-        tmp_path,
-        "assemble",
-        plan(
-            "restriction_ligation",
-            sequence(1, puc, name="pUC19"),
-            [sequence(2, insert, topology="linear", name="neo")],
-            enzymes=["EcoRI"],
-        ),
-    )
-    # Two products, so the run asks which: the message names both orientations' length.
-    assert not output
-    assert "2 different circles (3487 bp, 3487 bp)" in log
 
 
 def test_both_orientations_of_an_insert_are_whole_molecules(cloning: ModuleType) -> None:
@@ -573,3 +562,138 @@ def test_a_plan_with_a_product_already_isnt_assembled_again(tmp_path: Path) -> N
     )
     assert not output
     assert "has a product already" in log
+
+
+# --- a check's result stands for the plan it was found from ---------------------------
+
+
+def test_a_single_stranded_product_isnt_what_a_plan_makes(tmp_path: Path) -> None:
+    """A ligation closes a double-stranded circle. A molecule is its bases, its topology
+    and its strand count (ADR 0138), so a single-stranded circle of the same spelling is
+    another molecule, and the check says so rather than matching on the bases alone."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc, strandedness="single"),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert "DNA-000003 is circular and single-stranded" in log
+    # The same bases, double-stranded, are the plan's product.
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc),
+        ),
+    )
+    assert checked, log
+    assert checked["updates"]["assembly"][0]["values"]["matches_product"] is True
+
+
+def test_a_check_settles_a_plan_that_makes_several_circles(
+    tmp_path: Path, cloning: ModuleType
+) -> None:
+    """A plan whose parts make more than one circle can't be assembled: it doesn't say
+    which. The clone's own sequence does, which is what the ambiguity message tells the
+    scientist to do, so the check finds the product among the circles and matches it --
+    with a warning that the plan on its own didn't predict it."""
+    puc, _, _ = read("L09137.2")
+    _, gene = neo_insert()
+    insert = "TT" + "GAATTC" + gene + "GAATTC" + "TT"
+    both = plan(
+        "restriction_ligation",
+        sequence(1, puc, name="pUC19"),
+        [sequence(2, insert, topology="linear", name="neo")],
+        enzymes=["EcoRI"],
+    )
+    # The plan makes the insert either way round, so `assemble` makes neither.
+    output, log = command(tmp_path, "assemble", both)
+    assert not output
+    assert "2 different circles (3487 bp, 3487 bp)" in log
+    assert "give the product and check the plan against it" in log
+
+    # Which one the clone is, the clone's sequence says.
+    made = cloning.ligate(
+        [
+            cloning.digest("pUC19", puc, True, ["EcoRI"]),
+            [
+                f
+                for f in cloning.digest("neo", insert, False, ["EcoRI"])
+                if f.left.sticky and f.right.sticky
+            ],
+        ]
+    )
+    inverted = next(a for a in made if reverse_complement(gene) in a.bases * 2)
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [sequence(2, insert, topology="linear", name="neo")],
+            enzymes=["EcoRI"],
+            product=sequence(3, inverted.bases),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is True
+    assert values["simulated_length"] == 3487
+    assert "is one of them" in log
+    warning = [m for m in checked["messages"] if m["level"] == "warning"]
+    assert len(warning) == 1
+    assert "doesn't say which circle it makes" in warning[0]["text"]
+
+    # A product that is none of them doesn't match, and no length is claimed for a plan
+    # that still doesn't say which circle it makes.
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [sequence(2, insert, topology="linear", name="neo")],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert values["simulated_length"] is None
+    assert values["junctions"] is None
+    assert "is none of them" in log
+
+
+def test_a_check_that_cant_reach_a_result_clears_the_old_one(tmp_path: Path) -> None:
+    """A plan checked once keeps its result until a check finds otherwise, and Checked,
+    Built and Verified all read that flag. A plan edited into one Iki doesn't work out --
+    here a Gateway reaction -- leaves a stale result standing, so the check clears it
+    along with the length and junctions it was found with."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan("gateway_lr", sequence(1, puc, name="pUC19"), [], product=sequence(3, puc)),
+    )
+    assert checked, log
+    assert checked["updates"]["assembly"][0]["values"] == {
+        "matches_product": None,
+        "simulated_length": None,
+        "junctions": None,
+    }
+    assert checked["messages"][0]["level"] == "error"
+    assert "recorded, not worked out" in checked["messages"][0]["text"]
