@@ -562,9 +562,29 @@ export function wordsOf(conditions: unknown[]): string[] | null {
     else return null;
   }
   const again = searchWords(words.join(" "));
-  return !again.text && JSON.stringify(again.conditions) === JSON.stringify(conditions)
-    ? words
-    : null;
+  return !again.text && sameJson(again.conditions, conditions) ? words : null;
+}
+
+/** Whether two JSON values say the same thing: arrays in order, objects whatever the order
+ * of their keys, which a database needn't keep (PostgreSQL's jsonb sorts them). */
+export function sameJson(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, i) => sameJson(item, b[i]))
+    );
+  }
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const keys = Object.keys(a);
+    const theirs = b as Record<string, unknown>;
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((k) => k in theirs && sameJson((a as Record<string, unknown>)[k], theirs[k]))
+    );
+  }
+  return a === b;
 }
 
 /** The address's `filters`, if it holds them. */

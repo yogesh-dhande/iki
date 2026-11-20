@@ -1931,13 +1931,14 @@ def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()
     page.get_by_role("heading", name="New project", level=1).wait_for()
-    # Navigating moves focus to the new page's heading, as a page load would.
-    assert page.evaluate("document.activeElement.hasAttribute('data-page-title')")
+    # Navigating moves focus to the new page's heading, as a page load would. WebKit moves
+    # it a moment after the heading appears, so wait for it.
+    page.wait_for_function("() => document.activeElement?.hasAttribute('data-page-title')")
 
     page.get_by_role("button", name="Create project").click()
     name = page.get_by_role("textbox", name="Project name")
     assert name.get_attribute("aria-invalid") == "true"
-    assert page.evaluate("document.activeElement.id") == name.get_attribute("id")
+    page.wait_for_function("id => document.activeElement?.id === id", arg=name.get_attribute("id"))
     assert_clean(page)
 
     name.fill("Fragment Screen")

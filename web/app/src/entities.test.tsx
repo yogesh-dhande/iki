@@ -20,6 +20,7 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { formatNumber, quantity } from "./entities";
+import { MAX_FILTERS } from "./filters";
 import { MAX_BATCH } from "./runs";
 import { answer, calls, ME, page, problem, project, respond } from "./test-server";
 
@@ -505,6 +506,69 @@ describe("a project's entities", () => {
       "href",
       expect.stringContaining("q=downstream%3ADNR-000001"),
     );
+  });
+
+  it("opens a saved search as the database keeps it, and not one the grid would cut short", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const made = (name: string, query: unknown) => ({
+      id: `00000000-0000-7000-8000-0000000b00${String(name.length).padStart(2, "0")}`,
+      project: KINASE.id,
+      name,
+      query,
+      shared: true,
+      created_by: { id: ME.id, name: ME.name },
+      created_at: "2026-03-14T09:00:00Z",
+      updated_at: "2026-03-14T09:00:00Z",
+      can: { change: false, delete: false },
+    });
+    // PostgreSQL's jsonb keeps an object's keys shorter first, not as they were written:
+    // https://www.postgresql.org/docs/current/datatype-json.html
+    const stored = {
+      type: "iki/protein.Protein",
+      where: {
+        all: [
+          { op: "contains", field: "name", value: "kinase" },
+          {
+            all: [
+              { op: "of", field: "downstream", value: "DNR-000001" },
+              { op: "has", field: "components", value: { part: "PRT-000001", role: "cargo" } },
+            ],
+          },
+        ],
+      },
+      archived: false,
+      exact_type: false,
+    };
+    // The API takes up to 50 conditions; the grid's filters stop at 20.
+    const many = Array.from({ length: MAX_FILTERS + 1 }, (_, i) => ({
+      field: "name",
+      op: "contains",
+      value: `part${String(i + 1)}`,
+    }));
+    answer("GET /api/v1/saved-searches", [
+      made("Kinases from the donor", stored),
+      made("Twenty-one names", { exact_type: false, where: { all: many } }),
+      made("Long text", { exact_type: false, q: "kinase ".repeat(40).trim() }),
+    ]);
+    const { router, user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
+    );
+    const saved = await screen.findByRole("navigation", { name: "Saved searches" });
+    expect(within(saved).queryByRole("link", { name: "Twenty-one names" })).toBeNull();
+    expect(within(saved).getByText("Twenty-one names")).toHaveAttribute(
+      "title",
+      "Made with the API: the grid can’t show its conditions.",
+    );
+    expect(within(saved).queryByRole("link", { name: "Long text" })).toBeNull();
+    await user.click(within(saved).getByRole("link", { name: "Kinases from the donor" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        type: "iki/protein.Protein",
+        q: "downstream:DNR-000001 components.part:PRT-000001 components.role:cargo",
+        filters: [{ field: "name", op: "contains", value: "kinase" }],
+      });
+    });
   });
 
   it("says when a search can't be run", async () => {

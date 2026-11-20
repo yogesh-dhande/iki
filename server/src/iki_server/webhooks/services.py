@@ -486,6 +486,18 @@ def _sending(targets: QuerySet[Webhook]) -> list[Webhook]:
     return found
 
 
+def may_send(webhook: Webhook) -> bool:
+    """Whether a queued message may go to the webhook now, at each attempt: it's on, the
+    organization lets project webhooks send, and an app's still has its access. One whose
+    app lost it since the message was queued is turned off here, as the next event would."""
+    if not webhook.active or (webhook.project is not None and not project_webhooks_allowed()):
+        return False
+    if held(webhook):
+        return True
+    lapse(Webhook.objects.filter(pk=webhook.pk))
+    return False
+
+
 def lapse(webhooks: QuerySet[Webhook] | None = None) -> int:
     """Turns off each of `webhooks` (all by default) an app added that it may no longer:
     when a consent changes, and from ``iki-server maintain`` for delegations that ran out.

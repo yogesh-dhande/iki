@@ -14,13 +14,20 @@ provider vouches for, strongest first:
 2. **The SAML subject, as SCIM's ``userName``**: Entra and Okta send the same
    sign-in name as both by default.
 3. **An email address the provider verified**: OpenID Connect's
-   ``email_verified``, or Entra's ``xms_edov``, must be true; a SAML
-   assertion's ``email_verified`` attribute must be true, or its subject must
-   be the address itself. It matches the account's email or SCIM ``userName``.
+   ``email_verified`` must be true; a SAML assertion's ``email_verified``
+   attribute must be true, or its subject must be the address itself. It
+   matches the account's email or SCIM ``userName``.
 
 An address the provider doesn't say it verified links nobody: some providers
-let people type in any address. When two accounts answer to the same rule,
-the provider's data is ambiguous, and nobody is linked.
+let people type in any address. Entra's ``xms_edov`` doesn't count: it says
+the address's domain belongs to its owner, not that this person's mailbox is
+theirs. So an Entra sign-in over OpenID Connect links by its object ID,
+which the identity provider's administrator sends as SCIM's ``externalId``.
+
+Rules 2 and 3 match names, which an organization can give to someone else,
+so they link only an active account: a deactivated person's address may now
+be a colleague's. When two accounts answer to the same rule, the provider's
+data is ambiguous, and nobody is linked.
 """
 
 import re
@@ -83,8 +90,7 @@ def from_oidc(claims: dict[str, Any], provider: IdentityProvider) -> Vouched:
     entra = tenant is not None and str(claims.get("tid", "")).lower() == tenant
     if entra and claims.get("oid"):
         ids.add(str(claims["oid"]).lower())
-    verified = truthy(claims.get("email_verified")) or (entra and truthy(claims.get("xms_edov")))
-    return Vouched(ids=frozenset(ids), email_verified=verified)
+    return Vouched(ids=frozenset(ids), email_verified=truthy(claims.get("email_verified")))
 
 
 def from_saml(
@@ -111,12 +117,18 @@ class Link:
 
 def provisioned_account(vouched: Vouched, email: str) -> Link | None:
     """The provisioned account this sign-in is, by the strongest rule that names exactly one."""
+    by_name = Q(is_active=True)  # a name may have passed to someone else
     rules: list[tuple[MatchedBy, Q | None]] = [
         ("external_id", Q(scim_external_id__in=vouched.ids) if vouched.ids else None),
-        ("user_name", Q(scim_user_name=vouched.user_name) if vouched.user_name else None),
+        (
+            "user_name",
+            by_name & Q(scim_user_name=vouched.user_name) if vouched.user_name else None,
+        ),
         (
             "email",
-            Q(email=email) | Q(scim_user_name=email) if email and vouched.email_verified else None,
+            by_name & (Q(email=email) | Q(scim_user_name=email))
+            if email and vouched.email_verified
+            else None,
         ),
     ]
     provisioned = User.objects.filter(provisioned_at__isnull=False)

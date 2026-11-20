@@ -181,6 +181,32 @@ def test_deactivated_provisioned_people_cant_sign_in(token: str, fake_idp: FakeI
     assert not User.objects.get(pk=user_id).is_active
 
 
+def test_a_deactivated_persons_address_links_nobody_else(token: str, fake_idp: FakeIdP) -> None:
+    # IT reassigned a deactivated person's address and sign-in name to a colleague, who signs
+    # in before the provider tells Iki: names pass to other people, so they link only an
+    # active account.
+    user_id = provision(token, "rosalind@example.com", active=False)
+    browser = Browser()
+    refused(sign_in(browser, fake_idp, {**ROSALIND, "sub": "colleague"}), "already uses")
+    assert "_auth_user_id" not in browser.session
+    assert not SocialAccount.objects.filter(user_id=user_id).exists()
+    assert not AuditEvent.objects.filter(action="user.identity_linked").exists()
+    by_name = linking.Vouched(user_name="rosalind@example.com")
+    assert linking.provisioned_account(by_name, "") is None
+    # Their immutable ID at the provider is still theirs alone.
+    scim(
+        token,
+        "PATCH",
+        f"/Users/{user_id}",
+        {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "externalId", "value": "00u1rosalind"}],
+        },
+    )
+    link = linking.provisioned_account(linking.Vouched(ids=frozenset({"00u1rosalind"})), "")
+    assert link is not None and str(link.account.pk) == user_id
+
+
 def test_provisioned_people_link_through_saml_by_its_subject(
     client: Browser, saml_idp: FakeSamlIdP
 ) -> None:
@@ -321,12 +347,26 @@ def test_entra_id_links_by_its_object_id_in_the_issuers_tenant() -> None:
     assert oid not in linking.from_oidc(claims, okta).ids
 
 
-def test_entra_ids_xms_edov_vouches_for_its_address_only_from_entra() -> None:
+def test_entra_ids_xms_edov_doesnt_vouch_for_a_persons_address() -> None:
+    # xms_edov says the address's domain is verified as its owner's, not that the mailbox is
+    # this person's: https://learn.microsoft.com/entra/identity-platform/optional-claims-reference
     claims = {"sub": "s", "oid": "o", "tid": ENTRA_TENANT, "xms_edov": True}
-    assert linking.from_oidc(claims, entra()).email_verified
+    assert not linking.from_oidc(claims, entra()).email_verified
+    assert not linking.from_oidc({**claims, "xms_edov": "true"}, entra()).email_verified
     okta = IdentityProvider(issuer="https://acme.okta.com", protocol=Protocol.OIDC)
     assert not linking.from_oidc(claims, okta).email_verified
     assert linking.from_oidc({"sub": "s", "email_verified": "true"}, okta).email_verified
+
+
+def test_an_entra_sign_in_links_by_object_id_not_by_its_address(token: str) -> None:
+    # Entra's default SCIM mapping sends mailNickname as externalId, so the IDs don't match:
+    # the address alone, which IT may have reassigned, links nobody.
+    provision(token, "rosalind@example.com", externalId="rfranklin")
+    oid = "1c0a4d3e-5b6f-4a7b-8c9d-0e1f2a3b4c5d"
+    claims = {"sub": "pairwise-sub", "oid": oid, "tid": ENTRA_TENANT, "xms_edov": True}
+    vouched = linking.from_oidc({**claims, "email": "rosalind@example.com"}, entra())
+    assert linking.provisioned_account(vouched, "rosalind@example.com") is None
+    assert linking.provisioned_by_address("rosalind@example.com")  # so the page says why
 
 
 def test_entra_id_links_by_its_object_id_over_saml() -> None:
