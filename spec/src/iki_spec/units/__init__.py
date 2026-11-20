@@ -21,6 +21,7 @@ from __future__ import annotations
 import difflib
 import math
 import re
+import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -355,6 +356,11 @@ def scale_and_offset(source: str | Unit, target: str | Unit) -> tuple[float, flo
     logarithmic pair whose values at a few points happen to lie near a line isn't taken
     for a linear one.
 
+    Nor is there one when the scale or the offset is beyond what a double holds, as for a
+    pair of units 10^396 apart, each of which parses: as a double the scale would be 0,
+    showing every value as 0, or not a number at all. Values still convert one at a time
+    (`convert`), so a page shows them in the field's own unit instead.
+
         >>> scale_and_offset("Cel", "[degF]")
         (1.8, 32.0)
         >>> scale_and_offset("dB[SPL]", "MPa") is None
@@ -369,7 +375,22 @@ def scale_and_offset(source: str | Unit, target: str | Unit) -> tuple[float, flo
         return None
     # A value x of a is the magnitude (x·s + c)·r; that magnitude in b is y = (m/r' - c')/s'.
     (s, c, r), (s2, c2, r2) = first, second
-    return float(s * r / (r2 * s2)), float((c * r / r2 - c2) / s2)
+    scale, offset = _double(s * r / (r2 * s2)), _double((c * r / r2 - c2) / s2)
+    if scale is None or offset is None:
+        return None
+    return scale, offset
+
+
+def _double(exact: Fraction) -> float | None:
+    """`exact` as a double, unless no double holds it to its precision: it overflows, or
+    it's smaller than the smallest normal double, which keeps fewer digits (or is 0)."""
+    try:
+        found = float(exact)
+    except OverflowError:
+        return None
+    if exact and not sys.float_info.min <= abs(found) <= sys.float_info.max:
+        return None
+    return found
 
 
 def _affine(unit: Unit) -> tuple[Fraction, Fraction, Fraction] | None:

@@ -282,6 +282,21 @@ def test_units_that_dont_convert_have_no_scale_and_offset() -> None:
     assert units.scale_and_offset("[IU]/[IU]", "%") is None
 
 
+def test_a_scale_no_double_holds_isnt_given() -> None:
+    """A unit of 10^396 g parses (each exponent is at most 99), but 10^-396, or 10^396,
+    isn't a double: the scale would be 0 (every value shown as 0) or overflow. Values
+    still convert one at a time, so pages show them in the field's own unit instead."""
+    huge = ".".join(["10*99"] * 4) + ".g"
+    assert units.scale_and_offset("g", huge) is None
+    assert units.scale_and_offset(huge, "g") is None
+    # A subnormal double has lost its precision: 10^-310 keeps a few digits of it.
+    assert units.scale_and_offset("g", "10*99.10*99.10*99.10*13.g") is None
+    assert convert(1e100, "g", huge) == pytest.approx(1e-296)
+    assert convert(1e-100, huge, "g") == pytest.approx(1e296)
+    # Within a double's range, the scale is given.
+    assert units.scale_and_offset("g", "10*99.10*99.10*99.g") == pytest.approx((1e-297, 0))
+
+
 @pytest.mark.parametrize("code", ["0", "00", "0.m", "m/0", "0+2", "10*3.0"])
 def test_zero_is_not_a_unit(code: str) -> None:
     # §8 allows a *positive* integer in place of a unit; 0 would map every value to 0.
