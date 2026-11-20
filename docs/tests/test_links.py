@@ -55,3 +55,13 @@ def test_every_adr_is_in_the_index() -> None:
         if p.name != "0000-template.md" and f"]({p.name})" not in index
     ]
     assert not missing, f"Add these to docs/adr/README.md: {missing}"
+
+
+def test_the_adr_index_lists_each_decision_once() -> None:
+    index = (ROOT / "docs" / "adr" / "README.md").read_text(encoding="utf-8")
+    numbers = re.findall(r"^\| \[(\d{4})\]", index, re.MULTILINE)
+    repeated = sorted({n for n in numbers if numbers.count(n) > 1})
+    assert not repeated, f"docs/adr/README.md lists these more than once: {repeated}"
+    assert numbers == sorted(numbers), "docs/adr/README.md lists decisions out of order"
+    separators = re.findall(r"^\| -+ +\|", index, re.MULTILINE)
+    assert len(separators) == 1, "docs/adr/README.md's index needs exactly one header row"
