@@ -5,12 +5,14 @@ Each part of the library is the bases of a feature of a public-domain INSDC reco
 origin if it's circular, in two steps, as BLAST-based annotators (pLannotate) do:
 
 1. **Seeds.** The plasmid's 18-mers are indexed, and each 18-mer of the part looked up.
-   A hit places the part at one offset along the plasmid; a part with no seed isn't
-   there at the identity we keep.
+   A hit places the part at one offset along the plasmid. A part with no seed isn't
+   there at the identity we keep -- so a part shorter than a seed, or short enough that
+   mismatches leave no exact 18-mer in it, is looked for as a plain exact match
+   instead, which is the one promise a seed index can't keep.
 2. **Alignment.** Round each placement, the part is aligned locally to a window of the
    plasmid (Biopython's ``PairwiseAligner``, BLASTN's scores: match 2, mismatch -3, a
-   gap of n bases 5 + 2(n - 1)), and the alignment's identity is the bases of the part
-   that match, over the part's length.
+   gap of n bases 7 + 2(n - 1), which is BLASTN's own 5 + 2n), and the alignment's
+   identity is the bases of the part that match, over the part's length.
 
 A part is annotated where it's aligned over at least ``min_coverage`` of its length with
 at least ``min_identity`` identity; a part under 40 bp must match exactly, since at that
@@ -20,12 +22,17 @@ their own hit.
 
 Vector parts drift between vectors (pUC19's beta-lactamase differs from pBR322's at two
 bases), so what identity a hit has is kept with it, and shown.
+
+A part that is a gene is only taken to say what the plasmid does where its reading frame
+is whole in the plasmid's own bases: a ura3 nonsense allele is 99.75% identical to URA3
+and selects nothing. Such a hit is still annotated, with its frame recorded as
+interrupted.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +44,14 @@ from Bio.Seq import Seq
 SEED = 18
 #: Under this many bases, only an exact match is annotated.
 EXACT_UNDER = 40
-#: BLASTN's scores, as the DNA plugin's read alignments use them: Iki's gap opening cost
-#: is the first base's, as EMBOSS and Biopython count it.
+#: BLASTN's scores. Biopython charges `open` for a gap's first base and `extend` for each
+#: after it, so these give 7 + 2(n - 1) for a gap of n bases, which is BLASTN's own
+#: existence 5 plus extension 2 per base (5 + 2n).
 MATCH, MISMATCH, OPEN, EXTEND = 2.0, -3.0, -7.0, -2.0
+#: The stop codons of the standard genetic code (NCBI translation table 1).
+STOPS = frozenset({"TAA", "TAG", "TGA"})
+#: The roles whose parts only say what a plasmid does where their gene can be translated.
+CODING_ROLES = frozenset({"resistance", "selection"})
 
 COMPLEMENT = str.maketrans("ACGTRYKMBVDHNSWacgtrykmbvdhnsw", "TGCAYRMKVBHDNSWtgcayrmkvbhdnsw")
 
@@ -99,10 +111,9 @@ class Hit:
     end: int
     strand: str
     identity: float
-
-    @property
-    def span(self) -> int:
-        return self.end - self.start
+    #: For a part that is a gene, whether its reading frame is whole in the plasmid's own
+    #: bases: "whole" or "interrupted". Empty for a part that isn't a gene.
+    reading_frame: str = ""
 
 
 def _aligner() -> Align.PairwiseAligner:
@@ -136,6 +147,51 @@ def _identity(aligner: Align.PairwiseAligner, part: str, window: str) -> tuple[f
     return counts.identities / len(part), int(best.aligned[0][0][0]), int(best.aligned[0][-1][-1])
 
 
+def _at(bases: str, hit: Hit) -> str:
+    """The plasmid's own bases where a hit lies, 5' to 3' along the hit's strand, round
+    the origin where its end comes before its start."""
+    length = len(bases)
+    span = hit.end - hit.start + 1 if hit.end >= hit.start else length - hit.start + 1 + hit.end
+    got = (bases + bases)[hit.start - 1 : hit.start - 1 + span]
+    return reverse_complement(got) if hit.strand == "reverse" else got
+
+
+def _reading_frame(hit: Hit, bases: str) -> str:
+    """Whether a gene the annotation found reads as a gene in the plasmid's own bases: a
+    whole number of codons, from ATG to a stop, with no stop inside it. A ura3 nonsense
+    allele is 99.75% identical to URA3 and selects nothing, so what a plasmid is selected
+    with is only claimed where the gene is there to be translated. Empty for a part that
+    isn't a gene."""
+    if hit.part.type != "CDS" or hit.part.role not in CODING_ROLES:
+        return ""
+    got = _at(bases, hit)
+    if len(got) % 3 or len(got) < 6 or got[:3] != "ATG" or got[-3:] not in STOPS:
+        return "interrupted"
+    inside = (got[i : i + 3] for i in range(3, len(got) - 3, 3))
+    return "interrupted" if any(codon in STOPS for codon in inside) else "whole"
+
+
+def _placements(index: dict[str, list[int]], doubled: str, probe: str) -> set[int]:
+    """Where the probe may lie along the plasmid, counting from 0.
+
+    Every one of the probe's 18-mers is looked up, so any exact stretch that long places
+    it. A probe too short to hold a seed, or one whose every 18-mer carries a mismatch,
+    has no seed at all: those are looked for as an exact match instead, which is the one
+    thing a seed index can't promise and the library's short parts need (cPPT is 16 bases
+    and the T3 promoter 17).
+    """
+    found: set[int] = set()
+    for offset in range(max(len(probe) - SEED, -1) + 1):
+        for at in index.get(probe[offset : offset + SEED], ()):
+            found.add(at - offset)
+    if not found:
+        at = doubled.find(probe)
+        while at >= 0:
+            found.add(at)
+            at = doubled.find(probe, at + 1)
+    return found
+
+
 def annotate(
     bases: str,
     circular: bool,
@@ -158,16 +214,12 @@ def annotate(
             continue
         exact = len(part.bases) < EXACT_UNDER
         for strand, probe in (("forward", part.bases), ("reverse", reverse_complement(part.bases))):
-            placements: set[int] = set()
-            for offset in range(0, max(len(probe) - SEED, 0) + 1, max(SEED // 2, 1)):
-                for at in index.get(probe[offset : offset + SEED], ()):
-                    placements.add(at - offset)
             found: list[Hit] = []
-            for placement in sorted(placements):
+            for placement in sorted(_placements(index, doubled, probe)):
                 slack = max(5, len(probe) // 20)
                 start = max(placement - slack, 0)
                 window = doubled[start : placement + len(probe) + slack]
-                if len(window) < SEED:
+                if not window:
                     continue
                 if exact:
                     at = window.find(probe)
@@ -189,6 +241,7 @@ def annotate(
                 )
             hits.extend(_best_of_overlapping(found, length))
     hits = _best_of_shadowed(hits, length)
+    hits = [replace(hit, reading_frame=_reading_frame(hit, bases)) for hit in hits]
     hits.sort(key=lambda hit: (hit.start, -hit.identity, hit.part.name))
     return hits
 
@@ -204,15 +257,24 @@ def _best_of_overlapping(found: list[Hit], length: int) -> list[Hit]:
 
 
 def _best_of_shadowed(hits: list[Hit], length: int) -> list[Hit]:
-    """Where one part's hit lies almost wholly within another's, the better match alone:
-    two parts of a family are alike enough to find each other's places (Gateway's attR1
-    and attR2 are 95% identical), and only one of them is there. Parts that merely
-    overlap stay, as the SV40 origin within the SV40 early promoter does."""
+    """Where two hits of the same kind of part lie almost wholly on the same bases, the
+    better match alone: two parts of a family are alike enough to find each other's
+    places (Gateway's attR1 and attR2 are 95% identical), and only one of them is there.
+
+    Only alternative readings of the same thing compete, which parts of the same INSDC
+    feature key and the same role are. A part nested inside a part of another kind means
+    something of its own and stays, as the SV40 origin within the SV40 early promoter
+    does, or a lac operator within a promoter. Hits are ranked by how many bases they
+    cover, counted round the origin, so where a plasmid's record begins makes no
+    difference to which survive.
+    """
     kept: list[Hit] = []
-    for hit in sorted(hits, key=lambda h: (-h.identity, -h.span, h.part.name)):
+    for hit in sorted(hits, key=lambda h: (-h.identity, -len(_covered(h, length)), h.part.name)):
         mine = _covered(hit, length)
 
-        def shadowed(other: Hit, mine: set[int] = mine) -> bool:
+        def shadowed(other: Hit, hit: Hit = hit, mine: set[int] = mine) -> bool:
+            if (other.part.type, other.part.role) != (hit.part.type, hit.part.role):
+                return False
             theirs = _covered(other, length)
             return len(mine & theirs) >= 0.9 * min(len(mine), len(theirs))
 
@@ -238,6 +300,18 @@ def features(hits: list[Hit], library: Library) -> list[dict[str, Any]]:
     out = []
     for hit in hits:
         source = hit.part.source
+        qualifiers = {
+            "label": hit.part.label,
+            "role": hit.part.role,
+            "identity": f"{100 * hit.identity:.1f}%",
+            "library": f"iki/plasmid features {library.version}",
+            "source": (
+                f"{source['database']} {source['accession']} {source['location']}"
+                f" ({source['record']})"
+            ),
+        }
+        if hit.reading_frame:
+            qualifiers["reading_frame"] = hit.reading_frame
         out.append(
             {
                 "type": hit.part.type,
@@ -245,16 +319,7 @@ def features(hits: list[Hit], library: Library) -> list[dict[str, Any]]:
                 "start": hit.start,
                 "end": hit.end,
                 "strand": hit.strand,
-                "qualifiers": {
-                    "label": hit.part.label,
-                    "role": hit.part.role,
-                    "identity": f"{100 * hit.identity:.1f}%",
-                    "library": f"iki/plasmid features {library.version}",
-                    "source": (
-                        f"{source['database']} {source['accession']} {source['location']}"
-                        f" ({source['record']})"
-                    ),
-                },
+                "qualifiers": qualifiers,
             }
         )
     return out
@@ -263,9 +328,16 @@ def features(hits: list[Hit], library: Library) -> list[dict[str, Any]]:
 def implied(hits: list[Hit]) -> dict[str, list[str]]:
     """What the parts found say about the plasmid: its origins, the antibiotics it's
     selected with in bacteria, its markers in the cells it's expressed in, and its
-    promoters. Each value once, in the order the parts lie along the plasmid."""
+    promoters. Each value once, in the order the parts lie along the plasmid.
+
+    A gene whose reading frame is interrupted in the plasmid's own bases says nothing of
+    what the plasmid is selected with, however well it aligns: the hit stays, and its
+    implication doesn't.
+    """
     out: dict[str, list[str]] = {}
     for hit in hits:
+        if hit.reading_frame == "interrupted":
+            continue
         for field, value in hit.part.implies.items():
             values = out.setdefault(field, [])
             if value not in values:

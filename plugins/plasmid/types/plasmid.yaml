@@ -102,7 +102,9 @@ fields:
     max_items: 10
     items: { type: string, max_length: 60, pattern: "^[A-Za-z0-9][A-Za-z0-9 ()./+'-]{0,59}$" }
     description: >-
-      Its origins of replication, as the annotation finds them: pMB1/pUC, f1, SV40, CEN6.
+      Its origins of replication, as the annotation finds them: pMB1/pUC, f1, SV40,
+      ARSH4. A centromere (CEN6) segregates a plasmid rather than replicating it, so it
+      is annotated as a centromere feature and isn't one of these.
   bacterial_resistance:
     type: list
     max_items: 8

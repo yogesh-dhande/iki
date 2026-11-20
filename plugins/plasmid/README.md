@@ -97,7 +97,8 @@ software, so what their runs make is recorded as made with it
 ## Annotating from the library
 
 `data/features.json` holds 34 common vector parts: origins of replication (pMB1/pUC, f1,
-SV40, CEN6, ARSH4), bacterial resistance genes (AmpR, KanR, CmR, TetR), markers for the
+SV40, ARSH4), the yeast centromere CEN6, bacterial resistance genes (AmpR, KanR, CmR,
+TetR), markers for the
 cells a vector is expressed in (PuroR, NeoR/KanR, URA3), promoters (T7, T3, lac, lacI,
 CMV, SV40 early), terminators, affinity tags (6xHis, V5), the elements a lentiviral
 vector is packaged by (the 5′ and 3′ LTRs, the packaging signal, the Rev response
@@ -114,20 +115,39 @@ checking what it writes.
 
 A part is looked for on both strands, and round the origin of a circular plasmid, in two
 steps, as BLAST-based annotators (pLannotate) do: the plasmid's 18-mers are indexed and
-each 18-mer of the part looked up, which places it; then round each placement the part is
+every 18-mer of the part looked up, which places it; then round each placement the part is
 aligned locally to the plasmid (Biopython's `PairwiseAligner`, with BLASTN's scores —
-match 2, mismatch −3, a gap of n bases 5 + 2(n − 1)), and the alignment's **identity** is
-the part's bases that match over the part's length. A part is annotated where at least
-80% of it aligned with at least `min_identity` identity (0.9 by default); a part under 40
-bases long is annotated only where it matches exactly, since at that length a few
-mismatches say nothing.
+match 2, mismatch −3, a gap of n bases 7 + 2(n − 1), which is BLASTN's own existence 5
+plus 2 per base), and the alignment's **identity** is the part's bases that match over the
+part's length. A part is annotated where at least 80% of it aligned with at least
+`min_identity` identity (0.9 by default); a part under 40 bases long is annotated only
+where it matches exactly, since at that length a few mismatches say nothing.
+
+**What the seed can and can't promise.** Like BLAST's word hit, a seed is an exact
+stretch: a part is placed by the identity threshold only where it shares a whole exact
+18 bases with the plasmid, so a long part whose mismatches fall closer together than
+that — more than one in every 18 bases — is missed however well it would align. Where a
+part has no seed at all, because it is shorter than one or because every 18-mer of it
+carries a mismatch, it is looked for as a plain exact match instead. That is what the
+library's shortest parts need: cPPT is 16 bases and the T3 promoter 17.
 
 Vector parts drift between vectors — pUC19's β-lactamase differs from pBR322's at two
 bases — so each hit keeps the identity it had, which the map and the features show. Where
-one part's hit lies almost wholly within another's, only the better match is kept: two
-parts of a family are alike enough to find each other's places (Gateway's attR1 and
-attR2 are 95% identical), and only one of them is there. Parts that merely overlap both
-stay, as the SV40 origin within the SV40 early promoter does.
+two hits of the **same kind of part** lie almost wholly on the same bases, only the better
+match is kept: two parts of a family are alike enough to find each other's places
+(Gateway's attR1 and attR2 are 95% identical), and only one of them is there. A part
+nested inside a part of another kind means something of its own and stays, as the SV40
+origin within the SV40 early promoter does, or a T7 promoter within a lac operator.
+
+**A part that is a gene says what the plasmid does only where its frame is whole.** A
+resistance or selection gene is read in the plasmid's own bases: a whole number of
+codons, from ATG to a stop, with no stop inside. A `ura3` nonsense allele is all but
+identical to URA3 and selects nothing, so such a hit is annotated, with
+`reading_frame: interrupted` among its qualifiers, and the plasmid's
+`selection_markers` leave it out. A centromere is likewise not an origin of replication:
+CEN6 segregates a pRS41x vector and ARSH4 is what it replicates from (Sikorski & Hieter
+1989), and INSDC keeps `centromere` and `rep_origin` apart, so only ARSH4 is one of the
+plasmid's `replication_origins`.
 
 A plasmid's `annotated_with` says which library found its parts and what identity it
 asked for, so an annotation can be read years later: `iki/plasmid features 1.0 (34
