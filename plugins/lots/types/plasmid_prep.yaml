@@ -15,12 +15,13 @@ description: >-
   was verified.
 hrid: { prefix: PREP }
 # How much of it is left (ADR 0139): kept by mass, drawn by volume at its
-# concentration, so 2 µg of a 500 ng/µL prep is 4 µL.
+# concentration, so 2 µg of a 500 ng/µL prep is 4 µL; only its plasmid's.
 amount:
   unit: ug
   label: Amount
   description: How much DNA is left.
   concentration: concentration
+  material: plasmid
 fields:
   plasmid:
     type: ref
@@ -69,7 +70,9 @@ fields:
     unit: cm
     default: 1
     min: 0
-    description: The cuvette's path length, or the one a microvolume reading is given for.
+    description: >-
+      The cuvette's path length, or the one a microvolume reading is given for: more
+      than 0.
   dilution_factor:
     type: float
     min: 1
@@ -81,8 +84,20 @@ fields:
     min: 0
     indexed: true
     description: >-
-      Its DNA concentration. Worked out from its A260 when that's recorded, as its
-      concentration method says; otherwise as measured by another assay.
+      Its DNA concentration, which its amount is drawn through. Worked out from its
+      A260 when that's recorded, as its concentration method says; otherwise as
+      measured by another assay. A transfer into it sets it to the pool's (ADR 0157),
+      which a later run keeps until its A260 is read again.
+  a260_concentration:
+    type: quantity
+    label: Concentration by A260
+    unit: ng/uL
+    computed: true
+    min: 0
+    description: >-
+      What its A260 gives, while its concentration is by A260. Its concentration
+      follows it when it's read again, and is emptied with it if it was what it gave;
+      a pool's or one entered since is kept.
   concentration_method:
     type: enum
     label: Concentration by
@@ -122,5 +137,13 @@ fields:
     description: >-
       How it was checked to be its plasmid: whole-plasmid sequencing, Sanger
       sequencing of its insert, or a restriction digest's bands.
+rules:
+  path_length_is_positive:
+    label: Its path length is more than 0
+    check: record.path_length > 0
+    message: >-
+      Its path length is {{ record.path_length }} cm: an absorbance is read over a
+      path longer than 0.
+    fields: [path_length]
 display:
   title: "{{ hrid }}"

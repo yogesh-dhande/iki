@@ -43,7 +43,9 @@ fields:
   made_by:
     type: person
     label: Made by
-    description: Who made it, for a lot made in the lab. QA releases it, not they.
+    description: >-
+      Who made it, for a lot made in the lab: needed to release it. QA releases it, not
+      they, nor whoever recorded it.
   made_on:
     type: date
     label: Made on
@@ -122,10 +124,26 @@ fields:
             description: QA releases a lot on its certificate of analysis.
             check: size(record.certificates) > 0
             message: Attach its certificate of analysis before releasing it.
+          says_where_it_came_from:
+            description: QA releases a lot knowing whether it was made or bought.
+            check: record.source != null
+            message: Say whether it was made or bought before releasing it.
+          names_its_maker:
+            description: >-
+              A lot made in the lab names who made it, so QA can see it isn't
+              releasing its own work.
+            check: record.source != "made" || record.made_by != null
+            message: Say who made it before releasing it.
           not_its_maker:
             description: Whoever made a lot doesn't release it; a second person checks it.
             check: record.made_by == null || record.made_by != actor.person
             message: You made this lot, so someone else in QA releases it.
+          not_who_recorded_it:
+            description: >-
+              Whoever recorded a lot made in the lab doesn't release it either: Iki knows
+              who that was, whoever it says made it.
+            check: record.source != "made" || history.disposition[0].by != actor.person
+            message: You recorded this lot, so someone else in QA releases it.
           a_person:
             check: actor.agent == null
             message: Release it yourself, in Iki, not through an app or agent.

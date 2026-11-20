@@ -52,14 +52,39 @@ finds every kind, with its subtypes in a lab's plugins.
 lots, each its project's own record, as a batch is; the reference to the
 entry is what they share, and the graph walks it.
 
+**A lot is one entry's material, and stays it.** Each kind's amount names
+that reference as what it's of (`amount.material`, a required, immutable
+reference, `amount-material`), so BiologicLot keeps no amount of its own:
+ProteinLot's is of its `protein`, ConjugateLot's of its `conjugate`. A
+transfer into a lot takes only another lot of the same entry (a reference
+to a registry entry and one to a project's record of it are the same
+entry); an aliquot split off it is of that entry, whatever it's given.
+Material of two entries pooled is a mixture, a record of its own, as
+LabWare's and Benchling's lots each belong to one material. And a lot a
+state locks, a released one, takes only material in that state: what's
+added to released material has been released too, as ICH Q7 (8.4) blends
+only batches each tested and released. Equal concentrations (ADR 0157)
+aren't enough: quarantined material at the same 100 µM is still untested.
+
 **The disposition is the parent's, and holds each kind's amount.** Quarantined
 (initial: drawn from only to be tested), released (locks, a QA release
-signature, from quarantine or a lifted hold, on a certificate, by someone in
-QA other than its maker, in Iki rather than through an agent), on hold,
-rejected (locks, signed) and expired (once its date has come). On hold,
+signature, from quarantine or a lifted hold, on a certificate, in Iki rather
+than through an agent), on hold, rejected (locks, signed) and expired (once
+its date has come). On hold,
 rejected and expired hold the amount. The validator now lets an abstract
 type's state hold an amount its concrete subtypes each keep, and refuses a
 concrete type that inherits such a state without one (`holds-without-amount`).
+
+**QA releases what someone else made and recorded.** GMP keeps the quality
+unit independent of production (21 CFR 211.22; EU GMP Part I, chapter 2),
+and Part 11 makes each signature its signer's own, so the release's guards
+keep the two apart on what Iki knows, not only on what's typed in. A lot
+says whether it was made or bought before it's released. One made in the
+lab names who made it: left empty, it isn't someone else. Whoever it names
+doesn't release it, nor does whoever recorded it, whom Iki knows from its
+history whatever the maker field says. A bought lot's maker is its
+supplier, so whoever recorded its receipt may release it, on its
+certificate.
 
 **What follows from a measurement is worked out, where it can be.** An action
 per kind, triggered when a lot is recorded and when its inputs change, works
@@ -74,10 +99,40 @@ amount draws through and what a pool changes (ADR 0157), so it stays an
 ordinary field: the action fills it in while its method is the one it works
 out, and leaves it as entered otherwise.
 
+What the measurement gives is kept beside it, computed
+(`a260_concentration`, `a280_concentration`, `distribution_dar`), and the
+field follows that, not the reading alone. When the reading gives something
+new, the field is it. When it gives nothing any more (its A260 taken out, its
+ε280 gone), the field is emptied if it was what the reading gave, so an old
+concentration doesn't keep drawing the amount. Otherwise the field was set
+since, by a pool or by hand, and is kept: a run for a conjugate's drug loads
+doesn't put a pooled lot back to the concentration its pre-pool A280 gave,
+nor a hand-entered DAR to its distribution's. A DAR by UV/Vis is as measured,
+whatever distribution there is. A reduced conjugate's DAR is each chain's
+mean times the copies of it its conjugate has, as a complex of them, such as
+an antibody, says (2 and 2 for an IgG, 1 and 1 for a Fab); one that doesn't
+say has none worked out, rather than an IgG's. Its unconjugated share is of
+its intact species' peak area, the molar share only if they respond alike. A
+path length or an extinction coefficient is more than 0, by the types'
+rules; an absorbance can't be inverted over no path or through no
+absorptivity, so a 0 works nothing out, and a path left out isn't taken for
+1 cm. A polymer's Mn and Mw each say how they were measured, as SRM 1478's
+come from membrane osmometry and sedimentation equilibrium, and its
+dispersity is of molar mass (Đ_M).
+
 **A check that's a specification holds.** An oligonucleotide lot's measured
 mass outside its tolerance of the entry's is kept, as a result out of its
 specification must be, and held for QA's review (ADR 0127); held, it can't be
-released. Tolerance is a field, the lab's specification, 2 Da by default. What
+released. The rule reads the measured mass, its basis and its tolerance, and
+the entry's mass through the reference, at every save, rather than the mass
+difference its action writes later: an edit out of its tolerance is held as
+it's saved, with the project's triggers on or off, and before a run could
+lag behind a release. A measured mass the entry has no mass to check against
+is held too (`mass_is_checked`), for QA to review its identity another way.
+They're compared to a micro-dalton, finer than any mass spectrometer
+resolves and coarser than the binary rounding of two decimals' difference,
+so 5555.03254 against 5554.98250 is 0.05004 Da, outside ±0.05001, and
+exactly 2 Da is within ±2. Tolerance is a field, the lab's specification, 2 Da by default. What
 can't be true is refused: a polymer's Mw below its Mn, a distribution of both
 intact and reduced species.
 
@@ -88,7 +143,10 @@ serves them all rather than a lot type per kind of complex. A complex keeps
 its molecular weight and ε280 with each cysteine's thiol free, as its parts
 are, because its bonds may be corrected; a lot whose cysteines are cystines
 applies the disulfides its bonds place, as the complex's Composition tab
-does: two hydrogens off and a cystine's 125 L/(mol·cm) on for each.
+does: two hydrogens off and a cystine's 125 L/(mol·cm) on for each. A
+protein's cystines take their hydrogens off too, one pair of cysteines for
+each cystine its oxidized ε280 counts: hen lysozyme's four take 8.06 g/mol
+off its sequence's 14,313.0, so 37,970 L/(mol·cm) is 2.6543 mL/(mg·cm).
 Trastuzumab's two heavy and two light chains are 145,197.41 g/mol and 213,380
 L/(mol·cm) free; with KEGG D03257's 16 disulfides, 145,165.16 g/mol and 215,380,
 1.4837 mL/(mg·cm). A protein's own are its sequence's: its ε280 with its
@@ -119,7 +177,13 @@ and no plugin of a kind changes to have them.
   imports set, and a run's creates don't carry an amount yet (ADR 0139). It
   becomes a `Lot` once they do.
 - A concentration entered by hand while its method is A280 isn't checked
-  against the A280; the next change to the A280 or its dilution works it out
-  again, and the history shows both.
+  against the A280, which is shown beside it; the next reading that gives
+  another concentration works it out again, and the history shows both.
+- A lot's computed values follow its entry's properties when the lot is next
+  saved or run: a complex's bond map corrected later doesn't recompute its
+  lots by itself, since a change to a registry entry fires no project's
+  triggers. Its mass check reads the entry at every save of the lot.
+- A plasmid's sequence is a double-stranded circle (`iki/plasmid`'s rules),
+  which its preps' A260 assumes.
 - `iki/lots` can't be installed without the plugins of the kinds it has types
   for.

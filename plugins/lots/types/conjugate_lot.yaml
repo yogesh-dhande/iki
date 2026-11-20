@@ -16,6 +16,15 @@ description: >-
   the intact conjugate or of its reduced chains, its unconjugated antibody and free
   drug, and its concentration by A280 with its own ε280, which its payload adds to.
 hrid: { prefix: CJLOT }
+# How much of it is left (ADR 0139): kept by protein mass, drawn by volume at its
+# concentration, so 5 mg of a 2 mg/mL lot is 2.5 mL; only its conjugate's, so a transfer into it
+# takes only another lot of the same conjugate.
+amount:
+  unit: mg
+  label: Amount
+  description: How much protein is left.
+  concentration: concentration
+  material: conjugate
 fields:
   conjugate:
     type: ref
@@ -75,16 +84,30 @@ fields:
     description: >-
       Its average number of drugs per antibody: worked out from its drug load
       distribution when that's recorded, the mean of each load weighted by its share,
-      and for reduced chains twice the light chain's mean and twice the heavy chain's,
-      an IgG having two of each. Otherwise as measured, such as by UV/Vis.
+      and for reduced chains each chain's mean times the copies of it its conjugate has
+      (two of each in an IgG, one in a Fab), which a complex of them says. Otherwise,
+      or by UV/Vis whatever its distribution, as measured.
+  distribution_dar:
+    type: float
+    label: DAR from its distribution
+    computed: true
+    min: 0
+    max: 20
+    description: >-
+      What its drug load distribution gives, unless its DAR is by UV/Vis. Its DAR
+      follows it when the distribution changes, and is emptied with it if it was what
+      it gave; one entered since is kept.
   unconjugated:
     type: quantity
-    label: Unconjugated antibody
+    label: Unconjugated antibody (area)
     unit: "%"
     computed: true
     min: 0
     max: 100
-    description: The share of its intact species that carry no drug (DAR 0), from its distribution.
+    description: >-
+      The share of its intact species' peak area with no drug (DAR 0), from its
+      distribution: the molar share only if every species responds alike at its
+      detection wavelength, as a payload that absorbs there doesn't.
   free_drug:
     type: quantity
     label: Free drug

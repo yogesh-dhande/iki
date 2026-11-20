@@ -10,12 +10,14 @@ description: >-
   A lot of any entity that has no lot type of its own: its amount by mass, its
   concentration, if it's a solution, and its purity.
 hrid: { prefix: GLOT }
-# How much of it is left (ADR 0139): kept by mass, drawn by volume at its concentration.
+# How much of it is left (ADR 0139): kept by mass, drawn by volume at its concentration;
+# only what it's a lot of.
 amount:
   unit: mg
   label: Amount
   description: How much of it is left.
   concentration: concentration
+  material: of
 fields:
   of:
     type: ref

@@ -12,13 +12,14 @@ schema_version: 1
 description: >-
   A lot of a synthetic polymer: one synthesis's chains, whose lengths vary, so it has
   its own molecular weight distribution: its number-average (Mn) and weight-average
-  (Mw) molecular weights, and their ratio, its dispersity (Đ = Mw/Mn, IUPAC 2009),
-  and how they were measured.
+  (Mw) molecular weights, and their ratio, its molar-mass dispersity (Đ = Mw/Mn,
+  IUPAC 2009), and how each was measured.
 hrid: { prefix: PYLOT }
 amount:
   unit: mg
   label: Amount
   description: How much of it is left.
+  material: polymer
 fields:
   polymer:
     type: ref
@@ -57,23 +58,51 @@ fields:
     min: 1
     indexed: true
     description: >-
-      Its dispersity, Mw/Mn (IUPAC's Đ, formerly the polydispersity index): 1 for
-      chains all of one length, more the more their lengths vary.
-  molecular_weight_method:
+      Its molar-mass dispersity, Mw/Mn (IUPAC's Đ_M, formerly the polydispersity
+      index): 1 when every chain has the same molar mass, more the more their molar
+      masses vary. Chains of one length but different composition, such as a
+      copolymer's, can have one above 1.
+  mn_method:
     type: enum
-    label: Molecular weight by
-    values: [sec_conventional, sec_universal, sec_mals, nmr_end_group, maldi_tof]
+    label: Mn by
+    values:
+      [
+        sec_conventional,
+        sec_universal,
+        sec_mals,
+        maldi_tof,
+        nmr_end_group,
+        membrane_osmometry,
+        vapor_pressure_osmometry,
+      ]
     description: >-
-      How Mn and Mw were measured: sec_conventional by SEC (GPC) against a calibration
-      of standards, sec_universal by universal calibration with a viscometer,
-      sec_mals by SEC with multi-angle light scattering, which needs no standards,
-      nmr_end_group by NMR end-group analysis (Mn only), maldi_tof by MALDI-TOF MS.
+      How Mn was measured: sec_conventional by SEC (GPC) against a calibration of
+      standards, sec_universal by universal calibration with a viscometer, sec_mals by
+      SEC with multi-angle light scattering, which needs no standards, maldi_tof by
+      MALDI-TOF MS, nmr_end_group by NMR end-group analysis, or by membrane or vapor
+      pressure osmometry, which count molecules (IUPAC, 2009).
+  mw_method:
+    type: enum
+    label: Mw by
+    values:
+      [
+        sec_conventional,
+        sec_universal,
+        sec_mals,
+        maldi_tof,
+        static_light_scattering,
+        sedimentation_equilibrium,
+      ]
+    description: >-
+      How Mw was measured: by SEC, as for Mn, or MALDI-TOF MS, or by static light
+      scattering of the whole sample (batch mode), or by sedimentation equilibrium in
+      an analytical ultracentrifuge, which weigh molecules by their mass.
   calibration_standard:
     type: enum
     values: [polystyrene, poly_methyl_methacrylate, polyethylene_glycol, pullulan]
     description: >-
-      The standards a conventional SEC was calibrated with: its molecular weights are
-      relative to theirs.
+      The standards a conventional SEC was calibrated with: the molecular weights it
+      gives are relative to theirs.
   eluent:
     type: string
     max_length: 200

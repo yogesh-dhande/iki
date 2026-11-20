@@ -21,5 +21,13 @@ description: >-
 on: entity.updated
 type: ConjugateLot
 fields:
-  [drug_loads, a280, path_length, dilution_factor, extinction_coefficient, concentration_method]
+  [
+    drug_loads,
+    dar_method,
+    a280,
+    path_length,
+    dilution_factor,
+    extinction_coefficient,
+    concentration_method,
+  ]
 run: compute_conjugate_lot

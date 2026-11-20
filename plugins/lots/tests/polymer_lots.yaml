@@ -7,7 +7,12 @@ description: >-
 action: compute_polymer_lot
 inputs:
   lot:
-    - values: { mn: 236000, mw: 241000, mp: 242000, molecular_weight_method: sec_conventional }
+    - values:
+        mn: 236000
+        mw: 241000
+        mp: 242000
+        mn_method: sec_conventional
+        mw_method: sec_conventional
 expect:
   output:
     updates:
@@ -18,12 +23,17 @@ apiVersion: iki/v1
 kind: ActionTest
 name: nists_polystyrene_by_two_methods
 description: >-
-  NIST SRM 1478, polystyrene: Mn 35,800 g/mol by membrane osmometry, Mw 37,400 g/mol by
-  sedimentation equilibrium (its certificate, 1992): Đ = 1.045.
+  NIST SRM 1478, polystyrene: Mn 35,800 g/mol by membrane osmometry in toluene at 37 °C,
+  Mw 37,400 g/mol by sedimentation equilibrium ultracentrifugation in cyclohexane at
+  35 °C (its certificate, July 15, 1992): Đ = 1.045.
 action: compute_polymer_lot
 inputs:
   lot:
-    - values: { mn: 35800, mw: 37400 }
+    - values:
+        mn: 35800
+        mw: 37400
+        mn_method: membrane_osmometry
+        mw_method: sedimentation_equilibrium
 expect:
   output:
     updates:
@@ -42,7 +52,8 @@ inputs:
     - values:
         mn: 29184
         mw: 38560
-        molecular_weight_method: sec_conventional
+        mn_method: sec_conventional
+        mw_method: sec_conventional
         calibration_standard: polystyrene
         eluent: THF
 expect:
