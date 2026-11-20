@@ -333,9 +333,9 @@ class Host:
     #: Which cloud's metadata the host reads (spot notices): None for EC2's, which the
     #: host assumes.
     cloud: str | None = None
-    #: Shell lines after the rule that keeps containers from the metadata server: what of
-    #: its address they may still reach.
-    metadata_allows: str = ""
+    #: What of the metadata server's address containers may still reach, as iptables
+    #: matches (``-p udp --dport 53``): everything else there is dropped.
+    metadata_allows: tuple[str, ...] = ()
 
     @property
     def worker(self) -> str:
@@ -431,8 +431,7 @@ cat > {token_file} <<'IKI_HOST_TOKEN'
 IKI_HOST_TOKEN
 {after}command -v docker >/dev/null 2>&1 || fail unsupported "the machine image has no Docker"
 systemctl start docker >/dev/null 2>&1 || true
-{metadata}iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true
-{metadata_allows}{logins}n=0
+{metadata}{firewall}{logins}n=0
 until docker pull {worker_image}; do
     n=$((n + 1))
     [ "$n" -lt 5 ] || fail worker_unavailable "couldn't pull Iki's worker image "{worker_image}
@@ -525,7 +524,7 @@ def script(
         prepare=host.prepare,
         after=_AWS_AFTER if host is AWS else "",
         metadata=_AWS_METADATA if host is AWS else _OTHER_METADATA,
-        metadata_allows=host.metadata_allows,
+        firewall=firewall(host),
         host=host.root,
         scratch=HOST_SCRATCH,
         config=CONFIG,
@@ -538,6 +537,30 @@ def script(
         stop_within=STOP + 30,
         unit=host.unit,
     )
+
+
+#: The cloud's metadata server, where a machine's credentials are.
+METADATA_ADDRESS = "169.254.169.254/32"
+
+
+def firewall(host: Host) -> str:
+    """The rules that keep a run's containers from the metadata server, but for what
+    `host` allows them there, inserted above the drop so they come first; then each is
+    checked to be in place. A machine whose rules can't be made, or aren't there after,
+    shuts down before it pulls or starts anything: its run could take its credentials."""
+    refused = (
+        "fail unsupported \"the machine can't keep runs from its metadata server "
+        '(iptables DOCKER-USER)"'
+    )
+    rules = [
+        f"-d {METADATA_ADDRESS} -j DROP",
+        *(f"-d {METADATA_ADDRESS} {allowed} -j ACCEPT" for allowed in host.metadata_allows),
+    ]
+    made = "".join(f"iptables -I DOCKER-USER {rule} \\\n    || {refused}\n" for rule in rules)
+    checked = "".join(
+        f"iptables -C DOCKER-USER {rule} >/dev/null 2>&1 \\\n    || {refused}\n" for rule in rules
+    )
+    return made + checked
 
 
 _AWS_AFTER = """\

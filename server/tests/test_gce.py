@@ -501,20 +501,134 @@ def test_the_script_is_valid_shell_and_signs_in_to_artifact_registry(tmp_path: P
 
 def test_a_runs_container_may_ask_compute_engines_dns_and_nothing_else_there() -> None:
     lines = startup_script(request()["instance"]).splitlines()
-    drop = lines.index(
-        "iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true"
-    )
+    drop = lines.index("iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP \\")
     allowed = [
-        line for line in lines if "169.254.169.254/32" in line and "--dport 53 -j ACCEPT" in line
-    ]
-    assert [line.split(" -p ")[1].split()[0] for line in allowed] == ["udp", "tcp"]
-    # Each is inserted at the top of DOCKER-USER after the drop, so each comes before it.
-    assert all(lines.index(line) > drop for line in allowed)
-    assert not [
         line
         for line in lines
-        if "169.254.169.254" in line and "ACCEPT" in line and "53" not in line
+        if line.startswith("iptables -I") and "169.254.169.254/32" in line and "ACCEPT" in line
     ]
+    assert allowed == [
+        "iptables -I DOCKER-USER -d 169.254.169.254/32 -p udp --dport 53 -j ACCEPT \\",
+        "iptables -I DOCKER-USER -d 169.254.169.254/32 -p tcp --dport 53 -j ACCEPT \\",
+    ]
+    # Each is inserted at the top of DOCKER-USER after the drop, so each comes before it.
+    assert all(lines.index(line) > drop for line in allowed)
+
+
+#: Stand-ins for what a machine's boot script runs, each writing its arguments to `calls`.
+#: iptables keeps its rules in a file, `-I` putting one first, `-C` looking for it; with
+#: IPTABLES=fail it refuses every rule (no DOCKER-USER chain, or a firewall Docker doesn't
+#: use), and with IPTABLES=ignore it says it made one it didn't.
+_TOOLS = {
+    "iptables": """
+case "$1" in
+-I) if [ "${IPTABLES:-}" = fail ]; then
+        echo "iptables: No chain/target/match by that name." >&2
+        exit 1
+    fi
+    [ "${IPTABLES:-}" = ignore ] && exit 0
+    shift 2; { echo "$*"; cat "$SANDBOX/rules" 2>/dev/null; } > "$SANDBOX/rules.new"
+    mv "$SANDBOX/rules.new" "$SANDBOX/rules" ;;
+-C) shift 2; grep -qxF -- "$*" "$SANDBOX/rules" 2>/dev/null ;;
+*) exit 2 ;;
+esac
+""",
+    "curl": 'echo \'{"access_token": "ya29.machine"}\'',
+    **dict.fromkeys(("docker", "systemctl", "mount", "mountpoint", "shutdown", "chown", "aws"), ""),
+}
+
+
+def _boot(tmp_path: Path, text: str, iptables: str = "") -> tuple[int, list[str], str]:
+    """Runs a machine's boot script in tmp_path: its absolute paths moved there, and every
+    tool that would change the machine a stand-in (_TOOLS). Its exit code, the tools it
+    ran in order, and what it wrote to the console."""
+    root = tmp_path / "machine"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in _TOOLS.items():
+        tool = bin_dir / name
+        tool.write_text(f'#!/bin/sh\necho "{name} $*" >> "$SANDBOX/calls"\n{body}\n')
+        tool.chmod(0o755)
+    for prefix in ("/etc/", "/var/lib/iki", "/opt/iki"):
+        text = text.replace(prefix, f"{root}{prefix}")
+    text = text.replace("/dev/console", f"{tmp_path}/console")
+    (root / "etc/systemd/system").mkdir(parents=True)
+    script = tmp_path / "boot.sh"
+    script.write_text(text)
+    ran = subprocess.run(  # noqa: S603 - our own script, with stand-in tools
+        ["/bin/sh", str(script)],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "SANDBOX": str(tmp_path), "IPTABLES": iptables},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    calls = (tmp_path / "calls").read_text().splitlines()
+    console = tmp_path / "console"
+    return ran.returncode, calls, console.read_text() if console.exists() else ""
+
+
+def _scripts() -> dict[str, str]:
+    from iki_server.runs import ec2
+
+    aws = ec2.user_data(
+        name="iki-run-1",
+        template=template(),
+        environment="acme/prediction.alphafold-gpu",
+        image=IMAGE,
+        machines=MACHINES,
+        once=True,
+        spot=False,
+        token="iki_wlch_secret",
+    )
+    return {"gcp": startup_script(request()["instance"]), "aws": aws}
+
+
+@pytest.mark.parametrize("cloud", ["gcp", "aws"])
+def test_a_machine_starts_its_run_once_its_metadata_server_is_out_of_reach(
+    tmp_path: Path, cloud: str
+) -> None:
+    code, calls, console = _boot(tmp_path, _scripts()[cloud])
+    assert code == 0, console
+    assert calls[-1] == "systemctl start --no-block iki-host.service"
+    rules = (tmp_path / "rules").read_text().splitlines()
+    drop = "-d 169.254.169.254/32 -j DROP"
+    if cloud == "gcp":
+        # Read top to bottom: DNS to the address, then nothing else there.
+        assert rules == [
+            "-d 169.254.169.254/32 -p tcp --dport 53 -j ACCEPT",
+            "-d 169.254.169.254/32 -p udp --dport 53 -j ACCEPT",
+            drop,
+        ]
+    else:
+        assert rules == [drop]
+    # The rules are in place before any image is pulled with the machine's credentials.
+    pulled = next(i for i, c in enumerate(calls) if c.startswith("docker pull"))
+    checked = max(i for i, c in enumerate(calls) if c.startswith("iptables -C"))
+    assert checked < pulled
+
+
+@pytest.mark.parametrize("cloud", ["gcp", "aws"])
+@pytest.mark.parametrize("iptables", ["fail", "ignore"])
+def test_a_machine_that_cant_keep_runs_from_its_metadata_server_starts_nothing(
+    tmp_path: Path, cloud: str, iptables: str
+) -> None:
+    """A firewall that refuses the rules, or says it made them and didn't: the machine
+    shuts down, and says why, before it signs in, pulls or starts anything."""
+    code, calls, console = _boot(tmp_path, _scripts()[cloud], iptables)
+    assert code != 0
+    assert "IKI-HOST-ERROR unsupported: the machine can't keep runs from its metadata" in console
+    assert "shutdown -h now" in calls
+    started = [c for c in calls if c.startswith(("docker pull", "docker login", "docker run"))]
+    assert started == []
+    assert not [c for c in calls if c.startswith("systemctl start --no-block")]
+    assert not [c for c in calls if c.startswith("curl")]
+    # What the provisioner reads back: the image can't run Iki's machines, so it's refused.
+    from iki_server.runs.ec2 import host_trouble
+    from iki_server.runs.ec2_fleet import HOST_REASONS
+
+    trouble = host_trouble(console)
+    assert trouble is not None and HOST_REASONS[trouble[0]] == "refused"
 
 
 def test_ec2s_machines_need_no_such_exception() -> None:

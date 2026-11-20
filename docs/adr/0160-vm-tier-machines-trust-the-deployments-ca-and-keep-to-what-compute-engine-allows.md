@@ -52,6 +52,16 @@ port 53 alone.** Two `ACCEPT` rules (UDP and TCP) are inserted above the
 drop; everything else to the address, its credentials included, is still
 dropped. EC2's script is unchanged.
 
+**A machine that can't keep its runs from the metadata server starts
+nothing.** On both clouds the boot script inserts the drop (and, on Compute
+Engine, the two exceptions), then checks each rule is in DOCKER-USER
+(`iptables -C`). If any can't be made or isn't there, the machine writes
+`IKI-HOST-ERROR unsupported` to its console and shuts down before it signs
+in to a registry, pulls an image or starts `iki-worker host`; the
+provisioner ends the launch as refused. A machine image whose Docker has no
+DOCKER-USER chain (iptables off, or another firewall) can't run the VM
+tier.
+
 **A standard machine stops for host maintenance only if it has GPUs.**
 Without GPUs it's migrated live (`MIGRATE`), so its run goes on, and E2
 machines start. Spot machines still stop, as Compute Engine requires.
