@@ -319,20 +319,34 @@ def imgt_cdr3(sequence: str) -> str:
     return sequence[cys + 1 : trp]
 
 
+#: The insertion codes ANARCI writes, in order: A to Z, then AA, BB and so on to ZZ.
+INSERTIONS = [*"ABCDEFGHIJKLMNOPQRSTUVWXYZ", *(c * 2 for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")]
+
+
 def imgt_cdr3_numbers(length: int) -> list[str]:
     """IMGT's numbers for a CDR3 of `length` over 13, in order along the chain: 105-111,
     then the positions IMGT adds at the loop's top in the order 112.1, 111.1, 112.2, 111.2
     and so on (IMGT's unique numbering for V domains), so 111.1 onwards, then 112.n down to
-    112.1, then 112-117. ANARCI writes 111.1 as 111A."""
+    112.1, then 112-117. ANARCI writes 111.1 as 111A, and 111.27 as 111AA."""
     extra = length - 13
     top_112, top_111 = (extra + 1) // 2, extra // 2
-    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    letters = INSERTIONS
     return (
         [str(n) for n in range(105, 112)]
         + [f"111{letters[i]}" for i in range(top_111)]
         + [f"112{letters[i]}" for i in reversed(range(top_112))]
         + [str(n) for n in range(112, 118)]
     )
+
+
+def test_the_expected_numbers_go_on_past_z_as_anarcis_do() -> None:
+    """A CDR3 of 67 has 27 positions on each side of the loop's top: 111A to 111Z then
+    111AA, and 112AA then 112Z down to 112A, as ANARCI numbers one (its schemes' insertion
+    alphabet)."""
+    numbers = imgt_cdr3_numbers(67)
+    assert len(numbers) == 67
+    assert numbers[7 + 25 : 7 + 29] == ["111Z", "111AA", "112AA", "112Z"]
+    assert numbers[-7:] == ["112A", "112", "113", "114", "115", "116", "117"]
 
 
 def cdr3_numbers(values: dict[str, Any], low: int, high: int) -> list[str]:
@@ -342,7 +356,8 @@ def cdr3_numbers(values: dict[str, Any], low: int, high: int) -> list[str]:
 
 def test_ultralong_cdr_h3s_are_numbered_and_kept_whole_in_imgts_scheme(tmp_path: Path) -> None:
     """Bovine BLV1H12's CDR-H3 (PDB 4K3D) is 63 residues by IMGT's definition and B11's
-    (PDB 5IHU) 65, as long as natural ones go; human PG9's (PDB 3U4E) 30."""
+    (PDB 5IHU) 65, this fixture's longest (bovine CDR-H3s run to 67 or more: Wang et al.,
+    Cell 153:1379, 2013); human PG9's (PDB 3U4E) 30."""
     chains = ("blv1h12", "b11", "pg9")
     assert [len(imgt_cdr3(SEQUENCES[c])) for c in chains] == [63, 65, 30]
     assert imgt_cdr3(SEQUENCES["blv1h12"]) == (
