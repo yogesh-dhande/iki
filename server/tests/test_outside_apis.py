@@ -714,6 +714,57 @@ def test_a_poll_that_says_the_job_failed_fails_the_run(world: World) -> None:
 
 
 @pytest.mark.django_db
+def test_a_resumed_attempt_that_fails_shows_nothing_of_the_parked_attempts_output(
+    world: World,
+) -> None:
+    """The run's metrics and messages are its last attempt's (ADR 0130). The parked
+    attempt's said what it submitted; the attempt that resumed it failed without a word,
+    so the run shows nothing of the first as its own."""
+    approve(world)
+    made = hosted(world, consent=[API])
+    assert made.status_code == 201, made.content
+    pod = worker(world)
+    job = pod.lease().json()
+    parking = {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "park": {"api": "fold", "job": "job-1"},
+        "metrics": {"residues_submitted": 1130},
+        "messages": [{"level": "info", "text": "Submitted to FoldCloud."}],
+    }
+    assert pod.report(job, "complete", output=parking).json()["run_status"] == "parked"
+    hrid = made.json()["hrid"]
+    parked = api_as(world).get(f"/runs/{hrid}").json()
+    assert parked["metrics"] == {"residues_submitted": 1130}
+    park = RunPark.objects.get(run_id=made.json()["id"])
+    call = outside.Call(
+        job_id=park.job_id,
+        api=API,
+        host=HOST,
+        kind="poll",
+        method="GET",
+        path="/v1/predictions/job-1",
+        started_at=timezone.now(),
+        duration_ms=5,
+        status=200,
+        park_id=park.pk,
+    )
+    outside.polled(park.pk, call, {"status": "succeeded", "output": {"pdb": PDB}}, {})
+    resumed = pod.lease().json()
+    assert resumed["run"]["attempt"] == 2
+    failed = pod.report(resumed, "fail", reason="failed", message="The structure didn't parse.")
+    assert failed.json()["run_status"] == "failed", failed.content
+    shown = api_as(world).get(f"/runs/{hrid}").json()
+    assert shown["status"] == "failed"
+    assert (shown["metrics"], shown["messages"]) == ({}, [])
+    # Each attempt keeps its own: the parked one's is still on record as it was sent.
+    assert list(RunOutput.objects.filter(run_id=made.json()["id"]).values_list("document")) == [
+        (parking,)
+    ]
+    assert not RunOutput.objects.filter(run_id=made.json()["id"]).final().exists()
+
+
+@pytest.mark.django_db
 def test_a_bundle_carries_who_agreed_and_each_call(world: World) -> None:
     from iki_server.bundles import export
 
