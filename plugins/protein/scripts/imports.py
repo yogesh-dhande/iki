@@ -8,8 +8,8 @@ so nothing is half imported.
 FASTA headers give a name (the first word) and a description (the rest). UniProt's
 headers (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens OX=9606
 GN=HBA1 PE=1 SV=2`) give the entry name, the protein's name, its accession, organism
-and gene. NCBI's (`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) give the
-organism in brackets.
+and gene, and its origin is that entry: its accession and sequence version. NCBI's
+(`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) give the organism in brackets.
 
 Residues are the 20 standard amino acids, U, O, and B, Z, J or X for ambiguous or
 unknown ones. A final stop (*) is left off. A stop inside a sequence, a gap, or a
@@ -112,7 +112,7 @@ class Organism:
 
 
 def clean_residues(label: str, raw: str) -> str:
-    residues = re.sub(r"[\s0-9]", "", raw).upper().removesuffix("*")
+    residues = re.sub(r"[\s0-9]", "", raw).upper().rstrip("*")
     if not residues:
         raise UnreadableError(f"{label} has no residues.")
     if not RESIDUES.match(residues):
@@ -281,12 +281,20 @@ def main() -> None:
         records = read(Path(given["path"]), done)
 
         def origin(record: Record) -> dict[str, Any]:
-            return {
+            # A UniProt record is its entry, by accession and sequence version, as a
+            # fetch's is (ADR 0154): its entry name is a mnemonic that can change.
+            accession = record.values.get("uniprot_accession")
+            found: dict[str, Any] = {
                 "source": "FASTA file",
-                "id": record.values.get("name") or record.label,
-                "file": file_id,
-                "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
+                "id": accession or record.values.get("name") or record.label,
             }
+            if accession and record.version:
+                found["version"] = f"sequence version {record.version}"
+            if accession:
+                found["url"] = f"https://www.uniprot.org/uniprotkb/{accession}/entry"
+            found["file"] = file_id
+            found["sha256"] = hashlib.sha256(record.text.encode("utf-8")).hexdigest()
+            return found
 
         count = finish(records, origin, lambda: done[0] / size)
         if not count:

@@ -219,7 +219,9 @@ and the rest go on.
 FASTA headers give a name (the first word) and a description (the rest).
 UniProt's (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens
 OX=9606 GN=HBA1 PE=1 SV=2`) give the entry name, the protein's name, its
-accession, organism (by its NCBI Taxonomy ID, `OX=`) and gene. Each organism is
+accession, organism (by its NCBI Taxonomy ID, `OX=`) and gene, and each record's
+origin is its UniProtKB entry, by accession and sequence version (`SV=`), with
+the file it was read from. Each organism is
 an `iki/core.Organism`, made the first time an import meets it
 ([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
 NCBI's (`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) name the

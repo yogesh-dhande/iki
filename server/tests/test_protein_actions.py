@@ -188,6 +188,23 @@ def test_selenocysteine_pyrrolysine_and_j_align_as_any_residue(tmp_path: Path) -
     assert ["".join(record.splitlines()[1:]) for record in fasta] == [query, query]
 
 
+def test_every_stop_at_the_end_is_left_out_as_the_identity_leaves_them(
+    tmp_path: Path,
+) -> None:
+    """HBA and HBA** are one protein (ADR 0138): aligned, they're identical, with no
+    gap for the second stop."""
+    for stops in ("*", "**"):
+        result, output = aligned(tmp_path, HBA, HBA + stops)
+        assert result.returncode == 0, result.stderr
+        assert output is not None
+        metrics = output["metrics"]
+        assert (metrics["length"], metrics["identity_percent"], metrics["gaps_percent"]) == (
+            len(HBA),
+            100.0,
+            0.0,
+        ), stops
+
+
 def test_a_local_alignment_with_nothing_above_zero_is_none(tmp_path: Path) -> None:
     result, output = aligned(tmp_path, "AAAA", "WWWW", mode="local")
     assert result.returncode == 0, result.stderr
@@ -628,13 +645,45 @@ def test_uniprot_headers_give_the_entry_accession_organism_and_gene(tmp_path: Pa
         "gene": "HBA1",
         "sequence": HBA,
     }
+    # Its origin is the UniProtKB entry and sequence version the file says it's from, in
+    # the file the run read (ADR 0154).
     assert create["origin"] == {
         "source": "FASTA file",
-        "id": "HBA_HUMAN",
+        "id": "P69905",
+        "version": "sequence version 2",
+        "url": "https://www.uniprot.org/uniprotkb/P69905/entry",
         "file": FILE_ID,
         "sha256": hashlib.sha256(UNIPROT_FASTA.encode()).hexdigest(),
     }
     assert output["metrics"] == {"records": 1}
+
+
+#: Human calmodulin-1 and -2 (UniProt P0DP23 and P0DP24, as UniProt's REST API gives them):
+#: two entries, from two genes, of one 149-residue protein.
+CALMODULIN = (
+    "MADQLTEEQIAEFKEAFSLFDKDGDGTITTKELGTVMRSLGQNPTEAELQDMINEVDADGNGTIDFPEFLTMMARKMKDTDSEEE"
+    "IREAFRVFDKDGNGYISAAELRHVMTNLGEKLTDEEVDEMIREADIDGDGQVNYEEFVQMMTAK"
+)
+
+
+def test_each_uniprot_record_of_one_protein_keeps_its_own_accession_as_its_origin(
+    tmp_path: Path,
+) -> None:
+    text = "".join(
+        f">sp|{accession}|{entry} Calmodulin-{n} OS=Homo sapiens OX=9606 GN={gene} PE=1 SV=1\n"
+        f"{CALMODULIN}\n"
+        for n, (accession, entry, gene) in enumerate(
+            [("P0DP23", "CALM1_HUMAN", "CALM1"), ("P0DP24", "CALM2_HUMAN", "CALM2")], start=1
+        )
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [(c["origin"]["id"], c["origin"]["version"]) for c in made(output)] == [
+        ("P0DP23", "sequence version 1"),
+        ("P0DP24", "sequence version 1"),
+    ]
+    assert len(CALMODULIN) == 149
 
 
 def test_other_headers_give_a_name_a_description_and_an_organism_in_brackets(
@@ -728,6 +777,13 @@ def test_a_large_file_goes_in_a_creates_file(tmp_path: Path) -> None:
     lines = (tmp_path / "out" / "creates.ndjson").read_text().splitlines()
     assert len(lines) == 1500
     assert json.loads(lines[-1])["values"]["name"] == "p1499"
+
+
+def test_every_stop_at_a_records_end_is_left_out(tmp_path: Path) -> None:
+    result, output = imported(tmp_path, ">a\nMKV**\n")
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [c["values"]["sequence"] for c in made(output)] == ["MKV"]
 
 
 @pytest.mark.parametrize(
