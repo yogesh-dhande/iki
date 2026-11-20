@@ -632,6 +632,28 @@ def test_a_login_node_restarting_keeps_why_its_job_said_it_failed(
     assert log_of(run).count(why) == 1
 
 
+def test_a_cancel_reaches_a_cluster_job_while_its_heartbeats_fail(
+    world: World, cluster: Cluster, server: Server, login_node: Callable[..., LoginNode]
+) -> None:
+    """Cancels reach a cluster's jobs by a watch of them all, besides their heartbeats
+    (ADR 0167): with every heartbeat failing, a cancelled run's Slurm job is scancelled."""
+    flaky = FlakyServer(server)
+    try:
+        run = launch(world, fold_seconds=600)
+        node = login_node(flaky.url)
+        node.start()
+        started(run, node)
+        flaky.failing = 10**9
+        cancelled = api_as(world, "runner").post(f"/runs/{run['id']}/cancel", {})
+        assert cancelled.status_code == 200, cancelled.content
+        assert ended(world, run, node) == "cancelled", node.diagnosis(run)
+        node.stop()
+    finally:
+        flaky.close()
+    slurm = attempt(world, run)["slurm"]
+    assert cluster.sacct(slurm["slurm_id"])["State"].startswith("CANCELLED")
+
+
 def test_a_login_node_restarting_keeps_its_jobs_secrets_hidden_and_its_log_whole(
     world: World, cluster: Cluster, login_node: Callable[[], LoginNode]
 ) -> None:

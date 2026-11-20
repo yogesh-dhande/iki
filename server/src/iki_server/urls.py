@@ -39,6 +39,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # cancelled, so they're async views outside django-ninja.
     path("worker/v1/lease", worker.lease, name="worker_lease"),
     path("worker/v1/jobs/<uuid:job_id>/watch", worker.watch, name="worker_watch"),
+    path("worker/v1/watch", worker.watch_jobs, name="worker_watch_jobs"),
     path("worker/v1/", worker.api.urls),
     path("", include("iki_server.oauth.urls")),
     path("", include("iki_server.oauth.page_urls")),

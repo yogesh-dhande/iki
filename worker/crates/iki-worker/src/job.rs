@@ -293,6 +293,12 @@ impl Job {
         let _ = self.log_marks.keep.set(Box::new(keep));
     }
 
+    /// Someone asked for the run to stop: the supervisor stops its command, as a heartbeat
+    /// saying so does.
+    pub(crate) fn cancel(&self) {
+        self.signals.cancel.store(true, Ordering::SeqCst);
+    }
+
     fn path(&self, template: &str) -> String {
         fill(template, &[&self.id])
     }

@@ -622,6 +622,88 @@ def test_watching_a_job_answers_once_its_run_is_cancelled(
     problem(WorkerClient("iki_wkr_wrong").post(path, token), 401, "not_authenticated")
 
 
+def test_watching_a_workers_jobs_answers_once_any_is_cancelled(
+    world: World, django_capture_on_commit_callbacks: Any
+) -> None:
+    """One watch for every job a worker holds, as a Slurm cluster's worker holds many
+    (ADR 0167): it says which runs were cancelled, and which jobs aren't the worker's any
+    more, as a heartbeat or a job's own watch would."""
+    pod = worker(world)
+    first, second = queued(world), queued(world)
+    one, two = pod.lease().json(), pod.lease().json()
+    assert {one["run"]["id"], two["run"]["id"]} == {first["id"], second["id"]}
+    jobs = {j["job"]["id"]: j["job"]["lease_token"] for j in (one, two)}
+    quiet = pod.post("/watch?wait=0", {"jobs": jobs})
+    assert quiet.status_code == 200, quiet.content
+    assert quiet.json() == {"cancel_requested": [], "stale": []}
+    assert quiet["Cache-Control"] == "no-store"
+    with django_capture_on_commit_callbacks() as callbacks:
+        api_as(world).post(f"/runs/{one['run']['id']}/cancel", {})
+    assert callbacks, "cancelling should NOTIFY the worker watching the job"
+    assert pod.post("/watch?wait=0", {"jobs": jobs}).json() == {
+        "cancel_requested": [one["job"]["id"]],
+        "stale": [],
+    }
+    # A lease the worker doesn't hold, and a job that isn't its own, are stale; neither
+    # says whether its run was cancelled.
+    wrong = {one["job"]["id"]: str(uuid.uuid4()), two["job"]["id"]: jobs[two["job"]["id"]]}
+    assert pod.post("/watch?wait=0", {"jobs": wrong}).json() == {
+        "cancel_requested": [],
+        "stale": [one["job"]["id"]],
+    }
+    theirs = worker(world, name="pod-2").post("/watch?wait=0", {"jobs": jobs}).json()
+    assert theirs == {"cancel_requested": [], "stale": sorted(jobs)}
+    # It reads the same however many jobs it covers.
+    bad: list[dict[str, Any]] = [
+        {},
+        {"jobs": {}},
+        {"jobs": [one["job"]["id"]]},
+        {"jobs": {"x": "y"}},
+    ]
+    for body in bad:
+        problem(pod.post("/watch?wait=0", body), 422, "validation_failed")
+    many = {str(uuid.uuid4()): str(uuid.uuid4()) for _ in range(queue.MAX_WATCHED + 1)}
+    problem(pod.post("/watch?wait=0", {"jobs": many}), 422, "validation_failed")
+    assert pod.call("GET", "/watch").status_code == 405
+    problem(WorkerClient("iki_wkr_wrong").post("/watch", {"jobs": jobs}), 401, "not_authenticated")
+
+
+def test_a_watch_of_many_jobs_takes_as_many_queries_as_of_a_few(world: World) -> None:
+    from django.test.utils import CaptureQueriesContext
+
+    pod = worker(world)
+    for _ in range(4):
+        queued(world)
+    held = [pod.lease().json() for _ in range(4)]
+    leases = {j["job"]["id"]: j["job"]["lease_token"] for j in held}
+    worker_row = Worker.objects.get(name="pod-1")
+    counted = []
+    for some in (dict(list(leases.items())[:1]), leases):
+        with CaptureQueriesContext(connection) as queries:
+            queue.watched(worker_row, {uuid.UUID(k): uuid.UUID(v) for k, v in some.items()})
+        counted.append(len(queries))
+    assert counted[0] == counted[1], counted
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_watch_of_several_jobs_is_woken_when_any_is_cancelled() -> None:
+    wakes = waker()
+    job_id = uuid.uuid4()
+    keys = [queue.watch_key(uuid.uuid4()), queue.watch_key(job_id)]
+    watching = asyncio.ensure_future(wakes.wait_any(keys, 5))
+    other = asyncio.ensure_future(wakes.wait_any([queue.watch_key(uuid.uuid4())], 0.5))
+    await asyncio.wait_for(wakes.listening.wait(), 5)
+
+    def send() -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_notify(%s, %s)", [queue.CHANNEL, queue.watch_key(job_id)])
+
+    await sync_to_async(send)()
+    assert await asyncio.wait_for(watching, 5) is True
+    assert await other is False
+    await wakes.close()
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_a_watch_is_woken_when_its_job_is_cancelled() -> None:
     wakes = waker()

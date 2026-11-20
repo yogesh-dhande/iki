@@ -160,7 +160,7 @@ The service account must be a member of every account it charges. Use
 | ------------------------ | ---------------------------- | ----------------------------------------------------------------------- |
 | `IKI_SLURM_WORK_DIR`     | (required)                   | The shared directory jobs are staged in. Setting it turns on Slurm mode |
 | `IKI_SLURM_IMAGE_CACHE`  | `$IKI_SLURM_WORK_DIR/images` | Where images are kept as SIF files                                      |
-| `IKI_SLURM_MAX_JOBS`     | 100                          | The most jobs this worker holds at once                                 |
+| `IKI_SLURM_MAX_JOBS`     | 100                          | The most jobs this worker holds at once, up to 1,000                    |
 | `IKI_SLURM_POLL_SECONDS` | 15                           | How often it asks `squeue` after its jobs                               |
 | `IKI_SLURM_BIN`          | on `PATH`                    | The directory of `sbatch`, `squeue`, `sacct` and `scancel`              |
 | `IKI_APPTAINER`          | `apptainer`                  | Apptainer, at the same path on the compute nodes                        |
@@ -201,7 +201,8 @@ For each job, the worker:
    ```
 
 5. follows the job in `squeue`, renews its lease, streams its log to the
-   run's page, and `scancel`s it if the run is cancelled;
+   run's page, and `scancel`s it the moment the run is cancelled (one
+   long-poll watches all its jobs for cancels, besides their heartbeats);
 6. once the job leaves the queue, reads how it ended and what it used from
    `sacct`, uploads its results, and removes its directory.
 

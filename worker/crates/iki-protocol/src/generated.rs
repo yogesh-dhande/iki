@@ -733,8 +733,9 @@ pub struct HeartbeatOut {
     /// Someone cancelled the run: stop the command, then report `cancelled`.
     pub cancel_requested: bool,
     pub lease_expires_at: String,
-    /// How much of the job's log the server has, in bytes of UTF-8: where a worker that restarted sends the rest from.
-    pub log_offset: i64,
+    /// How much of the job's log the server has, in bytes of UTF-8: where a worker that restarted sends the rest from. Always given; optional for workers, since servers before it don't give it (ADR 0167).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1151,4 +1152,6 @@ pub mod paths {
     pub const SETUPS_LOGS: &str = "/worker/v1/setups/{setup_id}/logs";
     /// `/worker/v1/setups/{setup_id}/progress`
     pub const SETUPS_PROGRESS: &str = "/worker/v1/setups/{setup_id}/progress";
+    /// `/worker/v1/watch`
+    pub const WATCH: &str = "/worker/v1/watch";
 }
