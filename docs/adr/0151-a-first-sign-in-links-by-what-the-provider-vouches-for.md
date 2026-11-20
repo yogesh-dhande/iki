@@ -34,10 +34,12 @@ The providers Iki's customers use have stable IDs for this:
   Connect `sub`.
 - **Microsoft Entra ID** gives each app a different `sub`. The person's
   object ID, `oid`, is the same everywhere in the tenant (`tid`).
-  Microsoft says to identify people by `oid` and `tid`, not by email, and
-  offers the optional `xms_edov` claim to say an email's domain is
-  verified. Its SCIM sends `objectId` as `externalId` when mapped so.
-  GitHub Enterprise Managed Users links Entra sign-ins the same way.
+  Microsoft says to identify people by `oid` and `tid`, not by email. Its
+  tokens carry no `email_verified`. The optional `xms_edov` claim says
+  that the email's domain is verified as its owner's, not that the
+  mailbox is this person's: an address IT has reassigned still carries it.
+  Entra's SCIM sends `objectId` as `externalId` when mapped so. GitHub
+  Enterprise Managed Users links Entra sign-ins the same way.
 - **SAML** carries no `email_verified`, but its subject (the NameID) is the
   provider's own identifier. Entra and Okta send the same sign-in name as
   the SCIM `userName` by default. GitHub links SAML identities to SCIM
@@ -56,15 +58,22 @@ provisioned account decides:
 2. **The SAML subject equals the SCIM `userName`.**
 3. **An email address the provider verified equals the account's email or
    SCIM `userName`.** OpenID Connect's `email_verified` must be true (the
-   string `"true"` counts too), or, from Entra, `xms_edov`. For SAML, an
-   `email_verified` attribute must be true, or the subject must be the
+   string `"true"` counts too). Entra's `xms_edov` doesn't count. For SAML,
+   an `email_verified` attribute must be true, or the subject must be the
    address itself.
+
+**Names link only an active account.** Rules 2 and 3 match a sign-in name or
+an address, which an organization can give to someone else once a person
+leaves. A deactivated account is linked only by rule 1; to anyone else its
+address is in use.
 
 An address the provider doesn't say it verified links nobody, whether the
 claim is false or missing. The sign-in is refused, and the refusal is
 audited as `email_unverified`. The page tells the person to ask their IT
-team to verify the address, or to send their ID at the provider as
-`externalId`. When two accounts answer to the same rule, the provider's
+team to send their ID at the provider as `externalId` (for Entra, to map
+`objectId` to it), or to have the provider verify the address. That is the
+administrator's reconciliation: the provider's administrator says, through
+SCIM, which of its people the account is. When two accounts answer to the same rule, the provider's
 data is ambiguous, and nobody is linked. `user.identity_linked` records
 which rule matched (`matched_by`).
 
@@ -91,11 +100,14 @@ decides, as for everyone else.
     so a renamed or reused address can't redirect a first sign-in.
   - The audit log says how each account was linked.
 - Negative / trade-offs:
-  - **Entra over OpenID Connect needs one of two settings** for a person's
-    first sign-in to link: SCIM mapping `objectId` to `externalId`, or the
-    `xms_edov` optional claim. Entra's default SCIM mapping sends
-    `mailNickname`, and its tokens carry no `email_verified`. Without
-    either, a provisioned person is refused with an explanation.
+  - **Entra over OpenID Connect needs SCIM to map `objectId` to
+    `externalId`** for a person's first sign-in to link, as GitHub
+    Enterprise Managed Users requires. Entra's default SCIM mapping sends
+    `mailNickname`, and its tokens verify no one's mailbox. Without the
+    mapping, a provisioned person is refused with an explanation.
+  - Without SCIM, an Entra sign-in over OpenID Connect claims no
+    placeholder by its address. Turning SCIM on claims it: provisioning
+    the person does (ADR 0096).
   - A SAML provider whose subject is opaque, and which sends neither the
     subject as `externalId` nor an `email_verified` attribute, can't link
     a provisioned account or claim a placeholder by its email attribute.
@@ -111,6 +123,9 @@ decides, as for everyone else.
   The signature proves who sent it, not that the person owns the address.
 - **Link by `preferred_username` or Entra's UPN.** Microsoft documents both
   as mutable and unsuitable for authorization.
-- **Require `externalId` for every link.** Entra's default mapping doesn't
-  send an ID that appears in its tokens, so every Entra deployment would
-  have to change its mapping even where `xms_edov` is set.
+- **Require `externalId` for every link.** Okta's tokens say whether an
+  address is verified, and SAML providers send the subject as `userName`, so
+  their defaults would stop working for no gain.
+- **Trust Entra's `xms_edov`.** It verifies the domain's owner, not the
+  person's mailbox, so an address IT reassigned to someone else would link
+  them to the previous holder's account, teams and records.
