@@ -2739,6 +2739,20 @@ class _Semantics:
                             hint="A subtype narrows what its parent's rows take.",
                         )
             if above is not None:
+                # A reference its parent's role holds to some types is held to them here too:
+                # left out, it would refer to anything its field does.
+                for cell_name, theirs_to in above.to.items():
+                    if cell_name not in role.to:
+                        self.add(
+                            "refines-wider",
+                            f"A {name} row's `{cell_name}` refers to "
+                            f"{', '.join(theirs_to)} in this type's parent, and a subtype "
+                            "narrows what its parent's rows take, so it can't leave that out.",
+                            source,
+                            at,
+                            hint=f"Give `to: {{ {cell_name}: {', '.join(theirs_to)} }}`, or "
+                            "types among those.",
+                        )
                 for bound, mine, theirs in (
                     ("min", role.min, above.min),
                     ("max", role.max, above.max),
@@ -2756,6 +2770,20 @@ class _Semantics:
                             (*at, bound) if mine is not None else at,
                             hint=f"Give `{bound}: {theirs}`, or one within it.",
                         )
+
+        # A role its parent's rows must have is one its rows must have: left out, a subtype's
+        # record could lack what its parent's requires.
+        for name, above_role in (within or {}).items():
+            if name not in roles and above_role.min:
+                self.add(
+                    "refines-drops-role",
+                    f"Its parent's rows have at least {above_role.min} {name} "
+                    f"row{'s' if above_role.min != 1 else ''}, and a subtype narrows what its "
+                    f"parent's rows take, so it can't leave out the {name} role.",
+                    source,
+                    path,
+                    hint=f"Give the {name} role, with `min: {above_role.min}` or more.",
+                )
 
     def refines(self, entity_type: EntityType, source: Document) -> None:
         """A subtype's roles for lists of rows it inherits (ADR 0164): each a list of rows

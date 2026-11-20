@@ -589,19 +589,38 @@ def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
     deeper = SUBTYPE.replace("name: Pair", "name: Single").replace(
         "extends: Assay", "extends: Pair"
     )
-    deeper = deeper.replace("PAI", "SNG").replace(
-        "light: { max: 1, to: { part: Batch } }", "light: { max: 2 }"
+    deeper = deeper.replace("PAI", "SNG")
+
+    def nested(single: str) -> Result:
+        return make(
+            tmp_path,
+            {
+                "types/assay.yaml": base,
+                "types/batch.yaml": batch,
+                "types/pair.yaml": SUBTYPE,
+                "types/single.yaml": single,
+            },
+        )
+
+    assert codes(nested(deeper)) == []
+    light = "light: { max: 1, to: { part: Batch } }"
+    assert codes(nested(deeper.replace(light, "light: { max: 2, to: { part: Batch } }"))) == [
+        "refines-wider"
+    ]
+    # Nor narrower by leaving out what its parent requires: a role its parent's rows must
+    # have, or the types its parent's role refers to, which would leave it any.
+    dropped = nested(deeper.replace("      heavy: { min: 1, max: 1, to: { part: Assay } }\n", ""))
+    assert only(dropped, "refines-drops-role") == (
+        "Its parent's rows have at least 1 heavy row, and a subtype narrows what its parent's "
+        "rows take, so it can't leave out the heavy role."
     )
-    nested = make(
-        tmp_path,
-        {
-            "types/assay.yaml": base,
-            "types/batch.yaml": batch,
-            "types/pair.yaml": SUBTYPE,
-            "types/single.yaml": deeper,
-        },
+    unbounded = nested(deeper.replace(light, "light: { max: 1 }"))
+    assert only(unbounded, "refines-wider") == (
+        "A light row's `part` refers to acme/lab.Batch in this type's parent, and a subtype "
+        "narrows what its parent's rows take, so it can't leave that out."
     )
-    assert codes(nested) == ["refines-wider"]
+    # A role its parent's rows may have, but needn't, it may leave out: it narrows them.
+    assert codes(nested(deeper.replace(f"      {light}\n", ""))) == []
 
 
 def test_an_input_includes_a_rows_references(tmp_path: Path) -> None:
