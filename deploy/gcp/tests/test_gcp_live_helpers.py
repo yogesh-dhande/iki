@@ -141,6 +141,53 @@ def test_what_comes_and_goes_in_a_shared_project_isnt_counted_as_gone() -> None:
     assert live.leftovers(before, after, SETTINGS) == []
 
 
+@pytest.mark.parametrize(
+    ("section", "line"),
+    [
+        ("buckets", "gke-lab-archive"),
+        ("buckets", "k8s1-lab-backups"),
+        ("secrets", "gke-lab-token"),
+        ("service accounts", "gkegw1-lab@shared-lab.iam.gserviceaccount.com"),
+        ("sql instances", "gke-lab-db\tRUNNABLE"),
+        ("artifact registry", "projects/shared-lab/locations/us/repositories/gke-lab"),
+        ("networks", "gke-lab-vpc"),
+    ],
+)
+def test_a_gke_looking_name_exempts_only_what_gke_makes(section: str, line: str) -> None:
+    """GKE makes firewalls, load balancers' parts and node templates for any cluster, which
+    come and go with it; never buckets, secrets or the rest, whatever they're named."""
+    before = project(**{section.replace(" ", "_"): {line}})
+    assert live.leftovers(before, project(), SETTINGS) == [
+        f"{section}: {line} is gone, which was there before"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("section", "line"),
+    [
+        ("firewalls", "gke-lab-cluster-1a2b-all\tdefault"),
+        ("firewalls", "k8s2-lab-l4-fw\tdefault"),
+        ("forwarding rules", "gkegw1-lab-gateway-x1"),
+        ("backend services", "gkegw1-lab-backend"),
+        ("health checks", "k8s1-lab-hc"),
+        ("url maps", "gkegw1-lab-map"),
+        ("target https proxies", "gkegw1-lab-proxy"),
+        ("ssl certificates", "gkegw1-lab-cert"),
+        ("instance templates", "gke-lab-cluster-default-pool-1a2b3c4d"),
+    ],
+)
+def test_what_gke_makes_for_another_cluster_may_go(section: str, line: str) -> None:
+    before = project(**{section.replace(" ", "_"): {line}})
+    assert live.leftovers(before, project(), SETTINGS) == []
+    # And what's left of it after tearing down, the deployment's cluster's, is reported.
+    assert live.leftovers(project(), before, SETTINGS) == [f"{section}: {line}"]
+
+
+def test_a_gke_looking_bucket_made_during_the_run_isnt_taken_for_the_deployments() -> None:
+    """Another team's, made meanwhile: neither left by the run nor gone."""
+    assert live.leftovers(project(), project(buckets={"gke-lab-archive"}), SETTINGS) == []
+
+
 REGION_URL = (
     f"https://www.googleapis.com/compute/v1/projects/{SETTINGS.project}/regions/{SETTINGS.region}"
 )
@@ -242,6 +289,244 @@ def test_what_google_cloud_keeps_of_the_deployment_is_still_allowed() -> None:
     assert (
         live.leftovers(project(), project(custom_roles={role}, log_buckets={logs}), SETTINGS) == []
     )
+
+
+# --- The project's Binary Authorization policy ------------------------------------------
+
+#: The policy as `gcloud container binauthz policy export` gives an untouched project's.
+UNTOUCHED: dict[str, Any] = {
+    "name": "projects/shared-lab/policy",
+    "updateTime": "2026-11-01T10:00:00.000000Z",
+    "etag": '"a1b2"',
+    "globalPolicyEvaluationMode": "ENABLE",
+    "defaultAdmissionRule": {
+        "enforcementMode": "ENFORCED_BLOCK_AND_AUDIT_LOG",
+        "evaluationMode": "ALWAYS_ALLOW",
+    },
+}
+#: Another team's: everything allowed by default, but its production cluster runs only
+#: attested images.
+ATTESTED: dict[str, Any] = {
+    **UNTOUCHED,
+    "clusterAdmissionRules": {
+        "us-central1.other-team-prod": {
+            "evaluationMode": "REQUIRE_ATTESTATION",
+            "enforcementMode": "ENFORCED_BLOCK_AND_AUDIT_LOG",
+            "requireAttestationsBy": ["projects/shared-lab/attestors/built-by-ci"],
+        }
+    },
+}
+#: The deployment's, while it's up (modules/binary-authorization).
+DEPLOYMENTS: dict[str, Any] = {
+    **UNTOUCHED,
+    "admissionWhitelistPatterns": [
+        {"namePattern": f"us-central1-docker.pkg.dev/shared-lab/{SETTINGS.name}-server/**"}
+    ],
+    "defaultAdmissionRule": {
+        "enforcementMode": "ENFORCED_BLOCK_AND_AUDIT_LOG",
+        "evaluationMode": "ALWAYS_DENY",
+    },
+}
+
+
+def scoped(field: str, key: str) -> dict[str, Any]:
+    rule = {"evaluationMode": "ALWAYS_DENY", "enforcementMode": "DRYRUN_AUDIT_LOG_ONLY"}
+    return {**UNTOUCHED, field: {key: rule}}
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        ATTESTED,
+        scoped("kubernetesNamespaceAdmissionRules", "lab-prod"),
+        scoped("kubernetesServiceAccountAdmissionRules", "lab-prod:deployer"),
+        scoped("istioServiceIdentityAdmissionRules", "spiffe://lab/ns/prod/sa/api"),
+        {**UNTOUCHED, "admissionWhitelistPatterns": [{"namePattern": "gcr.io/lab/*"}]},
+        {**UNTOUCHED, "globalPolicyEvaluationMode": "DISABLE"},
+        {k: v for k, v in UNTOUCHED.items() if k != "globalPolicyEvaluationMode"},
+        {**UNTOUCHED, "defaultAdmissionRule": {"evaluationMode": "REQUIRE_ATTESTATION"}},
+        {
+            **UNTOUCHED,
+            "defaultAdmissionRule": {
+                "evaluationMode": "ALWAYS_ALLOW",
+                "enforcementMode": "DRYRUN_AUDIT_LOG_ONLY",
+            },
+        },
+        # A field Google adds later counts until it's known to say nothing.
+        {**UNTOUCHED, "platformPolicies": ["lab"]},
+    ],
+)
+@pytest.mark.usefixtures("tools_are_there")
+def test_a_policy_of_the_projects_own_stops_the_run_before_anything_is_made(
+    policy: dict[str, Any],
+) -> None:
+    """Applying the deployment's would replace it, and destroying puts back the untouched
+    policy, not this one: so any policy that admits otherwise is left alone."""
+    before = replace(project(), binauthz=policy)
+    with pytest.raises(AssertionError, match="Binary Authorization policy of its own"):
+        live.check_preconditions(Preflight(), SETTINGS, before)  # type: ignore[arg-type]
+
+
+class Preflight:
+    """What the preconditions ask gcloud and Google's token info."""
+
+    settings = SETTINGS
+
+    def gcloud(self, *args: str, **kwargs: Any) -> str:
+        assert args[:2] == ("projects", "describe")
+        return SETTINGS.project
+
+    def identity(self) -> str:
+        return "deployer@shared-lab.iam.gserviceaccount.com"
+
+
+@pytest.fixture
+def tools_are_there(monkeypatch: pytest.MonkeyPatch) -> None:
+    import iki_live
+
+    monkeypatch.setattr(iki_live, "tool", lambda name: f"/usr/bin/{name}")
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        None,
+        UNTOUCHED,
+        # Written in another order, without its labels, and with its rule's fields reversed.
+        {
+            "defaultAdmissionRule": {
+                "evaluationMode": "ALWAYS_ALLOW",
+                "enforcementMode": "ENFORCED_BLOCK_AND_AUDIT_LOG",
+            },
+            "globalPolicyEvaluationMode": "ENABLE",
+            "clusterAdmissionRules": {},
+        },
+    ],
+)
+@pytest.mark.usefixtures("tools_are_there")
+def test_an_untouched_policy_or_none_lets_the_run_start(policy: Any) -> None:
+    before = replace(project(), binauthz=policy)
+    live.check_preconditions(Preflight(), SETTINGS, before)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "problem"),
+    [
+        # Another team's cluster rule, gone: the untouched policy isn't what was there.
+        (ATTESTED, UNTOUCHED, True),
+        (UNTOUCHED, DEPLOYMENTS, True),
+        (None, DEPLOYMENTS, True),
+        (UNTOUCHED, None, True),
+        (UNTOUCHED, {**UNTOUCHED, "etag": '"c3d4"', "updateTime": "2026-11-20T10:00:00Z"}, False),
+        # Its API was off before: turning it on made the untouched policy.
+        (None, UNTOUCHED, False),
+        (ATTESTED, {**ATTESTED, "etag": '"e5"'}, False),
+        (
+            ATTESTED,
+            {
+                **ATTESTED,
+                "clusterAdmissionRules": {
+                    "us-central1.other-team-prod": {
+                        **ATTESTED["clusterAdmissionRules"]["us-central1.other-team-prod"],
+                        "evaluationMode": "ALWAYS_ALLOW",
+                    }
+                },
+            },
+            True,
+        ),
+    ],
+)
+def test_tearing_down_must_leave_the_policy_admitting_what_it_did(
+    before: Any, after: Any, problem: bool
+) -> None:
+    found = live.leftovers(
+        replace(project(), binauthz=before), replace(project(), binauthz=after), SETTINGS
+    )
+    assert bool(found) == problem, found
+    if problem:
+        assert found == [
+            "the Binary Authorization policy isn't what it was: "
+            f"{json.dumps(before, sort_keys=True)} -> {json.dumps(after, sort_keys=True)}"
+        ]
+
+
+CLUSTERS = [
+    {"name": "lab-dev", "location": "us-central1-a", "binaryAuthorization": {}},
+    {
+        "name": "lab-staging",
+        "location": "us-east1",
+        "binaryAuthorization": {"evaluationMode": "DISABLED"},
+    },
+    {
+        "name": "lab-prod",
+        "location": "us-central1",
+        "binaryAuthorization": {"evaluationMode": "PROJECT_SINGLETON_POLICY_ENFORCE"},
+    },
+    {
+        "name": "lab-mixed",
+        "location": "europe-west4",
+        "binaryAuthorization": {
+            "evaluationMode": "POLICY_BINDINGS_AND_PROJECT_SINGLETON_POLICY_ENFORCE"
+        },
+    },
+    {"name": "lab-old", "location": "us-west1-b", "binaryAuthorization": {"enabled": True}},
+    {
+        "name": "lab-platform",
+        "location": "us-west1",
+        "binaryAuthorization": {"evaluationMode": "POLICY_BINDINGS"},
+    },
+]
+
+
+def run_resource(name: str, binauthz: str | None) -> dict[str, Any]:
+    annotations = {"run.googleapis.com/binary-authorization": binauthz} if binauthz else {}
+    return {
+        "metadata": {
+            "name": name,
+            "labels": {"cloud.googleapis.com/location": "us-central1"},
+            "annotations": {"run.googleapis.com/ingress": "all", **annotations},
+        }
+    }
+
+
+@pytest.mark.usefixtures("tools_are_there")
+def test_what_else_enforces_the_projects_policy_is_found_and_stops_the_run() -> None:
+    """Each would refuse its own images while the deployment's policy is the project's."""
+    gcp = FakeGcp(
+        {
+            live.ENFORCERS["clusters"]: [(0, json.dumps(CLUSTERS), "")],
+            live.ENFORCERS["Cloud Run services"]: [
+                (0, json.dumps([run_resource("api", "default"), run_resource("web", None)]), "")
+            ],
+            live.ENFORCERS["Cloud Run jobs"]: [
+                (0, json.dumps([run_resource("etl", "default")]), "")
+            ],
+            ("services", "list"): [
+                (0, APIS + "container.googleapis.com\nrun.googleapis.com\n", "")
+            ],
+        }
+    )
+    found = live.inventory(gcp, SETTINGS)  # type: ignore[arg-type]
+    assert found.enforcing == {
+        "cluster us-central1/lab-prod",
+        "cluster europe-west4/lab-mixed",
+        "cluster us-west1-b/lab-old",
+        "Cloud Run service us-central1/api",
+        "Cloud Run job us-central1/etl",
+    }
+    with pytest.raises(AssertionError, match="cluster us-central1/lab-prod"):
+        live.check_preconditions(Preflight(), SETTINGS, found)  # type: ignore[arg-type]
+
+
+def test_what_enforces_the_policy_cant_be_listed_is_unknown_not_nothing() -> None:
+    gcp = FakeGcp(
+        {
+            ("services", "list"): [(0, APIS + "run.googleapis.com\n", "")],
+            live.ENFORCERS["Cloud Run jobs"]: [(1, "", "ERROR: permission denied")],
+        }
+    )
+    with pytest.raises(live.IncompleteInventoryError, match="Cloud Run jobs"):
+        live.inventory(gcp, SETTINGS)  # type: ignore[arg-type]
 
 
 # --- The VM tier's light stand-ins (48h) -------------------------------------------------

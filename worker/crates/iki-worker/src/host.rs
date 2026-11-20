@@ -816,6 +816,8 @@ fn trust(
 }
 
 /// Writes `bytes` to `path`, readable by anyone: beside it first, then renamed over it.
+/// The mode is set on the open file, since the one it's created with is only what the
+/// service's umask leaves of it (a restrictive one would leave it root's alone).
 fn write_public(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let fresh = path.with_extension("new");
     let _ = std::fs::remove_file(&fresh);
@@ -826,7 +828,15 @@ fn write_public(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o644);
     }
-    options.open(&fresh)?.write_all(bytes)?;
+    let mut file = options.open(&fresh)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o644))?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&fresh, path)
 }
 
@@ -1469,6 +1479,53 @@ esac
             seen.contains("SSL_CERT_FILE=/etc/iki/ca-certificates.crt\n"),
             "{seen}"
         );
+    }
+
+    /// Set in the child process `the_ca_bundle_is_readable_whatever_the_services_umask`
+    /// starts: the file this test writes, under the umask the child was started with.
+    const UMASK_CHILD: &str = "IKI_TEST_WRITE_PUBLIC_TO";
+
+    #[test]
+    fn write_public_in_a_child() {
+        // Only does anything as the child below: the umask is the whole process's, so it's
+        // set by the shell that starts this test alone, never in the test runner's threads.
+        if let Some(path) = std::env::var_os(UMASK_CHILD) {
+            write_public(Path::new(&path), CA.as_bytes()).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_ca_bundle_is_readable_whatever_the_services_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Dir::new("umask");
+        let name = format!("{}::write_public_in_a_child", module_path!())
+            .split_once("::")
+            .map(|(_, rest)| rest.to_owned())
+            .unwrap();
+        for umask in ["022", "027", "077"] {
+            let path = dir.0.join(format!("ca-{umask}.crt"));
+            let ran = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!("umask {umask} && exec \"$0\" \"$@\""))
+                .arg(std::env::current_exe().unwrap())
+                .args([name.as_str(), "--exact", "--test-threads", "1"])
+                .env(UMASK_CHILD, &path)
+                .output()
+                .unwrap();
+            assert!(ran.status.success(), "{ran:?}");
+            assert!(
+                path.exists(),
+                "umask {umask}: the child wrote nothing: {ran:?}"
+            );
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o777,
+                0o644,
+                "umask {umask}: the container's user reads it"
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), CA);
+        }
     }
 
     #[test]

@@ -290,7 +290,41 @@ def test_file_storage_settings_are_checked(env: dict[str, str], message: str) ->
     assert message in result.stderr
 
 
-CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n"
+def _ca() -> tuple[str, str]:
+    """A deployment's own CA, as `openssl req -x509` makes one: its certificate and its
+    private key, each in PEM."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Acme internal CA")])
+    now = datetime.datetime.now(datetime.UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    return (
+        certificate.public_bytes(serialization.Encoding.PEM).decode(),
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+
+
+CA_PEM, CA_KEY = _ca()
 
 
 @pytest.mark.parametrize(
@@ -298,7 +332,15 @@ CA_PEM = "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----
     [
         (None, "IKI_RUNS_VM_CA_FILE: no file at"),
         ("not a certificate", "holds no PEM certificate"),
-        (CA_PEM * 200, "holds more than 8 KiB: give the deployment's own CA certificates"),
+        (CA_PEM * 20, "holds more than 8 KiB: give the deployment's own CA certificates"),
+        # A certificate and its key in one file, as a load balancer takes them.
+        (CA_PEM + CA_KEY, "holds PRIVATE KEY besides certificates: give the CA's certificates"),
+        (CA_KEY.replace("PRIVATE KEY", "EC PRIVATE KEY") + CA_PEM, "holds EC PRIVATE KEY"),
+        (CA_PEM + CA_KEY.split("-----END")[0], "holds a PEM block that isn't whole"),
+        (
+            "-----BEGIN CERTIFICATE-----\nMIIBdeployment\n-----END CERTIFICATE-----\n",
+            "certificate 1 can't be read",
+        ),
     ],
 )
 def test_the_vm_tiers_ca_is_a_few_pem_certificates(
@@ -310,6 +352,9 @@ def test_the_vm_tiers_ca_is_a_few_pem_certificates(
     result = run_manage("check", env={**PROD_ENV, "IKI_RUNS_VM_CA_FILE": str(ca)})
     assert result.returncode != 0
     assert message in result.stderr
+    # Nothing of the key is ever said.
+    body = "".join(CA_KEY.splitlines()[1:-1])
+    assert body[:40] not in result.stderr
 
 
 def test_the_vm_tiers_ca_is_taken(tmp_path: Path) -> None:

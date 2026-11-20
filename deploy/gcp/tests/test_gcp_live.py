@@ -23,7 +23,14 @@ Last, it lists the project again and fails if anything of the deployment's is le
 what Google Cloud won't delete (key rings, keys with their versions scheduled for
 destruction, the log bucket and custom roles pending deletion) or an API it turned on,
 or if anything that was there before is gone: the project is shared. A listing that
-fails is never taken as empty: the run fails, since what's in the project is unknown. A
+fails is never taken as empty: the run fails, since what's in the project is unknown.
+
+Binary Authorization's policy is the project's one: the deployment's replaces it, and
+destroying it puts back the untouched policy. So the run starts only if the policy
+admits what an untouched one does (no rules of its own for any cluster, namespace or
+service account), and nothing else in the project enforces it (a GKE cluster, or a Cloud
+Run service or job), whose images it would refuse meanwhile; it looks again just before
+the policy is applied, and tearing down must leave it admitting what it did. A
 run that passes whole, of a clean tree, is recorded in deploy/live-runs.json
 (deploy/live/live_runs.py): commit it.
 
@@ -67,7 +74,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -84,7 +91,7 @@ from iki_live import REPO, Iki, until
 pytestmark = pytest.mark.gcp_live
 
 #: Bumped when what the suite checks changes: recorded with each passing run.
-SUITE_VERSION = "6"
+SUITE_VERSION = "7"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -374,6 +381,8 @@ class Inventory:
     audit_configs: list[Any]
     binauthz: Any
     addresses: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: What else in the project enforces its Binary Authorization policy (enforcers).
+    enforcing: set[str] = field(default_factory=set)
 
     def write(self, path: Path) -> None:
         sections = dict(self.listings)
@@ -385,6 +394,7 @@ class Inventory:
         }
         tail = ["=== audit configs", json.dumps(self.audit_configs, indent=1, sort_keys=True)]
         tail += ["", "=== binary authorization policy", json.dumps(self.binauthz, sort_keys=True)]
+        tail += ["", "=== enforcing the policy", *sorted(self.enforcing)]
         iki_live.write_sections(path, sections, tail)
 
 
@@ -402,6 +412,7 @@ SERVICES = {
     "dns": "dns.googleapis.com",
     "kms": "cloudkms.googleapis.com",
     "binauthz": "binaryauthorization.googleapis.com",
+    "run": "run.googleapis.com",
 }
 #: How many times a listing is tried, and how long apart, before the inventory gives up.
 LISTING_ATTEMPTS = 3
@@ -466,20 +477,150 @@ def inventory(gcp: Gcp, s: Settings) -> Inventory:
             key_versions[key] = set(listed(gcp, key, versions, apis))
     policy = gcp.gcloud_json("projects", "get-iam-policy", gcp.settings.project)
     bindings = {(b["role"], m) for b in policy.get("bindings", []) for m in b["members"]}
-    binauthz = listed(
-        gcp,
-        "binary authorization policy",
-        ("container", "binauthz", "policy", "export", "--format=json"),
-        apis,
-    )
+    binauthz, enforcing = singleton_policy(gcp, apis)
     return Inventory(
         listings=listings,
         key_versions=key_versions,
         bindings=bindings,
         audit_configs=policy.get("auditConfigs", []),
-        binauthz=json.loads("\n".join(binauthz)) if binauthz else None,
+        binauthz=binauthz,
         addresses=addresses,
+        enforcing=enforcing,
     )
+
+
+#: The listings of what can enforce a project's Binary Authorization policy: GKE clusters,
+#: and Cloud Run's services and jobs (in every region, without --region).
+ENFORCERS: dict[str, tuple[str, ...]] = {
+    "clusters": (
+        "container",
+        "clusters",
+        "list",
+        "--format=json(name,location,binaryAuthorization)",
+    ),
+    "Cloud Run services": ("run", "services", "list", "--format=json"),
+    "Cloud Run jobs": ("run", "jobs", "list", "--format=json"),
+}
+#: The annotation that has Cloud Run check a service's or job's images ("default": the
+#: project's policy).
+RUN_BINAUTHZ = "run.googleapis.com/binary-authorization"
+
+
+def singleton_policy(gcp: Gcp, apis: set[str] | None = None) -> tuple[Any, set[str]]:
+    """The project's Binary Authorization policy (None if its API is off), and what in the
+    project enforces it (enforcers). Like every listing, one that fails raises."""
+    if apis is None:
+        apis = set(listed(gcp, "apis", LISTINGS["apis"], None))
+    exported = listed(
+        gcp,
+        "binary authorization policy",
+        ("container", "binauthz", "policy", "export", "--format=json"),
+        apis,
+    )
+    found = {
+        what: json.loads("\n".join(listed(gcp, what, args, apis)) or "[]")
+        for what, args in ENFORCERS.items()
+    }
+    policy = json.loads("\n".join(exported)) if exported else None
+    return policy, enforcers(
+        found["clusters"], found["Cloud Run services"], found["Cloud Run jobs"]
+    )
+
+
+def enforcers(
+    clusters: Sequence[dict[str, Any]],
+    services: Sequence[dict[str, Any]] = (),
+    jobs: Sequence[dict[str, Any]] = (),
+) -> set[str]:
+    """What admits images by the project's Binary Authorization policy: a GKE cluster that
+    enforces it (PROJECT_SINGLETON_POLICY_ENFORCE, alone or with policy bindings, or the
+    older `enabled`), and a Cloud Run service or job that names any policy. While the
+    deployment's policy is the project's, each would refuse every image not in its
+    repositories, so none may be there when the run starts."""
+    found = set()
+    for cluster in clusters:
+        mode = (cluster.get("binaryAuthorization") or {}).get("evaluationMode", "")
+        legacy = (cluster.get("binaryAuthorization") or {}).get("enabled") is True
+        if "PROJECT_SINGLETON_POLICY_ENFORCE" in mode or (legacy and not mode):
+            found.add(f"cluster {cluster.get('location', '')}/{cluster.get('name', '')}")
+    for kind, rows in (("Cloud Run service", services), ("Cloud Run job", jobs)):
+        for row in rows:
+            metadata = row.get("metadata") or {}
+            if (metadata.get("annotations") or {}).get(RUN_BINAUTHZ):
+                region = (metadata.get("labels") or {}).get("cloud.googleapis.com/location", "")
+                found.add(f"{kind} {region}/{metadata.get('name', '')}".replace(" /", " "))
+    return found
+
+
+#: A project's Binary Authorization policy until something sets it: what Google makes it
+#: when the API is turned on, and what OpenTofu's provider puts back when the deployment's
+#: is destroyed (its DefaultBinaryAuthorizationPolicy). Anything else is someone's.
+UNTOUCHED_POLICY = {
+    "globalPolicyEvaluationMode": "ENABLE",
+    "defaultAdmissionRule": {
+        "evaluationMode": "ALWAYS_ALLOW",
+        "enforcementMode": "ENFORCED_BLOCK_AND_AUDIT_LOG",
+    },
+}
+#: A policy's fields that say nothing of what it admits.
+POLICY_LABELS = {"name", "description", "updateTime", "etag"}
+#: Its maps of rules for narrower scopes than the project: each keyed by its cluster
+#: (location.name), namespace, service account or service identity.
+SCOPED_RULES = (
+    "clusterAdmissionRules",
+    "kubernetesNamespaceAdmissionRules",
+    "kubernetesServiceAccountAdmissionRules",
+    "istioServiceIdentityAdmissionRules",
+)
+
+
+def _admission_rule(rule: Any) -> dict[str, Any]:
+    rule = dict(rule or {})
+    attestors = sorted(set(rule.pop("requireAttestationsBy", None) or []))
+    found = {k: v for k, v in rule.items() if v not in (None, "", [], {})}
+    return {**found, **({"requireAttestationsBy": attestors} if attestors else {})}
+
+
+def policy_semantics(policy: Any) -> dict[str, Any] | None:
+    """What a Binary Authorization policy admits, whatever order or labels it's written
+    with: its global mode (DISABLE when unset, as the API takes it), its exempt patterns as
+    a set, its default rule, and each scope's rules, attestors as sets. A field this
+    doesn't know is kept as it is, so it counts. None for no policy (its API is off)."""
+    if policy is None:
+        return None
+    rest = {k: v for k, v in dict(policy).items() if k not in POLICY_LABELS}
+    mode = rest.pop("globalPolicyEvaluationMode", None)
+    patterns = rest.pop("admissionWhitelistPatterns", None) or []
+    found: dict[str, Any] = {
+        "globalPolicyEvaluationMode": mode if mode in ("ENABLE", "DISABLE") else "DISABLE",
+        "admissionWhitelistPatterns": sorted({p.get("namePattern", "") for p in patterns}),
+        "defaultAdmissionRule": _admission_rule(rest.pop("defaultAdmissionRule", None)),
+    }
+    for scope in SCOPED_RULES:
+        rules = rest.pop(scope, None) or {}
+        if rules:
+            found[scope] = {key: _admission_rule(rules[key]) for key in sorted(rules)}
+    return {**found, **rest}
+
+
+def policy_problems(policy: Any, enforcing: set[str]) -> list[str]:
+    """Why the deployment's Binary Authorization policy may not be applied here: it's the
+    project's one, so it replaces any other (rules for other clusters, namespaces or
+    service accounts included, which tearing down doesn't put back), and while it's there
+    it refuses other workloads' images wherever the project's policy is enforced."""
+    problems = []
+    if policy is not None and policy_semantics(policy) != policy_semantics(UNTOUCHED_POLICY):
+        problems.append(
+            "the project has a Binary Authorization policy of its own, which the "
+            "deployment's would replace, and tearing down wouldn't put back: "
+            + json.dumps(policy, sort_keys=True)
+        )
+    if enforcing:
+        problems.append(
+            "these enforce the project's Binary Authorization policy, so the deployment's "
+            "would refuse their images until it's torn down: " + ", ".join(sorted(enforcing))
+        )
+    return problems
 
 
 #: Cloud KMS's names for Cloud Storage's predefined dual-regions (deploy/gcp/production).
@@ -500,6 +641,28 @@ def key_rings(gcp: Gcp, s: Settings, apis: set[str]) -> list[str]:
 #: Names GKE gives what it makes for a cluster and its Gateway: they don't all carry the
 #: deployment's name.
 GKE_MADE = re.compile(r"^(gke-|k8s1-|k8s2-|gkegw1-|gkemcg1-)")
+#: The sections GKE makes those in: its nodes, their disks, templates and firewalls, and
+#: the parts of a Service's or Gateway's load balancer. A name like GKE's means nothing
+#: elsewhere: a bucket, secret or account so named is checked as any other is.
+GKE_SECTIONS = {
+    "instances",
+    "disks",
+    "instance templates",
+    "firewalls",
+    "network endpoint groups",
+    "addresses",
+    "forwarding rules",
+    "backend services",
+    "health checks",
+    "url maps",
+    "target https proxies",
+    "ssl certificates",
+}
+
+
+def gke_made(section: str, line: str) -> bool:
+    """Whether GKE made this, for some cluster: named as it names them, where it makes them."""
+    return section in GKE_SECTIONS and bool(GKE_MADE.match(line))
 
 
 #: Sections whose resources come and go with any workload in a shared project: another
@@ -575,7 +738,7 @@ def taken_away(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             problems += [
                 f"{section}: {line} is gone, which was there before"
                 for line in sorted(found - now)
-                if not GKE_MADE.match(line)
+                if not gke_made(section, line)
             ]
             continue
         states = dict(map(_name_and_state, now))
@@ -612,7 +775,7 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             # Cloud SQL's zone for its names under Private Services Access, made for
             # the deployment's instance and named for nothing of it.
             psa = section == "dns zones" and line.startswith("cloud-sql-psa-dns-")
-            mine = any(o in line for o in ours) or bool(GKE_MADE.match(line)) or psa
+            mine = any(o in line for o in ours) or gke_made(section, line) or psa
             if section == "addresses":
                 row = after.addresses.get(line, {})
                 mine = (
@@ -642,15 +805,20 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             problems.append(f"IAM: {member} still has {role}")
     if after.audit_configs != before.audit_configs:
         problems.append(f"audit configs changed: {before.audit_configs} -> {after.audit_configs}")
-    policy = after.binauthz or {}
-    patterns = [p.get("namePattern", "") for p in policy.get("admissionWhitelistPatterns", [])]
-    if before.binauthz != after.binauthz and (
-        any(s.name in p for p in patterns)
-        or policy.get("defaultAdmissionRule", {}).get("evaluationMode", "ALWAYS_ALLOW")
-        != "ALWAYS_ALLOW"
-    ):
-        problems.append(f"the Binary Authorization policy is still the deployment's: {policy}")
+    problems += policy_changed(before.binauthz, after.binauthz)
     return problems
+
+
+def policy_changed(before: Any, after: Any) -> list[str]:
+    """What tearing down left of the Binary Authorization policy: it must admit what it did
+    before, or, if its API was off, be the untouched policy turning it on makes."""
+    was, now = policy_semantics(before), policy_semantics(after)
+    if now == was or (was is None and now == policy_semantics(UNTOUCHED_POLICY)):
+        return []
+    return [
+        "the Binary Authorization policy isn't what it was: "
+        f"{json.dumps(before, sort_keys=True)} -> {json.dumps(after, sort_keys=True)}"
+    ]
 
 
 # --- The deployment --------------------------------------------------------------------------
@@ -823,13 +991,8 @@ def check_preconditions(gcp: Gcp, s: Settings, before: Inventory) -> None:
         f"{sorted(clash)} already have audit configs, which applying would replace and "
         "destroying would remove: set IKI_GCP_DATA_ACCESS without them"
     )
-    if before.binauthz is not None:
-        assert before.binauthz.get("defaultAdmissionRule", {}).get(
-            "evaluationMode"
-        ) == "ALWAYS_ALLOW" and not before.binauthz.get("admissionWhitelistPatterns"), (
-            "the project already has a Binary Authorization policy of its own, which the "
-            "deployment's would replace"
-        )
+    problems = policy_problems(before.binauthz, before.enforcing)
+    assert not problems, "\n".join(problems)
 
 
 def kubernetes_version(gcp: Gcp, s: Settings) -> str:
@@ -1065,6 +1228,10 @@ def stand_up(d: Deployment) -> None:
     # Everything but the cluster first, then the cluster and what needs it: each apply fits
     # in its token's hour, and what Google refuses fails in minutes, before a cluster is
     # made to be torn down. The images build meanwhile, for longer than both.
+    # The policy is applied here: what was looked at before the bootstrap is looked at again,
+    # in case another team's cluster or service has come to enforce it since.
+    problems = policy_problems(*singleton_policy(gcp))
+    assert not problems, "\n".join(problems)
     gcp.tofu("production", "apply", "-input=false", "-auto-approve", "-exclude=module.cluster")
     # A build that has failed already fails the run now, not after the rest is made.
     early = gcp.gcloud("builds", "describe", build, "--format=value(status)").strip()

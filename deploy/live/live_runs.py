@@ -45,6 +45,17 @@ SHARED = (
     "deploy/worker.Dockerfile",
     "server/Dockerfile",
     "worker/Dockerfile",
+    # What those images are built from besides the code below: the locked dependencies
+    # (the server's Python and its transport to the cloud's APIs; the worker's Rust) and
+    # the worker's toolchain and manifest, which `cargo build --locked` reads.
+    "uv.lock",
+    "worker/Cargo.lock",
+    "worker/Cargo.toml",
+    "worker/rust-toolchain.toml",
+    # `iki deploy build`, which builds the plugins into the server's image and writes the
+    # build context of the worker's (deploy/worker.Dockerfile), environments and all.
+    "cli/src/iki_cli/deploy.py",
+    "cli/src/iki_cli/workers.py",
     # The plugins it installs (iki_live.PLUGINS): their migrations run on the cloud's
     # database, their environments are built into the worker's image, and the backend
     # run's action (iki_live.ACTION) runs their script on the cloud's nodes.
@@ -79,12 +90,14 @@ RELEVANT: dict[str, tuple[str, ...]] = {
         "server/src/iki_server/runs/gce_fleet.py",
         "server/src/iki_server/runs/gce_volumes.py",
         # Its VM-tier run (48h): the live check plugin it installs and runs on Compute
-        # Engine, EC2's boot script and host config its machines share, the provisioner
+        # Engine, EC2's boot script and host config its machines share, what every
+        # machine's worker is given (its settings, the CA's certificates), the provisioner
         # that starts them, setup builds and the volumes they make, and the artifacts a
         # run keeps.
         "deploy/live/plugins/live_check/",
         "server/src/iki_server/runs/ec2.py",
         "server/src/iki_server/runs/ec2_fleet.py",
+        "server/src/iki_server/runs/machines.py",
         "server/src/iki_server/runs/provisioner.py",
         "server/src/iki_server/runs/setups.py",
         "server/src/iki_server/runs/volumes.py",

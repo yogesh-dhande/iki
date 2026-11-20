@@ -22,6 +22,7 @@ from iki_server import __version__
 from iki_server.bundles import keys as bundle_keys
 from iki_server.core.crypto import validate_keys as validate_encryption_keys
 from iki_server.observability.logging import configure_logging
+from iki_server.runs.machines import public_certificates
 from iki_server.web.static_headers import add_headers as add_static_headers
 from iki_spec.lockfile import repository
 
@@ -178,6 +179,9 @@ if IKI_RUNS_VM_SERVER_URL and not (
 IKI_RUNS_VM_CA_FILE: str = env.str("IKI_RUNS_VM_CA_FILE", default="")
 #: The most IKI_RUNS_VM_CA_FILE may hold.
 VM_CA_LIMIT = 8 * 1024
+#: IKI_RUNS_VM_CA_FILE's certificates, read once and written again as PEM
+#: (runs.machines.public_certificates): only these go to machines, never the file itself.
+IKI_RUNS_VM_CA_CERTIFICATES = ""
 if IKI_RUNS_VM_CA_FILE:
     _vm_ca = Path(IKI_RUNS_VM_CA_FILE)
     if not _vm_ca.is_file():
@@ -188,10 +192,12 @@ if IKI_RUNS_VM_CA_FILE:
             "deployment's own CA certificates, not a bundle of public ones (machines trust "
             "those already)."
         )
-    if b"-----BEGIN CERTIFICATE-----" not in _vm_ca.read_bytes():
+    try:
+        IKI_RUNS_VM_CA_CERTIFICATES = public_certificates(_vm_ca.read_bytes())
+    except ValueError as _vm_ca_error:
         raise environ.ImproperlyConfigured(
-            f"IKI_RUNS_VM_CA_FILE: {_vm_ca} holds no PEM certificate."
-        )
+            f"IKI_RUNS_VM_CA_FILE: {_vm_ca} {_vm_ca_error}."
+        ) from None
 # Where the vm tier's machines start: EC2 (`aws`, ADR 0074), or Compute Engine (`gcp`,
 # ADR 0107), in IKI_RUNS_VM_GCP_PROJECT, from IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE (the
 # vm-tier module's, unless a compute template names its own), with disks encrypted by

@@ -266,13 +266,8 @@ export DOCKER_CONFIG={DOCKER_CONFIG}
 
 #: Compute Engine's DNS answers at the metadata server's address, as the machine's
 #: resolver: a run's container may ask it names (and Cloud DNS's private zones, such as an
-#: internal load balancer's), and reach nothing else there. Inserted after the rule that
-#: drops the rest, so they come before it.
-_DNS = "".join(
-    f"iptables -I DOCKER-USER -d 169.254.169.254/32 -p {protocol} --dport 53 -j ACCEPT "
-    ">/dev/null 2>&1 || true\n"
-    for protocol in ("udp", "tcp")
-)
+#: internal load balancer's), and reach nothing else there.
+_DNS = ("-p udp --dport 53", "-p tcp --dport 53")
 
 #: Compute Engine's machines.
 GCE = Host(

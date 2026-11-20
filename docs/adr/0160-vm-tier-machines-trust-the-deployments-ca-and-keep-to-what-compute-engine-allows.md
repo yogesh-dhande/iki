@@ -40,17 +40,32 @@ strays. Only its IAM condition, which limits it to names starting with
 workers trust besides their own roots.** The provisioner alone mounts it
 (`IKI_RUNS_VM_CA_FILE`), and each machine's host configuration carries the
 certificates. `iki-worker host` writes a bundle of the machine's roots and
-those certificates, and bind-mounts it read-only into the worker's
-container as `/etc/iki/ca-certificates.crt`, with `SSL_CERT_FILE` naming
-it. The server refuses a file that holds no PEM certificate or more than
+those certificates, readable by anyone (mode 0644, set on the file whatever
+the service's umask, since the worker isn't root), and bind-mounts it
+read-only into the worker's container as `/etc/iki/ca-certificates.crt`,
+with `SSL_CERT_FILE` naming it. The server refuses a file that holds no PEM certificate or more than
 8 KiB at start: the certificates go in every machine's boot script, so they
-are the deployment's own few, not a bundle of public ones. Without it,
-nothing changes.
+are the deployment's own few, not a bundle of public ones. It reads the
+file once, as X.509 certificates in PEM blocks, and refuses any other
+block (a private key beside them, as load balancers take them), a block
+that isn't whole, or a certificate that can't be read. Machines get those
+certificates written again as PEM, never the file itself, so nothing else
+in it reaches their metadata or their runs. Without it, nothing changes.
 
 **On Compute Engine, a run's containers may reach the metadata address on
 port 53 alone.** Two `ACCEPT` rules (UDP and TCP) are inserted above the
 drop; everything else to the address, its credentials included, is still
 dropped. EC2's script is unchanged.
+
+**A machine that can't keep its runs from the metadata server starts
+nothing.** On both clouds the boot script inserts the drop (and, on Compute
+Engine, the two exceptions), then checks each rule is in DOCKER-USER
+(`iptables -C`). If any can't be made or isn't there, the machine writes
+`IKI-HOST-ERROR unsupported` to its console and shuts down before it signs
+in to a registry, pulls an image or starts `iki-worker host`; the
+provisioner ends the launch as refused. A machine image whose Docker has no
+DOCKER-USER chain (iptables off, or another firewall) can't run the VM
+tier.
 
 **A standard machine stops for host maintenance only if it has GPUs.**
 Without GPUs it's migrated live (`MIGRATE`), so its run goes on, and E2
