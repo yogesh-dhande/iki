@@ -212,8 +212,7 @@ function SequenceViewer({
     };
   }, [shown, onCapture]);
   const field = type.fields.find((f) => f.name === viewer.sequence);
-  // A DNA's length is in base pairs, an RNA's, single-stranded, in nucleotides.
-  const unit = UNITS[viewer.alphabet];
+  const unit = unitOf(viewer, source.values);
   if (!sequence) {
     return <p className="muted">It has no {field?.label.toLowerCase() ?? "sequence"} yet.</p>;
   }
@@ -266,8 +265,20 @@ function SequenceViewer({
 
 /** The sequence in rows of 60, in groups of 10, with each row's features under it. Rows
  * off screen aren't drawn, so a genome reads as quickly as a primer. */
-/** How a sequence's length is counted, by what it's a sequence of. */
+/** How a sequence's length is counted, by what it's a sequence of, when its record
+ * doesn't say how many strands it has: DNA in base pairs, RNA in nucleotides. */
 const UNITS: Record<Viewer["alphabet"], string> = { dna: "bp", rna: "nt", protein: "residues" };
+
+/** How a record's sequence length is counted: a duplex's in base pairs (bp) and a single
+ * strand's in nucleotides (nt), as the field its viewer names says it is; otherwise as
+ * its alphabet usually is. */
+function unitOf(viewer: Viewer, values: Record<string, unknown>): string {
+  if (viewer.alphabet === "protein") return UNITS.protein;
+  const strands = viewer.strands ? values[viewer.strands] : undefined;
+  if (strands === "single") return "nt";
+  if (strands === "double") return "bp";
+  return UNITS[viewer.alphabet];
+}
 
 function Residues({
   sequence,

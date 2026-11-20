@@ -140,10 +140,12 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     mode, matrix = params["mode"], params["matrix"]
     gap_open, gap_extend = float(params["gap_open"]), float(params["gap_extend"])
     a, b = query["values"]["sequence"].upper(), target["values"]["sequence"].upper()
+    # Stops at the end end the chain rather than being residues of it, however many there
+    # are, as a protein's identity reads them (ADR 0138).
     for entity, sequence in ((query, a), (target, b)):
-        if not sequence.removesuffix("*"):
+        if not sequence.rstrip("*"):
             fail(f"{entity['hrid']} has no residues to align.")
-    a, b = a.removesuffix("*"), b.removesuffix("*")
+    a, b = a.rstrip("*"), b.rstrip("*")
     if len(a) * len(b) > MAX_CELLS:
         fail(
             f"{query['hrid']} and {target['hrid']} are too long to align here: "

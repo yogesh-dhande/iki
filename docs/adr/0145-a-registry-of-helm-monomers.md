@@ -25,9 +25,10 @@ weight would no longer be its monomers'.
 ## Decision
 
 **Monomers are registry entries** (`iki/oligo.Monomer`), identified by
-polymer type and symbol, as HELM names them. Symbols are compared exactly:
-HELM's IDs are case-sensitive, and a run naming `[moe]` fails, saying it may
-mean `[MOE]`.
+polymer type and symbol, as HELM names them. Symbols are compared exactly,
+case and all. HELM 2.04 (4.1) says its notation is case-insensitive, but
+the HELM monomer libraries and toolkits compare symbols exactly, so Iki does
+too (ADR 0144): a run naming `[moe]` fails, saying it may mean `[MOE]`.
 
 **A monomer's structure is a fixed fact** (ADR 0143), as are its role,
 natural analogue and ε260: given when it's registered, never changed, even by
@@ -40,9 +41,12 @@ name and where it's from are facts a registrar may correct.
 
 **Its structure is SMILES with its caps mapped**, `[H:1]` or `[OH:3]`, as
 HELM's libraries write them, so it's the monomer as it is unjoined. A derived
-structure key, the SHA-256 of its polymer type and RDKit's canonical SMILES
-with each attachment point as `[*:n]`, is unique: two symbols can't name one
-structure, however it's drawn.
+structure key, the SHA-256 of its polymer type, RDKit's canonical SMILES
+with each attachment point as `[*:n]`, and each attachment point's cap, is
+unique: two symbols can't name one structure, however it's drawn. The caps
+are in it because a free one stays on the molecule (HELM 2.04, 5.2.1.1): a
+methyl capped with H is methane, and capped with OH methanol. Its isotopes
+are in it too, as RDKit's SMILES keeps them.
 
 **The plugin ships a library, and its runs resolve symbols from it**: 28
 monomers, from the Pistoia sets at a fixed commit, with corrections, each
@@ -71,6 +75,9 @@ naming them, if its HELM names monomers it doesn't list.
   with its monomers.
 - A run registering an oligonucleotide with a lab's monomer must be given it
   as an input: the run can't find it in the registry by itself.
+- The structure key took in each attachment point's cap on 2026-11-20, after
+  monomers were first registered. Before M1 there are no databases to keep, so
+  nothing was migrated: a registry made before then is made again.
 
 ## Alternatives considered
 

@@ -53,6 +53,6 @@ metrics:
   differences:
     {
       label: Differences,
-      description: "Differences from the protein: substitutions, stops, deletions, insertions and frameshifts.",
+      description: "Differences from the protein: substitutions, stops, deletions, insertions, deletion-insertions and frameshifts, consecutive changes in a read counted as one.",
     }
 timeout: 30m

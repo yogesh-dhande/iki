@@ -4,8 +4,9 @@ structure-tools image.
 Each structure's file is read as the import read it (mmCIF as it is, PDB through gemmi),
 so residues are numbered as its proteins' sequences were. mkdssp annotates the first
 model with the Chemical Component Dictionary the image carries, and writes mmCIF. From
-that, for each chain in chain_ids, a letter per residue of its sequence, and over all of
-them: the shares in helices (H, G, I) and strands (E, B), and the summed accessibility.
+that, for each chain in chain_ids, a letter per residue of its sequence (`?` for one DSSP
+didn't assign, with or without coordinates), and over the residues it assigned: the
+shares in helices (H, G, I) and strands (E, B), and the summed accessibility.
 The annotated file is kept too.
 
 A residue DSSP gives no accessibility for (`?`) has no measured area, so a sum without

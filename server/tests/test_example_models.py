@@ -217,6 +217,30 @@ CRAMBIN = (Path(__file__).parent / "data" / "crambin.pdb").read_text()
             ),
             ["A", "B"],
         ),
+        # A water on a chain of its own isn't a copy of the protein: chain W has no amino
+        # acids, as wwPDB's HETATM records for solvent say.
+        (
+            CRAMBIN.replace(
+                "TER",
+                "TER\nHETATM  999  O   HOH W   1      10.000  10.000  10.000  1.00  0.00"
+                "           O",
+            ),
+            ["A"],
+        ),
+        # A chain whose residues are all HETATM, as modified amino acids such as
+        # selenomethionine (MSE) are written, is the protein: its residues have a backbone.
+        (
+            CRAMBIN.replace(
+                "TER",
+                "TER\n"
+                + "\n".join(
+                    "HETATM" + line[6:17] + "MSE B" + line[22:]
+                    for line in CRAMBIN.splitlines()
+                    if line.startswith("ATOM")
+                ),
+            ),
+            ["A", "B"],
+        ),
         # Two models of it: the first's chains.
         (
             "MODEL        1\n"
@@ -240,9 +264,19 @@ def test_a_predicted_structure_has_each_chain_its_file_has(
     }
     done, where = ran(tmp_path, foldcloud, _run(resume=resume))
     assert done.returncode == 0, done.stderr
-    (create,) = json.loads((where / "output.json").read_text())["creates"]
+    output = json.loads((where / "output.json").read_text())
+    (create,) = output["creates"]
     assert create["values"]["chain_ids"] == chain_ids
     assert create["values"]["chains"] == [PROTEIN] * len(chain_ids)
+    left_out = [m["text"] for m in output["messages"] if "no amino acids" in m["text"]]
+    assert left_out == (
+        [
+            "FoldCloud's file also has chain W, with no amino acids (solvent or ligands): it "
+            "is not the protein, so the structure's chains leave it out."
+        ]
+        if "HOH" in pdb
+        else []
+    )
 
 
 def test_a_predicted_structure_without_chain_ids_says_so(

@@ -188,6 +188,23 @@ def test_selenocysteine_pyrrolysine_and_j_align_as_any_residue(tmp_path: Path) -
     assert ["".join(record.splitlines()[1:]) for record in fasta] == [query, query]
 
 
+def test_every_stop_at_the_end_is_left_out_as_the_identity_leaves_them(
+    tmp_path: Path,
+) -> None:
+    """HBA and HBA** are one protein (ADR 0138): aligned, they're identical, with no
+    gap for the second stop."""
+    for stops in ("*", "**"):
+        result, output = aligned(tmp_path, HBA, HBA + stops)
+        assert result.returncode == 0, result.stderr
+        assert output is not None
+        metrics = output["metrics"]
+        assert (metrics["length"], metrics["identity_percent"], metrics["gaps_percent"]) == (
+            len(HBA),
+            100.0,
+            0.0,
+        ), stops
+
+
 def test_a_local_alignment_with_nothing_above_zero_is_none(tmp_path: Path) -> None:
     result, output = aligned(tmp_path, "AAAA", "WWWW", mode="local")
     assert result.returncode == 0, result.stderr
@@ -336,6 +353,24 @@ def test_an_isoelectric_point_beyond_ph_14_isnt_saved_but_the_rest_are(tmp_path:
     ]
     # R10's, 12.95, is within it.
     assert found["1"]["isoelectric_point"] == 12.95
+
+
+def test_an_isoelectric_point_just_past_ph_14_isnt_saved_though_it_rounds_to_14(
+    tmp_path: Path,
+) -> None:
+    """Bjellqvist's model, by bisection of Biopython's charge_at_pH, puts R102's charge at
+    zero at pH 14.0043, which rounds to 14.00 but is past the scale; R101's is 14.00003.
+    Composition beyond a run of one residue does it too: (RAKR)x60, 14.0777."""
+    found, messages = properties(tmp_path, "R" * 102, "R" * 101, "RAKR" * 60)
+    assert ["isoelectric_point" in found[k] for k in "012"] == [False, False, False]
+    assert [m["text"] for m in messages] == [
+        "Its isoelectric point by Bjellqvist's model would be pH 14.0043, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+        "Its isoelectric point by Bjellqvist's model would be pH 14.0000, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+        "Its isoelectric point by Bjellqvist's model would be pH 14.08, above 14, where the "
+        "model's pK values don't hold, so it wasn't saved.",
+    ]
 
 
 def test_stops_at_the_end_are_all_left_out(tmp_path: Path) -> None:
@@ -570,6 +605,26 @@ def test_an_ambiguous_last_codon_says_it_could_have_been_a_stop(
     assert plain["messages"] == []
 
 
+def test_an_ambiguous_last_codon_that_can_also_be_only_an_amino_acid_isnt_sent_to_a_cds(
+    tmp_path: Path,
+) -> None:
+    """NCBI code 28: TAN is TAA or TAG (Q, or a stop), or TAC or TAT, which are Tyr and
+    never a stop, so a complete coding sequence can't end with it: the run doesn't say to
+    translate it as one."""
+    _, frame = translated(
+        tmp_path, [entity(1, bases="ATGTAN", name="pCiliate")], table=28, to_stop=False
+    )
+    assert frame is not None
+    assert [m["text"] for m in frame["messages"]] == [
+        "pCiliate's last codon in frame +1, TAN, is Q, Y or a stop in genetic code 28, so it "
+        "was kept as X. It can't end a complete coding sequence: TAC and TAT, which it could "
+        "be, are never a stop."
+    ]
+    _, cds = translated(tmp_path, [entity(1, bases="ATGTAN")], table=28, complete_cds=True)
+    assert cds is not None
+    assert cds["creates"] == []
+
+
 def test_a_genetic_code_ncbi_doesnt_use_fails_the_run(tmp_path: Path) -> None:
     result, output = translated(tmp_path, [entity(1, bases="ATG")], table=7)
     assert result.returncode == 1
@@ -628,13 +683,45 @@ def test_uniprot_headers_give_the_entry_accession_organism_and_gene(tmp_path: Pa
         "gene": "HBA1",
         "sequence": HBA,
     }
+    # Its origin is the UniProtKB entry and sequence version the file says it's from, in
+    # the file the run read (ADR 0154).
     assert create["origin"] == {
         "source": "FASTA file",
-        "id": "HBA_HUMAN",
+        "id": "P69905",
+        "version": "sequence version 2",
+        "url": "https://www.uniprot.org/uniprotkb/P69905/entry",
         "file": FILE_ID,
         "sha256": hashlib.sha256(UNIPROT_FASTA.encode()).hexdigest(),
     }
     assert output["metrics"] == {"records": 1}
+
+
+#: Human calmodulin-1 and -2 (UniProt P0DP23 and P0DP24, as UniProt's REST API gives them):
+#: two entries, from two genes, of one 149-residue protein.
+CALMODULIN = (
+    "MADQLTEEQIAEFKEAFSLFDKDGDGTITTKELGTVMRSLGQNPTEAELQDMINEVDADGNGTIDFPEFLTMMARKMKDTDSEEE"
+    "IREAFRVFDKDGNGYISAAELRHVMTNLGEKLTDEEVDEMIREADIDGDGQVNYEEFVQMMTAK"
+)
+
+
+def test_each_uniprot_record_of_one_protein_keeps_its_own_accession_as_its_origin(
+    tmp_path: Path,
+) -> None:
+    text = "".join(
+        f">sp|{accession}|{entry} Calmodulin-{n} OS=Homo sapiens OX=9606 GN={gene} PE=1 SV=1\n"
+        f"{CALMODULIN}\n"
+        for n, (accession, entry, gene) in enumerate(
+            [("P0DP23", "CALM1_HUMAN", "CALM1"), ("P0DP24", "CALM2_HUMAN", "CALM2")], start=1
+        )
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [(c["origin"]["id"], c["origin"]["version"]) for c in made(output)] == [
+        ("P0DP23", "sequence version 1"),
+        ("P0DP24", "sequence version 1"),
+    ]
+    assert len(CALMODULIN) == 149
 
 
 def test_other_headers_give_a_name_a_description_and_an_organism_in_brackets(
@@ -728,6 +815,13 @@ def test_a_large_file_goes_in_a_creates_file(tmp_path: Path) -> None:
     lines = (tmp_path / "out" / "creates.ndjson").read_text().splitlines()
     assert len(lines) == 1500
     assert json.loads(lines[-1])["values"]["name"] == "p1499"
+
+
+def test_every_stop_at_a_records_end_is_left_out(tmp_path: Path) -> None:
+    result, output = imported(tmp_path, ">a\nMKV**\n")
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [c["values"]["sequence"] for c in made(output)] == ["MKV"]
 
 
 @pytest.mark.parametrize(

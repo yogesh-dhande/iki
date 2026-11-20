@@ -25,8 +25,9 @@ molecule's would mislead every concentration made from it.
 **ε260 is computed only where the parameters describe the strand**: a single
 strand of natural DNA, or of natural RNA, by the tables above.
 
-- **Phosphorothioates are read as phosphates**, as every calculator does; the
-  note says so, since the parameters were measured on phosphodiesters.
+- **Phosphorothioates are read as phosphates**, as every calculator does,
+  whether the phosphorus's stereochemistry is undefined, Rp or Sp; the note
+  says so, since the parameters were measured on phosphodiesters.
 - **A modifier's own ε260 is added**, as its supplier gives it (IDT's for
   6-FAM, the BHQs, Cy3 and Cy5), so a labelled probe's is the strand's and its
   dyes'. One that doesn't absorb at 260 nm (biotin, amino linkers, spacers,
@@ -35,7 +36,10 @@ strand of natural DNA, or of natural RNA, by the tables above.
   parameters describe, with how many of each: "Not computed: no
   nearest-neighbour parameters describe 2′-O-Methoxyethylribose (18),
   5-Methylcytosine (4)." A strand mixing DNA and RNA nucleotides (an siRNA's
-  dTdT overhang) has none either, since neither table describes it.
+  dTdT overhang) has none either, since neither table describes it. Nor does
+  a strand with an abasic site, whose neighbours aren't neighbours, or a ring
+  (a strand joined to itself), since the model's end correction is a linear
+  strand's.
 - **A duplex has none**: its hypochromicity depends on its pairing, which the
   nearest-neighbour model for duplexes (Tataurov et al., 2008) describes, but
   only for natural DNA, which siRNAs aren't.

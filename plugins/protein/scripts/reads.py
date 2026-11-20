@@ -25,11 +25,14 @@ viewer, as the run does, tells a K or N where the protein has A from an N that s
 nothing.
 
 The run reports where the reads cover the protein, and each difference from it in the
-protein's numbering, as HGVS names them in one-letter codes: substitutions (T315I),
-stops (Q45*), deletions (K12del, K12_L14del), insertions (K12_L13insG), duplications
-(K12dup) and frameshifts (K12fs), with the reads that show each and their quality there
-(the least of its codon's bases). A deletion or insertion in repeated residues is named
-at its C-terminal-most place, as HGVS asks.
+protein's numbering, as HGVS names a protein change predicted from DNA, in one-letter
+codes: substitutions (p.(T315I)), stops (p.(Q45*)), deletions (p.(K12del),
+p.(K12_L14del)), insertions (p.(K12_L13insG)), duplications (p.(K12dup)),
+deletion-insertions (p.(R21_C22delinsSW)) and frameshifts (p.(K12fs)), with the reads
+that show each and their quality there (the least of its codon's bases). Changes a read
+makes to consecutive residues are one deletion-insertion, as HGVS names changes on one
+allele. A deletion or insertion in repeated residues is named at its C-terminal-most
+place, as HGVS asks.
 
 Each codon is compared with the protein as the residues it could code for, by every codon
 its bases could be (IUBMB codes): it differs if it can be none of what the protein's
@@ -561,41 +564,84 @@ def unresolved(placed: Placed, protein: str) -> list[int]:
     ]
 
 
+def changed(placed: Placed, protein: str, spot: int) -> str | None:
+    """What the read did to the protein's residue at `spot`: its residue, where it differs,
+    `-` where it lost it, or None where it says it's the same, or nothing."""
+    residue = placed.at.get(spot)
+    if residue == "-":
+        return residue
+    if residue is not None and call(placed.could_be[spot], protein[spot]) == "differs":
+        return residue
+    return None
+
+
+def named(protein: str, first: int | None, last: int, new: str, inserted_at: int) -> str:
+    """A run of consecutive changes, as HGVS names it: residues `first` to `last` (from 0)
+    replaced by `new`, or, with no residue replaced (`first` None), `new` inserted before
+    `inserted_at`."""
+    if first is None:
+        return insertion(protein, inserted_at, new)
+    if not new:
+        return deletion(protein, first, last)
+    if first == last and len(new) == 1:
+        return f"{protein[first]}{first + 1}{new}"
+    where = f"{protein[first]}{first + 1}"
+    if last > first:
+        where += f"_{protein[last]}{last + 1}"
+    return f"{where}delins{new}"
+
+
 def differences(placed: Placed, protein: str) -> list[tuple[int, str, int | None]]:
     """The read's differences from the protein: (where, as HGVS names it, its quality
-    there)."""
+    there). Changes to consecutive residues (substitutions, deletions and insertions
+    between them) are one deletion-insertion, as HGVS names changes on one allele, and
+    each name is a predicted protein's, `p.(…)`, as a read's DNA predicts it."""
     out: list[tuple[int, str, int | None]] = []
-    deleted: list[int] = []
+    # The run of consecutive changes being read: the first and last residue it replaces,
+    # what replaces them, where its insertion is, its least quality, and where it must
+    # go on to continue.
+    run: dict[str, Any] | None = None
 
-    def close_deletion() -> None:
-        if deleted:
-            out.append((deleted[0], deletion(protein, deleted[0], deleted[-1]), None))
-            deleted.clear()
+    def close() -> None:
+        nonlocal run
+        if run is not None:
+            name = named(protein, run["first"], run["last"], run["new"], run["at"])
+            out.append((run["at"], f"p.({name})", run["quality"]))
+        run = None
 
-    for spot in sorted(placed.at):
-        residue = placed.at[spot]
-        if residue == "-":
-            if deleted and spot != deleted[-1] + 1:
-                close_deletion()
-            deleted.append(spot)
+    def extend(at: int, residues: str, quality: int | None) -> dict[str, Any]:
+        nonlocal run
+        if run is None or run["next"] != at:
+            close()
+            run = {"first": None, "last": at, "new": "", "at": at, "quality": None}
+        run["new"] += residues
+        if quality is not None:
+            run["quality"] = quality if run["quality"] is None else min(run["quality"], quality)
+        return run
+
+    for spot in range(len(protein)):
+        if spot in placed.inserted:
+            extend(spot, placed.inserted[spot], placed.inserted_quality.get(spot))["next"] = spot
+        residue = changed(placed, protein, spot)
+        if residue is None:
+            close()
             continue
-        close_deletion()
-        if call(placed.could_be[spot], protein[spot]) == "differs":
-            out.append((spot, f"{protein[spot]}{spot + 1}{residue}", placed.quality_at.get(spot)))
-    close_deletion()
-    for spot, residues in placed.inserted.items():
-        out.append((spot, insertion(protein, spot, residues), placed.inserted_quality.get(spot)))
+        found = extend(spot, "" if residue == "-" else residue, placed.quality_at.get(spot))
+        if found["first"] is None:
+            found["first"] = spot
+        found["last"], found["next"] = spot, spot + 1
+    close()
     # Where the frame shifted: the first residue the next part codes in its new frame.
     for before, after in zip(placed.parts[:-1], placed.parts[1:], strict=True):
         if before.frame != after.frame:
             spot = min(before.last, len(protein) - 1)
-            out.append((spot, f"{protein[spot]}{spot + 1}fs", None))
+            out.append((spot, f"p.({protein[spot]}{spot + 1}fs)", None))
     return out
 
 
 def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     (entity,) = run["inputs"]["reference"]
-    protein = entity["values"]["sequence"].upper().removesuffix("*")
+    protein = entity["values"]["sequence"].upper().rstrip("*")
     hrid = entity["hrid"]
     if not protein:
         fail(f"{hrid} has no residues to align to.")

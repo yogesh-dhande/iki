@@ -2,6 +2,12 @@
 # bispecifics take (ADR 0164), so searching iki/core.Complex finds them beside every other
 # complex, and the same chains and copies registered as another type of complex are this
 # one's entry.
+#
+# Its identity is its chain inventory, by design: the chains and how many copies, not
+# how they pair. Two pairings of the same four chains (a molecule and its mispaired
+# assembly) are one entry, whose arms say the intended pairing; a type that registers
+# each pairing as its own molecule would make its paired arms (heavy and light chain
+# together) its components instead, and compare them as an unordered pair.
 apiVersion: iki/v1
 kind: EntityType
 name: Bispecific

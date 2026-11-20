@@ -13,7 +13,10 @@ phosphate and phosphorothioate protonated. A cationic dye (Cy3, Cy5) makes it an
 salt, one phosphate giving up its proton, so the molecule is neutral.
 
 Its average molecular weight is from CIAAW's abridged standard atomic weights (2021),
-its monoisotopic mass from each element's most abundant isotope, as RDKit has them.
+its monoisotopic mass from each element's most abundant isotope, as RDKit has them. An
+atom a structure labels with its isotope ([13CH], [2H]) weighs that nuclide's mass, as
+RDKit has it from AME2020, in both, and is written as itself in its formula:
+C4[13C]5H12N2O6.
 """
 
 from __future__ import annotations
@@ -172,9 +175,10 @@ def structure(smiles: str) -> Structure:
     return Structure(mol, caps, groups)
 
 
-def rgroup_smiles(smiles: str) -> str:
+def rgroup_smiles(smiles: str, *, isomeric: bool = True) -> str:
     """A monomer's structure, as RDKit's canonical SMILES with each attachment point as
-    [*:n]: the same for the same structure however it's drawn."""
+    [*:n]: the same for the same structure however it's drawn. Without its stereochemistry
+    if not ``isomeric``."""
     s = structure(smiles)
     rw = Chem.RWMol(s.mol)
     for n, index in s.caps.items():
@@ -186,13 +190,16 @@ def rgroup_smiles(smiles: str) -> str:
         atom.SetAtomMapNum(n)
     mol = rw.GetMol()
     Chem.SanitizeMol(mol)
-    return Chem.MolToSmiles(mol)
+    return Chem.MolToSmiles(mol, isomericSmiles=isomeric)
 
 
 def structure_key(m: Monomer) -> str:
-    """The SHA-256 of a monomer's polymer type and R-group SMILES: one structure's
-    however it's drawn."""
-    text = f"{m.polymer_type}:{rgroup_smiles(m.smiles)}"
+    """The SHA-256 of a monomer's polymer type, R-group SMILES and each attachment
+    point's cap: one structure's however it's drawn. The caps are in it because a free
+    one stays on the molecule (HELM 2.04, 5.2.1.1): a methyl capped H is methane, and
+    capped OH methanol."""
+    caps = ",".join(f"R{n}={cap}" for n, cap in sorted(structure(m.smiles).cap_groups.items()))
+    text = f"{m.polymer_type}:{rgroup_smiles(m.smiles)}:{caps}"
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -344,11 +351,38 @@ def _inner_salt(mol: Chem.Mol) -> Chem.Mol:
 # --- What's computed --------------------------------------------------------------------
 
 
+def _token(atom: Chem.Atom) -> str:
+    """An atom as its formula writes it: its element, or its isotope if it's labelled."""
+    isotope = atom.GetIsotope()
+    return f"[{isotope}{atom.GetSymbol()}]" if isotope else atom.GetSymbol()
+
+
+_TOKEN = re.compile(r"\[(\d+)([A-Z][a-z]?)\]|([A-Z][a-z]?)")
+
+
+def _element(token: str) -> tuple[str, int]:
+    """A formula's token's element, and its isotope's mass number (0 if natural)."""
+    m = _TOKEN.fullmatch(token)
+    assert m is not None  # noqa: S101 - only tokens _token wrote
+    return (m.group(2), int(m.group(1))) if m.group(1) else (m.group(3), 0)
+
+
+def hill(counts: Counter[str]) -> str:
+    """Counts in Hill order: carbon, hydrogen, then the rest alphabetically, each labelled
+    isotope after its element's natural atoms (C4[13C]5)."""
+
+    def order(token: str) -> tuple[int, str, int]:
+        element, isotope = _element(token)
+        return ({"C": 0, "H": 1}.get(element, 2), element, isotope)
+
+    return "".join(
+        f"{t}{counts[t] if counts[t] > 1 else ''}" for t in sorted(counts, key=order) if counts[t]
+    )
+
+
 def formula(mol: Chem.Mol) -> str:
     """Its formula in Hill order: carbon, hydrogen, then the rest alphabetically."""
-    counts = atom_counts(mol)
-    order = [e for e in ("C", "H") if e in counts] + sorted(e for e in counts if e not in "CH")
-    text = "".join(f"{e}{counts[e] if counts[e] > 1 else ''}" for e in order)
+    text = hill(atom_counts(mol))
     charge = Chem.GetFormalCharge(mol)
     if charge:
         text += f"{'+' if charge > 0 else '-'}{abs(charge) if abs(charge) > 1 else ''}"
@@ -356,20 +390,32 @@ def formula(mol: Chem.Mol) -> str:
 
 
 def atom_counts(mol: Chem.Mol) -> Counter[str]:
+    """Its atoms by element, or isotope where one is labelled, hydrogens included."""
     counts: Counter[str] = Counter()
     for atom in mol.GetAtoms():
-        counts[atom.GetSymbol()] += 1
+        counts[_token(atom)] += 1
         counts["H"] += atom.GetTotalNumHs()
     return counts
 
 
 def average_weight(mol: Chem.Mol) -> float:
-    """Its average molecular weight, g/mol, from CIAAW's abridged atomic weights."""
-    counts = atom_counts(mol)
-    unknown = sorted(set(counts) - set(ATOMIC_WEIGHTS))
+    """Its average molecular weight, g/mol, from CIAAW's abridged atomic weights, and each
+    labelled isotope's nuclide mass."""
+    table = Chem.GetPeriodicTable()
+    terms: list[float] = []
+    unknown = set()
+    for token, n in atom_counts(mol).items():
+        element, isotope = _element(token)
+        if isotope:
+            terms.append(table.GetMassForIsotope(element, isotope) * n)
+        elif element in ATOMIC_WEIGHTS:
+            terms.append(ATOMIC_WEIGHTS[element] * n)
+        else:
+            unknown.add(element)
     if unknown:
-        raise HelmError(f"It has {', '.join(unknown)}, whose atomic weight Iki doesn't hold.")
-    return sum(ATOMIC_WEIGHTS[e] * n for e, n in counts.items())
+        named = ", ".join(sorted(unknown))
+        raise HelmError(f"It has {named}, whose atomic weight Iki doesn't hold.")
+    return sum(terms)
 
 
 def monoisotopic_mass(mol: Chem.Mol) -> float:
@@ -389,10 +435,17 @@ class Nucleotide:
     linker: Monomer | None = None
     others: list[Monomer] = field(default_factory=list)
 
+    @property
+    def nucleotide(self) -> bool:
+        """It's a nucleotide: it has a sugar. One without a base is an abasic site; a unit
+        without a sugar, such as a 5′ phosphate, isn't a nucleotide."""
+        return self.sugar is not None
+
     def letter(self) -> str:
-        """Its base's natural analogue's letter, or N if it hasn't one."""
+        """Its base's natural analogue's letter, N if it hasn't one, - for an abasic site,
+        and nothing for a unit that isn't a nucleotide."""
         if self.base is None:
-            return ""
+            return "-" if self.nucleotide else ""
         analogue = (self.base.natural_analogue or "").upper()
         return analogue if analogue in ("A", "C", "G", "T", "U") else "N"
 
@@ -413,6 +466,38 @@ def strand_polymer(helm: Helm) -> Polymer:
             "chemical groups on it (CHEM). A peptide conjugate is a conjugate of the two."
         )
     return strands[0]
+
+
+def check_joined(helm: Helm) -> None:
+    """Every polymer is bonded to the strand, directly or through others: an
+    oligonucleotide is one molecule. Raises HelmError naming one that isn't."""
+    strand = strand_polymer(helm).id
+    reached, edges = {strand}, [c for c in helm.connections if not c.pair]
+    grew = True
+    while grew:
+        grew = False
+        for c in edges:
+            ends = {c.one.polymer, c.other.polymer}
+            if ends & reached and not ends <= reached:
+                reached |= ends
+                grew = True
+    apart = [p.id for p in helm.polymers if p.id not in reached]
+    if apart:
+        raise HelmError(
+            f"{_and(apart)} {'is' if len(apart) == 1 else 'are'}n't joined to the strand: an "
+            "oligonucleotide is one molecule, so connect each chemical group to it, as "
+            f"{strand},{apart[0]},1:R1-1:R1 joins one to its 5′ end."
+        )
+
+
+def _and(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def ring(helm: Helm) -> bool:
+    """The strand is bonded to itself: a ring, such as a cyclic oligonucleotide."""
+    strand = strand_polymer(helm).id
+    return any(not c.pair and c.one.polymer == c.other.polymer == strand for c in helm.connections)
 
 
 def nucleotides(built: Built) -> list[Nucleotide]:
@@ -461,6 +546,9 @@ def bases(built: Built) -> str:
 
 # Natural nucleotides, by their structure, so a lab's own copy of one is read as it.
 _NATURAL: dict[str, tuple[str, str]] = {}
+#: Its linkers, by their R-group SMILES without stereochemistry: a phosphorothioate is one
+#: whether its phosphorus is Rp, Sp or undefined.
+_LINKERS: dict[str, tuple[str, str]] = {}
 
 
 def _natural() -> dict[str, tuple[str, str]]:
@@ -478,7 +566,10 @@ def _natural() -> dict[str, tuple[str, str]]:
             "T": ("base", "T"),
             "U": ("base", "U"),
         }.items():
-            _NATURAL[rgroup_smiles(lib[("RNA", symbol)].smiles)] = what
+            smiles = lib[("RNA", symbol)].smiles
+            _NATURAL[rgroup_smiles(smiles)] = what
+            if what[0] == "linker":
+                _LINKERS[rgroup_smiles(smiles, isomeric=False)] = what
     return _NATURAL
 
 
@@ -486,9 +577,12 @@ def natural(m: Monomer | None) -> tuple[str, str] | None:
     if m is None:
         return None
     try:
-        return _natural().get(rgroup_smiles(m.smiles))
+        found = _natural().get(rgroup_smiles(m.smiles))
+        if found is None and m.role == "linker":
+            found = _LINKERS.get(rgroup_smiles(m.smiles, isomeric=False))
     except ValueError:
         return None
+    return found
 
 
 def modified(m: Monomer | None) -> bool:
@@ -498,11 +592,17 @@ def modified(m: Monomer | None) -> bool:
     return m is not None and (found is None or found[1] == "phosphorothioate")
 
 
+#: What a nucleotide without a base is.
+ABASIC = "Abasic site"
+
+
 def modifications(built: Built) -> list[str]:
     """What isn't natural DNA or RNA, by monomer, with how many: "2′-O-methoxyethyl ribose
     (18)", "5′ 6-FAM"."""
     counts: Counter[str] = Counter()
     for n in nucleotides(built):
+        if n.nucleotide and n.base is None:
+            counts[ABASIC] += 1
         for m in [n.sugar, n.base, n.linker, *n.others]:
             if modified(m):
                 counts[m.name] += 1
@@ -566,10 +666,20 @@ def extinction(built: Built) -> Extinction:
     unknown: Counter[str] = Counter()
     thio = 0
     added = 0.0
+    if ring(built.helm):
+        return Extinction(
+            None,
+            "Not computed: its strand is joined to itself, a ring, and nearest-neighbour "
+            "parameters describe a linear strand, with two ends.",
+        )
     for n in units:
         sugar, base, linker = natural(n.sugar), natural(n.base), natural(n.linker)
+        if n.nucleotide and n.base is None:
+            # Its neighbours aren't neighbours: no doublet describes them.
+            unknown[f"an {ABASIC.lower()}"] += 1
         if n.sugar is None or n.base is None:
-            # A unit that isn't a nucleotide: a 5′ phosphate, or a modifier in the chain.
+            # A unit that isn't a nucleotide (a 5′ phosphate, or a modifier in the chain),
+            # or an abasic site.
             for m in [n.sugar, n.base, n.linker, *n.others]:
                 if m is not None and natural(m) is None:
                     unknown[m.name] += 1
@@ -595,11 +705,6 @@ def extinction(built: Built) -> Extinction:
                 unknown[m.name] += 1
             else:
                 added += m.extinction_260
-    for p in built.helm.polymers:
-        if p.type == "CHEM" and not any(
-            c for c in built.helm.connections if p.id in (c.one.polymer, c.other.polymer)
-        ):
-            unknown[f"{p.id}, not joined to the strand"] += 1
     if len(kinds) > 1:
         return Extinction(
             None,
@@ -645,23 +750,40 @@ def _brief(m: Monomer | None) -> dict[str, Any] | None:
 
 
 def positions(built: Built) -> dict[str, Any]:
-    """Each nucleotide's sugar, base and linker, 5′ to 3′, and the groups at each end:
-    what the record page draws."""
+    """Each nucleotide's sugar, base and linker, 5′ to 3′, numbered from 1, and the groups
+    at each end: what the record page draws. A unit that isn't a nucleotide, such as a 5′
+    phosphate, is drawn at the end it's at, or with the nucleotide before it."""
+    units = nucleotides(built)
+    chemical = ends(built)
+    five: list[Monomer] = list(chemical["5′"])
+    three: list[Monomer] = []
+    drawn: list[dict[str, Any]] = []
+    for n in units:
+        parts = [m for m in (n.sugar, n.base, n.linker, *n.others) if m is not None]
+        if n.nucleotide:
+            drawn.append(
+                {
+                    "position": len(drawn) + 1,
+                    "base": n.letter() or None,
+                    "sugar": _brief(n.sugar),
+                    "nucleobase": _brief(n.base),
+                    "linker": _brief(n.linker),
+                    "others": [_brief(m) for m in n.others],
+                }
+            )
+            three = []
+        elif not drawn:
+            five.extend(parts)
+        else:
+            drawn[-1]["others"].extend(_brief(m) for m in parts)
+            three.extend(parts)
+    # A unit after the last nucleotide is at the 3′ end, not with it.
+    if three:
+        drawn[-1]["others"] = drawn[-1]["others"][: -len(three)]
+    groups = {"5′": five, "3′": [*three, *chemical["3′"]], "internal": chemical["internal"]}
     return {
-        "nucleotides": [
-            {
-                "position": n.position,
-                "base": n.letter() or None,
-                "sugar": _brief(n.sugar),
-                "nucleobase": _brief(n.base),
-                "linker": _brief(n.linker),
-                "others": [_brief(m) for m in n.others],
-            }
-            for n in nucleotides(built)
-        ],
-        "ends": {
-            where: [_brief(m) for m in groups] for where, groups in ends(built).items() if groups
-        },
+        "nucleotides": drawn,
+        "ends": {where: [_brief(m) for m in found] for where, found in groups.items() if found},
     }
 
 
@@ -687,16 +809,16 @@ def unique_keys(helm: Helm) -> list[tuple[str, str]]:
     return list(seen)
 
 
-_ELEMENT = re.compile(r"([A-Z][a-z]?)(\d*)")
+_COUNTED = re.compile(r"(\[\d+[A-Z][a-z]?\]|[A-Z][a-z]?)(\d*)")
 
 
 def add_formulas(*formulas: str) -> str:
-    """Formulas added, in Hill order: two strands' as their duplex's."""
+    """Formulas added, in Hill order: two strands' as their duplex's, each labelled
+    isotope kept as itself."""
     counts: Counter[str] = Counter()
     for f in formulas:
-        if not re.fullmatch(r"(?:[A-Z][a-z]?\d*)+", f):
+        if not re.fullmatch(r"(?:(?:\[\d+[A-Z][a-z]?\]|[A-Z][a-z]?)\d*)+", f):
             raise ValueError(f"{f} isn't a neutral formula")
-        for element, n in _ELEMENT.findall(f):
-            counts[element] += int(n or 1)
-    order = [e for e in ("C", "H") if e in counts] + sorted(e for e in counts if e not in "CH")
-    return "".join(f"{e}{counts[e] if counts[e] > 1 else ''}" for e in order)
+        for token, n in _COUNTED.findall(f):
+            counts[token] += int(n or 1)
+    return hill(counts)

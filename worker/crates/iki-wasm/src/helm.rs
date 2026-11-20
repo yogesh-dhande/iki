@@ -1107,22 +1107,46 @@ fn write_units(units: &[Unit], out: &mut String) {
     }
 }
 
-/// The units with every repeat of a fixed count written out, and where each monomer (by
-/// its position as written, from 1) is now; a monomer inside a repeat has no one place.
-fn expand(units: &[Unit]) -> (Vec<Unit>, Vec<Option<usize>>) {
+/// Where a monomer, by its position as written, is in the canonical form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// At this position, from 1, before a ring is turned.
+    At(usize),
+    /// Inside a repeat, which has no one place once it's written out.
+    Repeated,
+    /// A missing monomer (`_`), which the canonical form leaves out.
+    Missing,
+}
+
+/// The units with every repeat of a fixed count written out, missing monomers left out
+/// (if `drop_missing`) and lists in order, and where each monomer (by its position as
+/// written, from 1) is now.
+fn expand(units: &[Unit], drop_missing: bool) -> (Vec<Unit>, Vec<Place>) {
     let mut out = Vec::new();
     let mut places = Vec::new();
     let mut at = 0_usize;
-    expand_into(units, &mut out, &mut places, &mut at, false);
+    expand_into(units, &mut out, &mut places, &mut at, false, drop_missing);
     (out, places)
+}
+
+/// A missing monomer (`_`), on its own or as a branch. HELM's ambiguous monomers say it
+/// adds nothing there (`A._.G` is `A.G`, and `R(_)P` is `RP`), unlike `_` in a list, which
+/// says a monomer may be missing.
+fn is_missing(element: &Element) -> bool {
+    match element {
+        Element::Monomer(m) => !m.smiles && m.id == "_",
+        Element::Branch(inner) => is_missing(inner),
+        _ => false,
+    }
 }
 
 fn expand_into(
     units: &[Unit],
     out: &mut Vec<Unit>,
-    places: &mut Vec<Option<usize>>,
+    places: &mut Vec<Place>,
     at: &mut usize,
     repeated: bool,
+    drop_missing: bool,
 ) {
     for unit in units {
         let times = match unit.repeat {
@@ -1139,17 +1163,40 @@ fn expand_into(
             if let Element::Group(inner) = &unit.elements[0] {
                 let before = *at;
                 for _ in 0..times {
-                    expand_into(inner, out, &mut Vec::new(), at, true);
+                    expand_into(inner, out, &mut Vec::new(), at, true, drop_missing);
                 }
-                places.push((!inside && *at == before + 1).then_some(*at));
+                places.push(if !inside && *at == before + 1 {
+                    Place::At(*at)
+                } else {
+                    Place::Repeated
+                });
             }
             continue;
         }
-        let n: usize = unit.elements.iter().map(element_count).sum();
-        places.extend((1..=n).map(|k| (!inside).then_some(*at + k)));
+        // Each element is one position as written. A unit that's only `_` is left out, and
+        // so is a branch that's `_`.
+        let whole = drop_missing && unit.elements.len() == 1 && is_missing(&unit.elements[0]);
+        let mut kept: Vec<Element> = Vec::new();
+        for element in &unit.elements {
+            let branch = matches!(element, Element::Branch(_));
+            if whole || (drop_missing && branch && is_missing(element)) {
+                places.push(Place::Missing);
+                continue;
+            }
+            kept.push(normalise(element, drop_missing));
+            places.push(if inside {
+                Place::Repeated
+            } else {
+                Place::At(*at + kept.len())
+            });
+        }
+        if kept.is_empty() {
+            continue;
+        }
+        let n = kept.len();
         for _ in 0..times {
             out.push(Unit {
-                elements: unit.elements.clone(),
+                elements: kept.clone(),
                 repeat: if ranged { unit.repeat } else { None },
             });
             *at += n;
@@ -1157,22 +1204,241 @@ fn expand_into(
     }
 }
 
-/// A polymer, canonical, without its ID: the expanded units, and where its written
-/// positions went.
-fn canonical_polymer(polymer: &Polymer) -> (String, Vec<Option<usize>>) {
+/// An element as the canonical form writes it. A list without ratios has each member
+/// once, as HELM's mixtures say `(A+A+L+L+A+V)` "is exactly the same as" `(A+L+V)`, and a
+/// list of one monomer is that monomer; a group repeated a range of counts has its own
+/// repeats written out.
+fn normalise(element: &Element, drop_missing: bool) -> Element {
+    match element {
+        Element::Monomer(_) => element.clone(),
+        Element::Branch(inner) => Element::Branch(Box::new(normalise(inner, drop_missing))),
+        Element::Group(units) => {
+            let (inner, _) = expand(units, drop_missing);
+            Element::Group(if inner.is_empty() {
+                units.clone()
+            } else {
+                inner
+            })
+        }
+        Element::List { mixture, members } => {
+            let mut members: Vec<(Vec<Element>, Option<String>)> = members
+                .iter()
+                .map(|(elements, ratio)| {
+                    let elements = elements.iter().map(|e| normalise(e, drop_missing));
+                    (elements.collect(), ratio.clone())
+                })
+                .collect();
+            if members.iter().any(|(_, ratio)| ratio.is_some()) {
+                return Element::List {
+                    mixture: *mixture,
+                    members,
+                };
+            }
+            let mut seen = std::collections::HashSet::new();
+            members.retain(|(elements, _)| {
+                let mut text = String::new();
+                write_elements(elements, &mut text);
+                seen.insert(text)
+            });
+            if let [(only, _)] = members.as_slice()
+                && let [Element::Monomer(m)] = only.as_slice()
+            {
+                return Element::Monomer(m.clone());
+            }
+            Element::List {
+                mixture: *mixture,
+                members,
+            }
+        }
+    }
+}
+
+/// A polymer, canonical: its text without its number, where its written positions went,
+/// and, if it's a ring, how it may be turned.
+struct Written {
+    text: String,
+    places: Vec<Place>,
+    ring: Option<Ring>,
+}
+
+/// A polymer whose last backbone monomer is joined to its first, R2 to R1: a ring, such
+/// as a head-to-tail cyclic peptide or a cyclic oligonucleotide. It's one molecule from
+/// whichever unit it's written from, so it's written from the one whose units read least;
+/// a ring that repeats reads least from several, and each is tried, as identical polymers'
+/// numberings are, for the connections that read least.
+struct Ring {
+    /// How many positions it has.
+    total: usize,
+    /// Its last backbone monomer's position, unturned.
+    last: usize,
+    /// Each way it's tried: how many positions, unturned, come before the unit it's
+    /// written from, and its last backbone monomer's position once turned.
+    turns: Vec<(usize, usize)>,
+}
+
+impl Ring {
+    /// Where a position, unturned, is once it's turned the `turn`th way.
+    fn turned(&self, turn: usize, position: usize) -> usize {
+        let before = self.turns[turn].0;
+        if position > before {
+            position - before
+        } else {
+            position + self.total - before
+        }
+    }
+}
+
+fn canonical_polymer(polymer: &Polymer, connections: &[Connection]) -> Written {
     let mut text = String::new();
     text.push_str(polymer.id.kind.name());
     text.push('{');
-    let places = if let Some(blob) = &polymer.blob {
+    if let Some(blob) = &polymer.blob {
         text.push_str(blob);
-        Vec::new()
-    } else {
-        let (units, places) = expand(&polymer.units);
-        write_units(&units, &mut text);
-        places
-    };
+        text.push('}');
+        return Written {
+            text,
+            places: Vec::new(),
+            ring: None,
+        };
+    }
+    let (mut units, mut places) = expand(&polymer.units, true);
+    if units.is_empty() {
+        // Only missing monomers: kept, since a polymer has one.
+        (units, places) = expand(&polymer.units, false);
+    }
+    let ring = ring(polymer, &mut units, &places, connections);
+    write_units(&units, &mut text);
     text.push('}');
-    (text, places)
+    Written { text, places, ring }
+}
+
+/// The least rotation of `items`: where to start for the sequence that reads least
+/// (Zhou Yuan's minimum expression, in linear time).
+fn least_rotation(items: &[usize]) -> usize {
+    let count = items.len();
+    let (mut one, mut other, mut along) = (0, 1, 0);
+    while one < count && other < count && along < count {
+        let (here, there) = (items[(one + along) % count], items[(other + along) % count]);
+        if here == there {
+            along += 1;
+            continue;
+        }
+        if here > there {
+            one += along + 1;
+        } else {
+            other += along + 1;
+        }
+        if one == other {
+            other += 1;
+        }
+        along = 0;
+    }
+    one.min(other)
+}
+
+/// If the polymer is a ring, its units turned to the rotation that reads least, and how
+/// it may be turned.
+fn ring(
+    polymer: &Polymer,
+    units: &mut [Unit],
+    places: &[Place],
+    connections: &[Connection],
+) -> Option<Ring> {
+    let unrepeated = units
+        .iter()
+        .all(|u| u.repeat.is_none() && !u.elements.iter().any(|e| matches!(e, Element::Group(_))));
+    if !matches!(polymer.id.kind, PolymerType::Peptide | PolymerType::Rna)
+        || units.len() < 2
+        || !unrepeated
+    {
+        return None;
+    }
+    let id = polymer.id.to_string();
+    let starts: Vec<usize> = units
+        .iter()
+        .scan(0, |at, u| {
+            let start = *at;
+            *at += u.elements.len();
+            Some(start)
+        })
+        .collect();
+    let total: usize = units.iter().map(|u| u.elements.len()).sum();
+    let last_backbone = |u: usize| {
+        let elements = &units[u].elements;
+        let at = elements
+            .iter()
+            .rposition(|e| !matches!(e, Element::Branch(_)))
+            .unwrap_or(0);
+        starts[u] + at + 1
+    };
+    let last = last_backbone(units.len() - 1);
+    let place = |p: &Position| match p {
+        Position::At(n) => match places.get(n - 1) {
+            Some(Place::At(now)) => Some(*now),
+            _ => None,
+        },
+        Position::Unknown(_) => None,
+    };
+    let (mut closed, mut others) = (false, false);
+    for c in connections {
+        let (from, to) = (c.from.polymer == id, c.to.polymer == id);
+        if !from && !to {
+            continue;
+        }
+        let ends = [
+            (place(&c.from.position), c.from.attachment.as_str()),
+            (place(&c.to.position), c.to.attachment.as_str()),
+        ];
+        let closing = from
+            && to
+            && (ends == [(Some(1), "R1"), (Some(last), "R2")]
+                || ends == [(Some(last), "R2"), (Some(1), "R1")]);
+        if closing {
+            closed = true;
+        } else {
+            others = true;
+        }
+    }
+    if !closed {
+        return None;
+    }
+    let texts: Vec<String> = units
+        .iter()
+        .map(|u| {
+            let mut text = String::new();
+            write_units(std::slice::from_ref(u), &mut text);
+            text
+        })
+        .collect();
+    let mut sorted: Vec<&String> = texts.iter().collect();
+    sorted.sort();
+    sorted.dedup();
+    let ranks: Vec<usize> = texts
+        .iter()
+        .map(|t| sorted.binary_search(&t).unwrap_or_default())
+        .collect();
+    let n = ranks.len();
+    let start = least_rotation(&ranks);
+    let period = (1..=n)
+        .find(|&p| n.is_multiple_of(p) && (0..n).all(|i| ranks[i] == ranks[(i + p) % n]))
+        .unwrap_or(n);
+    // Only another connection to it can tell its equal rotations apart.
+    let tried = if others { n / period } else { 1 };
+    let turns = (0..tried)
+        .map(|j| {
+            let k = (start + j * period) % n;
+            let before = starts[k];
+            let end = last_backbone((k + n - 1) % n);
+            let end = if end > before {
+                end - before
+            } else {
+                end + total - before
+            };
+            (before, end)
+        })
+        .collect();
+    units.rotate_left(start);
+    Some(Ring { total, last, turns })
 }
 
 /// The canonical form of HELM already read.
@@ -1180,74 +1446,106 @@ fn canonical_polymer(polymer: &Polymer) -> (String, Vec<Option<usize>>) {
 /// # Errors
 ///
 /// When it can't be put in order: a connection to a monomer inside a repeat, which has no
-/// one position once the repeat is written out, or too many identical polymers to number.
+/// one position once the repeat is written out, or to a missing one, or too many
+/// identical polymers to number.
 pub fn canonical(text: &str, helm: &Helm) -> Read<String> {
-    let written: Vec<(String, Vec<Option<usize>>)> =
-        helm.polymers.iter().map(canonical_polymer).collect();
+    Ok(canonical_parts(text, helm)?.0)
+}
+
+/// The canonical form, and its connections, each written.
+fn canonical_parts(text: &str, helm: &Helm) -> Read<(String, Vec<String>)> {
+    let written: Vec<Written> = helm
+        .polymers
+        .iter()
+        .map(|p| canonical_polymer(p, &helm.connections))
+        .collect();
     // The polymers in order of their type and notation; identical ones tie.
     let mut order: Vec<usize> = (0..helm.polymers.len()).collect();
     order.sort_by(|&a, &b| {
-        (helm.polymers[a].id.kind, &written[a].0).cmp(&(helm.polymers[b].id.kind, &written[b].0))
+        (helm.polymers[a].id.kind, &written[a].text)
+            .cmp(&(helm.polymers[b].id.kind, &written[b].text))
     });
     let mut ties: Vec<Vec<usize>> = Vec::new();
     for &i in &order {
         match ties.last_mut() {
             Some(last)
                 if helm.polymers[last[0]].id.kind == helm.polymers[i].id.kind
-                    && written[last[0]].0 == written[i].0 =>
+                    && written[last[0]].text == written[i].text =>
             {
                 last.push(i);
             }
             _ => ties.push(vec![i]),
         }
     }
+    let turns: Vec<usize> = written
+        .iter()
+        .map(|w| w.ring.as_ref().map_or(1, |r| r.turns.len()))
+        .collect();
     let orderings = ties
         .iter()
         .map(|t| (1..=t.len()).product::<usize>())
+        .chain(turns.iter().copied())
         .try_fold(1_usize, usize::checked_mul)
         .unwrap_or(usize::MAX);
     if orderings > MAX_ORDERINGS {
         return Err(problem(
             text,
             0,
-            "It has too many identical polymers for Iki to put their connections in one order.",
+            "It has too many identical polymers, or a ring that repeats too often, for Iki to \
+             put their connections in one order.",
         ));
     }
-    let mut best: Option<(String, String)> = None;
+    let mut best: Option<(String, Vec<String>, String)> = None;
     let mut permutation: Vec<Vec<usize>> = ties.clone();
     loop {
         let numbered: Vec<usize> = permutation.iter().flatten().copied().collect();
-        let (connections, groups) = connections_for(text, helm, &written, &numbered)?;
-        if best
-            .as_ref()
-            .is_none_or(|(c, g)| (&connections, &groups) < (c, g))
-        {
-            best = Some((connections, groups));
+        let mut turn = vec![0; written.len()];
+        loop {
+            let (connections, groups) = connections_for(text, helm, &written, &numbered, &turn)?;
+            let joined = connections.join("|");
+            if best
+                .as_ref()
+                .is_none_or(|(c, _, g)| (&joined, &groups) < (c, g))
+            {
+                best = Some((joined, connections, groups));
+            }
+            if !next_turn(&mut turn, &turns) {
+                break;
+            }
         }
         if !next_ordering(&mut permutation) {
             break;
         }
     }
-    let (connections, groups) = best.unwrap_or_default();
+    let (joined, connections, groups) = best.unwrap_or_default();
     let polymers: Vec<String> = order
         .iter()
         .scan(BTreeMap::<PolymerType, u32>::new(), |numbers, &i| {
             let kind = helm.polymers[i].id.kind;
             let n = numbers.entry(kind).or_insert(0);
             *n += 1;
-            let text = &written[i].0;
+            let text = &written[i].text;
             let body = &text[kind.name().len()..];
             Some(format!("{}{}{}", kind.name(), n, body))
         })
         .collect();
-    Ok(format!(
-        "{}${}${}$$V2.0",
-        polymers.join("|"),
+    Ok((
+        format!("{}${}${}$$V2.0", polymers.join("|"), joined, groups),
         connections,
-        groups
     ))
 }
 
+/// The next way of turning each ring, like an odometer; false after the last.
+fn next_turn(turn: &mut [usize], counts: &[usize]) -> bool {
+    for (t, &n) in turn.iter_mut().zip(counts).rev() {
+        if *t + 1 < n {
+            *t += 1;
+            return true;
+        }
+        *t = 0;
+    }
+    false
+}
 /// The next arrangement of each tie, in turn, like an odometer; false after the last.
 fn next_ordering(ties: &mut [Vec<usize>]) -> bool {
     for tie in ties.iter_mut().rev() {
@@ -1334,14 +1632,70 @@ fn number_groups(text: &str, helm: &Helm, names: &Names) -> Read<Groups> {
     Ok((group_names, ordered))
 }
 
+/// Where an end's position as written is in the canonical form, before its ring is
+/// turned: None for one named some other way, or in a group.
+fn unturned(text: &str, names: &Names, written: &[Written], e: &End) -> Read<Option<usize>> {
+    let (Position::At(p), Some((_, _, index))) = (&e.position, names.get(&e.polymer)) else {
+        return Ok(None);
+    };
+    match written[*index].places.get(p - 1) {
+        Some(Place::At(now)) => Ok(Some(*now)),
+        Some(Place::Missing) => Err(problem(
+            text,
+            0,
+            format!(
+                "A connection names monomer {p} of {}, which is “_”, a missing monomer: \
+                 there's nothing there to connect.",
+                e.polymer
+            ),
+        )),
+        _ => Err(problem(
+            text,
+            0,
+            format!(
+                "A connection names monomer {p} of {}, which is inside a repeat: write the \
+                 repeat out to connect one of its monomers.",
+                e.polymer
+            ),
+        )),
+    }
+}
+
+/// A connection's ends, each its sort key, polymer, position and attachment point,
+/// written with the lesser first, after the key it sorts by and a NUL.
+fn write_connection(mut ends: [(String, String, String, String); 2]) -> String {
+    ends.sort();
+    let [a, b] = ends;
+    let pos = |p: &String| {
+        if p.bytes().all(|c| c.is_ascii_digit()) {
+            p.trim_start_matches('0').to_owned()
+        } else {
+            p.clone()
+        }
+    };
+    let key = [&a.0, &a.2, &a.3, &b.0, &b.2, &b.3]
+        .map(String::as_str)
+        .join("\u{1}");
+    format!(
+        "{key}\u{0}{},{},{}:{}-{}:{}",
+        a.1,
+        b.1,
+        pos(&a.2),
+        a.3,
+        pos(&b.2),
+        b.3
+    )
+}
+
 /// The connections and groups, written, with the polymers numbered in this order (indexes
-/// into the HELM's polymers).
+/// into the HELM's polymers) and each ring turned the `turn[i]`th way.
 fn connections_for(
     text: &str,
     helm: &Helm,
-    written: &[(String, Vec<Option<usize>>)],
+    written: &[Written],
     numbered: &[usize],
-) -> Read<(String, String)> {
+    turn: &[usize],
+) -> Read<(Vec<String>, String)> {
     let mut names: Names = HashMap::new();
     let mut numbers = BTreeMap::<PolymerType, u32>::new();
     for &i in numbered {
@@ -1353,7 +1707,7 @@ fn connections_for(
     let (group_names, ordered) = number_groups(text, helm, &names)?;
     // Each end sorts by its polymer's canonical order (its type's, then its number), its
     // position and its attachment point.
-    let end = |e: &End| -> Read<(String, String, String, String)> {
+    let end = |e: &End, at: Option<usize>| -> (String, String, String, String) {
         let (key, polymer) = if let Some((k, n, _)) = names.get(&e.polymer) {
             (format!("{}{n:09}", *k as u8), format!("{}{}", k.name(), n))
         } else {
@@ -1363,53 +1717,64 @@ fn connections_for(
                 .unwrap_or_else(|| e.polymer.clone());
             (format!("9{name}"), name)
         };
-        let position = match (&e.position, names.get(&e.polymer)) {
-            (Position::At(p), Some((_, _, index))) => {
-                match written[*index].1.get(p - 1).copied().flatten() {
-                    Some(now) => format!("{now:09}"),
-                    None => {
-                        return Err(problem(
-                            text,
-                            0,
-                            format!(
-                                "A connection names monomer {p} of {}, which is inside a \
-                                 repeat: write the repeat out to connect one of its monomers.",
-                                e.polymer
-                            ),
-                        ));
-                    }
-                }
-            }
+        let position = match (&e.position, at) {
+            (_, Some(now)) => format!("{now:09}"),
             (Position::At(p), None) => format!("{p:09}"),
-            (Position::Unknown(u), _) => u.clone(),
+            (Position::Unknown(u), None) => u.clone(),
         };
-        Ok((key, polymer, position, e.attachment.clone()))
+        (key, polymer, position, e.attachment.clone())
     };
     let mut connections: Vec<String> = Vec::new();
     for c in &helm.connections {
-        let mut ends = [end(&c.from)?, end(&c.to)?];
-        ends.sort();
-        let [a, b] = ends;
-        let unpad = |p: &str| p.trim_start_matches('0').to_owned();
-        let pos = |p: &String| {
-            if p.bytes().all(|c| c.is_ascii_digit()) {
-                unpad(p)
-            } else {
-                p.clone()
+        let (from, to) = (
+            unturned(text, &names, written, &c.from)?,
+            unturned(text, &names, written, &c.to)?,
+        );
+        let ring = names
+            .get(&c.from.polymer)
+            .filter(|_| c.from.polymer == c.to.polymer)
+            .and_then(|(_, _, i)| written[*i].ring.as_ref().map(|r| (*i, r)));
+        let ends = match ring {
+            // A ring's closing bond, from its new first monomer to its new last.
+            Some((i, r))
+                if [
+                    (from, c.from.attachment.as_str()),
+                    (to, c.to.attachment.as_str()),
+                ]
+                .iter()
+                .all(|end| *end == (Some(1), "R1") || *end == (Some(r.last), "R2"))
+                    && c.from.attachment != c.to.attachment =>
+            {
+                let closing = |e: &End| {
+                    if e.attachment == "R1" {
+                        1
+                    } else {
+                        r.turns[turn[i]].1
+                    }
+                };
+                [
+                    end(&c.from, Some(closing(&c.from))),
+                    end(&c.to, Some(closing(&c.to))),
+                ]
+            }
+            _ => {
+                let turned = |e: &End, at: Option<usize>| {
+                    at.map(|now| {
+                        names
+                            .get(&e.polymer)
+                            .and_then(|(_, _, i)| {
+                                written[*i].ring.as_ref().map(|r| r.turned(turn[*i], now))
+                            })
+                            .unwrap_or(now)
+                    })
+                };
+                [
+                    end(&c.from, turned(&c.from, from)),
+                    end(&c.to, turned(&c.to, to)),
+                ]
             }
         };
-        let key = [&a.0, &a.2, &a.3, &b.0, &b.2, &b.3]
-            .map(String::as_str)
-            .join("\u{1}");
-        connections.push(format!(
-            "{key}\u{0}{},{},{}:{}-{}:{}",
-            a.1,
-            b.1,
-            pos(&a.2),
-            a.3,
-            pos(&b.2),
-            b.3
-        ));
+        connections.push(write_connection(ends));
     }
     connections.sort();
     connections.dedup();
@@ -1424,9 +1789,8 @@ fn connections_for(
         .iter()
         .map(|(name, body)| format!("{name}({body})"))
         .collect();
-    Ok((connections.join("|"), groups.join("|")))
+    Ok((connections, groups.join("|")))
 }
-
 // --- What a person (and Iki's actions) are told ----------------------------------------------
 
 /// A monomer as a reading lists it: its ID, whether it's a branch, and where it is.
@@ -1446,6 +1810,15 @@ pub struct Listed {
     pub unit: usize,
 }
 
+/// How many amino acids, or nucleotides, a polymer has: the fewest and the most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Length {
+    /// The fewest.
+    pub fewest: usize,
+    /// The most; none when there's no most, for `*`, any number of monomers.
+    pub most: Option<usize>,
+}
+
 /// A polymer as a reading lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Summary {
@@ -1454,12 +1827,38 @@ pub struct Summary {
     /// Its type.
     #[serde(rename = "type")]
     pub kind: PolymerType,
-    /// Its units (its nucleotides, for RNA).
+    /// Its units as its canonical form writes them, an RNA's with or without a base (a 5′
+    /// phosphate is one).
     pub units: usize,
+    /// How many amino acids (PEPTIDE) or nucleotides (RNA: its units with a base) it has:
+    /// more than one count when a repeat's is a range, or a monomer is `*` (any number)
+    /// or a list with `_` (maybe missing). A CHEM is one.
+    pub length: Length,
     /// Its monomers, in order, its repeats written out.
     pub monomers: Vec<Listed>,
-    /// It has a repeat whose count is a range, or monomers that aren't known.
+    /// It has a repeat whose count is a range, a list of monomers, or monomers that aren't
+    /// known: `*`, `_`, a PEPTIDE's `X` or an RNA's `N`.
     pub ambiguous: bool,
+}
+
+/// A polymer group, as a reading lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GroupSummary {
+    /// Its canonical ID, such as G1.
+    pub id: String,
+    /// Its members are a mixture (`+`), all there; otherwise it's one of them (`,`).
+    pub mixture: bool,
+    /// Its members: polymers, or groups, by their canonical IDs.
+    pub members: Vec<GroupMember>,
+}
+
+/// A polymer group's member.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GroupMember {
+    /// Its canonical ID.
+    pub id: String,
+    /// Its ratio, as written without trailing zeros, if it's given.
+    pub ratio: Option<String>,
 }
 
 /// What a reading says: the canonical form, its polymers, and its connections.
@@ -1471,19 +1870,107 @@ pub struct Reading {
     pub polymers: Vec<Summary>,
     /// Its connections, canonical.
     pub connections: Vec<String>,
+    /// Its polymer groups, canonical.
+    pub groups: Vec<GroupSummary>,
     /// It was written as HELM 1.
     pub version1: bool,
+}
+
+type Bounds = (usize, Option<usize>);
+const NONE: Bounds = (0, Some(0));
+const ONE: Bounds = (1, Some(1));
+
+fn plus(a: Bounds, b: Bounds) -> Bounds {
+    (
+        a.0.saturating_add(b.0),
+        a.1.zip(b.1).map(|(x, y)| x.saturating_add(y)),
+    )
+}
+
+/// One of them: the fewest of any, and the most.
+fn either(each: impl Iterator<Item = Bounds>) -> Bounds {
+    each.reduce(|a, b| (a.0.min(b.0), a.1.zip(b.1).map(|(x, y)| x.max(y))))
+        .unwrap_or(NONE)
+}
+
+fn repeated(one: Bounds, repeat: Option<Repeat>) -> Bounds {
+    match repeat {
+        None => one,
+        Some(r) => (
+            one.0.saturating_mul(r.from as usize),
+            one.1.map(|m| m.saturating_mul(r.to as usize)),
+        ),
+    }
+}
+
+fn unknown(element: &Element, id: &str) -> bool {
+    matches!(element, Element::Monomer(m) if !m.smiles && m.id == id)
+}
+
+fn units_bounds(kind: PolymerType, units: &[Unit]) -> Bounds {
+    units
+        .iter()
+        .map(|u| repeated(elements_bounds(kind, &u.elements), u.repeat))
+        .fold(NONE, plus)
+}
+
+/// How many amino acids, or nucleotides, these elements of a unit are.
+fn elements_bounds(kind: PolymerType, elements: &[Element]) -> Bounds {
+    match kind {
+        PolymerType::Chem => ONE,
+        PolymerType::Blob => (0, None),
+        PolymerType::Peptide => elements.iter().map(residue_bounds).fold(NONE, plus),
+        PolymerType::Rna => match elements {
+            [Element::Group(units)] => units_bounds(kind, units),
+            [Element::List { members, .. }] => {
+                either(members.iter().map(|(m, _)| elements_bounds(kind, m)))
+            }
+            [only] if unknown(only, "*") => (0, None),
+            _ => match elements.iter().find_map(|e| match e {
+                Element::Branch(base) => Some(base.as_ref()),
+                _ => None,
+            }) {
+                None => NONE,
+                Some(base) if unknown(base, "_") => NONE,
+                Some(Element::List { members, .. }) => either(members.iter().map(|(m, _)| {
+                    if matches!(m.as_slice(), [only] if unknown(only, "_")) {
+                        NONE
+                    } else {
+                        ONE
+                    }
+                })),
+                Some(_) => ONE,
+            },
+        },
+    }
+}
+
+fn residue_bounds(element: &Element) -> Bounds {
+    match element {
+        e if unknown(e, "*") => (0, None),
+        e if unknown(e, "_") => NONE,
+        Element::Monomer(_) => ONE,
+        Element::Branch(inner) => residue_bounds(inner),
+        Element::List { members, .. } => either(
+            members
+                .iter()
+                .map(|(m, _)| m.iter().map(residue_bounds).fold(NONE, plus)),
+        ),
+        Element::Group(units) => units_bounds(PolymerType::Peptide, units),
+    }
 }
 
 fn summarise(polymer: &Polymer) -> Summary {
     let mut monomers = Vec::new();
     let mut ambiguous = false;
     let mut position = 0;
+    let kind = polymer.id.kind;
     for (u, unit) in polymer.units.iter().enumerate() {
         if unit.repeat.is_some() {
             ambiguous = true;
         }
         list_elements(
+            kind,
             &unit.elements,
             u + 1,
             false,
@@ -1492,16 +1979,36 @@ fn summarise(polymer: &Polymer) -> Summary {
             &mut ambiguous,
         );
     }
+    let (fewest, most) = if polymer.blob.is_some() {
+        (0, None)
+    } else {
+        units_bounds(kind, &polymer.units)
+    };
     Summary {
         id: polymer.id.to_string(),
-        kind: polymer.id.kind,
+        kind,
         units: polymer.units.len(),
+        length: Length { fewest, most },
         monomers,
         ambiguous: ambiguous || polymer.blob.is_some(),
     }
 }
 
+/// HELM's ambiguous monomers (its "Peptide and Nucleotide Ambiguous Monomers"): `*`, any
+/// number; `_`, a missing one; `X`, an unknown amino acid; `N`, an unknown base. A
+/// PEPTIDE's `N` is asparagine.
+fn is_unknown(kind: PolymerType, monomer: &Monomer) -> bool {
+    !monomer.smiles
+        && match monomer.id.as_str() {
+            "*" | "_" => true,
+            "X" => kind == PolymerType::Peptide,
+            "N" => kind == PolymerType::Rna,
+            _ => false,
+        }
+}
+
 fn list_elements(
+    kind: PolymerType,
     elements: &[Element],
     unit: usize,
     branch: bool,
@@ -1513,7 +2020,7 @@ fn list_elements(
         match element {
             Element::Monomer(m) => {
                 *position += 1;
-                if m.id == "*" || m.id == "_" {
+                if is_unknown(kind, m) {
                     *ambiguous = true;
                 }
                 out.push(Listed {
@@ -1527,6 +2034,7 @@ fn list_elements(
             }
             Element::Branch(inner) => {
                 list_elements(
+                    kind,
                     std::slice::from_ref(inner.as_ref()),
                     unit,
                     true,
@@ -1554,7 +2062,7 @@ fn list_elements(
                 let at = *position + 1;
                 let from = out.len();
                 for u in units {
-                    list_elements(&u.elements, unit, branch, position, out, ambiguous);
+                    list_elements(kind, &u.elements, unit, branch, position, out, ambiguous);
                 }
                 for listed in &mut out[from..] {
                     listed.position = at;
@@ -1572,23 +2080,34 @@ fn list_elements(
 /// What isn't HELM, or can't be canonical, and where.
 pub fn reading(text: &str) -> Read<Reading> {
     let helm = read(text)?;
-    let canonical_text = canonical(text, &helm)?;
-    // The canonical form, read again, lists the polymers in their canonical order.
+    let (canonical_text, connections) = canonical_parts(text, &helm)?;
+    // The canonical form, read again, lists the polymers and groups in their canonical
+    // order. Its connections are the ones just written: in-line SMILES can hold `$`.
     let again = read(&canonical_text)?;
-    let connections = canonical_text
-        .split('$')
-        .nth(1)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split('|').map(str::to_owned).collect())
-        .unwrap_or_default();
+    let groups = again
+        .groups
+        .iter()
+        .map(|g| GroupSummary {
+            id: format!("G{}", g.number),
+            mixture: g.mixture,
+            members: g
+                .members
+                .iter()
+                .map(|(id, ratio)| GroupMember {
+                    id: id.clone(),
+                    ratio: ratio.clone(),
+                })
+                .collect(),
+        })
+        .collect();
     Ok(Reading {
         canonical: canonical_text,
         polymers: again.polymers.iter().map(summarise).collect(),
         connections,
+        groups,
         version1: helm.version1,
     })
 }
-
 #[derive(serde::Deserialize)]
 struct Request {
     helm: Vec<String>,
@@ -1798,6 +2317,184 @@ mod tests {
         assert_eq!(r.polymers[0].units, 2);
         assert!(!r.polymers[0].ambiguous);
         assert!(reading("RNA1{R(N)P.R(A,G)}$$$$V2.0").unwrap().polymers[0].ambiguous);
+    }
+
+    #[test]
+    fn its_connections_are_the_ones_it_has_not_text_in_inline_smiles() {
+        // HELM 2.04's in-line CXSMILES example: its atom labels ($_R1;;;;;;_R2$) hold `$`,
+        // and it has no connections.
+        let smiles = "PEPTIDE1{A.[*N[C@@H](C)C(=O)* |$_R1;;;;;;_R2$|].G}";
+        assert!(
+            reading(&format!("{smiles}$$$$V2.0"))
+                .unwrap()
+                .connections
+                .is_empty()
+        );
+        let joined = format!("{smiles}|CHEM1{{[5FAM]}}$PEPTIDE1,CHEM1,3:R2-1:R1$$$V2.0");
+        assert_eq!(
+            reading(&joined).unwrap().connections,
+            ["PEPTIDE1,CHEM1,3:R2-1:R1"]
+        );
+    }
+
+    #[test]
+    fn unknown_monomers_are_ambiguous_where_they_mean_unknown() {
+        // Pistoia's ambiguous monomers: X, one unknown amino acid; N, one unknown base.
+        let ambiguous = |text: &str| reading(text).unwrap().polymers[0].ambiguous;
+        assert!(ambiguous("PEPTIDE1{A.X.C}$$$$V2.0"));
+        assert!(ambiguous("PEPTIDE1{A.X'3'.C}$$$$V2.0"));
+        assert!(ambiguous("RNA1{R(N)P.R(C)}$$$$V2.0"));
+        assert!(ambiguous("RNA1{R(N)}$$$$V2.0"));
+        assert!(ambiguous("PEPTIDE1{A.(G,K).C}$$$$V2.0"));
+        // A peptide's N is asparagine, and a known monomer is known.
+        assert!(!ambiguous("PEPTIDE1{A.N.C}$$$$V2.0"));
+        assert!(!ambiguous("RNA1{R(A)P.R(C)}$$$$V2.0"));
+    }
+
+    #[test]
+    fn a_missing_monomer_and_a_repeated_member_add_nothing() {
+        // Pistoia: PEPTIDE1{H.E.L._.H.E.L.M} is PEPTIDE1{H.E.L.H.E.L.M}, R(_)P is RP, and
+        // (A+A+L+L+A+V) "is exactly the same as" (A+L+V).
+        for (one, other) in [
+            (
+                "PEPTIDE1{H.E.L._.H.E.L.M}$$$$V2.0",
+                "PEPTIDE1{H.E.L.H.E.L.M}$$$$V2.0",
+            ),
+            (
+                "RNA1{R(T)P.R(_)P.R(T)P}$$$$V2.0",
+                "RNA1{R(T)P.RP.R(T)P}$$$$V2.0",
+            ),
+            (
+                "PEPTIDE1{(A+A+L+L+A+V)}$$$$V2.0",
+                "PEPTIDE1{(A+L+V)}$$$$V2.0",
+            ),
+            ("PEPTIDE1{G.(A,A,L)}$$$$V2.0", "PEPTIDE1{G.(A,L)}$$$$V2.0"),
+            ("PEPTIDE1{G.(A+A)}$$$$V2.0", "PEPTIDE1{G.A}$$$$V2.0"),
+            ("RNA1{R(A,A)P.R(C)}$$$$V2.0", "RNA1{R(A)P.R(C)}$$$$V2.0"),
+            (
+                "PEPTIDE1{A.(G._)'2-3'.C}$$$$V2.0",
+                "PEPTIDE1{A.(G)'2-3'.C}$$$$V2.0",
+            ),
+            // Connections follow the monomers that are there.
+            (
+                "PEPTIDE1{A._.C.C}$PEPTIDE1,PEPTIDE1,3:R3-4:R3$$$V2.0",
+                "PEPTIDE1{A.C.C}$PEPTIDE1,PEPTIDE1,2:R3-3:R3$$$V2.0",
+            ),
+        ] {
+            assert_eq!(canon(one), canon(other), "{one} and {other}");
+        }
+        assert_eq!(
+            canon("PEPTIDE1{A._.C.C}$PEPTIDE1,PEPTIDE1,3:R3-4:R3$$$V2.0"),
+            "PEPTIDE1{A.C.C}$PEPTIDE1,PEPTIDE1,2:R3-3:R3$$$V2.0"
+        );
+        // A monomer that may be missing, and stated proportions, mean something.
+        for (one, other) in [
+            ("PEPTIDE1{M.(K,_)}$$$$V2.0", "PEPTIDE1{M.K}$$$$V2.0"),
+            (
+                "PEPTIDE1{(A:3+L:3+V:1)}$$$$V2.0",
+                "PEPTIDE1{(A+L+V)}$$$$V2.0",
+            ),
+        ] {
+            assert_ne!(canon(one), canon(other), "{one} and {other}");
+        }
+        assert!(refused("PEPTIDE1{A._.C}$PEPTIDE1,PEPTIDE1,2:R3-3:R3$$$V2.0").contains("missing"));
+        // Nothing but a missing monomer is still a polymer.
+        assert_eq!(canon("PEPTIDE1{_}$$$$V2.0"), "PEPTIDE1{_}$$$$V2.0");
+    }
+
+    #[test]
+    fn a_ring_is_one_molecule_from_whichever_unit_its_written() {
+        // A cyclic trinucleotide written from each of its three nucleotides, its last
+        // phosphate's R2 joined to its first sugar's R1: one molecule (one InChIKey,
+        // XNVATHYUPFFQQH-POYLIAOGSA-N, by RDKit).
+        let rings = [
+            "RNA1{R(A)P.R(C)P.R(G)P}$RNA1,RNA1,1:R1-9:R2$$$V2.0",
+            "RNA1{R(C)P.R(G)P.R(A)P}$RNA1,RNA1,9:R2-1:R1$$$V2.0",
+            "RNA1{R(G)P.R(A)P.R(C)P}$RNA1,RNA1,1:R1-9:R2$$$V2.0",
+        ];
+        for ring in rings {
+            assert_eq!(
+                canon(ring),
+                "RNA1{R(A)P.R(C)P.R(G)P}$RNA1,RNA1,1:R1-9:R2$$$V2.0",
+                "{ring}"
+            );
+        }
+        // Read the other way, it's another molecule; and a strand that isn't a ring is
+        // another from each of its ends.
+        assert_ne!(
+            canon("RNA1{R(A)P.R(G)P.R(C)P}$RNA1,RNA1,1:R1-9:R2$$$V2.0"),
+            canon(rings[0])
+        );
+        assert_ne!(
+            canon("RNA1{R(C)P.R(G)P.R(A)P}$$$$V2.0"),
+            canon("RNA1{R(A)P.R(C)P.R(G)P}$$$$V2.0")
+        );
+        // A head-to-tail cyclic peptide, with a dye on its cysteine: its other bonds turn
+        // with it.
+        assert_eq!(
+            canon(
+                "PEPTIDE1{G.C.A}|CHEM1{[5FAM]}$PEPTIDE1,PEPTIDE1,3:R2-1:R1|PEPTIDE1,CHEM1,2:R3-1:R1$$$V2.0"
+            ),
+            "PEPTIDE1{A.G.C}|CHEM1{[5FAM]}$PEPTIDE1,PEPTIDE1,1:R1-3:R2|PEPTIDE1,CHEM1,3:R3-1:R1$$$V2.0"
+        );
+        // A ring that repeats reads least from more than one unit: its other bonds decide.
+        assert_eq!(
+            canon(
+                "PEPTIDE1{A.C.A.C}|CHEM1{[5FAM]}$PEPTIDE1,PEPTIDE1,4:R2-1:R1|PEPTIDE1,CHEM1,4:R3-1:R1$$$V2.0"
+            ),
+            canon(
+                "PEPTIDE1{A.C.A.C}|CHEM1{[5FAM]}$PEPTIDE1,PEPTIDE1,4:R2-1:R1|PEPTIDE1,CHEM1,2:R3-1:R1$$$V2.0"
+            ),
+        );
+        // A disulfide isn't a ring of the backbone: it's left as written.
+        assert_eq!(
+            canon("PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$V2.0"),
+            "PEPTIDE1{C.A.C}$PEPTIDE1,PEPTIDE1,1:R3-3:R3$$$V2.0"
+        );
+    }
+
+    #[test]
+    fn says_how_long_each_polymer_may_be_and_its_groups() {
+        let length = |text: &str| {
+            let r = reading(text).unwrap();
+            let l = r.polymers[0].length;
+            (l.fewest, l.most)
+        };
+        // Pistoia's G'2-5' is 2 to 5 glycines; * any number; (K,_) a lysine or none.
+        assert_eq!(length("PEPTIDE1{A.G'2-5'.C}$$$$V2.0"), (4, Some(7)));
+        assert_eq!(length("PEPTIDE1{A.G'2'.C}$$$$V2.0"), (4, Some(4)));
+        assert_eq!(length("PEPTIDE1{A.*.G}$$$$V2.0"), (2, None));
+        assert_eq!(length("PEPTIDE1{A._.G}$$$$V2.0"), (2, Some(2)));
+        assert_eq!(length("PEPTIDE1{H.E.L.M.(K,_)}$$$$V2.0"), (4, Some(5)));
+        assert_eq!(length("PEPTIDE1{A.(G.K)'1-3'}$$$$V2.0"), (3, Some(7)));
+        // A strand's nucleotides are its units with a base: a 5′ phosphate isn't one.
+        let r = reading("RNA1{P.[dR](A)P.[dR](C)}$$$$V2.0").unwrap();
+        assert_eq!((r.polymers[0].units, r.polymers[0].length.fewest), (3, 2));
+        assert_eq!(length("RNA1{R(T)P.R(_,A)P.R(T)}$$$$V2.0"), (2, Some(3)));
+        assert_eq!(length("RNA1{(R(A)P)'2-4'.R(C)}$$$$V2.0"), (3, Some(5)));
+        // Polymer groups: one of them (,) or a mixture (+), with ratios.
+        let groups = |text: &str| reading(text).unwrap().groups;
+        let either = groups("PEPTIDE1{A.G}|PEPTIDE2{K.L.M}$$G1(PEPTIDE1,PEPTIDE2)$$V2.0");
+        assert_eq!(
+            either,
+            [GroupSummary {
+                id: "G1".into(),
+                mixture: false,
+                members: vec![
+                    GroupMember {
+                        id: "PEPTIDE1".into(),
+                        ratio: None
+                    },
+                    GroupMember {
+                        id: "PEPTIDE2".into(),
+                        ratio: None
+                    }
+                ],
+            }]
+        );
+        let both = groups("PEPTIDE1{A.G}|PEPTIDE2{K.L.M}$$G1(PEPTIDE1:2+PEPTIDE2:3)$$V2.0");
+        assert!(both[0].mixture);
+        assert_eq!(both[0].members[1].ratio.as_deref(), Some("3"));
     }
 
     #[test]

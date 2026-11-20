@@ -189,6 +189,11 @@ def _monomers(text: str, where: str) -> list[tuple[str, bool]]:
 def _units(text: str, b: _Builder, where: str, repeated: bool) -> None:
     for raw in _split(text, "."):
         unit = _ANNOTATION.sub("", raw)
+        if not unit.strip():
+            raise HelmError(
+                f"{where} has a unit with no monomer in it: HELM separates monomer units "
+                "with “.”, such as R(A)P.R(C)."
+            )
         times, ranged = 1, False
         if (m := _REPEAT.search(unit)) is not None:
             low, high = int(m.group(1)), int(m.group(2) or m.group(1))
@@ -206,14 +211,16 @@ def _units(text: str, b: _Builder, where: str, repeated: bool) -> None:
                     f"{where} has a monomer that's one of several, or a mixture "
                     f"({unit[1:-1]}): a molecule's weight and formula need each monomer known."
                 )
-            # A group of units: one position as written.
-            b.position += 1
+            # A group of units: one position as written, however many monomers it holds
+            # or times it's repeated. Its own units' positions aren't the polymer's.
+            at = b.position + 1
             before = len(b.p.nodes)
+            positions, b.p.positions = b.p.positions, {}
             for _ in range(times):
                 _units(unit[1:-1], b, where, True)
-            b.p.positions[b.position] = (
-                before if not inside and len(b.p.nodes) == before + 1 else None
-            )
+            b.p.positions = positions
+            b.position = at
+            b.p.positions[at] = before if not inside and len(b.p.nodes) == before + 1 else None
             continue
         monomers = _monomers(unit, where)
         first = len(b.p.nodes)

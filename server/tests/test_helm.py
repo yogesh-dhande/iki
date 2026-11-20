@@ -39,6 +39,38 @@ def test_it_reads_helm_canonical_or_says_whats_wrong_and_where(world: World) -> 
     assert found[1]["at"] == 17
 
 
+def test_it_says_how_long_each_polymer_may_be_and_how_its_groups_hold_them(
+    world: World,
+) -> None:
+    """Pistoia's ambiguous monomers and polymer groups: G'2-5' is two to five glycines, a
+    peptide's X is one unknown amino acid, and a comma in a group is "an OR operator"."""
+    api = api_as(world, "viewer")
+    found = api.post(
+        "/helm/read",
+        {
+            "helm": [
+                "PEPTIDE1{A.G'2-5'.C}$$$$V2.0",
+                "PEPTIDE1{A.X.C}$$$$V2.0",
+                "PEPTIDE1{A.C.D}|PEPTIDE2{P.Q}$$G1(PEPTIDE1:2,PEPTIDE2:3)$$V2.0",
+                "PEPTIDE1{A.[*N[C@@H](C)C(=O)* |$_R1;;;;;;_R2$|].G}$$$$V2.0",
+            ]
+        },
+    ).json()["readings"]
+    assert found[0]["polymers"][0]["length"] == {"fewest": 4, "most": 7}
+    assert (found[1]["polymers"][0]["ambiguous"], found[1]["polymers"][0]["length"]) == (
+        True,
+        {"fewest": 3, "most": 3},
+    )
+    assert found[2]["groups"] == [
+        {
+            "id": "G1",
+            "mixture": False,
+            "members": [{"id": "PEPTIDE1", "ratio": "2"}, {"id": "PEPTIDE2", "ratio": "3"}],
+        }
+    ]
+    assert found[3]["connections"] == []
+
+
 def test_it_reads_at_most_a_hundred(world: World) -> None:
     api = api_as(world, "viewer")
     assert api.post("/helm/read", {"helm": ["RNA1{R}$$$$"] * 101}).status_code == 422

@@ -185,7 +185,7 @@ def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named
     )
     assert texts(output)[:2] == [
         "The reads cover 1–200 of Kinase's 250 residues (80.0%). Not covered: 201–250.",
-        f"Differences from PRT-000001: {PROTEIN[99]}100{changed[99]} (clone_F1 Q40).",
+        f"Differences from PRT-000001: p.({PROTEIN[99]}100{changed[99]}) (clone_F1 Q40).",
     ]
     assert output["metrics"] == {
         "reads": 1,
@@ -193,6 +193,17 @@ def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named
         "coverage_percent": 80.0,
         "differences": 1,
     }
+
+
+def test_every_stop_at_the_proteins_end_is_left_out(tmp_path: Path) -> None:
+    """A protein ending ** is the protein without them, as its identity is (ADR 0138)."""
+    code = coding(PROTEIN[:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=PROTEIN + "**")
+
+    assert output is not None
+    assert rows(tmp_path)[0][1] == PROTEIN
+    assert texts(output)[1] == "No differences from PRT-000001 where the reads cover it."
 
 
 def test_a_frameshift_on_the_other_strand_is_found_and_named(tmp_path: Path) -> None:
@@ -209,7 +220,7 @@ def test_a_frameshift_on_the_other_strand_is_found_and_named(tmp_path: Path) -> 
     assert row[:100] == "." * 100
     assert row[100:150] == PROTEIN[100:150]
     assert row[151:] == PROTEIN[151:]
-    assert f"{PROTEIN[150]}151fs (r)" in texts(output)[1]
+    assert f"p.({PROTEIN[150]}151fs) (r)" in texts(output)[1]
 
 
 def test_stops_and_in_frame_gaps_are_named(tmp_path: Path) -> None:
@@ -229,7 +240,42 @@ def test_stops_and_in_frame_gaps_are_named(tmp_path: Path) -> None:
     # The made-up protein has G30, Q60 and E90-C91, none repeated.
     assert (PROTEIN[29], PROTEIN[59], PROTEIN[89:91]) == ("G", "Q", "EC")
     assert texts(output)[1] == (
-        "Differences from PRT-000001: G30* (r); Q60del (r); E90_C91insW (r)."
+        "Differences from PRT-000001: p.(G30*) (r); p.(Q60del) (r); p.(E90_C91insW) (r)."
+    )
+
+
+def test_consecutive_changes_in_one_read_are_one_deletion_insertion(tmp_path: Path) -> None:
+    """HGVS (recommendations, protein, deletion-insertion): changes to two or more
+    consecutive residues on one allele are one delins, as p.(Arg21_Cys22delinsSerTrp) is,
+    and a change predicted from DNA is in parentheses. Changes with a residue between them
+    are two."""
+    together, apart = list(PROTEIN[:200]), list(PROTEIN[:200])
+    for i in (20, 21):
+        together[i] = other(PROTEIN[i])
+    for i in (20, 22):
+        apart[i] = other(PROTEIN[i])
+    # And a residue changed beside one lost: one delins, naming only what's left.
+    beside = PROTEIN[:63] + other(PROTEIN[63]) + PROTEIN[65:200]
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{coding(''.join(together))}\n".encode()})
+    assert output is not None
+    p, t = PROTEIN, together
+    named = f"p.({p[20]}21_{p[21]}22delins{t[20]}{t[21]})"
+    assert texts(output)[1] == f"Differences from PRT-000001: {named} (r)."
+    assert output["metrics"]["differences"] == 1
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{coding(''.join(apart))}\n".encode()})
+    assert output is not None
+    a = apart
+    assert texts(output)[1] == (
+        f"Differences from PRT-000001: p.({p[20]}21{a[20]}) (r); p.({p[22]}23{a[22]}) (r)."
+    )
+    assert output["metrics"]["differences"] == 2
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{coding(beside)}\n".encode()})
+    assert output is not None
+    assert texts(output)[1] == (
+        f"Differences from PRT-000001: p.({p[63]}64_{p[64]}65delins{other(p[63])}) (r)."
     )
 
 
@@ -269,7 +315,7 @@ def test_ambiguous_and_unusual_residues_differ_only_from_what_they_cant_be(
     _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
 
     assert output is not None
-    assert texts(output)[1] == "Differences from PRT-000001: O43K (r)."
+    assert texts(output)[1] == "Differences from PRT-000001: p.(O43K) (r)."
 
 
 @pytest.mark.parametrize(
@@ -294,7 +340,7 @@ def test_a_stop_codon_is_selenocysteine_or_pyrrolysine_only_where_it_recodes_one
 
     assert output is not None
     said = (
-        f"Differences from PRT-000001: {named} (r)."
+        f"Differences from PRT-000001: p.({named}) (r)."
         if named
         else ("No differences from PRT-000001 where the reads cover it.")
     )
@@ -321,7 +367,7 @@ def test_an_ambiguous_codon_that_cant_be_the_residue_is_a_difference(
     _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
 
     assert output is not None
-    assert texts(output)[1] == f"Differences from PRT-000001: A42{named} (r)."
+    assert texts(output)[1] == f"Differences from PRT-000001: p.(A42{named}) (r)."
 
 
 def test_a_reads_row_says_what_its_x_could_be(tmp_path: Path) -> None:
@@ -338,7 +384,7 @@ def test_a_reads_row_says_what_its_x_could_be(tmp_path: Path) -> None:
     header, row = rows(tmp_path)[1]
     assert (row[41], row[59]) == ("X", "X")
     assert header.endswith(" possible=42:KN,60:*CW")
-    assert texts(output)[1] == "Differences from PRT-000001: A42X (r)."
+    assert texts(output)[1] == "Differences from PRT-000001: p.(A42X) (r)."
     # B, Z and J name theirs, and NNN could be anything: none needs listing.
     _, output = run(
         tmp_path,

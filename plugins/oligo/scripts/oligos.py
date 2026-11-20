@@ -183,11 +183,11 @@ def _monomer_key(key: tuple[str, str]) -> str:
 def computed(helm_text: str, resolve: Resolver) -> tuple[dict[str, Any], list[chemistry.Monomer]]:
     """What's computed from an oligonucleotide's HELM: its values, and its monomers."""
     read = helm.read(helm_text)
-    chemistry.strand_polymer(read)
+    chemistry.check_joined(read)
     keys = chemistry.unique_keys(read)
     monomers = resolve(keys)
     built = chemistry.build(read, monomers)
-    units = [n for n in chemistry.nucleotides(built) if n.base is not None]
+    units = [n for n in chemistry.nucleotides(built) if n.nucleotide]
     e = chemistry.extinction(built)
     values: dict[str, Any] = {
         "bases": chemistry.bases(built),
@@ -644,8 +644,8 @@ def duplex(run: Mapping[str, Any]) -> dict[str, Any]:
     params = run["params"]
     (sense,) = run["inputs"]["sense"]
     (antisense,) = run["inputs"]["antisense"]
-    if sense["id"] == antisense["id"]:
-        raise Refused("A duplex is two strands: give its sense and antisense strands.")
+    # A self-complementary strand, such as the Dickerson–Drew dodecamer, is both of its
+    # duplex's strands: two copies of one molecule, each in its role.
     values = duplex_values(sense, antisense)
     print(f"{values['duplex_length']} bp, {values.get('mismatches', 0)} mismatches")
     return {
@@ -660,7 +660,7 @@ def duplex(run: Mapping[str, Any]) -> dict[str, Any]:
                     **{k: params.get(k) for k in ("name", "description") if params.get(k)},
                     **values,
                 },
-                "derived_from": [sense["id"], antisense["id"]],
+                "derived_from": list(dict.fromkeys([sense["id"], antisense["id"]])),
             }
         ]
     }

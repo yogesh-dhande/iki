@@ -25,15 +25,26 @@ export interface HelmMonomer {
 export interface HelmPolymer {
   id: string;
   type: "PEPTIDE" | "RNA" | "CHEM" | "BLOB";
+  /** Its units as written canonically: an RNA's include any without a base. */
   units: number;
+  /** Its amino acids, or nucleotides (an RNA's units with a base): the fewest and most. */
+  length: { fewest: number; most: number | null };
   monomers: HelmMonomer[];
   ambiguous: boolean;
+}
+
+/** A polymer group: a mixture of its members, or one of them. */
+export interface HelmGroup {
+  id: string;
+  mixture: boolean;
+  members: { id: string; ratio: string | null }[];
 }
 
 export interface HelmRead {
   canonical: string;
   polymers: HelmPolymer[];
   connections: string[];
+  groups: HelmGroup[];
   version1: boolean;
 }
 
@@ -62,22 +73,62 @@ const KINDS: Record<HelmPolymer["type"], [string, string]> = {
   BLOB: ["other part", "other parts"],
 };
 
-/** What a reading holds, in a sentence: "Two RNA strands of 21 and 23 nucleotides." */
+function count(n: number, [one, many]: [string, string]): string {
+  return `${String(n)} ${n === 1 ? one : many}`;
+}
+
+/** How many a polymer has: "21 nucleotides", "4 to 7 amino acids", "at least 2". */
+function howMany(p: HelmPolymer, kind: [string, string]): string {
+  const { fewest, most } = p.length;
+  if (most === null) {
+    return fewest === 0 ? `an unknown number of ${kind[1]}` : `at least ${count(fewest, kind)}`;
+  }
+  if (most !== fewest) return `${String(fewest)} to ${count(most, kind)}`;
+  return count(fewest, kind);
+}
+
+function describePolymer(p: HelmPolymer): string {
+  if (p.type === "CHEM") return p.monomers[0]?.id ?? "a chemical group";
+  if (p.type === "BLOB") return "a part HELM doesn't describe";
+  const kind = KINDS[p.type];
+  let text = `${p.type === "RNA" ? "a strand" : "a chain"} of ${howMany(p, kind)}`;
+  const exact = p.length.most === p.length.fewest;
+  // A unit without a base, such as a 5′ phosphate or an abasic site, isn't a nucleotide.
+  const others = p.type === "RNA" && exact ? p.units - p.length.fewest : 0;
+  if (others > 0) text += ` and ${count(others, ["other unit", "other units"])}`;
+  if (p.ambiguous && exact) text += ", not all of them known";
+  return text;
+}
+
+/** What a reading holds, in a sentence: "a strand of 21 nucleotides and 5Bio". A polymer
+ * group is "either" its members (`,`: one of them is there) or "a mixture" of them. */
 export function describeHelm(reading: HelmReading): string {
   if (isProblem(reading)) return `At character ${String(reading.at + 1)}: ${reading.error}`;
-  const parts = reading.polymers.map((p) => {
-    const [one, many] = KINDS[p.type];
-    if (p.type === "CHEM") return p.monomers[0]?.id ?? "a chemical group";
-    if (p.type === "BLOB") return "a part HELM doesn't describe";
-    return `${p.type === "RNA" ? "a strand" : "a chain"} of ${String(p.units)} ${p.units === 1 ? one : many}`;
-  });
+  const polymers = new Map(reading.polymers.map((p) => [p.id, p]));
+  const groups = new Map(reading.groups.map((g) => [g.id, g]));
+  const grouped = new Set(reading.groups.flatMap((g) => g.members.map((m) => m.id)));
+  const and = new Intl.ListFormat("en", { type: "conjunction" });
+  const or = new Intl.ListFormat("en", { type: "disjunction" });
+  const describe = (id: string): string => {
+    const polymer = polymers.get(id);
+    if (polymer) return describePolymer(polymer);
+    const group = groups.get(id);
+    if (!group) return id;
+    const members = group.members.map((m) => describe(m.id));
+    if (!group.mixture) return `either ${or.format(members)}`;
+    const ratios = group.members.map((m) => m.ratio);
+    const proportions = ratios.every((r) => r !== null) ? `, ${ratios.join(":")}` : "";
+    return `a mixture of ${and.format(members)}${proportions}`;
+  };
+  const parts = [...reading.polymers.map((p) => p.id), ...reading.groups.map((g) => g.id)]
+    .filter((id) => !grouped.has(id))
+    .map(describe);
   const connections = reading.connections.length;
-  const joined = new Intl.ListFormat("en", { type: "conjunction" }).format(parts);
   const tail =
     connections === 0
       ? ""
       : `, with ${String(connections)} ${connections === 1 ? "connection" : "connections"}`;
-  return `HELM: ${joined}${tail}.`;
+  return `HELM: ${and.format(parts)}${tail}.`;
 }
 
 /** `text` read once it has settled, as it's typed; null while it's empty or waiting. */

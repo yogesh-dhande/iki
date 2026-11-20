@@ -1,6 +1,6 @@
 /** Iki's own viewers on an entity's page: the sequence viewer, its features and its tracks. */
 
-import { screen, within } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
@@ -243,6 +243,38 @@ describe("the sequence viewer", () => {
     await renderApp("/entities/RNA-000001/viewers/sequence/");
     expect(await screen.findByText("9 nt")).toBeInTheDocument();
     expect(screen.getByRole("figure", { name: /^Bases of/ })).toHaveTextContent("AUGGCCUAA");
+  });
+
+  it("counts a single strand of DNA in nucleotides, and a duplex in base pairs", async () => {
+    // The field its viewer names says how many strands it has, as iki/dna's strandedness.
+    const DNA = {
+      ...PLASMID,
+      fields: [
+        ...PLASMID.fields,
+        field({ name: "strandedness", label: "Strandedness", type: "string" }),
+      ],
+      viewers: [{ ...PLASMID.viewers[0], strands: "strandedness", features: null }],
+    };
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, DNA]);
+    for (const [hrid, strandedness] of [
+      ["DNA-000001", "single"],
+      ["DNA-000002", "double"],
+    ] as const) {
+      answer(
+        `GET /api/v1/entities/${hrid}`,
+        entity({
+          hrid,
+          type: "iki/dna.DNASequence",
+          values: { name: "primer", bases: "ACGTACGTACGTACGTACGT", strandedness },
+        }),
+      );
+    }
+    await renderApp("/entities/DNA-000001/viewers/sequence/");
+    expect(await screen.findByText("20 nt")).toBeInTheDocument();
+    cleanup();
+    await renderApp("/entities/DNA-000002/viewers/sequence/");
+    expect(await screen.findByText("20 bp")).toBeInTheDocument();
   });
 
   it("leaves out features it can't draw", async () => {

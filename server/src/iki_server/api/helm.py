@@ -40,15 +40,44 @@ class HelmMonomerOut(Schema):
     unit: int = Field(description="The unit it's in (its nucleotide, for RNA), from 1.")
 
 
+class HelmLengthOut(Schema):
+    fewest: int = Field(description="The fewest it may have.")
+    most: int | None = Field(
+        description="The most it may have. Null when there's no most: `*`, any number."
+    )
+
+
 class HelmPolymerOut(Schema):
     id: str = Field(description="Its canonical ID, such as RNA1.")
     type: Literal["PEPTIDE", "RNA", "CHEM", "BLOB"]
-    units: int = Field(description="Its units: its nucleotides, for RNA.")
+    units: int = Field(
+        description="Its units as its canonical form writes them. An RNA's include any "
+        "without a base, such as a 5′ phosphate."
+    )
+    length: HelmLengthOut = Field(
+        description="How many amino acids (PEPTIDE) or nucleotides (RNA: its units with a "
+        "base) it has, the fewest and the most. They differ for a repeat of a range of "
+        "counts, `*` (any number), or a list with `_` (maybe missing). A CHEM is one."
+    )
     monomers: list[HelmMonomerOut]
     ambiguous: bool = Field(
-        description="It has monomers that aren't known, or a list of them, or a repeat of a "
-        "range of counts."
+        description="It has a repeat of a range of counts, a list of monomers, or monomers "
+        "HELM keeps for unknown ones: `*`, `_`, a PEPTIDE's `X` or an RNA's `N`."
     )
+
+
+class HelmGroupMemberOut(Schema):
+    id: str = Field(description="A polymer's or a group's canonical ID.")
+    ratio: str | None = Field(description="Its ratio, such as 0.5, if it's given.")
+
+
+class HelmGroupOut(Schema):
+    id: str = Field(description="Its canonical ID, such as G1.")
+    mixture: bool = Field(
+        description="Its members are a mixture (`+`), all present. False: it's one of them "
+        "(`,`), which isn't known."
+    )
+    members: list[HelmGroupMemberOut]
 
 
 class HelmReadingOut(Schema):
@@ -59,6 +88,9 @@ class HelmReadingOut(Schema):
         default_factory=list, description="Its polymers, in canonical order."
     )
     connections: list[str] = Field(default_factory=list, description="Its connections, canonical.")
+    groups: list[HelmGroupOut] = Field(
+        default_factory=list, description="Its polymer groups, canonical."
+    )
     version1: bool = Field(False, description="It was written as HELM 1.")
     error: str | None = Field(None, description="Why it isn't HELM. Null if it is.")
     at: int | None = Field(None, description="The character that's wrong, from 0.")

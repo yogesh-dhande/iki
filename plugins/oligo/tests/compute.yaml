@@ -137,7 +137,7 @@ expect:
     updates:
       monomer:
         - values:
-            structure: bbe45ddb71e35ac0c2e9b832682872cd929b51606a161bb0ec2538146032a7d9
+            structure: 9bcbaf340f53140ad38b5d745264424243a90c871771d134320305a610e8354d
             attachments: [R1 (H), R2 (H), R3 (OH)]
             molecular_formula: C8H16O6
             molecular_weight: 208.21

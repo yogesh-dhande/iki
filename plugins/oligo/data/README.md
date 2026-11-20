@@ -42,10 +42,16 @@ a linker's R1 and R2 are its two hydroxyls; a modifier joins through its R1.
     biotin-TEG.
   - `cholTEG`: its cholesterol has no stereochemistry; given cholesterol's,
     checked against its standard InChIKey, HVYWMOMLDIMFJA-DPAQBDIFSA-N.
-  - `3GN3C12hp`, triantennary GalNAc as in L96: as the library gives it, its
-    constitution without stereochemistry, which formula and weight don't
-    depend on. Inclisiran's sense strand with it is the formula EMA's
-    assessment report gives (`tests/`).
+  - `3GN3C12hp`, triantennary GalNAc as in L96: its constitution has no
+    stereochemistry; given each GalNAc's (N-acetyl-β-D-galactosamine) and its
+    prolinol's (trans-4-hydroxy-L-prolinol), as EMA's assessment report for
+    Leqvio describes them. Each GalNAc, cut from its arm and capped with a
+    methyl, is methyl 2-acetamido-2-deoxy-β-D-galactopyranoside's standard
+    InChIKey, ZEVOCXOZYFLVKN-SYHAXYEDSA-N (PubChem CID 6559236), and the
+    prolinol (3R,5S)-5-(hydroxymethyl)pyrrolidin-3-ol's,
+    CALDMMCNNFPJSI-CRCLSJGQSA-N (CID 15817396), as `server/tests/` checks.
+    Inclisiran's sense strand with it is the formula EMA's assessment report
+    gives (`tests/`).
   - `5FAM` (6-FAM on a C6 amino linker), `BHQ1`, `nC6o` (amino C6) and `SpC3`
     as it gives them: 6-FAM adds 537.5 g/mol through a 5′ phosphate and BHQ-1
     554.5 through a 3′ one, amino C6 179.2, as IDT lists them.

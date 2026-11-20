@@ -338,6 +338,11 @@ class SequenceViewerOut(Schema):
     alphabet: Literal["dna", "rna", "protein"] = Field(
         description="What it's a sequence of: DNA's bases, RNA's (U, not T) or amino acids."
     )
+    strands: str | None = Field(
+        description="For DNA or RNA: the enum field saying whether a record is double- or "
+        "single-stranded (`double` or `single`), as its sequence field's `strands` names it, "
+        "so its length is counted in bp or nt; null when it has none."
+    )
     features: str | None = Field(
         description="A json field of regions along it (type, start, end, name, strand), or null."
     )
@@ -1113,6 +1118,7 @@ def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
         "label": viewer.label,
         "sequence": viewer.sequence,
         "alphabet": ALPHABETS.get((spec.format or "") if spec is not None else "", "dna"),
+        "strands": (spec.strands if spec is not None else None) or None,
         "features": viewer.features or None,
         "tracks": [_track_out(form, t) for t in viewer.tracks],
     }

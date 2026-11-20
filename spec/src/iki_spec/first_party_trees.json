@@ -55,7 +55,8 @@
     ],
     "iki/example_models": [
       "3667e222ea15d2c33f34083206e6896ad8e78d36",
-      "278f1842e17583b03a085cde8a1710674dc18dc8"
+      "278f1842e17583b03a085cde8a1710674dc18dc8",
+      "920686dfc45d21c5288995a428f002cbf30a61f9"
     ],
     "iki/lots": [
       "a834be1e2af8eb1955104121169203bf085bcf71",
@@ -64,7 +65,9 @@
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",
       "8fc295d75cce83119fab426cc910980d0e8509e7",
-      "da9fef958f46967df3e18a3a8bc69694b434cde8"
+      "da9fef958f46967df3e18a3a8bc69694b434cde8",
+      "0e8cb1a2710368fb3627582d910e163799b958c6",
+      "5abad0d82d52bd0b47c8946cb7dc47fbd9be7289"
     ],
     "iki/plasmid": [
       "e3e1448a0e8247e6be0f50c31d96945f00192e2e",
@@ -86,7 +89,8 @@
       "a9a8e924bafa01964a09036cf072f9d1ac71529c",
       "60a3bdd585e506143b9305c77d992feb7e3d32f5",
       "cf9cce043f8882f9ef0936d3b4482b6ea225182c",
-      "872dcea29a456d4be70c8b92d68f855bc3378872"
+      "872dcea29a456d4be70c8b92d68f855bc3378872",
+      "bb431d8badbdb98b82118fd9fcefb454b16e7929"
     ],
     "iki/small_molecule": [
       "c37cd0b7ca39aa3ce2d99d989b5a04de828d496b",

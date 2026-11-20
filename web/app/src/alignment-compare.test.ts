@@ -93,6 +93,36 @@ describe("compared", () => {
     expect(possibleOf("r from impossible=3:KN").size).toBe(0);
   });
 
+  it("takes a translated codon that can only be what an ambiguous reference allows as covering it", () => {
+    // Haemoglobin alpha's first 41 residues (UniProt P69905) with Asx (B, Asp or Asn) at
+    // 21, and a read whose codon there is RAY: AAC, AAT, GAC or GAT, Asn or Asp by NCBI's
+    // standard code, so align_reads writes B and calls it the same, covering all 41. An X
+    // at 21 read as AAN (Lys or Asn) is likewise within what X allows. A bare X, a codon
+    // such as NNN that could also be a stop, still says nothing there.
+    const hba = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTK";
+    const asx = row(`${hba.slice(0, 20)}B${hba.slice(21)}`);
+    expect(compared([asx, row(asx.aligned)], asx, "protein")).toEqual({
+      residues: 41,
+      covered: 41,
+      differing: 0,
+    });
+    const unknown = row(`${hba.slice(0, 20)}X${hba.slice(21)}`);
+    const aan = { aligned: unknown.aligned, description: "r forward frame 1 possible=21:KN" };
+    expect(compared([unknown, aan], unknown, "protein")).toEqual({
+      residues: 41,
+      covered: 41,
+      differing: 0,
+    });
+    expect(compared([unknown, row(unknown.aligned)], unknown, "protein")).toEqual({
+      residues: 41,
+      covered: 40,
+      differing: 0,
+    });
+    // A nucleotide's ambiguity code says nothing of the same code, as align_reads in the
+    // DNA plugin has it.
+    expect(call("R", "R", "nucleotide")).toBe("unresolved");
+  });
+
   it("says nothing of an alignment too large to compare on the page", () => {
     const long = "A".repeat(MAX_COMPARED / 2 + 1);
     const reference = row(long);

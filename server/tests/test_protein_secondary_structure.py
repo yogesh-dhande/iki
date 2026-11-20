@@ -157,9 +157,9 @@ def test_each_chain_gets_a_letter_per_residue_and_the_structure_its_shares(
     (update,) = output["updates"]["structure"]
     assert update["entity"] == "e1"
     values = update["values"]
-    # A's second residue once, though it has two conformers; B's last has no coordinates.
+    # A's second residue once, though it has two conformers; B's last DSSP didn't assign.
     assert values["secondary_structure"] == ["-HHG", "EBT?"]
-    # 3 of 7 placed residues in helices (H, G), 2 in strands (E, B).
+    # 3 of the 7 residues DSSP assigned in helices (H, G), 2 in strands (E, B).
     assert values["helix_fraction"] == 42.9
     assert values["strand_fraction"] == 28.6
     # 120.5 + 30.0 + 10.25 + 5.0 + 50.0 + 20.0 + 4.25 Å².

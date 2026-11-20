@@ -54,7 +54,7 @@ function spoken(nt) {
   const parts = [`Position ${nt.position}`];
   const base = nt.nucleobase
     ? `${nt.nucleobase.name}${nt.nucleobase.modified ? ", modified" : ""}`
-    : "no base";
+    : "no base, an abasic site";
   const sugar = nt.sugar ? `${nt.sugar.name}${nt.sugar.modified ? ", modified" : ""}` : "no sugar";
   parts.push(`${base} on ${sugar}`);
   if (nt.linker) parts.push(`then ${nt.linker.name}${nt.linker.modified ? ", modified" : ""}`);

@@ -41,13 +41,14 @@ fields:
     type: string
     registry: derived
     max_length: 600
-    pattern: "^[ACGTUN]*$"
+    pattern: "^[ACGTUN-]*$"
     computed: true
     indexed: true
     description: >-
       Its bases, 5′ to 3′, each its base's natural analogue: 5-methylcytosine is C,
-      a base with none is N. Its sugars and linkers aren't in it, so a search by
-      bases finds an oligonucleotide plain and modified alike.
+      a base with none is N, and an abasic site (a sugar with no base) is -. Its
+      sugars and linkers aren't in it, so a search by bases finds an
+      oligonucleotide plain and modified alike.
   length:
     type: quantity
     registry: derived
@@ -55,7 +56,9 @@ fields:
     computed: true
     indexed: true
     min: 0
-    description: How many nucleotides it has.
+    description: >-
+      How many nucleotides it has: its units with a sugar, an abasic site among
+      them. A unit without one, such as a 5′ phosphate, isn't counted.
   molecular_formula:
     type: string
     registry: derived
@@ -119,8 +122,8 @@ fields:
     registry: derived
     computed: true
     description: >-
-      Each nucleotide's sugar, base and linker, 5′ to 3′, and the groups at its ends:
-      what its Chemistry tab draws.
+      Each nucleotide's sugar, base and linker, 5′ to 3′, numbered from 1, and the
+      groups at its ends, a 5′ phosphate among them: what its Chemistry tab draws.
   purpose:
     type: enum
     values: [antisense, siRNA-strand, primer, probe, aptamer, other]

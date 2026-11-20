@@ -32,6 +32,7 @@ fields:
         antisense: { label: Antisense strand, min: 1, max: 1 }
     description: >-
       Its sense (passenger) strand and its antisense (guide) strand, each 5′ to 3′.
+      A self-complementary strand is both, two copies of it.
   name: { type: string, max_length: 255, indexed: true }
   description: { type: text, max_length: 10000 }
   duplex_length:
@@ -42,9 +43,10 @@ fields:
     indexed: true
     min: 0
     description: >-
-      Its base pairs: the longest stretch where the strands, antiparallel, pair as
-      Watson and Crick do (A with T or U, G with C), a G·U wobble counted as a
-      mismatch.
+      How long its duplex region is: from its first Watson–Crick pair (A with T or U,
+      G with C) to its last, where the strands, antiparallel, pair longest, with its
+      mismatches in it. A G·U wobble is a mismatch. Its mismatches are counted apart,
+      so its Watson–Crick pairs are this less them.
   mismatches:
     type: int
     registry: derived

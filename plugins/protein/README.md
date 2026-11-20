@@ -155,19 +155,23 @@ that's partly vector aligns where it holds the protein's code, and one that
 doesn't code for it is left out, saying so (a warning for each reason, naming
 the reads, and each read, with why, in the run's artifact `left_out.tsv`). What's left of the read either
 side is aligned in its strand's other frames: a part that aligns there means
-the frame shifted, and the run names where (`K120fs`). The run lists each
-difference in the protein's numbering, as HGVS names them in one-letter
-codes: substitutions (`T315I`), stops (`Q45*`), deletions (`K12del`,
-`K12_L14del`), insertions (`K12_L13insG`), duplications (`K12dup`) and
+the frame shifted, and the run names where (`p.(K120fs)`). The run lists each
+difference in the protein's numbering, as HGVS names a protein change predicted
+from DNA, in parentheses, in one-letter codes: substitutions (`p.(T315I)`),
+stops (`p.(Q45*)`), deletions (`p.(K12del)`, `p.(K12_L14del)`), insertions
+(`p.(K12_L13insG)`), duplications (`p.(K12dup)`), deletion-insertions and
 frameshifts, a deletion or insertion in repeated residues named at its
 C-terminal-most place, with the reads that show it and their quality (the
-least of its codon's bases). Each codon is compared as the residues it could
+least of its codon's bases). Changes a read makes to consecutive residues are
+one change, a deletion-insertion, as HGVS names changes on one allele: R21S and
+C22W beside each other are `p.(R21_C22delinsSW)`, and are one of the run's
+differences. Each codon is compared as the residues it could
 code for, by every codon its bases could be: it differs if it can be none of
 what the protein's residue stands for (B is D or N, Z is E or Q, J is I or L,
-X anything), so RAY (Asp or Asn) at an Ala is `A42B`. A codon that could be
+X anything), so RAY (Asp or Asn) at an Ala is `p.(A42B)`. A codon that could be
 either, such as NNN, says nothing: it covers nothing, and the run lists
 where. UGA is selenocysteine where the protein has U, and UAG pyrrolysine
-where it has O; any other stop there (`U42*`) is a stop.
+where it has O; any other stop there (`p.(U42*)`) is a stop.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
@@ -195,8 +199,10 @@ Each needs residues it has values for, and the stops at its end are left out
 point and extinction coefficients also take J, as neither I nor L is charged
 or absorbs at 280 nm. For B, Z, X, an inner stop, or a residue a property has
 no value for, the run warns which residue left which properties out. An
-isoelectric point past pH 0 to 14, which the model gives only for a run of one
-charged residue (120 arginines: 14.08), isn't saved, and the run says why:
+isoelectric point past pH 0 to 14, which the model gives only for an extreme
+composition, charged residues nearly all of one sign (120 arginines: 14.08;
+102: 14.004; (RAKR)×60: 14.08), isn't saved, checked before it's rounded, and the
+run says why:
 past pH 14 is over 1 M hydroxide, where the model's pK values don't hold. The
 other properties are.
 
@@ -211,7 +217,9 @@ V), its last a stop, with no other stop and no bases left over. In codes 27,
 says which: those codes can't stop at the first stop codon, and a frame keeps
 such codons as amino acids, saying so of a last one that could have ended it,
 an ambiguous one too (TAR in code 28 is TAA or TAG, so Q or a stop; TRA is
-TAA or TGA, so Q, W or a stop, and is kept as X).
+TAA or TGA, so Q, W or a stop, and is kept as X). It says to translate a
+complete coding sequence to end there only when every codon the last could be
+is a stop: TAN in code 28 could also be TAC or TAT, Tyr and never a stop.
 A DNA sequence that gives no residues (no whole codon, only stops, or a stop
 first), or isn't the complete coding sequence asked for, fails its own run
 and the rest go on.
@@ -219,7 +227,9 @@ and the rest go on.
 FASTA headers give a name (the first word) and a description (the rest).
 UniProt's (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens
 OX=9606 GN=HBA1 PE=1 SV=2`) give the entry name, the protein's name, its
-accession, organism (by its NCBI Taxonomy ID, `OX=`) and gene. Each organism is
+accession, organism (by its NCBI Taxonomy ID, `OX=`) and gene, and each record's
+origin is its UniProtKB entry, by accession and sequence version (`SV=`), with
+the file it was read from. Each organism is
 an `iki/core.Organism`, made the first time an import meets it
 ([ADR 0140](../../docs/adr/0140-an-organism-is-a-taxon-by-its-ncbi-taxonomy-id.md)).
 NCBI's (`>NP_000549.1 hemoglobin subunit alpha [Homo sapiens]`) name the
@@ -296,9 +306,12 @@ numbered from 101, with insertion codes (52A) or with residues missing gets
 its letters on its own residues. The image's check compares them with what
 mkdssp gives reading the PDB file itself: H, G and I are helices (alpha, 3-10, pi), P a
 polyproline II helix, E a strand in a sheet, B an isolated bridge, T a turn, S
-a bend, `-` none, and `?` a residue without coordinates. The helix share
-counts H, G and I, and the strand share E and B, over residues with
-coordinates. The accessible surface is the sum of the residues', as DSSP
+a bend, `-` none, and `?` a residue DSSP didn't assign: one without
+coordinates, or one DSSP leaves out though it has them, such as green
+fluorescent protein's chromophore (CRO 66 in PDB 1EMA). The helix share counts
+H, G and I, and the strand share E and B, over the residues DSSP assigned (in
+1EMA's chain A, 117 strand residues of 225 assigned, 52.0%, where 226 have
+coordinates). The accessible surface is the sum of the residues', as DSSP
 reports it, with the chains together. A residue DSSP gives no accessibility
 (`?`) has no measured area, so the surface is then left out, and the run says
 how many had none; mkdssp 4.4.10 writes every residue's or none. DSSP takes residues' chemistry from
