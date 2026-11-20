@@ -195,6 +195,17 @@ def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named
     }
 
 
+def test_every_stop_at_the_proteins_end_is_left_out(tmp_path: Path) -> None:
+    """A protein ending ** is the protein without them, as its identity is (ADR 0138)."""
+    code = coding(PROTEIN[:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=PROTEIN + "**")
+
+    assert output is not None
+    assert rows(tmp_path)[0][1] == PROTEIN
+    assert texts(output)[1] == "No differences from PRT-000001 where the reads cover it."
+
+
 def test_a_frameshift_on_the_other_strand_is_found_and_named(tmp_path: Path) -> None:
     # Residues 101-250, a base lost from residue 151's codon, read on the other strand.
     bases = coding(PROTEIN)[300:]

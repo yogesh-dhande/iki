@@ -194,6 +194,17 @@ def test_names_strategies_and_unusual_residues(tmp_path: Path) -> None:
     assert output["creates"][0]["values"]["name"] == "PRT-000001, PRT-000002 and 3 more"
 
 
+def test_every_stop_at_the_end_is_left_out(tmp_path: Path) -> None:
+    """MKTAYIAKQR** is MKTAYIAKQR, as its identity is (ADR 0138): its second stop isn't
+    a stop inside it."""
+    given = [protein(1, "MKTAYIAKQR"), protein(2, "MKTAYIAKQR**")]
+
+    result, output = run(tmp_path, given, aligned=["MKTAYIAKQR", "MKTAYIAKQR"])
+
+    assert output is not None, result.stdout
+    assert (tmp_path / "out" / "alignment.fasta").read_text().count("MKTAYIAKQR") == 2
+
+
 @pytest.mark.parametrize(
     ("proteins", "mode", "params", "said"),
     [

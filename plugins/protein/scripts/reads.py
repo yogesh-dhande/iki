@@ -595,7 +595,7 @@ def differences(placed: Placed, protein: str) -> list[tuple[int, str, int | None
 
 def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     (entity,) = run["inputs"]["reference"]
-    protein = entity["values"]["sequence"].upper().removesuffix("*")
+    protein = entity["values"]["sequence"].upper().rstrip("*")
     hrid = entity["hrid"]
     if not protein:
         fail(f"{hrid} has no residues to align to.")

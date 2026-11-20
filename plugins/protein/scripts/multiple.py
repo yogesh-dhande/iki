@@ -77,7 +77,7 @@ def proteins(run: dict[str, Any]) -> list[dict[str, Any]]:
 def sequences(entities: list[dict[str, Any]]) -> list[str]:
     out = []
     for entity in entities:
-        sequence = entity["values"]["sequence"].upper().removesuffix("*")
+        sequence = entity["values"]["sequence"].upper().rstrip("*")
         if not sequence:
             fail(f"{entity['hrid']} has no residues to align.")
         if "*" in sequence:
