@@ -240,6 +240,50 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     assert (by["A"][1], by["B"][1], by["C"][1]) == (1, None, 1)
 
 
+@pytest.mark.parametrize("order", ["bispecific first", "multimer first"])
+def test_one_new_identity_is_one_type_whichever_line_comes_first(world: World, order: str) -> None:
+    """A bispecific and a lab's generic multimer of the same parts and copies are one
+    molecule (ADR 0161), whichever type registers it (ADR 0165): two lines that register
+    it as both are refused at the second, as two creates one after the other would be, and
+    nothing is written. Emicizumab's chains (KEGG DRUG D10821): two heavy chains, and the
+    light chain both arms share, twice."""
+    editor = api_as(world, "editor")
+    heavy, other_heavy, light = (
+        create(editor, world.project, {"sequence": s}, "acme/protein.Protein").json()
+        for s in (KINASES[0], KINASES[1], KINASES[2])
+    )
+    parts = [
+        {"part": heavy["id"], "copies": 1, "role": "heavy"},
+        {"part": other_heavy["id"], "copies": 1, "role": "heavy"},
+        {"part": light["id"], "copies": 2, "role": "light"},
+    ]
+
+    def complex_(type_name: str, name: str, file_id: str) -> dict[str, Any]:
+        return {
+            "type": f"acme/protein.{type_name}",
+            "values": {"name": name, "components": parts},
+            "origin": origin(file_id, name),
+        }
+
+    first, second = (
+        ("Bispecific", "Multimer") if order == "bispecific first" else ("Multimer", "Bispecific")
+    )
+    run, _ = started(
+        world,
+        lambda f: lines(complex_(first, "E1", f), complex_(second, "E2", f)),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["errors"] == [
+        {
+            "pointer": "#/creates_file/2/type",
+            "detail": f"Line 1 registers this as a acme/protein.{first}, the same molecule: "
+            "register it as one.",
+        }
+    ]
+    assert not Entity.objects.filter(type__in=[f"acme/protein.{t}" for t in (first, second)])
+
+
 def entry_of(sequence: str) -> Entity:
     """The registry entry of a protein's identity (ADR 0115)."""
     (found,) = [

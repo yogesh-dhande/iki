@@ -570,6 +570,71 @@ class Lot_inputs(models.Model):
         ]
 
 
+class Multimer(iki_plugin_iki__core.models.Complex):
+    """Multimer (acme/protein.Multimer), schema version 1. Molecules held together as one, of any parts, each with its copies."""
+
+    IKI_TYPE = 'acme/protein.Multimer'
+
+    complex_ptr = models.OneToOneField(
+        iki_plugin_iki__core.models.Complex,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_multimer'
+
+
+class Multimer_History(models.Model):
+    """The history of acme__protein_multimer: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Multimer'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_multimer__history'
+
+
+class Multimer_Entry(iki_plugin_iki__core.models.Complex_Entry):
+    """Registry entries of Multimer (acme/protein.Multimer), ADR 0115: the registry fields it adds to its parent's (ADR 0165)."""
+
+    IKI_TYPE = 'acme/protein.Multimer'
+    IKI_ENTRY = True
+
+    complex_entry_ptr = models.OneToOneField(
+        iki_plugin_iki__core.models.Complex_Entry,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_multimer__entry'
+
+
+class Multimer_Entry_History(models.Model):
+    """The history of acme__protein_multimer__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Multimer_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_multimer__entry__history'
+
+
 class Protein(iki_plugin_acme__dna.models.Sequence):
     """Protein (acme/protein.Protein), schema version 3."""
 
