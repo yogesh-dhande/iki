@@ -683,6 +683,41 @@ def test_the_deployments_ca_reaches_the_host_when_it_has_one() -> None:
     assert config(trusting)["ca_certificates"] == pem
 
 
+def test_machines_get_the_cas_certificates_alone_written_again() -> None:
+    """openssl's description of each certificate, and Windows line ends, as an operator's
+    file may have them: machines get the certificates alone, as PEM, and nothing else."""
+    from test_settings import CA_PEM, _ca
+
+    from iki_server.runs.machines import public_certificates
+
+    second, _ = _ca()
+    described = (
+        "subject=CN=Acme internal CA\r\nissuer=CN=Acme internal CA\r\n"
+        + CA_PEM.replace("\n", "\r\n")
+        + "\r\nBag Attributes: <No Attributes>\r\n"
+        + second
+    )
+    assert public_certificates(described.encode()) == CA_PEM + second
+
+
+def test_the_provisioner_hands_machines_what_settings_read_not_the_file_again(
+    tmp_path: Path,
+) -> None:
+    """A file changed after the server started (a key added to it) never reaches a machine:
+    the certificates are read and checked once."""
+    from django.test import override_settings
+    from test_settings import CA_KEY, CA_PEM
+
+    from iki_server.runs.ec2_fleet import vm_machines
+
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM + CA_KEY)
+    with override_settings(IKI_RUNS_VM_CA_FILE=str(ca), IKI_RUNS_VM_CA_CERTIFICATES=CA_PEM):
+        assert vm_machines().ca_certificates == CA_PEM
+    with override_settings(IKI_RUNS_VM_CA_FILE="", IKI_RUNS_VM_CA_CERTIFICATES=""):
+        assert vm_machines().ca_certificates == ""
+
+
 def test_a_public_registry_needs_no_sign_in() -> None:
     made = request(image="ghcr.io/acme/alphafold@sha256:" + "9" * 64)
     assert "docker login" not in startup_script(made["instance"])

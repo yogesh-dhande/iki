@@ -44,8 +44,12 @@ those certificates, and bind-mounts it read-only into the worker's
 container as `/etc/iki/ca-certificates.crt`, with `SSL_CERT_FILE` naming
 it. The server refuses a file that holds no PEM certificate or more than
 8 KiB at start: the certificates go in every machine's boot script, so they
-are the deployment's own few, not a bundle of public ones. Without it,
-nothing changes.
+are the deployment's own few, not a bundle of public ones. It reads the
+file once, as X.509 certificates in PEM blocks, and refuses any other
+block (a private key beside them, as load balancers take them), a block
+that isn't whole, or a certificate that can't be read. Machines get those
+certificates written again as PEM, never the file itself, so nothing else
+in it reaches their metadata or their runs. Without it, nothing changes.
 
 **On Compute Engine, a run's containers may reach the metadata address on
 port 53 alone.** Two `ACCEPT` rules (UDP and TCP) are inserted above the

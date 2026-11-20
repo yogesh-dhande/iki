@@ -4,9 +4,22 @@ registers with a token made for that machine alone, and gets the template's capa
 
 from __future__ import annotations
 
+import re
+
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import Encoding
+
 from iki_spec.compute import Template
 
-__all__ = ["BIN", "IDLE_EXIT", "RUN_LABELS", "SCRATCH", "UID", "worker_settings"]
+__all__ = [
+    "BIN",
+    "IDLE_EXIT",
+    "RUN_LABELS",
+    "SCRATCH",
+    "UID",
+    "public_certificates",
+    "worker_settings",
+]
 
 #: Where iki-worker is in a run's container, and the scratch space a run gets.
 BIN = "/iki/bin"
@@ -56,3 +69,35 @@ def worker_settings(
         "IKI_ALLOW_HTTP": "1" if allow_http else None,
     }
     return {name: value for name, value in values.items() if value is not None}
+
+
+#: A PEM block: its label, and what's up to the END line of the same label, which holds no
+#: other block's lines.
+_PEM = re.compile(rb"-----BEGIN ([^-\r\n]*)-----(?:(?!-----).)*-----END \1-----", re.DOTALL)
+
+
+def public_certificates(pem: bytes) -> str:
+    """The X.509 certificates in `pem`, written again as PEM, one after another, and
+    nothing else of it: what machines' workers trust besides their own roots (ADR 0160).
+    Each machine's boot script carries them, and every run's container can read them, so a
+    file with anything but certificates in PEM blocks (a private key beside them, say) is
+    refused, as is a block that isn't whole or a certificate that can't be read. Text
+    between the blocks (openssl's descriptions of them) is left out. ValueError says why."""
+    blocks = list(_PEM.finditer(pem))
+    others = sorted({block[1].decode("ascii", "replace") for block in blocks} - {"CERTIFICATE"})
+    if others:
+        raise ValueError(
+            f"holds {', '.join(others)} besides certificates: give the CA's certificates "
+            "alone, never a key, since every machine and run can read them"
+        )
+    if b"-----" in _PEM.sub(b"", pem):
+        raise ValueError("holds a PEM block that isn't whole")
+    if not blocks:
+        raise ValueError("holds no PEM certificate")
+    certificates = []
+    for number, block in enumerate(blocks, 1):
+        try:
+            certificates.append(x509.load_pem_x509_certificate(block[0]))
+        except ValueError as error:
+            raise ValueError(f"certificate {number} can't be read: {error}") from None
+    return "".join(c.public_bytes(Encoding.PEM).decode("ascii") for c in certificates)

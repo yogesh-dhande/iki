@@ -509,7 +509,8 @@ vmTier:
   # besides their machine's own roots: your CA's, when serverUrl's certificate
   # is your own CA's, as an internal load balancer's often is. Each machine's
   # boot script carries them, so give a few certificates, at most 8 KiB, not a
-  # bundle of public ones. The provisioner reads them as it starts.
+  # bundle of public ones, and the certificates alone: a file with a private
+  # key in it is refused. The provisioner reads them as it starts.
   caSecret:
     name: ""
     key: ca.crt
