@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-18
+- Refined by: [0167](0167-a-clusters-worker-watches-its-jobs-in-one-request.md), on how cancels reach a running job
 - Amends: [0009](0009-compute-tiers-and-templates.md),
   [0046](0046-how-iki-worker-runs-a-command.md)
 - Refines: [0041](0041-compute-templates-and-bindings.md),
