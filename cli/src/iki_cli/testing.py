@@ -17,7 +17,7 @@ from typing import Any, TextIO
 from iki_spec import action_tests, outputs, schemas
 from iki_spec.action_tests import ActionTest
 from iki_spec.builtin import core_plugin
-from iki_spec.model import EntityType, Extension, Plugin
+from iki_spec.model import Action, EntityType, Extension, Plugin
 
 #: How much of a failing command's log is shown.
 LOG_LINES = 20
@@ -253,9 +253,10 @@ def _run_one(
             text=True,
             check=False,
         )
-    took = time.monotonic() - started
-    log = done.stderr.splitlines()
-    return took, _judge(test, installed, done.returncode, done.stdout, log), log
+        log = done.stderr.splitlines()
+        # Judged while the files the command wrote, a creates file among them, are here.
+        judged = _judge(test, installed, done.returncode, done.stdout, log)
+    return time.monotonic() - started, judged, log
 
 
 def _judge(
@@ -290,13 +291,35 @@ def _judge(
     problems += action_tests.effects(test.action, output)
     if well_formed:
         # As the server checks them, so a test fails where a real run's output is refused.
+        creates = output.get("creates") or []
         problems += [
             f"output.json at {p.pointer}: {p.detail}"
-            for p in outputs.check_creates(test.action, output.get("creates") or [], installed)
+            for p in outputs.check_creates(test.action, creates, installed)
         ]
+        problems += _creates_file(test.action, output.get("creates_file"), creates, installed)
     if test.output is not None:
         problems += action_tests.compare(test.output, output, test.tolerance)
     return problems
+
+
+def _creates_file(
+    action: Action,
+    described: Any,  # noqa: ANN401 - JSON data
+    creates: list[dict[str, Any]],
+    installed: outputs.Types,
+) -> list[str]:
+    """A bulk run's creates file (ADR 0056), each line checked as the server checks it
+    before writing it. ``described``: the file, as ``iki-worker run --local`` describes
+    one the command wrote."""
+    if described is None:
+        return []
+    path = Path(described["path"]) if isinstance(described, dict) and "path" in described else None
+    if path is None or not path.is_file():
+        return ["output.json: its creates_file isn't a file the command wrote."]
+    name = described.get("$file") or path.name
+    with path.open("rb") as lines:
+        found = outputs.check_creates_file(action, lines, creates, installed)
+    return [f"{name} at {p.pointer}: {p.detail}" for p in found]
 
 
 def _as_written(value: Any) -> Any:  # noqa: ANN401 - JSON data
