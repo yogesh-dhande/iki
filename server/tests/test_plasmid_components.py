@@ -294,16 +294,52 @@ def test_a_part_that_wraps_the_origin_gives_both_stretches(
     page.context.close()
 
 
+@pytest.mark.parametrize(
+    ("what", "values"),
+    [
+        ("nothing at all", {}),
+        # A plasmid's length is its registry entry's, the same for every project (ADR
+        # 0115), so a second project has it as soon as its record exists -- before that
+        # project's own annotation has run. `annotated_with` is what that run writes, so
+        # until it's there the map says it isn't drawn yet, rather than reporting that
+        # none of the library's parts is along a 4,000 bp plasmid.
+        ("a length from its registry entry and no annotation of its own", {"length": 4000}),
+    ],
+)
 def test_a_plasmid_not_annotated_yet_says_so_rather_than_drawing_nothing(
-    browser: Browser, frame_server: str
+    browser: Browser, frame_server: str, what: str, values: dict[str, object]
 ) -> None:
     context = browser.new_context()
     page = watch(context.new_page())
-    entity = {"hrid": "PLS-000003", "values": {}}
+    entity = {"hrid": "PLS-000003", "values": values}
     page.goto(f"{frame_server}/frame/{MODULE}#{urllib.parse.quote(json.dumps(entity))}")
     status = page.get_by_role("status")
     status.wait_for(timeout=30_000)
-    assert "drawn once the plasmid is annotated" in (status.text_content() or "")
+    text = status.text_content() or ""
+    assert "drawn once the plasmid is annotated" in text, what
+    assert "none of the library's parts" not in text, what
+    context.close()
+
+
+def test_an_annotated_plasmid_with_no_parts_found_says_none_were(
+    browser: Browser, frame_server: str
+) -> None:
+    """A run that annotated the record and found nothing is not the same as a record
+    waiting for its run: once `annotated_with` is there, the map says so."""
+    context = browser.new_context()
+    page = watch(context.new_page())
+    entity = {
+        "hrid": "PLS-000004",
+        "values": {
+            "length": 4000,
+            "annotated_with": "iki/plasmid features 1.0 (34 parts), at least 90% identity",
+            "annotated_features": [],
+        },
+    }
+    page.goto(f"{frame_server}/frame/{MODULE}#{urllib.parse.quote(json.dumps(entity))}")
+    page.get_by_role("heading", name="Map").wait_for(timeout=30_000)
+    said = page.get_by_text("4,000 base pairs, with none of the library's parts found along it.")
+    assert said.count() == 1
     context.close()
 
 
