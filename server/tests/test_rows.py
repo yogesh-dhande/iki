@@ -14,14 +14,20 @@ from django.db import DatabaseError, connection, transaction
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_graph import walk
-from test_runs import world
+from test_run_results import _downloads_all, _failed, done, output
+from test_runs import launch, world
+from test_states import imported_values
+from test_workers import keep_connection, worker
 
 from iki_server.entities import states
+from iki_server.entities.models import Entity
+from iki_server.files import services as files
+from iki_server.files.services import EMPTY_SHA256
 from iki_server.graph.models import Edge
 
 pytestmark = pytest.mark.django_db
 
-__all__ = ["world"]  # the fixture, used here too
+__all__ = ["keep_connection", "world"]  # the fixtures, used here too
 
 BISPECIFIC = "acme/protein.Bispecific"
 
@@ -433,3 +439,102 @@ def test_the_database_holds_rows_to_their_types_and_locks(world: World) -> None:
         )
     # A list of rows is part of its record, so a lock (ADR 0125) freezes it too.
     assert ("acme__protein_sample__additions", "entity_id") in states.guarded_tables()
+
+
+# --- Files in rows ------------------------------------------------------------------------------
+# A row's file field holds a file as a file field does (ADR 0137): a run that reads the row gets
+# the file, and a run's results attach one in a row only as they could alone.
+
+ATTACH_ONLY = (
+    "Attach only files this run uploaded (once they're ready), its file params' files, or its "
+    "inputs' files."
+)
+
+
+def stored(world: World, name: str, media_type: str = "application/pdf") -> str:
+    """A file in the project, such as a certificate of analysis (empty, so it's ready)."""
+    upload = files.start(
+        world.users["editor"],
+        world.project,
+        name=name,
+        media_type=media_type,
+        size=0,
+        sha256=EMPTY_SHA256,
+    )
+    upload.refresh_from_db()
+    return str(upload.file_id)
+
+
+def test_a_job_downloads_the_files_its_inputs_rows_hold(world: World, s3: Any) -> None:
+    """A sample whose addition has its certificate, and whose lot's input has its own: both
+    reach measure_purity's worker, the lot's through the sample's included lot (ADR 0105)."""
+    heavy, *_ = chains(world)
+    api = api_as(world)
+    lot_coa, sample_coa = stored(world, "lot-coa.pdf"), stored(world, "addition-coa.pdf")
+    lot = create(
+        api,
+        world.project,
+        {"label": "L-1", "inputs": [{"protein": heavy["id"], "certificate": lot_coa}]},
+        "acme/protein.Lot",
+    )
+    assert lot.status_code == 201, lot.content
+    added = [{"material": heavy["id"], "certificate": sample_coa}]
+    values = {"label": "S-1", "lot": lot.json()["id"], "additions": added}
+    sample = create(api, world.project, values, "acme/protein.Sample")
+    assert sample.status_code == 201, sample.content
+    made = launch(
+        api, world.project, {"sample": sample.json()["id"]}, "acme/protein.measure_purity"
+    )
+    assert made.status_code == 201, made.content
+    pod = worker(world)
+    job = pod.lease().json()
+    assert sorted(job["files"]) == sorted([lot_coa, sample_coa])
+    (given,) = job["inputs"]["sample"]
+    assert [a["certificate"] for a in given["values"]["additions"]] == [sample_coa]
+    _downloads_all(pod, job)
+
+
+def _importing(world: World) -> tuple[Any, dict[str, Any], str]:
+    """An import_samples run, leased, and its CSV's ID."""
+    csv = stored(world, "samples.csv", "text/csv")
+    run = launch(
+        api_as(world), world.project, {}, "acme/protein.import_samples", params={"file": csv}
+    )
+    assert run.status_code == 201, run.content
+    pod = worker(world)
+    return pod, pod.lease().json(), csv
+
+
+def _sample(material: str, certificate: str) -> dict[str, Any]:
+    return {
+        "type": "acme/protein.Sample",
+        "values": {
+            "label": f"S-{certificate[:8]}",
+            "additions": [{"material": material, "certificate": certificate}],
+        },
+    }
+
+
+def test_results_attach_files_in_rows_only_as_they_could_alone(world: World, s3: Any) -> None:
+    heavy, *_ = chains(world)
+    # A file the launcher can read and share, but that this run didn't upload or get.
+    theirs = stored(world, "other-coa.pdf")
+    pod, job, _ = _importing(world)
+    errors = _failed(pod, job, output(creates=[_sample(heavy["id"], theirs)]))
+    assert errors == {"#/creates/0/values/additions": ATTACH_ONLY}
+    # Its file param's file it may: the CSV it imports from.
+    pod, job, csv = _importing(world)
+    body = done(pod, job, output(creates=[_sample(heavy["id"], csv)]))
+    assert body["run_status"] == "succeeded", body
+    (made,) = Entity.objects.filter(type="acme/protein.Sample")
+    found = api_as(world).get(f"/entities/{made.hrid}").json()
+    assert [a["certificate"] for a in found["values"]["additions"]] == [csv]
+
+
+def test_creates_in_a_file_cant_attach_files_in_rows_either(world: World, s3: Any) -> None:
+    heavy, *_ = chains(world)
+    coa = stored(world, "coa.pdf")
+    rows = [{"material": heavy["id"], "certificate": coa}]
+    ended = imported_values(world, {"label": "S-1", "additions": rows})
+    assert ended["status"] == "failed", ended
+    assert "can't attach files" in str(ended["error"]), ended["error"]

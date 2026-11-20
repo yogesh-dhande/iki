@@ -551,6 +551,7 @@ class Lot_inputs(models.Model):
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
     amount_mg = models.FloatField(null=True)
     by = models.ForeignKey(User, models.PROTECT, related_name='+', null=True)
+    certificate = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
 
     class Meta:
         db_table = 'acme__protein_lot__inputs'
@@ -1040,6 +1041,7 @@ class Sample_additions(models.Model):
     amount = QuantityField(unit='ug', null=True)
     added_on = models.DateField(null=True)
     note = models.CharField(max_length=200, null=True)
+    certificate = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
 
     class Meta:
         db_table = 'acme__protein_sample__additions'

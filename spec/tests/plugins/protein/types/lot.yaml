@@ -24,6 +24,7 @@ fields:
         protein: { type: ref, to: Protein, required: true }
         amount_mg: { type: float, min: 0 }
         by: { type: person }
+        certificate: { type: file }
   # Its state field (ADR 0125), whose states past Open are each set by signing for it
   # (ADR 0126).
   status:
