@@ -11996,6 +11996,11 @@ export interface components {
              */
             sequence: string;
             /**
+             * Strands
+             * @description For DNA or RNA: the enum field saying whether a record is double- or single-stranded (`double` or `single`), as its sequence field's `strands` names it, so its length is counted in bp or nt; null when it has none.
+             */
+            strands: string | null;
+            /**
              * Tracks
              * @description Values along its residues, each a track.
              */

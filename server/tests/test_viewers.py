@@ -29,6 +29,7 @@ def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
             "label": "Sequence",
             "sequence": "sequence",
             "alphabet": "protein",
+            "strands": None,
             "features": None,
             "tracks": [{"field": "hydropathy", "label": "Hydropathy", "min": -4.5, "max": 4.5}],
         }
@@ -52,9 +53,25 @@ def test_a_sequence_viewer_says_what_its_sequence_is_of() -> None:
         ("rna_sequence", "rna"),
         ("protein_sequence", "protein"),
     ):
-        form = SimpleNamespace(fields=lambda f=format_: {"bases": SimpleNamespace(format=f)})
+        form = SimpleNamespace(
+            fields=lambda f=format_: {"bases": SimpleNamespace(format=f, strands=None)}
+        )
         shown = _viewer_out(form, Viewer(viewer="sequence", label="Sequence", sequence="bases"))  # type: ignore[arg-type]
         assert shown["alphabet"] == alphabet
+        assert shown["strands"] is None
+
+
+def test_a_sequence_viewer_names_the_field_saying_how_many_strands_it_has() -> None:
+    """So it counts a single strand in nt and a duplex in bp, as its record says."""
+    from types import SimpleNamespace
+
+    from iki_server.api.entities import _viewer_out
+    from iki_spec.model import Viewer
+
+    bases = SimpleNamespace(format="dna_sequence", strands="strandedness")
+    form = SimpleNamespace(fields=lambda: {"bases": bases})
+    shown = _viewer_out(form, Viewer(viewer="sequence", label="Sequence", sequence="bases"))  # type: ignore[arg-type]
+    assert shown["strands"] == "strandedness"
 
 
 # --- The structure viewer's frame ---------------------------------------------------------------
