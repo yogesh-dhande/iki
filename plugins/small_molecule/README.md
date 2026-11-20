@@ -190,23 +190,40 @@ aspirinate is JZLOKWGVGHYBKD-UHFFFAOYSA-M, not aspirin.
 
 Enhanced stereochemistry (a V3000 molfile's or CXSMILES's AND and OR groups)
 is something a standard InChI can't hold: it would give the one stereoisomer
-drawn, so a racemate would be its enantiomer. A group of one stereocentre (both
-configurations, or one not known which) says no more than that centre
+drawn, so a mixture of two would be one of them. A group of one stereocentre
+(both configurations, or one not known which) says no more than that centre
 undefined, so it's registered undefined, as a racemate drawn without wedges
-is, and the run says so. A group of several centres also says how they relate
-(cis, not trans), which no standard InChIKey holds, so the structure fails its
-line or record, saying why: draw those centres without wedges and record what's
-known as the compound's stereochemistry.
+is, and the run says so. For an AND group it says what the two configurations
+are: the structure's two enantiomers when nothing else in it is chiral, or two
+epimers (diastereomers, such as L-threonine and L-allothreonine) when the rest
+of its stereochemistry is defined. It doesn't call either a racemate, which is
+an equimolar pair of enantiomers: a group says nothing of proportions. A
+group of several centres also says how they relate (cis, not trans), which no
+standard InChIKey holds, so the structure fails its line or record, saying
+why: draw those centres without wedges and record what's known as the
+compound's stereochemistry.
 
-Nor can a standard InChI hold axial chirality. RDKit reads an atropisomer's
-axis (a hindered biaryl's, as in BINOL or sotorasib) from a wedge beside it,
-but (R)- and (S)-BINOL have one standard InChIKey, as PubChem's one record of
-them shows (CID 11762), and so would be one compound. A structure with an axis
+Nor does a standard InChI record an atropisomer's axis, a hindered single
+bond's. RDKit reads one (a biaryl's, as in BINOL or sotorasib) from a wedge
+beside it, but (R)- and (S)-BINOL have one standard InChIKey, as PubChem's one
+record of them shows (CID 11762), and so would be one compound. A structure with an axis
 drawn with its configuration fails its line or record, saying which bond it
 is: draw the axis without the wedge, which is the compound, whichever
 atropisomer it is, and say which in its name. An axis alone in an AND or OR
 group says no more than it undefined, so it's registered undefined, as a single
 centre in one is, and the run says so.
+
+A cumulene's configuration is the other way about: a standard InChI records it,
+but no SMILES does. An allene with two different groups at each end is axially
+chiral (penta-2,3-diene's two enantiomers), and three cumulated double bonds
+are E or Z, and InChI reads either from a drawing's coordinates (its /t and /b
+layers), but RDKit's SMILES has no way to write it. Both enantiomers would be
+one SMILES, which a compound's descriptors, depiction and exports are made
+from, and which InChI reads as neither. So whenever a structure's InChI has
+stereochemistry its SMILES doesn't give back, it fails its line or record,
+saying where: draw it without its configuration (in 2D, without wedges), say
+which it is in its name, and record what's known as the compound's
+stereochemistry.
 
 The parent is what registration systems register: fragments that are salts or
 solvents Iki knows are taken off (matched by their structure, neutralised, so

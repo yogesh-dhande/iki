@@ -329,17 +329,20 @@ def _equivalents(count: int, parents: int) -> float:
     return count / parents
 
 
-#: What each kind of enhanced stereo group means: of one centre, and of several.
+#: What each kind of enhanced stereo group means: of one centre, and of several. A group
+#: says nothing of proportions, and its members are enantiomers only when nothing else in
+#: the structure is chiral (`_members`): so not a racemate, which IUPAC keeps for an
+#: equimolar pair of enantiomers.
 _GROUP_KINDS = {
     Chem.StereoGroupType.STEREO_AND: (
         "AND",
-        "both configurations together (a racemate there)",
-        "both enantiomers are present",
+        "both configurations together",
+        "both of the group's configurations are present",
     ),
     Chem.StereoGroupType.STEREO_OR: (
         "OR",
         "one configuration, not known which",
-        "not which enantiomer it is",
+        "not which of the group's two configurations it is",
     ),
 }
 #: A single bond's configuration as an atropisomer's axis (RDKit's, from a wedge beside it).
@@ -352,21 +355,51 @@ def _axis(mol: Chem.Mol, bond: Chem.Bond) -> str:
     return "-".join(f"{a.GetSymbol()}{a.GetIdx() + 1}" for a in ends)
 
 
+def _members(mol: Chem.Mol, atoms: list[int], bonds: list[int]) -> str:
+    """What the two configurations of one AND group's centre or axis are of each other:
+    enantiomers when nothing else in the structure is chiral; epimers (diastereomers) when
+    the rest of its stereochemistry is defined; and not known when some of it isn't."""
+    grouped = {a.GetIdx() for g in mol.GetStereoGroups() for a in g.GetAtoms()}
+    grouped_bonds = {b.GetIdx() for g in mol.GetStereoGroups() for b in g.GetBonds()}
+    centres = [
+        i
+        for i, _ in Chem.FindMolChiralCenters(
+            mol, includeUnassigned=True, useLegacyImplementation=False
+        )
+        if i not in atoms
+    ]
+    axes = [b.GetIdx() for b in mol.GetBonds() if b.GetStereo() in _AXIAL and b.GetIdx() not in bonds]
+    if not centres and not axes:
+        return " (its two enantiomers)"
+    defined = all(
+        i not in grouped
+        and mol.GetAtomWithIdx(i).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        for i in centres
+    ) and not grouped_bonds.intersection(axes)
+    if defined:
+        return (
+            " (two epimers, diastereomers of each other, as the rest of its stereochemistry "
+            "is defined)"
+        )
+    return ""
+
+
 def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
     """The structure with its enhanced stereochemistry as a standard InChIKey can hold it,
     and what was changed.
 
     A V3000 molfile or CXSMILES can mark stereocentres, or an atropisomer's axis, as an AND
     group (both configurations) or an OR group (one, not known which). A standard InChI
-    can't, so it would give the single stereoisomer drawn, and a racemate would be its
-    enantiomer. A group of one centre or one axis says no more than it undefined, as a
+    can't, so it would give the single stereoisomer drawn, and a mixture of the two would
+    be one of them. A group of one centre or one axis says no more than it undefined, as a
     racemate drawn without wedges says, so it's registered undefined. A group of several
     also says how they relate (cis, not trans), which nothing in a standard InChIKey holds,
     so it can't be registered.
 
     Nor can an axis drawn with its configuration (by a wedge beside it, as RDKit reads
-    one): a standard InChI has no layer for axial chirality, so (R)- and (S)-BINOL, or
-    sotorasib and its atropisomer, would have one InChIKey, and be one compound.
+    one): a standard InChI doesn't record an atropisomer's axis, a single bond's, so (R)-
+    and (S)-BINOL, or sotorasib and its atropisomer, would have one InChIKey, and be one
+    compound. (It does record an allene's, which `_lost_stereo` keeps from being lost.)
     """
     groups = list(mol.GetStereoGroups())
     relative = [g for g in groups if g.GetGroupType() in _GROUP_KINDS]
@@ -387,6 +420,8 @@ def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
                 "would be the single stereoisomer drawn. Draw them without wedges "
                 "(undefined), and record what's known as the compound's stereochemistry"
             )
+        if kind == "AND":
+            meaning += _members(mol, atoms, bonds)
         if atoms:
             changed.GetAtomWithIdx(atoms[0]).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
             what = f"Its stereocentre {named} is"
@@ -404,7 +439,7 @@ def enhanced_stereo(mol: Chem.Mol) -> tuple[Chem.Mol, list[str]]:
         raise UnreadableError(
             f"its bond{'' if one else 's'} {named} {'is a' if one else 'are'} stereogenic "
             f"ax{'is' if one else 'es'} drawn with {'its' if one else 'their'} configuration "
-            "(an atropisomer). A standard InChI has no layer for axial chirality, so both "
+            "(an atropisomer). A standard InChI doesn't record an atropisomer's axis, so both "
             "atropisomers would have one InChIKey, and be one compound. Draw the axis without "
             "a wedge beside it (undefined), say which atropisomer it is in its name, and "
             "record what's known as the compound's stereochemistry"
@@ -431,9 +466,42 @@ def standardise(mol: Chem.Mol, parent: bool) -> Registered:
     if len(smiles) > LIMITS["smiles"]:
         raise UnreadableError(f"its SMILES is over {LIMITS['smiles']:,} characters")
     inchi, key, warnings = identify(found.mol)
+    _lost_stereo(found.mol, smiles, inchi)
     found.smiles, found.inchi, found.inchikey = smiles, inchi, key
     found.warnings.extend(f"InChI: {w}." for w in warnings if w != "Omitted undefined stereo")
     return found
+
+
+def _lost_stereo(mol: Chem.Mol, smiles: str, inchi: str) -> None:
+    """Refuses a structure whose standard InChI has stereochemistry its SMILES can't hold,
+    so the compound's SMILES, which its descriptors, depiction and exports are made from,
+    always gives its InChIKey.
+
+    That's a cumulene's: an allene with two different groups at each end is axially
+    chiral (penta-2,3-diene's two enantiomers), and one of three double bonds is E or Z.
+    InChI reads either from a drawing's coordinates, but no SMILES RDKit reads or writes
+    holds it, so both would be one SMILES, which InChI reads as neither."""
+    if "/t" not in inchi and "/b" not in inchi:
+        return  # it has no stereochemistry to lose
+    if identify(from_smiles(smiles))[0] == inchi:
+        return
+    meet = [
+        f"{a.GetSymbol()}{a.GetIdx() + 1}"
+        for a in mol.GetAtoms()
+        if sum(b.GetBondType() == Chem.BondType.DOUBLE for b in a.GetBonds()) == 2
+    ]
+    where = (
+        f"its configuration at {', '.join(meet)}, where its double bonds meet (an allene's "
+        "or cumulene's), is"
+        if meet
+        else "its configuration is"
+    )
+    raise UnreadableError(
+        f"{where} in its standard InChI, from its drawing's coordinates, but no SMILES holds "
+        "it, so its compound's SMILES would be another stereoisomer's too. Draw it without "
+        "its configuration (in 2D, without wedges), say which it is in its name, and record "
+        "what's known as the compound's stereochemistry"
+    )
 
 
 def _parent(cleaned: Chem.Mol) -> Registered:

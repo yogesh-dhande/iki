@@ -798,7 +798,7 @@ def test_enhanced_stereo_isnt_registered_as_the_stereoisomer_drawn(tmp_path: Pat
         {
             "level": "warning",
             "text": "Record 2 (DL): Its stereocentre C2 is in an AND group, both configurations "
-            "together (a racemate there), which a standard InChIKey can't record, so it was "
+            "together (its two enantiomers), which a standard InChIKey can't record, so it was "
             "registered undefined.",
         },
         {
@@ -829,7 +829,7 @@ def test_relative_stereo_in_a_group_cant_be_registered(tmp_path: Path, group: st
 
 #: 1,1'-Bi-2-naphthol (BINOL), as PubChem gives it (CID 11762), whose two atropisomers,
 #: (R) and (S), are one standard InChIKey there, PPTXVXKCQZKFBN-UHFFFAOYSA-N: a standard
-#: InChI has no layer for axial chirality. Its axis is the bond between atoms 9 and 10.
+#: InChI doesn't record an atropisomer's axis. Its axis is the bond between atoms 9 and 10.
 BINOL = "C1=CC=C2C(=C1)C=CC(=C2C3=C(C=CC4=CC=CC=C43)O)O"
 #: Sotorasib, as PubChem gives it (CID 137278711, NXQKSXLFSAEQCZ-SFHVURJKSA-N, with only
 #: its stereocentre in it): one atropisomer, its axis from its pyrimidinone's N1 (atom 11)
@@ -886,8 +886,8 @@ def test_an_atropisomer_isnt_registered_as_its_axis_undefined(tmp_path: Path) ->
     assert "2 of 3 records can't be imported, so none was." in error
     assert (
         "Record 1 (BINOL): its bond C10-C11 is a stereogenic axis drawn with its "
-        "configuration (an atropisomer). A standard InChI has no layer for axial chirality, "
-        "so both atropisomers would have one InChIKey, and be one compound."
+        "configuration (an atropisomer). A standard InChI doesn't record an atropisomer's "
+        "axis, so both atropisomers would have one InChIKey, and be one compound."
     ) in error
     assert "Record 2 (its enantiomer): its bond C10-C11 is a stereogenic axis" in error
     # Drawn without the wedge, its axis is undefined: BINOL, whichever it is.
@@ -941,7 +941,7 @@ def test_an_axis_in_a_group_of_its_own_is_registered_undefined(
     keys = [c["values"]["inchikey"] for c in output["creates"]]
     assert keys == ["PPTXVXKCQZKFBN-UHFFFAOYSA-N", "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"]
     meaning = (
-        "both configurations together (a racemate there)"
+        "both configurations together (its two enantiomers)"
         if kind == "AND"
         else "one configuration, not known which"
     )
@@ -953,6 +953,105 @@ def test_an_axis_in_a_group_of_its_own_is_registered_undefined(
             "registered undefined.",
         }
     ]
+
+
+def test_a_centre_in_a_group_with_the_rest_defined_is_a_mixture_of_epimers(
+    tmp_path: Path,
+) -> None:
+    # Threonine drawn (2S,3R), L-threonine (PubChem CID 6288), with an AND group on C3
+    # alone: (2S,3R) with (2S,3S), L-threonine with L-allothreonine (CID 99289). They're
+    # diastereomers, not enantiomers, so the mixture isn't a racemate, which IUPAC keeps for
+    # an equimolar pair of enantiomers (Gold Book, R05025). Its C3 is the CXSMILES's atom 2.
+    text = v3000("C[C@@H](O)[C@H](N)C(=O)O |&1:1|", "threonines") + v3000(
+        "C[C@@H](O)C(N)C(=O)O |&1:1|", "C2 undefined"
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "Record 1 (threonines): Its stereocentre C2 is in an AND group, both "
+            "configurations together (two epimers, diastereomers of each other, as the rest of "
+            "its stereochemistry is defined), which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        },
+        # With its other centre undefined, how the two relate isn't known either.
+        {
+            "level": "warning",
+            "text": "Record 2 (C2 undefined): Its stereocentre C2 is in an AND group, both "
+            "configurations together, which a standard InChIKey can't record, so it was "
+            "registered undefined.",
+        },
+    ]
+    # Registered with C3 undefined and C2 kept: (2S)-threonine, either configuration at C3.
+    keys = [c["values"]["inchikey"] for c in output["creates"]]
+    assert keys == ["AYFVYJQAPQTCCC-NFJMKROFSA-N", "AYFVYJQAPQTCCC-UHFFFAOYSA-N"]
+
+
+def _mirrored_3d(smiles: str, title: str) -> tuple[str, str]:
+    """SDF records of a structure embedded in 3D, and of its mirror image."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from rdkit.Geometry import Point3D
+
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    assert AllChem.EmbedMolecule(mol, randomSeed=7) == 0  # type: ignore[attr-defined]
+    mirror = Chem.Mol(mol)
+    conformer = mirror.GetConformer()
+    for i in range(mirror.GetNumAtoms()):
+        at = conformer.GetAtomPosition(i)
+        conformer.SetAtomPosition(i, Point3D(-at.x, at.y, at.z))
+    return tuple(  # type: ignore[return-value]
+        f"{title}{n}\n" + Chem.MolToMolBlock(m).split("\n", 1)[1] + "$$$$\n"
+        for n, m in ((1, mol), (2, mirror))
+    )
+
+
+def test_a_cumulenes_configuration_isnt_registered_without_it(tmp_path: Path) -> None:
+    from rdkit import Chem
+    from rdkit.Chem import rdinchi
+
+    # Penta-2,3-diene (PubChem CID 136378) is axially chiral, as an allene with two
+    # different groups at each end is. A standard InChI records which enantiomer from 3D
+    # coordinates, in its /t layer (the InChI Trust's technical FAQ), but no SMILES RDKit
+    # reads or writes holds it, so both would be CC=C=CC, which InChI reads as neither.
+    allene = _mirrored_3d("CC=C=CC", "penta-2,3-diene ")
+    inchis = {rdinchi.MolBlockToInchi(r.removesuffix("$$$$\n"))[0] for r in allene}
+    assert inchis == {
+        "InChI=1S/C5H8/c1-3-5-4-2/h3-4H,1-2H3/t5-/m0/s1",
+        "InChI=1S/C5H8/c1-3-5-4-2/h3-4H,1-2H3/t5-/m1/s1",
+    }
+    # Hexa-2,3,4-triene, a cumulene of three double bonds, is E or Z, which InChI records
+    # (/b) and no SMILES does either.
+    (cumulene, _) = _mirrored_3d("CC=C=C=CC", "hexa-2,3,4-triene ")
+    flat = Chem.MolFromSmiles("CC=C=CC")
+    flat.SetProp("_Name", "penta-2,3-diene")
+    text = "".join(allene) + cumulene + Chem.MolToMolBlock(flat) + "$$$$\n"
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 1
+    assert output is None
+    error = last_error(result)
+    assert "3 of 4 records can't be imported, so none was." in error
+    for n, name, at in (
+        (1, "penta-2,3-diene 1", "C3"),
+        (2, "penta-2,3-diene 2", "C3"),
+        (3, "hexa-2,3,4-triene 1", "C3, C4"),
+    ):
+        assert (
+            f"Record {n} ({name}): its configuration at {at}, where its double bonds meet (an "
+            "allene's or cumulene's), is in its standard InChI, from its drawing's "
+            "coordinates, but no SMILES holds it, so its compound's SMILES would be another "
+            "stereoisomer's too. Draw it without its configuration (in 2D, without wedges), "
+            "say which it is in its name, and record what's known as the compound's "
+            "stereochemistry."
+        ) in error
+    # Drawn without its configuration, it's the compound whichever enantiomer it is.
+    result, output = imported(tmp_path, text, on_error="skip")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert [c["values"]["inchikey"] for c in output["creates"]] == ["PODAMDNJNMAKAZ-UHFFFAOYSA-N"]
+    assert output["metrics"] == {"records": 4, "skipped": 3}
 
 
 def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Path) -> None:
