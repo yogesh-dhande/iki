@@ -16,10 +16,11 @@ import {
   gridSearch,
   SAVED_SEARCHES,
   savedSearchesQuery,
+  validateEntitySearch,
   type EntitySearch,
   type SavedSearch,
 } from "../entities";
-import { searchWords, wordsOf, type Filter } from "../filters";
+import { sameJson, searchWords, wordsOf, type Filter } from "../filters";
 import { Button, ConfirmDialog, TextField, useMessages } from "../ui";
 
 interface Query {
@@ -72,7 +73,9 @@ export function toAddress(query: Query): EntitySearch | null {
     out.sort = query.sort.field;
     if (query.sort.descending) out.desc = true;
   }
-  return out;
+  // The grid reads only so many filters and so much text from its address. A search that
+  // needs more isn't a link: the grid would run it without what it cut.
+  return sameJson(validateEntitySearch({ ...out }), out) ? out : null;
 }
 
 /** The grid's search, as a saved search keeps it: what the grid runs, without its project. */
