@@ -1524,6 +1524,46 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     assert tools is not None and -1 <= tools["y"] <= 1, tools
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_finding_sites_in_a_plasmid_in_its_viewer(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """pUC19c's polylinker, where the cloning tests cut it: EcoRI after base 396 and
+    HindIII after 447 (server/tests/test_plasmid_cloning.py); and AatII near its end, at
+    2,617 (Biopython's nt_search), brought into view below what stays over the rows."""
+    hrid, _ = _record(
+        world, tmp_path, "L09137.2", Path(__file__).parent / "data" / "plasmids" / "L09137.2.gb"
+    )
+    page = open_as("admin", f"/entities/{hrid}/viewers/sequence/", color_scheme)
+    search = page.get_by_role("search", name="Find bases")
+    box = search.get_by_role("searchbox", name="Find")
+    box.fill("GAATTC")
+    search.get_by_text("1 match.").wait_for()
+    box.press("Enter")
+    search.get_by_text("Match 1 of 1: bases 396–401, on both strands.").wait_for()
+    page.get_by_text("Bases 396–401 selected: 6 bp").wait_for()
+    assert_clean(page)
+    box.fill("aagctt")
+    box.press("Enter")
+    search.get_by_text("Match 1 of 1: bases 447–452, on both strands.").wait_for()
+    box.fill("GACGTC")
+    search.get_by_role("button", name="Next").click()
+    search.get_by_text("Match 1 of 1: bases 2,617–2,622, on both strands.").wait_for()
+    page.wait_for_function(
+        """() => {
+          const mark = document.querySelector(".residue-current");
+          const tools = document.querySelector(".sequence-tools");
+          if (!mark || !tools) return false;
+          const at = mark.getBoundingClientRect();
+          return at.top >= tools.getBoundingClientRect().bottom && at.bottom <= innerHeight;
+        }"""
+    )
+    box.fill("GAZ")
+    search.get_by_text("Z isn't an IUPAC nucleotide code.").wait_for()
+    assert box.get_attribute("aria-invalid") == "true"
+    assert_clean(page)
+
+
 def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
     """A file in the project, its bytes put straight into the store the server reads."""
     import hashlib

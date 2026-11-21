@@ -32,6 +32,7 @@ import {
   complement,
   extremes,
   featureName,
+  findMotif,
   gcContent,
   GROUP,
   kindOf,
@@ -45,17 +46,20 @@ import {
   placeAt,
   rangesOf,
   readFeatures,
+  readMotif,
   readTrack,
   residuesOf,
   reverseComplement,
   ROW,
   covered,
   selected,
+  stepTo,
   stretchLength,
   trackScale,
   type Caret,
   type Feature,
   type Kind,
+  type Match,
   type Values,
 } from "../sequence";
 import { buttonClass } from "../ui";
@@ -239,15 +243,35 @@ function SequenceViewer({
     feature ? (features.find((f) => sameFeature(f, feature)) ?? null) : null,
   );
   const [at, setAt] = useState<Caret>(AT_START);
+  const circular = viewer.topology !== null && source.values[viewer.topology] === "circular";
   // What copying said, of the selection it copied: once that changes, it's old news.
   const [copying, setCopying] = useState<{ said: string; of: Caret } | null>(null);
   const said = copying?.of === at ? copying.said : "";
   // A duplex's other strand, drawn under it 3′ to 5′, unless it's hidden.
   const double = !protein && viewer.strands !== null && source.values[viewer.strands] === "double";
   const [pairing, setPairing] = useState(true);
-  const circular = viewer.topology !== null && source.values[viewer.topology] === "circular";
   const region = useRef<HTMLDivElement | null>(null);
   const tools = useRef<HTMLDivElement | null>(null);
+  // A row to bring into view, asked for afresh each time (a new object): the rows' own
+  // scrolling does it.
+  const [revealed, setRevealed] = useState<{ row: number } | null>(null);
+  // Finding a motif: what's typed, where it's looked for, and the match gone to.
+  const [typed, setTyped] = useState("");
+  const [bothStrands, setBothStrands] = useState(true);
+  const [aroundOrigin, setAroundOrigin] = useState(circular);
+  const [found, setFound] = useState<{ index: number; round: "start" | "end" | null } | null>(null);
+  const motif = useMemo(() => readMotif(typed, viewer.alphabet), [typed, viewer.alphabet]);
+  const search = useMemo(
+    () =>
+      motif && "motif" in motif
+        ? findMotif(sequence, motif.motif, {
+            alphabet: viewer.alphabet,
+            bothStrands,
+            circular: aroundOrigin,
+          })
+        : { matches: [], more: false },
+    [motif, sequence, viewer.alphabet, bothStrands, aroundOrigin],
+  );
   useEffect(() => {
     if (!onCapture) return;
     onCapture(() => Promise.resolve({ targets: [shown ? { feature: featureRef(shown) } : {}] }));
@@ -261,6 +285,36 @@ function SequenceViewer({
     return <p className="muted">It has no {field?.label.toLowerCase() ?? "sequence"} yet.</p>;
   }
   const span = selected(at);
+  const { matches } = search;
+
+  /** Goes to the `index`th match: selects it, so the readout says what it is, and brings it
+   * into view. */
+  function goTo(index: number, round: "start" | "end" | null) {
+    const match = matches[index];
+    if (!match) return;
+    setAt({
+      anchor: match.start - 1,
+      caret: match.end,
+      across: match.end < match.start,
+      atEnd: match.end % ROW === 0,
+    });
+    setFound({ index, round: matches.length > 1 ? round : null });
+    setRevealed({ row: Math.floor((match.start - 1) / ROW) });
+  }
+
+  /** Goes to the next match, or the one before: from the one gone to, else from the caret,
+   * round past either end as find on a page does. */
+  function step(direction: 1 | -1) {
+    if (!matches.length) return;
+    if (found && matches[found.index]) {
+      const next = found.index + direction;
+      const index = (next + matches.length) % matches.length;
+      goTo(index, next >= matches.length ? "start" : next < 0 ? "end" : null);
+      return;
+    }
+    const next = stepTo(matches, at.caret, direction);
+    if (next) goTo(next.index, next.wrapped ? (direction === 1 ? "start" : "end") : null);
+  }
 
   /** Copies what's selected, or its reverse complement, and says so. */
   function copy(reverse: boolean) {
@@ -327,6 +381,30 @@ function SequenceViewer({
         </div>
       ) : null}
       <div className="sequence-tools" ref={tools}>
+        <FindBar
+          id={`${ids}-find`}
+          alphabet={viewer.alphabet}
+          typed={typed}
+          motif={motif}
+          matches={matches}
+          more={search.more}
+          found={found}
+          bothStrands={bothStrands}
+          aroundOrigin={aroundOrigin}
+          onType={(text) => {
+            setTyped(text);
+            setFound(null);
+          }}
+          onBothStrands={(on) => {
+            setBothStrands(on);
+            setFound(null);
+          }}
+          onAroundOrigin={(on) => {
+            setAroundOrigin(on);
+            setFound(null);
+          }}
+          onStep={step}
+        />
         <div className="sequence-selection">
           <p id={`${ids}-at`} className="sequence-at" aria-live="polite">
             {span ? (
@@ -379,7 +457,14 @@ function SequenceViewer({
         paired={double && pairing}
         label={`${field?.label ?? "Sequence"} of ${source.title}`}
         at={at}
-        onMove={setAt}
+        onMove={(next) => {
+          setAt(next);
+          setFound(null);
+        }}
+        matches={matches}
+        current={found ? (matches[found.index] ?? null) : null}
+        onStep={step}
+        revealed={revealed}
         onCopy={() => {
           copy(false);
         }}
@@ -391,6 +476,7 @@ function SequenceViewer({
         The arrow keys move the caret along the {protein ? "residues" : "bases"}, and with Shift
         select them; Home and End go to a row’s start and end, and with Control to the sequence’s;
         Control+A selects it all, Control+C copies the selection, and Escape clears it.
+        {matches.length ? " N and Shift+N go to the next and previous match." : null}
       </p>
       {viewer.features ? (
         <FeatureTable
@@ -401,6 +487,142 @@ function SequenceViewer({
         />
       ) : null}
     </>
+  );
+}
+
+/** A box to find a motif in, with what it found and buttons to step through it. */
+function FindBar({
+  id,
+  alphabet,
+  typed,
+  motif,
+  matches,
+  more,
+  found,
+  bothStrands,
+  aroundOrigin,
+  onType,
+  onBothStrands,
+  onAroundOrigin,
+  onStep,
+}: {
+  id: string;
+  alphabet: Viewer["alphabet"];
+  typed: string;
+  motif: ReturnType<typeof readMotif>;
+  matches: Match[];
+  more: boolean;
+  found: { index: number; round: "start" | "end" | null } | null;
+  bothStrands: boolean;
+  aroundOrigin: boolean;
+  onType: (text: string) => void;
+  onBothStrands: (on: boolean) => void;
+  onAroundOrigin: (on: boolean) => void;
+  onStep: (direction: 1 | -1) => void;
+}) {
+  const protein = alphabet === "protein";
+  const error = motif && "error" in motif ? motif.error : null;
+  const current = found ? matches[found.index] : undefined;
+  let status = "";
+  if (error) status = error;
+  else if (current && found) {
+    const noun = protein ? "residues" : "bases";
+    const strand = protein
+      ? ""
+      : current.strand === "both"
+        ? ", on both strands"
+        : `, on the ${current.strand} strand`;
+    const across = current.end < current.start ? ", across the origin" : "";
+    const round = found.round ? `, back at the ${found.round}` : "";
+    status = `Match ${number.format(found.index + 1)} of ${number.format(matches.length)}${more ? "+" : ""}: ${noun} ${number.format(current.start)}–${number.format(current.end)}${strand}${across}${round}.`;
+  } else if (motif) {
+    status = matches.length
+      ? more
+        ? `More than ${number.format(matches.length)} matches: the first ${number.format(matches.length)} are marked.`
+        : `${number.format(matches.length)} ${matches.length === 1 ? "match" : "matches"}.`
+      : "No matches.";
+  }
+  return (
+    <div
+      className="sequence-find"
+      role="search"
+      aria-label={`Find ${protein ? "residues" : "bases"}`}
+    >
+      <label htmlFor={id}>Find</label>
+      <input
+        id={id}
+        type="search"
+        className="sequence-find-input"
+        value={typed}
+        autoComplete="off"
+        autoCapitalize="characters"
+        spellCheck={false}
+        placeholder={protein ? "Residues, X for any" : "Bases, in IUPAC codes"}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={`${id}-found`}
+        onChange={(event) => {
+          onType(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onStep(event.shiftKey ? -1 : 1);
+        }}
+      />
+      <button
+        type="button"
+        className={buttonClass()}
+        disabled={!matches.length}
+        onClick={() => {
+          onStep(-1);
+        }}
+      >
+        Previous
+      </button>
+      <button
+        type="button"
+        className={buttonClass()}
+        disabled={!matches.length}
+        onClick={() => {
+          onStep(1);
+        }}
+      >
+        Next
+      </button>
+      {protein ? null : (
+        <>
+          <label className="sequence-find-option" htmlFor={`${id}-strands`}>
+            <input
+              id={`${id}-strands`}
+              type="checkbox"
+              checked={bothStrands}
+              onChange={(event) => {
+                onBothStrands(event.target.checked);
+              }}
+            />
+            Both strands
+          </label>
+          <label className="sequence-find-option" htmlFor={`${id}-origin`}>
+            <input
+              id={`${id}-origin`}
+              type="checkbox"
+              checked={aroundOrigin}
+              onChange={(event) => {
+                onAroundOrigin(event.target.checked);
+              }}
+            />
+            Across the origin
+          </label>
+        </>
+      )}
+      <p
+        id={`${id}-found`}
+        role="status"
+        className={`sequence-found${error ? " sequence-found-error" : ""}`}
+      >
+        {status}
+      </p>
+    </div>
   );
 }
 
@@ -530,6 +752,10 @@ function Residues({
   label,
   at,
   onMove,
+  matches,
+  current,
+  onStep,
+  revealed,
   onCopy,
   region,
   tools,
@@ -545,6 +771,11 @@ function Residues({
   label: string;
   at: Caret;
   onMove: Dispatch<SetStateAction<Caret>>;
+  /** Where a motif looked for was found, each marked, and the one gone to. */
+  matches: Match[];
+  current: Match | null;
+  onStep: (direction: 1 | -1) => void;
+  revealed: { row: number } | null;
   onCopy: () => void;
   region: RefObject<HTMLDivElement | null>;
   /** What stays at the top of the window over the rows, which a row brought into view
@@ -594,9 +825,31 @@ function Residues({
   }, [shown, virtualizer]);
   const [focused, setFocused] = useState(false);
   const dragging = useRef(false);
+  useEffect(() => {
+    if (revealed) virtualizer.scrollToIndex(revealed.row, { align: "center" });
+  }, [revealed, virtualizer]);
+  // Each row's matches, so a row marks its own without reading them all.
+  const hits = useMemo(() => {
+    const rows = new Map<number, [number, number][]>();
+    for (const m of matches) {
+      for (const [a, b] of rangesOf(m.start, m.end, length)) {
+        for (let row = Math.floor((a - 1) / ROW); row <= Math.floor((b - 1) / ROW); row++) {
+          const listed = rows.get(row);
+          if (listed) listed.push([a, b]);
+          else rows.set(row, [[a, b]]);
+        }
+      }
+    }
+    return rows;
+  }, [matches, length]);
   const span = selected(at);
-  const layers: Layer[] = [
+  const layersOf = (row: number): Layer[] => [
     { className: "residue-shown", ranges: shown ? covered(shown, length) : [] },
+    { className: "residue-hit", ranges: hits.get(row) ?? [] },
+    {
+      className: "residue-current",
+      ranges: current ? rangesOf(current.start, current.end, length) : [],
+    },
     { className: "residue-selected", ranges: span ? rangesOf(span[0], span[1], length) : [] },
   ];
   const caretAt = caretRow(at, length);
@@ -609,6 +862,12 @@ function Residues({
       if (!span) return;
       event.preventDefault();
       onCopy();
+      return;
+    }
+    const plain = !command && !event.altKey;
+    if (plain && matches.length && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      onStep(event.shiftKey ? -1 : 1);
       return;
     }
     if (event.key === "Escape" && span) {
@@ -710,6 +969,7 @@ function Residues({
           const pieces = piecesIn(features, start, length);
           const lanes = pieces.reduce((most, p) => Math.max(most, p.feature.lane + 1), 0);
           const offset = at.caret - start + 1;
+          const layers = layersOf(item.index);
           return (
             <div
               key={item.key}

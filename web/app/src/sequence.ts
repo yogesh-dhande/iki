@@ -644,3 +644,158 @@ export function placeAt(column: number, rowStart: number, length: number): numbe
   const offset = group * GROUP + Math.round(within);
   return Math.min(rowStart - 1 + offset, rowEnd);
 }
+
+// --- Finding a motif ------------------------------------------------------------------------
+
+/** The bases each IUPAC nucleotide code stands for (IUBMB, 1985), U read as T. */
+const STANDS_FOR: Record<string, string> = {
+  A: "A",
+  C: "C",
+  G: "G",
+  T: "T",
+  U: "T",
+  R: "AG",
+  Y: "CT",
+  S: "CG",
+  W: "AT",
+  K: "GT",
+  M: "AC",
+  B: "CGT",
+  D: "AGT",
+  H: "ACT",
+  V: "ACG",
+  N: "ACGT",
+};
+
+/** The amino acids each ambiguous code stands for (IUPAC-IUB): B is D or N, Z is E or Q,
+ * J is I or L, and X any; others stand for themselves. */
+const RESIDUES_FOR: Record<string, string> = {
+  B: "BDN",
+  Z: "EQZ",
+  J: "IJL",
+};
+const AMINO_ACIDS = "ACDEFGHIKLMNPQRSTVWYUOBZJX*";
+
+/** The longest motif looked for: a primer is at most 200 bases, and a longer search is a
+ * job for an alignment. */
+export const LONGEST_MOTIF = 200;
+/** The most matches found: past this many, the motif says too little to step through. */
+export const MOST_MATCHES = 10_000;
+
+/** A motif as typed, read: its residues, upper case (spaces and numbers, as a pasted GenBank
+ * or FASTA has, dropped), or why it can't be looked for. */
+export function readMotif(
+  text: string,
+  alphabet: Alphabet,
+): { motif: string } | { error: string } | null {
+  const motif = text.replace(/[\s\d]/g, "").toUpperCase();
+  if (!motif) return null;
+  const allowed = alphabet === "protein" ? AMINO_ACIDS : Object.keys(STANDS_FOR).join("");
+  const wrong = [...new Set(motif)].filter((c) => !allowed.includes(c));
+  if (wrong.length) {
+    const one = wrong.length === 1;
+    const listed = one
+      ? wrong.join("")
+      : `${wrong.slice(0, -1).join(", ")} and ${wrong.at(-1) ?? ""}`;
+    const what =
+      alphabet === "protein"
+        ? one
+          ? "isn't an amino acid's one-letter code"
+          : "aren't amino acids' one-letter codes"
+        : one
+          ? "isn't an IUPAC nucleotide code"
+          : "aren't IUPAC nucleotide codes";
+    return { error: `${listed} ${what}.` };
+  }
+  if (motif.length > LONGEST_MOTIF) {
+    return { error: `That's ${String(motif.length)} long: at most ${String(LONGEST_MOTIF)}.` };
+  }
+  return { motif };
+}
+
+/** What a motif's code matches in the sequence: each code there whose residues are all ones
+ * the motif's code allows, so the motif's N matches an A or an R, and its A matches an A
+ * but not an N, which only might be one. */
+function classOf(code: string, alphabet: Alphabet): string {
+  if (alphabet === "protein") {
+    if (code === "X") return "[A-Z*]";
+    if (code === "*") return "\\*";
+    return `[${RESIDUES_FOR[code] ?? code}]`;
+  }
+  const allowed = STANDS_FOR[code] ?? "";
+  const matched = Object.entries(STANDS_FOR)
+    .filter(([, bases]) => Array.from(bases, (b) => allowed.includes(b)).every(Boolean))
+    .map(([letter]) => letter);
+  return `[${matched.join("")}]`;
+}
+
+export interface Match {
+  /** From 1, inclusive; an end before the start runs across a circle's origin. */
+  start: number;
+  end: number;
+  /** The strand it reads on, 5′ to 3′: both, for a motif that's its own reverse complement
+   * (a palindromic site such as EcoRI's GAATTC). */
+  strand: "forward" | "reverse" | "both";
+}
+
+/** Where a motif is along a sequence: overlapping matches each count; on both strands if
+ * asked (the reverse strand's are where the motif's reverse complement is on the forward
+ * one); and across the origin of a circle if asked. In order along the sequence. At most
+ * `MOST_MATCHES`, and whether there were more. */
+export function findMotif(
+  sequence: string,
+  motif: string,
+  options: { alphabet: Alphabet; bothStrands: boolean; circular: boolean },
+): { matches: Match[]; more: boolean } {
+  const length = sequence.length;
+  const { alphabet } = options;
+  if (!motif || motif.length > length) return { matches: [], more: false };
+  const upper = sequence.toUpperCase();
+  // Round the origin, the motif's length less one more of its start.
+  const read = options.circular ? upper + upper.slice(0, motif.length - 1) : upper;
+  const found = new Map<number, Match>();
+  let more = false;
+  const scan = (wanted: string, strand: "forward" | "reverse") => {
+    const pattern = Array.from(wanted, (c) => classOf(c, alphabet)).join("");
+    const expression = new RegExp(`(?=${pattern})`, "g");
+    for (const hit of read.matchAll(expression)) {
+      if (hit.index >= length) break;
+      const start = hit.index + 1;
+      const was = found.get(start);
+      if (was) {
+        if (was.strand !== strand) was.strand = "both";
+        continue;
+      }
+      if (found.size >= MOST_MATCHES) {
+        more = true;
+        break;
+      }
+      const end = ((hit.index + motif.length - 1) % length) + 1;
+      found.set(start, { start, end, strand });
+    }
+  };
+  scan(motif, "forward");
+  if (options.bothStrands && alphabet !== "protein") {
+    scan(reverseComplement(motif, alphabet), "reverse");
+  }
+  const matches = [...found.values()].sort((a, b) => a.start - b.start);
+  return { matches, more };
+}
+
+/** The match a step from the caret goes to: the first starting after `place` (a place
+ * between bases), or, going back, the last starting before it; round past either end, as
+ * find on a page does. Its index, and whether it went round. */
+export function stepTo(
+  matches: Match[],
+  place: number,
+  direction: 1 | -1,
+): { index: number; wrapped: boolean } | null {
+  if (!matches.length) return null;
+  if (direction === 1) {
+    const index = matches.findIndex((m) => m.start - 1 > place);
+    return index < 0 ? { index: 0, wrapped: true } : { index, wrapped: false };
+  }
+  let index = -1;
+  for (const [i, m] of matches.entries()) if (m.start - 1 < place) index = i;
+  return index < 0 ? { index: matches.length - 1, wrapped: true } : { index, wrapped: false };
+}

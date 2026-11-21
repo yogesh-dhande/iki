@@ -11,6 +11,7 @@ import {
   complement,
   extremes,
   featureLength,
+  findMotif,
   gcContent,
   kindOf,
   lanesPerRow,
@@ -21,10 +22,12 @@ import {
   piecesIn,
   placeAt,
   readFeatures,
+  readMotif,
   readTrack,
   residuesOf,
   reverseComplement,
   selected,
+  stepTo,
   stretchLength,
   trackScale,
   type Caret,
@@ -353,5 +356,93 @@ describe("the caret and the selection", () => {
     expect(placeAt(70, 61, 2686)).toBe(120);
     // The last row is as long as what's left of it.
     expect(placeAt(50, 2641, 2686)).toBe(2686);
+  });
+});
+
+describe("finding a motif", () => {
+  const dna = { alphabet: "dna" as const, bothStrands: true, circular: true };
+
+  it("finds pUC19's polylinker sites where the cloning tests cut them", () => {
+    // server/tests/test_plasmid_cloning.py: EcoRI cuts after base 396 (G^AATTC) and
+    // HindIII after base 447 (A^AGCTT). Each site is its own reverse complement.
+    expect(findMotif(PUC19C, "GAATTC", dna).matches).toEqual([
+      { start: 396, end: 401, strand: "both" },
+    ]);
+    expect(findMotif(PUC19C, "AAGCTT", dna).matches).toEqual([
+      { start: 447, end: 452, strand: "both" },
+    ]);
+  });
+
+  it("reads IUPAC codes in the motif, on both strands, as Biopython's nt_search does", () => {
+    // BstYI's RGATCY: Bio.SeqUtils.nt_search finds it at these seven places on each strand.
+    expect(findMotif(PUC19C, "RGATCY", dna).matches.map((m) => [m.start, m.strand])).toEqual(
+      [417, 1447, 1458, 1544, 1556, 2324, 2341].map((at) => [at, "both"]),
+    );
+    expect(findMotif(PUC19C, "GCGC", dna).matches).toHaveLength(17);
+    // The M13/pUC primers bind one strand each: the forward one's bases are on the forward
+    // strand, the reverse one's reverse complement is.
+    expect(findMotif(PUC19C, "GTAAAACGACGGCCAGT", dna).matches).toEqual([
+      { start: 379, end: 395, strand: "forward" },
+    ]);
+    expect(findMotif(PUC19C, "CAGGAAACAGCTATGAC", dna).matches).toEqual([
+      { start: 465, end: 481, strand: "reverse" },
+    ]);
+    expect(findMotif(PUC19C, "CAGGAAACAGCTATGAC", { ...dna, bothStrands: false }).matches).toEqual(
+      [],
+    );
+  });
+
+  it("reads across a circle's origin, and never across a line's ends", () => {
+    // pUC19c's last three bases and its first three.
+    const across = PUC19C.slice(-3) + PUC19C.slice(0, 3);
+    expect(across).toBe("GTCTCG");
+    expect(findMotif(PUC19C, across, dna).matches).toEqual([
+      { start: 1765, end: 1770, strand: "reverse" },
+      { start: 2684, end: 3, strand: "forward" },
+    ]);
+    expect(findMotif(PUC19C, across, { ...dna, circular: false }).matches).toEqual([
+      { start: 1765, end: 1770, strand: "reverse" },
+    ]);
+  });
+
+  it("matches an ambiguous base only with a code that allows all it could be", () => {
+    // The motif's N matches anything; its A doesn't match an N, which only might be one.
+    expect(findMotif("ACNGT", "CNG", dna).matches).toHaveLength(1);
+    expect(findMotif("ACNGT", "CAG", dna).matches).toHaveLength(0);
+    expect(findMotif("ACRGT", "CRG", { ...dna, bothStrands: false }).matches).toHaveLength(1);
+    expect(findMotif("ACRGT", "CNG", { ...dna, bothStrands: false }).matches).toHaveLength(1);
+    // RNA's U is T.
+    expect(findMotif("GAAUUC", "GAATTC", { ...dna, alphabet: "rna" }).matches).toHaveLength(1);
+  });
+
+  it("finds a protein's residues, X standing for any and B for D or N", () => {
+    const protein = { alphabet: "protein" as const, bothStrands: true, circular: false };
+    // Human haemoglobin alpha's first residues (UniProt P69905).
+    const hba = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMF";
+    expect(findMotif(hba, "GXVG", protein).matches).toEqual([
+      { start: 16, end: 19, strand: "forward" },
+    ]);
+    expect(findMotif(hba, "BV", protein).matches.map((m) => m.start)).toEqual([10]);
+  });
+
+  it("reads what was typed, or says why not", () => {
+    expect(readMotif(" gaa ttc 12", "dna")).toEqual({ motif: "GAATTC" });
+    expect(readMotif("GAZTTC", "dna")).toEqual({ error: "Z isn't an IUPAC nucleotide code." });
+    expect(readMotif("MKO1", "protein")).toEqual({ motif: "MKO" });
+    expect(readMotif("MK@", "protein")).toEqual({
+      error: "@ isn't an amino acid's one-letter code.",
+    });
+    expect(readMotif("A".repeat(201), "dna")).toEqual({ error: "That's 201 long: at most 200." });
+    expect(readMotif("  ", "dna")).toBeNull();
+  });
+
+  it("steps from the caret to the next match, or back, round past the ends", () => {
+    const { matches } = findMotif(PUC19C, "RGATCY", dna);
+    expect(stepTo(matches, 0, 1)).toEqual({ index: 0, wrapped: false });
+    expect(stepTo(matches, 1500, 1)).toEqual({ index: 3, wrapped: false });
+    expect(stepTo(matches, 2400, 1)).toEqual({ index: 0, wrapped: true });
+    expect(stepTo(matches, 1500, -1)).toEqual({ index: 2, wrapped: false });
+    expect(stepTo(matches, 100, -1)).toEqual({ index: 6, wrapped: true });
+    expect(stepTo([], 0, 1)).toBeNull();
   });
 });

@@ -472,3 +472,71 @@ describe("the sequence viewer's strands and selection", () => {
     expect(screen.queryByRole("button", { name: "Copy reverse complement" })).toBeNull();
   });
 });
+
+describe("finding a motif in the sequence viewer", () => {
+  it("finds bases on both strands, steps through them and selects each", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const search = await screen.findByRole("search", { name: "Find bases" });
+    const box = within(search).getByRole("searchbox", { name: "Find" });
+    const found = within(search).getByRole("status");
+    // BstYI's RGATCY: seven sites in pUC19c, as Biopython's nt_search finds them.
+    await user.type(box, "rgatcy");
+    expect(found).toHaveTextContent("7 matches.");
+    expect(document.querySelectorAll(".residue-hit").length).toBeGreaterThan(0);
+    await user.keyboard("{Enter}");
+    expect(found).toHaveTextContent("Match 1 of 7: bases 417–422, on both strands.");
+    expect(document.querySelector(".sequence-at")).toHaveTextContent(
+      "Bases 417–422 selected: 6 bp",
+    );
+    await user.click(within(search).getByRole("button", { name: "Previous" }));
+    expect(found).toHaveTextContent(
+      "Match 7 of 7: bases 2,341–2,346, on both strands, back at the end.",
+    );
+    await user.click(within(search).getByRole("button", { name: "Next" }));
+    expect(found).toHaveTextContent(
+      "Match 1 of 7: bases 417–422, on both strands, back at the start.",
+    );
+    // From the rows, N goes on to the next.
+    screen.getByRole("application", { name: "Bases of pUC19c" }).focus();
+    await user.keyboard("n");
+    expect(found).toHaveTextContent("Match 2 of 7: bases 1,447–1,452");
+    await user.keyboard("{Shift>}N{/Shift}");
+    expect(found).toHaveTextContent("Match 1 of 7");
+  });
+
+  it("finds what reads across a circle's origin only when asked, and one strand if asked", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const search = await screen.findByRole("search", { name: "Find bases" });
+    const found = within(search).getByRole("status");
+    const origin = within(search).getByRole("checkbox", { name: "Across the origin" });
+    expect(origin).toBeChecked(); // it's circular
+    await user.type(within(search).getByRole("searchbox", { name: "Find" }), "GTCTCG");
+    expect(found).toHaveTextContent("2 matches.");
+    await user.keyboard("{Enter}{Enter}");
+    expect(found).toHaveTextContent(
+      "Match 2 of 2: bases 2,684–3, on the forward strand, across the origin.",
+    );
+    expect(document.querySelector(".sequence-at")).toHaveTextContent(
+      "Bases 2,684–3, across the origin, selected: 6 bp",
+    );
+    await user.click(origin);
+    expect(found).toHaveTextContent("1 match.");
+    await user.click(within(search).getByRole("checkbox", { name: "Both strands" }));
+    expect(found).toHaveTextContent("No matches.");
+  });
+
+  it("says what isn't a base", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const search = await screen.findByRole("search", { name: "Find bases" });
+    const box = within(search).getByRole("searchbox", { name: "Find" });
+    await user.type(box, "GAZJ");
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(within(search).getByRole("status")).toHaveTextContent(
+      "Z and J aren't IUPAC nucleotide codes.",
+    );
+    expect(within(search).getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+});
