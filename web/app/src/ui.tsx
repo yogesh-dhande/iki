@@ -515,6 +515,7 @@ export function ConfirmDialog({
   confirmVariant = "danger",
   busy,
   problem,
+  confirmDisabled = false,
 }: {
   isOpen: boolean;
   onCancel: () => void;
@@ -522,6 +523,8 @@ export function ConfirmDialog({
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** Not yet: what it needs to say before it's confirmed is still coming, say. */
+  confirmDisabled?: boolean;
   /** For when "Cancel" would be ambiguous, such as when cancelling a run. */
   cancelLabel?: string;
   /** Danger for what's hard to undo; primary for what isn't, such as restoring. */
@@ -546,7 +549,13 @@ export function ConfirmDialog({
           <ProblemAlert problem={problem} />
           {children}
           <div className="actions">
-            <Button variant={confirmVariant} busy={busy} busyText="Working…" onClick={onConfirm}>
+            <Button
+              variant={confirmVariant}
+              busy={busy}
+              busyText="Working…"
+              disabled={confirmDisabled}
+              onClick={onConfirm}
+            >
               {confirmLabel}
             </Button>
             <Button variant="quiet" onClick={onCancel} disabled={busy}>

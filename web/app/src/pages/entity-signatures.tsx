@@ -285,7 +285,10 @@ function SignDialog({
   slot: Slot;
   onClose: () => void;
 }) {
-  const mine = useQuery(mySigningQuery).data;
+  // Whether it's their first signature, and so needs their agreement, comes after the
+  // dialog opens: it can't be signed until it's known, so the agreement is shown first.
+  const signing = useQuery(mySigningQuery);
+  const mine = signing.data;
   // Back to this page: the server adds `?signing=` and the attempt's ID.
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { project } = useSearch({ from: "/entities/$ref" });
@@ -327,6 +330,7 @@ function SignDialog({
       title={`Sign ${entity.hrid}: ${slot.label}`}
       confirmLabel="Sign in again to sign"
       confirmVariant="primary"
+      confirmDisabled={mine === undefined}
       busy={begin.isPending || begin.isSuccess}
       problem={
         stale && problem
@@ -337,15 +341,17 @@ function SignDialog({
             }
           : problem && !errors["reason"]
             ? problem
-            : mine && !mine.can_sign && mine.why_not
-              ? {
-                  type: "about:blank",
-                  title: "Can’t sign",
-                  status: 403,
-                  code: "cannot_sign",
-                  detail: mine.why_not,
-                }
-              : undefined
+            : signing.error
+              ? problemOf(signing.error)
+              : mine && !mine.can_sign && mine.why_not
+                ? {
+                    type: "about:blank",
+                    title: "Can’t sign",
+                    status: 403,
+                    code: "cannot_sign",
+                    detail: mine.why_not,
+                  }
+                : undefined
       }
       onCancel={onClose}
       onConfirm={() => {

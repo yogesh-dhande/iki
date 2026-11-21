@@ -54,12 +54,16 @@ fields:
         role:
           type: string
           pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+          pattern_help: >-
+            lower-case letters, digits and underscores, starting with a letter,
+            such as heavy or chain_a
           max_length: 40
           default: part
           required: true
           description: >-
-            What the part is in it, such as heavy, light or antigen. A type of
-            complex says which roles its parts may have.
+            What the part is in it, in lower case, such as heavy, light,
+            antigen or chain_a. A type of complex says which roles its parts
+            may have.
       identity: [part, copies]
       by: role
   bonds:

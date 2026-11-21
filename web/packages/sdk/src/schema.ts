@@ -7004,7 +7004,7 @@ export interface components {
             unit_symbol: string | null;
             /**
              * Values
-             * @description Enums: the allowed values.
+             * @description Enums, and lists of them: the allowed values (for a list, its items').
              */
             values: string[];
         };
@@ -7412,6 +7412,63 @@ export interface components {
              * @description It applies only while this is true.
              */
             when?: string | null;
+        };
+        /**
+         * HeldOut
+         * @description A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
+         *     was kept, and its review, once someone has reviewed it.
+         */
+        HeldOut: {
+            /**
+             * Agent
+             * @description The app or agent that saved it for them.
+             */
+            agent?: string | null;
+            /**
+             * Held At
+             * Format: date-time
+             */
+            held_at: string;
+            /** @description Who saved it; null for a deploy's check. */
+            held_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Last Revision
+             * @description The latest revision that broke the rule again.
+             */
+            last_revision: number;
+            /**
+             * Message
+             * @description What the save that held it was told.
+             */
+            message: string;
+            /**
+             * Reason
+             * @description Why it was saved anyway.
+             */
+            reason: string;
+            /**
+             * Review Reason
+             * @description Why the reviewer let it stand.
+             */
+            review_reason: string;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** @description Who reviewed it; null while it's held. */
+            reviewer: components["schemas"]["UserOut"] | null;
+            /**
+             * Revision
+             * @description The revision that held it.
+             */
+            revision: number;
+            /** Rule */
+            rule: string;
         };
         /** HelmGroupMemberOut */
         HelmGroupMemberOut: {
@@ -9609,7 +9666,7 @@ export interface components {
             unit_symbol: string | null;
             /**
              * Values
-             * @description Enums: the allowed values.
+             * @description Enums, and lists of them: the allowed values (for a list, its items').
              */
             values: string[];
         };
@@ -10863,6 +10920,11 @@ export interface components {
                 [key: string]: components["schemas"]["FileRef"];
             };
             /**
+             * Holds
+             * @description The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
+             */
+            holds?: components["schemas"]["HeldOut"][];
+            /**
              * Kind
              * @enum {string}
              */
@@ -10885,8 +10947,14 @@ export interface components {
             refs: {
                 [key: string]: components["schemas"]["RefOut"];
             };
-            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Run Withheld
+             * @description A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+             * @default false
+             */
+            run_withheld: boolean;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
             /**
@@ -10931,6 +10999,11 @@ export interface components {
              */
             entry: boolean;
             /**
+             * Holds
+             * @description The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
+             */
+            holds?: components["schemas"]["HeldOut"][];
+            /**
              * Kind
              * @enum {string}
              */
@@ -10939,8 +11012,14 @@ export interface components {
             number: number;
             /** Reason */
             reason: string;
-            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Run Withheld
+             * @description A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+             * @default false
+             */
+            run_withheld: boolean;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
             /**

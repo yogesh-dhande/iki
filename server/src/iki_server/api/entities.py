@@ -18,7 +18,7 @@
 """
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
@@ -274,7 +274,9 @@ class FieldOut(Schema):
         "subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty "
         "otherwise."
     )
-    values: list[str] = Field(description="Enums: the allowed values.")
+    values: list[str] = Field(
+        description="Enums, and lists of them: the allowed values (for a list, its items')."
+    )
     items: str | None = Field(description="Lists: the type of each item.")
     role: str | None = Field(
         description="For a field naming people (`person`, or a list of them): the lab role "
@@ -674,6 +676,25 @@ class HoldOut(Schema):
     why_not: str | None = Field(None, description="Why you may not, when you may not.")
 
 
+class HeldOut(Schema):
+    """A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
+    was kept, and its review, once someone has reviewed it."""
+
+    id: UUID
+    rule: str
+    label: str
+    message: str = Field(description="What the save that held it was told.")
+    held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
+    agent: str | None = Field(None, description="The app or agent that saved it for them.")
+    held_at: datetime
+    reason: str = Field(description="Why it was saved anyway.")
+    revision: int = Field(description="The revision that held it.")
+    last_revision: int = Field(description="The latest revision that broke the rule again.")
+    reviewer: UserOut | None = Field(description="Who reviewed it; null while it's held.")
+    reviewed_at: datetime | None
+    review_reason: str = Field(description="Why the reviewer let it stand.")
+
+
 class BreachOut(Schema):
     """A rule the record breaks, found after it was saved (ADR 0127): its plugin added or
     changed the rule, or a bundle brought it. The next save that checks it clears it."""
@@ -908,13 +929,24 @@ class RevisionOut(Schema):
     )
     run: RunRefOut | None = Field(
         None,
-        description="The run that made it, when `via` is `run` and you can read the run's project.",
+        description="The run that made it, when `via` is `run` and you can read the run's "
+        "project. For a registry entry's revision, the run that made it through a record.",
+    )
+    run_withheld: bool = Field(
+        False,
+        description="A run made it, in a project you can't read, so `run` is null. When `via` "
+        "is `run` and both are empty, no run is recorded for it: it was imported, say.",
     )
     reason: str
     state: RevisionStateOut | None = Field(
         description="For a state change (ADR 0125): which state field, and the states it "
         "went from and to. One a plugin's migration made, moving records out of a state it "
         "removed, is by no one, via `system`."
+    )
+    holds: list[HeldOut] = Field(
+        default_factory=list,
+        description="The holds this revision opened (ADR 0127), by breaking a rule that "
+        "holds, each with its review once it's reviewed. Kept after the review.",
     )
     submitted: dict[str, Any] | None = Field(
         None,
@@ -1061,7 +1093,8 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         **_display(f.unit, f.display_unit),
         "input_units": _input_units(f.unit, f.display_unit),
         "to": list(f.items.to if f.type == "list" and f.items is not None else f.to),
-        "values": list(f.values),
+        # A list of choices offers its items' (`items: {type: enum, values: [...]}`).
+        "values": list(f.items.values if f.type == "list" and f.items is not None else f.values),
         "items": f.items.type if f.items is not None else None,
         "role": person_role(f),
         "role_label": lab_roles.label(role) if (role := person_role(f)) is not None else None,
@@ -1453,7 +1486,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "locked": entity.locked,
                 "locked_by": [n for n in fields if n in entity.locked_by],
                 "values": shown,
-                "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
+                "refs": refs_in(refs, mine["ref"], entity.owner_project_id),
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
                 "people": {str(i): named[i] for i in mine["person"] if i in named},
                 "needs_reassigning": [
@@ -1703,28 +1736,44 @@ def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any
 def _referenced(
     user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
-    """What a page of entities refers to that the user can read, in a few queries."""
+    """What a page of entities refers to that the user can read, in a few queries. A
+    reference to a registry entry is also titled in each of their projects: see
+    :func:`refs_in`."""
     wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
     for entity in entities:
         for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
             if kind in wanted:
                 wanted[kind] |= ids
-    return _lookup(user, wanted)
+    return _lookup(user, wanted, projects={e.owner_project_id for e in entities})
+
+
+def refs_in(
+    refs: dict[Any, dict[str, Any]],
+    ids: Iterable[Any],
+    project: Any,  # noqa: ANN401 - a UUID
+) -> dict[str, dict[str, Any]]:
+    """A referring record's ``refs``, for its ``project``: an entry it refers to is titled
+    by that project's record of it, where it has one, as its link opens that record."""
+    return {str(i): refs.get((i, project), refs[i]) for i in ids if i in refs}
 
 
 def _lookup(
-    user: User, wanted: dict[str, set[Any]]
+    user: User, wanted: dict[str, set[Any]], *, projects: Iterable[Any] = ()
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
-    """The entities and files with these IDs that the user can read, as ``refs`` and ``files``."""
+    """The entities and files with these IDs that the user can read, as ``refs`` and
+    ``files``. A reference to an identity names its registry entry (ADR 0115): it's titled
+    by a record of it the user can read, the oldest; and for each of ``projects`` that has
+    a record of it, by that one too, keyed by the entry's ID and the project's, for
+    :func:`refs_in`."""
     found = list(access.visible(user).filter(pk__in=wanted["ref"])) if wanted["ref"] else []
-    # A reference to an identity names its registry entry (ADR 0115): it's titled by a
-    # record of it the user can read, the oldest.
     entries = (
         list(access.visible_entries(user).filter(pk__in=wanted["ref"] - {e.pk for e in found}))
         if wanted["ref"]
         else []
     )
+    preferred = {p for p in projects if p is not None}
     record_of: dict[Any, Entity] = {}
+    record_in: dict[tuple[Any, Any], Entity] = {}
     if entries:
         for record in (
             access.visible(user)
@@ -1732,22 +1781,38 @@ def _lookup(
             .order_by("-created_at", "-pk")
         ):
             record_of[record.entry_id] = record
-    titled = [e for e in [*found, *record_of.values()] if _template(e.type) is not None]
+            if record.owner_project_id in preferred:
+                record_in[(record.entry_id, record.owner_project_id)] = record
+    titled = [
+        e
+        for e in {r.pk: r for r in [*found, *record_of.values(), *record_in.values()]}.values()
+        if _template(e.type) is not None
+    ]
     titled_values = services.current_values_of(titled) if titled else {}
-    refs = {}
-    for e in [*found, *entries]:
-        shown_by = record_of.get(e.pk, e)
+
+    def ref(e: Entity, shown_by: Entity) -> dict[str, Any]:
         fields = shape(e.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in titled_values.get(shown_by.pk, {}).items()}
-        refs[e.pk] = {
+        return {
             "hrid": e.hrid,
             "title": _title(shown_by, shown),
             "type": e.type,
             "archived": shown_by.archived_at is not None and shown_by is not e,
             "purged": False,
         }
-    for pk, hrids in _formerly(set(refs)).items():
-        refs[pk]["formerly"] = hrids
+
+    refs: dict[Any, dict[str, Any]] = {}
+    for e in [*found, *entries]:
+        refs[e.pk] = ref(e, record_of.get(e.pk, e))
+    by_pk = {e.pk: e for e in entries}
+    for (entry, holder), record in record_in.items():
+        if record is not record_of.get(entry):
+            refs[(entry, holder)] = ref(by_pk[entry], record)
+    formerly = _formerly({k for k in refs if not isinstance(k, tuple)})
+    for key, r in refs.items():
+        hrids = formerly.get(key[0] if isinstance(key, tuple) else key)
+        if hrids:
+            r["formerly"] = hrids
     missing = wanted["ref"] - set(refs)
     if missing:
         # What a purge left (ADR 0092): the reference still names it, as purged.
@@ -2286,10 +2351,46 @@ def list_revisions(
     entity = _find(me, ref, project)
     revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
-    made = _runs_of(me, entity, result["items"])
+    made = _runs_of(me, result["items"])
     states = revision_states(result["items"])
-    result["items"] = [_revision(r, made, states=states) for r in result["items"]]
+    held = _holds_opened(entity, result["items"])
+    result["items"] = [
+        {**_revision(r, made, states=states), "holds": held.get(r.number, [])}
+        for r in result["items"]
+    ]
     return result
+
+
+def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
+    """The holds each of a record's revisions opened (ADR 0127), as ``HeldOut``, by
+    revision number: reviewed or not, as its history keeps them."""
+    numbers = [r.number for r in revisions if r.entity_id == entity.pk]
+    if not numbers or entity.registry_id is not None:
+        return {}
+    out: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in (
+        RuleHold.objects.filter(entity_id=entity.pk, revision__in=numbers)
+        .select_related("held_by", "held_agent", "reviewed_by")
+        .order_by("held_at", "pk")
+    ):
+        out[row.revision].append(
+            {
+                "id": row.pk,
+                "rule": row.rule,
+                "label": row.label,
+                "message": row.message,
+                "held_by": row.held_by,
+                "agent": row.held_agent.client_name if row.held_agent is not None else None,
+                "held_at": row.held_at,
+                "reason": row.reason,
+                "revision": row.revision,
+                "last_revision": row.last_revision,
+                "reviewer": row.reviewed_by,
+                "reviewed_at": row.reviewed_at,
+                "review_reason": row.review_reason,
+            }
+        )
+    return out
 
 
 @router.get(
@@ -2322,15 +2423,16 @@ def get_revision(
             wanted[kind] |= ids
         for kind, ids in _ids_in(fields, {name: after}).items():
             wanted[kind] |= ids
-    refs, files = _lookup(me, wanted)
+    refs, files = _lookup(me, wanted, projects={entity.owner_project_id})
     return {
-        **_revision(revision, _runs_of(me, entity, [revision])),
+        **_revision(revision, _runs_of(me, [revision])),
+        "holds": _holds_opened(entity, [revision]).get(revision.number, []),
         "values": {n: to_json(fields[n], v) for n, v in values.items()},
         "changes": {
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
             for name, (before, after) in changes.items()
         },
-        "refs": {str(i): r for i, r in refs.items()},
+        "refs": refs_in(refs, wanted["ref"], entity.owner_project_id),
         "files": {str(i): f for i, f in files.items()},
         "people": _people_out(me, wanted["person"], entity),
     }
@@ -2345,24 +2447,47 @@ def _people_out(me: User, ids: set[Any], entity: Entity) -> dict[str, dict[str, 
     }
 
 
-def _runs_of(me: User, entity: Entity, revisions: list[Revision]) -> dict[int, dict[str, Any]]:
-    """The runs that made these revisions, by revision number, if the caller can read them."""
-    numbers = [r.number for r in revisions if r.via == "run"]
-    if not numbers:
+#: A revision's run, as :func:`_runs_of` finds it: one the reader can't read.
+WITHHELD: dict[str, Any] = {}
+
+
+def _runs_of(me: User, revisions: Iterable[Revision]) -> dict[tuple[Any, int], dict[str, Any]]:
+    """The runs that made these revisions, by their entity and number: each as ``RunRefOut``
+    if the caller can read it, or :data:`WITHHELD`. A revision a run made with no run
+    recorded, as one imported from elsewhere can be, isn't there. A record's revisions are
+    its own effects'; a registry entry's (ADR 0115), those of the records it was made
+    through."""
+    made = [r for r in revisions if r.via == "run"]
+    if not made:
         return {}
-    effects = RunEffect.objects.filter(
-        entity=entity, revision__in=numbers, run__in=visible_runs(me)
-    ).select_related("run")
-    return {
-        e.revision: {"id": e.run.pk, "hrid": e.run.hrid, "action": e.run.action}
-        for e in effects
-        if e.revision is not None
-    }
+    ids = {r.entity_id for r in made}
+    numbers = {r.number for r in made}
+    effects = list(
+        RunEffect.objects.filter(
+            Q(entity_id__in=ids, revision__in=numbers)
+            | Q(entry_id__in=ids, entry_revisions__overlap=list(numbers))
+        ).select_related("run")
+    )
+    readable = set(
+        visible_runs(me).filter(pk__in={e.run_id for e in effects}).values_list("pk", flat=True)
+    )
+    out: dict[tuple[Any, int], dict[str, Any]] = {}
+    for e in effects:
+        shown = (
+            {"id": e.run.pk, "hrid": e.run.hrid, "action": e.run.action}
+            if e.run_id in readable
+            else WITHHELD
+        )
+        keys = [(e.entity_id, e.revision), *((e.entry_id, n) for n in e.entry_revisions)]
+        for entity, number in keys:
+            if number is not None and entity in ids and number in numbers:
+                out[(entity, number)] = shown
+    return out
 
 
 def _revision(
     revision: Revision,
-    runs: dict[int, dict[str, Any]],
+    runs: dict[tuple[Any, int], dict[str, Any]],
     *,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
@@ -2383,7 +2508,8 @@ def _revision(
         "via": revision.via,
         "client": revision.client,
         "agent": agent_out(revision.agent, revision.client),
-        "run": None if of_entry else runs.get(revision.number),
+        "run": (run := runs.get((revision.entity_id, revision.number))) or None,
+        "run_withheld": run is WITHHELD,
         "reason": revision.reason,
         "state": (states if states is not None else revision_states([revision])).get(revision.pk),
         "submitted": revision.submitted,
@@ -2436,6 +2562,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
         "client": "",
         "agent": None,
         "run": None,
+        "run_withheld": False,
         "reason": "",
         "state": None,
         "submitted": None,
@@ -2455,7 +2582,7 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     entity = _find(me, ref)
     fields = shape(entity.type).fields()
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
-    made = _runs_of(me, entity, [r for r in found.values() if r.entity_id == entity.pk])
+    made = _runs_of(me, found.values())
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     states = revision_states(list(found.values()))
     return {

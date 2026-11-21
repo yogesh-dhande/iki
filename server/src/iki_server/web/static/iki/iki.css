@@ -367,6 +367,7 @@ label {
 }
 
 input[type="text"],
+input[type="search"],
 input[type="url"],
 input[type="email"],
 input[type="password"] {
@@ -378,6 +379,11 @@ input[type="password"] {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: 8px;
+}
+
+/* WebKit draws a search box its own way, ignoring its padding and corners, unless told. */
+input[type="search"] {
+  appearance: none;
 }
 
 input:focus-visible {
@@ -2287,6 +2293,55 @@ a.lineage-node:focus-visible {
   display: contents;
 }
 
+/* A value never widens the page: a long one without spaces, such as a SMILES string or
+   HELM, wraps within its cell. */
+.values dd {
+  overflow-wrap: anywhere;
+}
+
+/* What a field is, as its type describes it: a toggletip by its label. */
+.about-field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: 0.25rem;
+  padding: 0;
+  vertical-align: middle;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.about-field:hover,
+.about-field[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.about-field svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.field-about {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* A long value, cut short (a sequence's bases, say), wrapped within its cell. */
+.value-long {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.value-long code {
+  word-break: break-all;
+}
+
 .value-list {
   margin: 0;
   padding-left: 1.1rem;
@@ -2312,6 +2367,12 @@ a.lineage-node:focus-visible {
 
 .row-reason {
   margin: 0.25rem 0 0;
+}
+
+/* The holds a revision opened (ADR 0127), and their reviews. */
+.row-holds {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
 }
 
 /* A record's identity as it was given (ADR 0138): a sequence may be long. */

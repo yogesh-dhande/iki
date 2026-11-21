@@ -39,6 +39,7 @@ from iki_server.api.entities import (
     _lookup,
     _one,
     _revision,
+    _runs_of,
     revision_states,
     undisclosed,
 )
@@ -557,8 +558,9 @@ def list_entry_revisions(
     result = page(revisions, params, key="number", newest_first=True)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     states = revision_states(result["items"])
+    runs = _runs_of(me, result["items"])
     result["items"] = [
-        {**_revision(r, {}, states=states), "entry": True}
+        {**_revision(r, runs, states=states), "entry": True}
         if curates or services.discloses(r, readable)
         else undisclosed(r)
         for r in result["items"]
@@ -595,7 +597,7 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     refs, files = _lookup(me, wanted)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     told = (
-        {**_revision(revision, {}), "entry": True}
+        {**_revision(revision, _runs_of(me, [revision])), "entry": True}
         if curates or services.discloses(revision, readable)
         else undisclosed(revision)
     )

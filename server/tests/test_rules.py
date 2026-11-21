@@ -312,6 +312,36 @@ def test_a_held_record_stays_held_until_its_reviewed(world: World) -> None:
     problem(api_as(world, "admin").post(review, {"reason": "Again."}), 409, "refused")
 
 
+def test_a_records_history_keeps_each_hold_and_its_review(world: World) -> None:
+    # As the review dialog says, and ADR 0127 promises: an out-of-specification result
+    # stays visible in the record's history, with who saved it, why, and who reviewed it.
+    roles(world, admin=(QA,), editor=(QA, ANALYST))
+    saved = made(world, {"purity": 82.4}, hold_reason="Kept: the measurement is valid.")
+    change(world, saved["id"], {"purity": 95.0})
+    history = f"/entities/{saved['id']}/revisions"
+    newest, first = api_as(world, "viewer").get(history).json()["items"]
+    assert newest["holds"] == []
+    [held] = first["holds"]
+    assert (held["label"], held["reason"], held["held_by"]["name"]) == (
+        "Purity in specification",
+        "Kept: the measurement is valid.",
+        world.users["editor"].name,
+    )
+    assert held["held_at"] is not None and held["last_revision"] == 1
+    assert held["reviewer"] is None and held["reviewed_at"] is None
+    review = f"/entities/{saved['id']}/holds/{held['id']}/review"
+    reviewed = api_as(world, "admin").post(review, {"reason": "SEC rerun within limits."})
+    assert reviewed.status_code == 200, reviewed.content
+    # The hold is kept, reviewed: who, when and why.
+    [kept] = api_as(world, "viewer").get(history).json()["items"][1]["holds"]
+    assert kept["id"] == held["id"]
+    assert kept["reviewer"]["name"] == world.users["admin"].name
+    assert kept["review_reason"] == "SEC rerun within limits."
+    assert kept["reviewed_at"] is not None
+    one = api_as(world, "viewer").get(f"{history}/1").json()
+    assert [h["id"] for h in one["holds"]] == [held["id"]]
+
+
 def test_a_held_record_cant_be_set_to_a_state_that_locks_it(world: World) -> None:
     roles(world, editor=(ANALYST,), admin=(REVIEWER, QA), viewer=(QA,))
     saved = made(world, {"purity": 82.0, "result": "fail"}, hold_reason="As measured.")

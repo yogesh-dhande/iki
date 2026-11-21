@@ -13,7 +13,7 @@ import {
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Through } from "../agent";
 import { iki, problemOf, useApiMutation } from "../api";
@@ -37,6 +37,7 @@ import {
   typesQuery,
   valueText,
   type Entity,
+  type EntityPageSearch,
   type EntityType,
   type FieldDef,
   type Making,
@@ -98,18 +99,24 @@ const VIA: Record<string, string> = {
   system: "by Iki",
 };
 
-/** How a revision was made; a run's links to the run. */
+/** How a revision was made; a run's links to the run. One the reader can't read is said
+ * to be hidden; one with no run recorded, as one imported from elsewhere, says so. */
 function Via({ revision }: { revision: Revision }) {
   if (revision.via === "run") {
-    return revision.run ? (
-      <>
-        by{" "}
-        <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
-          {revision.run.hrid}
-        </Link>
-      </>
-    ) : (
+    if (revision.run) {
+      return (
+        <>
+          by{" "}
+          <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
+            {revision.run.hrid}
+          </Link>
+        </>
+      );
+    }
+    return revision.run_withheld ? (
       <>by a run in a project you can’t see</>
+    ) : (
+      <>by a run not recorded here</>
     );
   }
   const how = VIA[revision.via] ?? revision.via;
@@ -194,16 +201,103 @@ export function linkTo(field: FieldDef, value: unknown): string | null {
   return field.link.replaceAll("{value}", encodeURIComponent(value));
 }
 
+/** A text value longer than this is cut short on a page, as a genome's bases are: shown in
+ * full on asking, or in the viewer that shows it, as GitHub folds a long file and Benchling
+ * keeps a sequence in its sequence view. */
+const LONG_VALUE = 300;
+/** How much of a long value shows before it's cut short. */
+const LONG_SHOWN = 200;
+
+/** A viewer tab that shows a field's value in full, such as a sequence's. */
+export interface ShownIn {
+  viewer: string;
+  label: string;
+  /** What its characters are: bases, residues. */
+  noun: string;
+  search: EntityPageSearch;
+  hrid: string;
+}
+
+/** The viewer tab that shows a field, if a sequence viewer of its type does. */
+export function shownIn(
+  entity: Entity,
+  type: EntityType | undefined,
+  field: string,
+): ShownIn | undefined {
+  const viewer = (type?.viewers ?? []).find(
+    (v) => v.viewer === "sequence" && "sequence" in v && v.sequence === field,
+  );
+  if (!viewer || !("alphabet" in viewer)) return undefined;
+  return {
+    viewer: viewer.viewer,
+    label: viewer.label,
+    noun: viewer.alphabet === "protein" ? "residues" : "bases",
+    search: recordSearch(entity),
+    hrid: entity.hrid,
+  };
+}
+
+/** A long text value, cut short: it wraps within its cell, never widening the page. */
+function LongValue({
+  value,
+  label,
+  text,
+  shown,
+}: {
+  value: string;
+  label: string;
+  text: boolean;
+  shown: ShownIn | undefined;
+}) {
+  const [all, setAll] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-misused-spread -- code points, as the API counts
+  const length = [...value].length;
+  const counted = `${length.toLocaleString()} ${shown?.noun ?? "characters"}`;
+  const cut = all ? value : `${value.slice(0, LONG_SHOWN)}…`;
+  return (
+    <span className="value-long">
+      {text ? <span className="preserve-lines">{cut}</span> : <code>{cut}</code>}
+      <span className="cell-meta">
+        {counted}.{" "}
+        <Button
+          variant="quiet"
+          label={`${all ? "Show less of" : "Show all of"} ${label}`}
+          onClick={() => {
+            setAll(!all);
+          }}
+        >
+          {all ? "Show less" : `Show all ${counted}`}
+        </Button>
+        {shown ? (
+          <>
+            {" "}
+            <Link
+              to="/entities/$ref/viewers/$viewer/"
+              params={{ ref: shown.hrid, viewer: shown.viewer }}
+              search={shown.search}
+            >
+              Open in {shown.label}
+            </Link>
+          </>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
 /** One value as it reads on the page: references link, files download, units show. */
 export function Value({
   field,
   value,
   entity,
+  shown,
 }: {
   field: FieldDef;
   value: unknown;
   /** With its owner project, references to registry entries open that project's records. */
   entity: Pick<Entity, "refs" | "files" | "people"> & { owner_project?: { slug: string } | null };
+  /** The viewer tab that shows it in full, for a long value. */
+  shown?: ShownIn | undefined;
 }) {
   if (value === null || value === undefined) {
     return <span className="muted">Not set</span>;
@@ -232,6 +326,15 @@ export function Value({
       <a href={link} target="_blank" rel="noreferrer noopener">
         {value as string}
       </a>
+    );
+  }
+  if (
+    typeof value === "string" &&
+    (field.type === "string" || field.type === "text") &&
+    value.length > LONG_VALUE
+  ) {
+    return (
+      <LongValue value={value} label={field.label} text={field.type === "text"} shown={shown} />
     );
   }
   switch (field.type) {
@@ -757,15 +860,21 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
 function ValueList({
   fields,
   entity,
+  type,
   provenance,
   marks,
 }: {
   fields: FieldDef[];
   entity: Entity;
+  type: EntityType | undefined;
   provenance: Record<string, Revision> | undefined;
   /** Say how each is kept in its registry entry: identity, derived or fact. */
   marks: boolean;
 }) {
+  const id = useId();
+  // The fields whose descriptions are open: a toggletip each, opened by a press, so it
+  // stays until it's closed (WCAG 1.4.13), never by hovering alone.
+  const [about, setAbout] = useState<ReadonlySet<string>>(new Set());
   const set = fields.filter((f) => entity.values[f.name] != null);
   const unset = fields.filter((f) => entity.values[f.name] == null);
   return (
@@ -774,17 +883,58 @@ function ValueList({
       <dl className="summary values">
         {set.map((f) => {
           const mark = marks ? registryNote(f) : null;
+          const open = about.has(f.name);
+          const aboutId = `${id}-${f.name}-about`;
           return (
             <div key={f.name} className="value-row">
               <dt>
                 {f.label}
+                {f.description ? (
+                  <button
+                    type="button"
+                    className="about-field"
+                    aria-label={`About ${f.label}`}
+                    aria-expanded={open}
+                    aria-controls={aboutId}
+                    onClick={() => {
+                      const next = new Set(about);
+                      if (open) next.delete(f.name);
+                      else next.add(f.name);
+                      setAbout(next);
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5" />
+                      <path d="M12 7.5v.01" />
+                    </svg>
+                  </button>
+                ) : null}
                 {mark ? <span className="cell-meta">{mark}</span> : null}
                 {f.computed && f.registry !== "derived" ? (
                   <span className="cell-meta">Computed</span>
                 ) : null}
               </dt>
               <dd>
-                <Value field={f} value={entity.values[f.name]} entity={entity} />
+                {f.description ? (
+                  <p className="field-about" id={aboutId} hidden={!open}>
+                    {f.description}
+                  </p>
+                ) : null}
+                <Value
+                  field={f}
+                  value={entity.values[f.name]}
+                  entity={entity}
+                  shown={shownIn(entity, type, f.name)}
+                />
                 <Provenance revision={provenance?.[f.name]} />
               </dd>
             </div>
@@ -1018,7 +1168,13 @@ export function EntityOverview() {
               Open the entry
             </Link>
           </p>
-          <ValueList fields={entryFields} entity={entity} provenance={provenance} marks />
+          <ValueList
+            fields={entryFields}
+            entity={entity}
+            type={type}
+            provenance={provenance}
+            marks
+          />
         </section>
       ) : null}
       <section className="card" aria-labelledby="values-title">
@@ -1030,7 +1186,13 @@ export function EntityOverview() {
             {project}’s own record of {entry.hrid}. Other projects with it keep their own.
           </p>
         ) : null}
-        <ValueList fields={asked} entity={entity} provenance={provenance} marks={false} />
+        <ValueList
+          fields={asked}
+          entity={entity}
+          type={type}
+          provenance={provenance}
+          marks={false}
+        />
       </section>
       {/* A request's service fills in its own fields (ADR 0132). */}
       {sides && served.length ? (
@@ -1043,7 +1205,13 @@ export function EntityOverview() {
               ? `${sides.service.name}, the service it’s sent to, fills these in.`
               : "The service it’s sent to fills these in, once it’s sent."}
           </p>
-          <ValueList fields={served} entity={entity} provenance={provenance} marks={false} />
+          <ValueList
+            fields={served}
+            entity={entity}
+            type={type}
+            provenance={provenance}
+            marks={false}
+          />
         </section>
       ) : null}
       {collection ? <CollectionMembers entity={entity} types={types} /> : null}
@@ -1223,6 +1391,35 @@ function submittedText(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
+/** The holds a revision opened (ADR 0127), kept after they're reviewed: an out-of-
+ * specification result stays visible, with why it was saved and who reviewed it. */
+function HoldsOpened({ revision }: { revision: Revision }) {
+  const holds = revision.holds ?? [];
+  if (!holds.length) return null;
+  return (
+    <ul className="row-holds" aria-label={`Holds revision ${String(revision.number)} opened`}>
+      {holds.map((h) => (
+        <li key={h.id}>
+          Held for review: {h.label}. {h.message}{" "}
+          {h.held_by ? "Saved anyway" : "Held by Iki’s check of its plugins’ rules"}
+          {h.agent ? `, through ${h.agent}` : ""}: “{h.reason}”
+          {h.last_revision !== h.revision
+            ? ` Revision ${String(h.last_revision)} broke it again.`
+            : ""}{" "}
+          {h.reviewer && h.reviewed_at ? (
+            <>
+              Reviewed by {personName(h.reviewer)} <RelativeTime value={h.reviewed_at} />: “
+              {h.review_reason}”
+            </>
+          ) : (
+            "Still held, for review."
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function RevisionRow({ revision, type }: { revision: Revision; type: EntityType | undefined }) {
   const [open, setOpen] = useState(false);
   const who = personName(revision.user);
@@ -1268,6 +1465,7 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
             ))}
           </ul>
         ) : null}
+        <HoldsOpened revision={revision} />
         {open ? <Changes number={revision.number} type={type} /> : null}
       </div>
       {revision.changed_fields.length ? (

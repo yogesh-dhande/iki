@@ -14,6 +14,11 @@ fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
   protein: { type: ref, to: Protein }
+  # What to measure, from the core's assays: a list of choices.
+  assays:
+    type: list
+    items: { type: enum, values: [sec_purity, intact_mass, peptide_map, endotoxin] }
+    max_items: 4
   needed_by: { type: date }
   instructions: { type: text }
   # The asking project's form, as it filled it in.

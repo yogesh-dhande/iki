@@ -162,6 +162,10 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
     assert sorted(revision.changed_fields) == ["name"]
     entry = Revision.objects.get(entity__records=made[0])
     assert entry.changed_fields == ["sequence"]
+    # Its entry's values name the run, as a create's do.
+    provenance = api_as(world, "editor").get(f"/entities/{made[0].pk}/provenance").json()
+    assert provenance["sequence"]["entry"] is True
+    assert provenance["sequence"]["run"]["hrid"] == run["hrid"]
     assert ProjectLink.objects.filter(entity=made[0], project=world.project).exists()
     found = ExternalOrigin.objects.get(entity=made[0])
     assert (found.source, found.identifier, found.revision) == ("FASTA file", "K0", 1)
@@ -326,6 +330,11 @@ def test_every_line_of_an_identity_fills_what_its_entry_hasnt_got(world: World) 
         (1, ["sequence"], "run"),
         (2, ["ec_number", "hazard"], "run"),
     ]
+    # Each names the run, on the entry registered already too.
+    for entry, numbers in ((new, [1, 2]), (old, [2])):
+        told = editor.get(f"/entries/{entry.pk}/revisions").json()["items"]
+        by = {r["number"]: r["run"] and r["run"]["hrid"] for r in told}
+        assert [by[n] for n in numbers] == [run["hrid"]] * len(numbers)
 
 
 def test_lines_of_an_identity_that_give_a_fact_two_values_fail_the_import(

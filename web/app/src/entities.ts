@@ -450,7 +450,7 @@ export function formatSize(bytes: number): string {
 export function valueText(
   field: FieldDef,
   value: unknown,
-  entity?: Pick<Entity, "refs" | "files" | "people">,
+  entity?: Pick<Entity, "refs" | "files" | "people"> & Partial<Pick<Entity, "request">>,
 ): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value) && field.items === "row") {
@@ -493,11 +493,36 @@ export function valueText(
     case "json":
       return JSON.stringify(value);
     case "state":
-      return stateLabel(field, value as string);
+      return unsentState(entity, field) ? NOT_SENT : stateLabel(field, value as string);
     default:
       return typeof value === "string" ? value : JSON.stringify(value);
   }
 }
+
+/**
+ * A request's service state (ADR 0132) before the request is sent: nobody has set it. It
+ * holds its type's initial state, whose name, such as Submitted, would say it had been
+ * sent, so pages say it's not sent instead.
+ */
+export function unsentState(
+  entity:
+    | {
+        request?: Pick<Schemas["RequestSidesOut"], "service_fields" | "submitted"> | null;
+      }
+    | undefined,
+  field: Pick<FieldDef, "name" | "type">,
+): boolean {
+  const sides = entity?.request;
+  return Boolean(
+    sides &&
+    !sides.submitted &&
+    field.type === "state" &&
+    sides.service_fields.includes(field.name),
+  );
+}
+
+/** How an unsent request's service state reads, as a badge or a value. */
+export const NOT_SENT = "Not sent";
 
 /** A state field's state (ADR 0125), as people read it: its label, or its name. */
 export function stateLabel(field: Pick<FieldDef, "states">, state: string): string {

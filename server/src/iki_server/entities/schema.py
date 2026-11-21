@@ -95,6 +95,8 @@ def _value(f: Field) -> dict[str, Any]:
             out["allOf"] = [{"pattern": p} for p in patterns]
         if f.format:
             out["x-iki-format"] = f.format
+        if f.pattern_help:
+            out["x-iki-pattern-help"] = f.pattern_help
         return out
     if kind in ("int", "float", "quantity"):
         out = {"type": "integer" if kind == "int" else "number"}

@@ -31,6 +31,9 @@ fields:
     # where NCBI hasn't placed the genus ([Clostridium] scindens), or a ' for an
     # informal name ('Nostoc azollae' 0708).
     pattern: "^[A-Za-z0-9\\['][^\\t\\r\\n]*$"
+    pattern_help: >-
+      one line without tabs, starting with a letter, a digit, [ or ', as NCBI
+      writes names, such as Escherichia coli K-12
     indexed: true
     description: >-
       Its scientific name, as the file or database it was first imported from
@@ -42,6 +45,7 @@ fields:
     registry: fact
     max_length: 64
     pattern: "^[a-z][a-z ]*$"
+    pattern_help: lower-case letters and spaces, such as species or no rank
     description: Its rank in the NCBI Taxonomy, such as species, strain or genus.
   parent:
     type: ref

@@ -106,6 +106,11 @@ kept, held with a reason naming the run: they're what the instrument
 measured. Holds and reviews are audited (`entity.held`,
 `entity.hold_reviewed`) and sent to webhooks (identifiers and the rule, never
 the message, which can quote values). The rule's reviewers are told in Iki.
+A record's history keeps each hold with the revision that opened it
+(`holds` on its revisions): the rule, why it was saved anyway, and once it's
+reviewed, who reviewed it, when and why, so its readers see it after the
+hold is cleared, not only the audit log's readers. A review isn't a revision:
+it changes no value, so it doesn't make what was signed stale.
 
 **Records saved before a rule are reported, not stranded.** `sync_plugins`
 checks every record again for each type whose checks, or whose plugins'

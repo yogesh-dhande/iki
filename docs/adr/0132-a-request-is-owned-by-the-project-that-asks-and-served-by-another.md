@@ -49,7 +49,14 @@ project's record; a subtype inherits `request`, and can't change it.
 
 **The asking project owns it.** A request is made in the asking project, by
 its Editors, as any record. Until it's sent, its service fields keep their
-defaults and its service states their initial ones: nobody sets them.
+defaults and its service states their initial ones: nobody sets them. So
+its pages say a service state is not sent yet, rather than show its
+initial state, whose name and description (Submitted, "Sent, and waiting
+for the core") would say it had been sent; a new request's form says the
+service sets them once it's sent. The API still gives the initial state,
+so a search by it finds unsent requests too, and `request.submitted` says
+which are sent. This holds for every request type, without each plugin
+declaring a draft state of its own.
 Sending it (`POST /entities/{ref}/submit`) picks one service, for good, and
 links the request, and each record its `sends` fields name, into the
 service's project. For a reference to a registry entry, the asking

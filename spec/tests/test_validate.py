@@ -822,6 +822,12 @@ def test_patterns_must_work_in_python_and_postgres(
     assert message in only(result, "invalid-pattern")
 
 
+def test_a_patterns_help_needs_its_pattern(tmp_path: Path) -> None:
+    result = make(tmp_path, fields("x: { type: string, pattern_help: lower-case letters }\n"))
+    assert not result.ok
+    assert any("pattern" in p.message for p in result.problems), result.problems
+
+
 @pytest.mark.parametrize(
     ("spec", "message"),
     [
@@ -831,6 +837,10 @@ def test_patterns_must_work_in_python_and_postgres(
         ("{ type: string, max_length: 2, default: abc }", "at most 2 characters"),
         ("{ type: string, format: dna_sequence, default: ACGZ }", "isn't a valid dna sequence."),
         ("{ type: string, pattern: '^[a-z]+$', default: A1 }", "doesn't match the pattern"),
+        (
+            "{ type: string, pattern: '^[a-z]+$', pattern_help: lower-case letters, default: A1 }",
+            "must use lower-case letters.",
+        ),
         ("{ type: date, default: '2024-02-30' }", "must be a date"),
         (
             "{ type: list, items: { type: int, min: 0 }, default: [1, -1] }",

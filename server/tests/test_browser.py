@@ -609,6 +609,75 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
     assert_clean(page)
 
 
+#: pUC19c's 2,686 bases (GenBank L09137.2): a value far wider than any window.
+PUC19 = "".join((Path(__file__).parent / "data" / "L09137.2.fasta").read_text().splitlines()[1:])
+
+
+def test_a_long_value_never_widens_the_page(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    made = entities.create(
+        world.users["admin"],
+        "acme/dna.DNASequence",
+        world.project,
+        {"bases": PUC19, "name": "pUC19c"},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/?project=kinase-atlas")
+    page.set_viewport_size({"width": 1440, "height": 900})
+    values = page.get_by_role("region", name=re.compile("^Registry entry"))
+    values.get_by_text("2,686 characters.").wait_for()
+    # Within a pixel: a phone's width can round a layout's last fraction of one up.
+    width = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+    assert page.evaluate(width)
+    values.get_by_role("button", name="Show all of Bases").click()
+    values.get_by_role("button", name="Show less of Bases").wait_for()
+    # All of it, wrapped within its cell: the page scrolls down, never across.
+    assert page.evaluate(width)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(width)
+    # Playwright’s Firefox crashes in axe on this page (see assert_clean).
+    assert_clean(page, axe_in_firefox=False)
+
+
+def test_a_fields_description_opens_beside_its_label(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    made = entities.create(
+        world.users["admin"],
+        "acme/dna.DNASequence",
+        world.project,
+        {"bases": PUC19[:60], "name": "pUC19c start", "topology": "circular"},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/?project=kinase-atlas")
+    about = page.get_by_role("button", name="About Topology")
+    described = page.get_by_text("Whether its ends are joined, as a plasmid's are.")
+    assert about.get_attribute("aria-expanded") == "false"
+    assert not described.is_visible()
+    about.focus()
+    page.keyboard.press("Enter")
+    described.wait_for()
+    assert about.get_attribute("aria-expanded") == "true"
+    assert_clean(page)
+    # Its target is at least 24 pixels square (WCAG 2.5.8).
+    box = about.bounding_box()
+    assert box is not None and box["width"] >= 24 and box["height"] >= 24
+    page.keyboard.press("Enter")
+    described.wait_for(state="hidden")
+
+
+def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> None:
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/dna.DNASequence")
+    search = page.get_by_role("searchbox", name="Search")
+    search.wait_for()
+    box = search.bounding_box()
+    assert box is not None and box["height"] >= 44, box
+    assert_clean(page)
+
+
 def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
 

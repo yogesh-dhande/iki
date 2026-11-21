@@ -12,8 +12,10 @@ import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import {
   ENTITIES,
   entityQuery,
+  NOT_SENT,
   stateFields,
   stateLabel,
+  unsentState,
   type Entity,
   type EntityType,
   type FieldDef,
@@ -27,14 +29,24 @@ type StateCan = Schemas["StateCan"];
 export function StateBadges({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const fields = stateFields(type);
   if (!fields.length) return null;
+  // A request's service states before it's sent (ADR 0132): one badge says so.
+  const unsent = fields.filter((f) => unsentState(entity, f));
   return (
     <>
-      {fields.map((f) => (
-        <span key={f.name}>
+      {fields
+        .filter((f) => !unsent.includes(f))
+        .map((f) => (
+          <span key={f.name}>
+            {" "}
+            <Badge>{stateLabel(f, stateOf(entity, f))}</Badge>
+          </span>
+        ))}
+      {unsent.length ? (
+        <>
           {" "}
-          <Badge>{stateLabel(f, stateOf(entity, f))}</Badge>
-        </span>
-      ))}
+          <Badge muted>{NOT_SENT}</Badge>
+        </>
+      ) : null}
       {entity.locked ? (
         <>
           {" "}
@@ -94,6 +106,21 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
           const allowed = options.some((o) => o.allowed);
           const reasons = [...new Set(options.map((o) => o.why_not).filter(Boolean))];
           const why = `${id}-${f.name}-why`;
+          if (unsentState(entity, f)) {
+            // Nobody sets it until the request is sent (ADR 0132): its initial state's
+            // description, such as "Sent, and waiting", isn't so yet.
+            return (
+              <li key={f.name} className="row">
+                <div className="row-main">
+                  <span className="row-title">{f.label}: Not sent yet</span>
+                  <span className="row-meta">
+                    The service sets it once it’s sent, starting from{" "}
+                    {stateLabel(f, f.initial ?? stateOf(entity, f))}.
+                  </span>
+                </div>
+              </li>
+            );
+          }
           return (
             <li key={f.name} className="row">
               <div className="row-main">

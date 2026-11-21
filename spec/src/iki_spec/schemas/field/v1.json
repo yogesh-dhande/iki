@@ -157,6 +157,9 @@
       "description": "A value type and the options that go with it. Fields and list items share these.",
       "type": "object",
       "required": ["type"],
+      "dependentRequired": {
+        "pattern_help": ["pattern"]
+      },
       "properties": {
         "type": {
           "description": "The kind of value.",
@@ -203,6 +206,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1000
+        },
+        "pattern_help": {
+          "description": "What `pattern` asks for, in words for the people who enter it, finishing \"Use …\": such as `lower-case letters, digits and underscores, such as chain_a`. Said instead of the pattern when a value doesn't match it, as HTML's `title` is for an input's `pattern`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\r\\n]*[^.\\r\\n]$"
         },
         "min_length": {
           "type": "integer",
@@ -359,6 +369,7 @@
                 "topology",
                 "strands",
                 "pattern",
+                "pattern_help",
                 "min_length",
                 "max_length"
               ]
@@ -915,6 +926,7 @@
           "topology",
           "strands",
           "pattern",
+          "pattern_help",
           "min_length",
           "max_length",
           "min",

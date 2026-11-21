@@ -3,6 +3,7 @@
  * fake API.
  */
 
+import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -22,7 +23,7 @@ import {
 import { formatNumber, quantity } from "./entities";
 import { MAX_FILTERS } from "./filters";
 import { MAX_BATCH } from "./runs";
-import { answer, calls, ME, page, problem, project, respond } from "./test-server";
+import { answer, calls, ME, page, problem, project, respond, signedIn } from "./test-server";
 
 const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
 
@@ -921,6 +922,134 @@ describe("an entity's page", () => {
         .getAllByRole("row")
         .map((r) => r.textContent),
     ).toEqual(["FieldBeforeAfter", "Resolution2.4 Å2.1 Å"]);
+  });
+
+  it("says what a field is, as its type describes it, on pressing beside its label", async () => {
+    signedIn();
+    const described: Schemas["EntityTypeOut"] = {
+      ...PROTEIN,
+      fields: PROTEIN.fields.map((f) =>
+        f.name === "molecular_weight"
+          ? { ...f, description: "Its average molecular weight, as the free acid." }
+          : f,
+      ),
+    };
+    answer("GET /api/v1/entity-types", [described]);
+    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const { user } = await renderApp("/entities/PRT-000001/");
+    const values = await screen.findByRole("region", { name: "Values" });
+    const about = within(values).getByRole("button", { name: "About Molecular weight" });
+    expect(about).toHaveAttribute("aria-expanded", "false");
+    expect(within(values).queryByText(/as the free acid/)).not.toBeVisible();
+    // Fields without a description have none to open.
+    expect(within(values).queryByRole("button", { name: "About Name" })).toBeNull();
+    await user.click(about);
+    expect(about).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(values).getByText("Its average molecular weight, as the free acid."),
+    ).toBeVisible();
+    await user.click(about);
+    expect(within(values).queryByText(/as the free acid/)).not.toBeVisible();
+  });
+
+  it("cuts a long value short, with all of it on asking and in its viewer", async () => {
+    signedIn();
+    const viewed: Schemas["EntityTypeOut"] = {
+      ...PROTEIN,
+      viewers: [
+        {
+          viewer: "sequence",
+          label: "Sequence",
+          sequence: "sequence",
+          alphabet: "protein",
+          strands: null,
+          features: null,
+          tracks: [],
+        },
+      ],
+    };
+    answer("GET /api/v1/entity-types", [viewed]);
+    answer("GET /api/v1/components", []);
+    // Titin's first 60 residues (UniProt Q8WZ42), seven times: longer than a page shows.
+    const sequence = "MTTQAPTFTQPLQSVVVLEGSTATFEAHISGFPVPEVSWFRDGQVISTSTLPGVQISFSD".repeat(7);
+    answer("GET /api/v1/entities/PRT-000001", entity({ values: { name: "Titin", sequence } }));
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const { user } = await renderApp("/entities/PRT-000001/");
+    const values = await screen.findByRole("region", { name: "Values" });
+    const shown = within(values).getByText(/^MTTQAPTFTQ.+…$/);
+    expect(shown.textContent).toHaveLength(201);
+    expect(within(values).getByRole("link", { name: "Open in Sequence" })).toHaveAttribute(
+      "href",
+      "/entities/PRT-000001/viewers/sequence/",
+    );
+    await user.click(within(values).getByRole("button", { name: "Show all of Sequence" }));
+    expect(within(values).getByText(sequence)).toBeInTheDocument();
+    expect(within(values).getByRole("button", { name: "Show less of Sequence" })).toBeVisible();
+    expect(within(values).getByText(/^420 residues\./)).toBeInTheDocument();
+  });
+
+  it("keeps each hold a revision opened, and who reviewed it, why and when", async () => {
+    onStructure();
+    const hold = {
+      id: "00000000-0000-7000-8000-0000000000h1",
+      rule: "purity_in_specification",
+      label: "Purity in specification",
+      message: "Purity must be at least 95%.",
+      held_by: ALICE,
+      agent: null,
+      held_at: "2026-03-14T09:00:00Z",
+      reason: "Kept: the measurement is valid.",
+      revision: 1,
+      last_revision: 2,
+      reviewer: null,
+      reviewed_at: null,
+      review_reason: "",
+    };
+    answer(
+      "GET /api/v1/entities/PST-000001/revisions",
+      page([
+        revision({ number: 3, kind: "edited", changed_fields: ["resolution"] }),
+        revision({
+          number: 2,
+          kind: "edited",
+          changed_fields: ["resolution"],
+          holds: [
+            {
+              ...hold,
+              id: "00000000-0000-7000-8000-0000000000h2",
+              revision: 2,
+              last_revision: 2,
+              reason: "Retested.",
+            },
+          ],
+        }),
+        revision({
+          number: 1,
+          changed_fields: ["structure", "resolution"],
+          holds: [
+            {
+              ...hold,
+              reviewer: { ...ALICE, name: "Grace Hopper", email: "grace@example.com" },
+              reviewed_at: "2026-03-15T09:00:00Z",
+              review_reason: "SEC rerun within limits.",
+            },
+          ],
+        }),
+      ]),
+    );
+    await renderApp("/entities/PST-000001/history/");
+    await screen.findByText("Revision 1: Created by Rosalind Franklin");
+    const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
+    expect(within(first).getByRole("listitem")).toHaveTextContent(
+      /^Held for review: Purity in specification\. Purity must be at least 95%\. Saved anyway: “Kept: the measurement is valid\.” Revision 2 broke it again\. Reviewed by Grace Hopper .+: “SEC rerun within limits\.”$/,
+    );
+    const second = screen.getByRole("list", { name: "Holds revision 2 opened" });
+    expect(within(second).getByRole("listitem")).toHaveTextContent(/Still held, for review\.$/);
+    expect(screen.queryByRole("list", { name: "Holds revision 3 opened" })).toBeNull();
   });
 
   it("watches a record, or mutes it", async () => {

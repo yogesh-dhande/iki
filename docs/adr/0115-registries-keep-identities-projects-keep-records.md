@@ -242,7 +242,12 @@ identity type registers in the run's project's registry as `POST
 /entities` does, bulk imports (ADR 0056) and bundles (ADR 0096) included.
 A bulk import counts the entries it registered, in place of the entities it
 linked. A run's values for an entry's fields follow the same rules as a
-person's: set while empty, refused for a fact that differs.
+person's: set while empty, refused for a fact that differs. A run's effect
+on a record keeps the entry revisions it made too, so an entry's value
+names the run that set it, for readers its revision is disclosed to who can
+read the run's project, as a record's own values do. A revision a run made
+with no run recorded here, as an imported one, says so, rather than that
+its run is hidden.
 
 **A bundle carries the entries its records are of, without their
 history.** An entry's history is its registry's, not the exporting
