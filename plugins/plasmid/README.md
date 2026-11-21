@@ -60,6 +60,14 @@ annotated from.
     is in the table beneath, so nothing is told by colour or by the drawing alone. Its
     bases, with the features its GenBank record gave, are one click away on its sequence,
     in Iki's own sequence viewer.
+  - It **downloads as GenBank or FASTA** from the Export button on its page, at its
+    latest revision or, from its history, an earlier one
+    ([ADR 0169](../../docs/adr/0169-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
+    The file is its sequence's — the bases, topology and the features the sequence's
+    own record has — under the plasmid's name and description, with the parts its
+    annotation found after them; a part found where the sequence's file already has
+    that feature is written once. An earlier revision exports with its sequence as it
+    was then. SnapGene opens the GenBank file, and the DNA plugin imports it back.
 - **`iki/plasmid.Assembly`** (`ASM-000001`): a cloning plan — a `backbone`, the
   `inserts` going into it, the `method` and the `enzymes` it cuts with. It has no
   identity: one molecule can be built several ways, and how a lab built its own copy is
