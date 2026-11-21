@@ -50,6 +50,17 @@ annotated from.
     records them, their LOCUS line reading `linear`, as Benchling and SnapGene both do.
     A linear molecule's two ends are ends: its map is a line, nothing is annotated across
     them, and a cloning plan for it doesn't close.
+  - **What its own bases say, and where the lab's primers sit on it, are each project's
+    record's too**
+    ([ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)):
+    its `orfs`, in all six frames, with the frame, the coordinates, the length and the
+    protein of each, and its `primer_binding_sites`, with the primer, the strand, the base
+    each primer's 3' end pairs with, how much annealed, the 5' tail, every mismatch and the
+    site's melting temperature. Each follows from the molecule **and** what a run asked
+    for — the fewest codons, the translation table, the start codons, the 3' match, the
+    mismatch budget, the primers the lab holds — so each keeps that beside what it found,
+    in `orfs_found_with` and `primer_binding_sites_found_with`, as the annotation keeps
+    `annotated_with`.
   - Its **Map** tab draws the molecule it is. A circle is a ring with base 1 at the top
     going clockwise, each annotated part an arc pointing the way its strand runs, and it
     can be shown as a line as well, cut at base 1 — the view to read beside a gel or a
@@ -68,6 +79,18 @@ annotated from.
     annotation found after them; a part found where the sequence's file already has
     that feature is written once. An earlier revision exports with its sequence as it
     was then. SnapGene opens the GenBank file, and the DNA plugin imports it back.
+  - Three **layers** lie along it, each what a run of the plugin found and each a layer the
+    person turns off: the library's parts, the open reading frames (on rings inside the
+    backbone, and on lanes of their own in the linear view) and the primer binding sites
+    (on a ring outside it). Each has a table of its own beneath, holding what a drawing
+    can't say — an ORF's frame, length in bases and codons, start codon and protein, and a
+    site's 3' end, annealed length, 5' tail, mismatches with how far each is from the 3'
+    end, and Tm — and each layer's button says whether it is showing and how many it
+    holds. A binding site's row names its primer, and names it as a way to that primer's
+    record where Iki gave the map the project's primers
+    ([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places.md));
+    the map never navigates itself. A layer whose run has been and found nothing says so,
+    which isn't what a layer whose run hasn't been says.
 - **`iki/plasmid.Assembly`** (`ASM-000001`): a cloning plan — a `backbone`, the
   `inserts` going into it, the `method` and the `enzymes` it cuts with. It has no
   identity: one molecule can be built several ways, and how a lab built its own copy is
@@ -95,6 +118,22 @@ annotated from.
   - Whoever recorded a plan hears when a check finds it doesn't make its product, and
     when a reviewer verifies the construct
     ([ADR 0129](../../docs/adr/0129-types-declare-their-notifications.md)).
+
+- **`iki/plasmid.Pcr`** (`PCR-000001`): a PCR — a `template`, a `forward_primer` and a
+  `reverse_primer`, and the linear molecule they amplify. Like an assembly it has no
+  identity: one fragment can be amplified by many pairs of primers, and how a lab made its
+  own copy is the lab's record. Its product is the DNA sequence `simulate_pcr` works out
+  and registers, `derived_from` the reaction, so the product, the PCR, its template and
+  its primers are one chain in the graph
+  ([ADR 0123](../../docs/adr/0123-queries-walk-the-graph-of-what-depends-on-what.md)) and a
+  cloning plan takes the product as an insert by its sequence. As with an assembly, the
+  product is the reaction's in the graph rather than a field of it, so a reaction worked
+  out again, after its primers were corrected, gives what it now says, and the same bases
+  are the entry the registry has already. It keeps the
+  `product_length`, each primer's melting temperature where it binds
+  (`forward_melting_temperature`, `reverse_melting_temperature`), the `tm_method` those
+  were computed under, and `products_found`, which is more than one where the primers don't
+  say which molecule they mean.
 
 ## Lab roles
 
@@ -140,6 +179,17 @@ Biopython, which the annotation's alignments and the digests' restriction enzyme
   and overhang at each end, as SnapGene's and Benchling's virtual digests do. It
   registers nothing, so a digest that leaves several bands can be seen before one is
   chosen.
+- **`find_orfs`**: finds a plasmid's open reading frames in all six frames, by the
+  translation table and the fewest codons the run asks for, with the table's alternative
+  start codons where it allows them.
+- **`find_primer_binding_sites`**: finds where the primers chosen bind a plasmid's
+  sequence, on both strands, exactly or with the mismatches the run allows, each with its
+  melting temperature.
+- **`simulate_pcr`**: works out what a PCR amplifies from its template and its two primers
+  and registers the product as a linear DNA sequence derived from the reaction. A pair that
+  doesn't bind, or binds the wrong way round, amplifies nothing and the run says which
+  primer and what to do; a pair that amplifies several molecules registers none and lists
+  them.
 
 ## Annotating from the library
 
@@ -199,6 +249,64 @@ plasmid's `replication_origins`.
 A plasmid's `annotated_with` says which library found its parts and what identity it
 asked for, so an annotation can be read years later: `iki/plasmid features 1.0 (34
 parts), at least 90% identity`.
+
+## Reading the bases: ORFs, primer binding sites and PCR
+
+See
+[ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)
+for why each of these is the record's rather than the registry entry's, and what is left
+out.
+
+- **Open reading frames.** One ORF for each stop codon, from the first start codon after
+  the stop before it in the same frame, so a frame's longest reading is the one reported
+  and a start inside a gene isn't a second ORF — as NCBI ORFfinder and EMBOSS `getorf`
+  report them. At least 75 codons by default, which is SnapGene's and ORFfinder's shortest
+  offered protein: shorter frames occur in any stretch of DNA by chance. The genetic code
+  is one of NCBI's translation tables by name — the standard code (1) and the bacterial,
+  archaeal and plant-plastid code (11), with the vertebrate, yeast, mould/protozoan and
+  invertebrate mitochondrial codes (2, 3, 4, 5) and the alternative yeast nuclear code
+  (12) — and the table decides what stops as well as what codes. Tables 27, 28 and 31,
+  whose stop codons are read as sense codons in some places, are refused rather than
+  approximated. ATG starts an ORF unless the run allows the table's other start codons
+  (table 11's TTG, CTG, ATT, ATC, ATA and GTG), and a start codon is translated as
+  methionine whatever it is. A circle's ORF may read across its origin, and is reported
+  from its highest base round to its lowest; nothing is read across a linear molecule's
+  two ends, so a frame running off an end is no ORF.
+- **Primer binding sites.** A primer is placed by its 15 3'-most bases (or all of it, if
+  it is shorter), on either strand, without gaps, since the 3' end is what a polymerase
+  extends. A site is kept where its mismatches weigh at most what the run allows: 3 for a
+  mismatch among the primer's last five bases and 1 for one further off, against a budget
+  of 2 by default. So an exact site and one with mismatches well away from the 3' end are
+  found, a mismatch at the 3' end is no site, and a run that raises the budget to 3 is
+  told where such a site is. That weighting is what PCR does — a mismatch at or near the
+  3' terminus cuts extension sharply, the more the nearer the end (Kwok et al., _Nucleic
+  Acids Res_ 18:999, 1990; Stadhouders et al., _J Mol Diagn_ 12:109, 2010) — and it is how
+  SnapGene places a primer. Beyond that stretch the primer pairs on toward its 5' end while
+  its bases match; the rest is its 5' tail, which a product keeps. A site may cross a
+  circle's origin and never a linear molecule's ends.
+- **Melting temperatures** are SantaLucia's unified nearest-neighbour model (_PNAS_
+  95:1460, 1998) as Biopython's `MeltingTemp.Tm_NN` computes it with its default table
+  `DNA_NN3` (Allawi & SantaLucia 1997) and SantaLucia's salt correction (`saltcorr=5`), at
+  50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each strand — the conditions `iki/dna` gives
+  a primer's own Tm under, so a primer's record and its exact site on a template agree. A
+  site's Tm is of its annealed bases against the template's own, so a mismatch lowers it
+  (Biopython's `DNA_IMM1` and `DNA_TMM1`); where Biopython has no parameters for a
+  mismatch, no Tm is given. This isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
+  dNTPs), under which the same primer's Tm is some 5 to 6 °C higher, so compare a number
+  here with one computed the same way; `tm_method` on a PCR says which that is.
+- **PCR.** The product is the forward primer whole, the template between the two primers'
+  3' ends, and the reverse primer's reverse complement whole: both 5' tails are in it, and
+  so is every base a primer mismatched, since there the product is copied from the primer.
+  A circular template is read round its origin, so a product may cross it; a linear one is
+  read between its ends, so only a pair with the forward site to the left amplifies
+  anything. The product is linear and double-stranded whatever the template was. A primer
+  that binds nowhere, or only the strand the other should be on, is named with what to do;
+  a pair that amplifies several molecules registers none and lists their lengths, as an
+  ambiguous assembly does.
+- Nothing here designs primers, picks a pair, or checks one for hairpins or dimers; a run
+  keeps at most 5,000 ORFs, 500 binding sites and 20 products, and says to ask for longer
+  ORFs or a stricter 3' match rather than keeping some and not others. A primer under 8
+  bases isn't placed at all, and the run says why.
 
 ## Working out what a plan makes
 
@@ -274,6 +382,28 @@ pLenti6's two SV40 origins. Every resistance and selection gene found in all six
 checked to be a whole intact reading frame in that plasmid's own bases — a whole number
 of codons from ATG to a stop with none inside — which a hit even one base out of place
 would fail.
+
+`server/tests/test_plasmid_orfs.py` checks the ORFs against the records' own coding
+sequences: pBR322's (J01749.1) feature table gives tet at 86..1276 and bla at
+complement(3293..4153), and both come out there with the proteins its `/translation`
+qualifiers give; its Rop gene starts at a GTG, so reading it from its own start needs the
+table's alternative start codons. All four CDSs of pGKL1's feature table (X01095.1, a
+linear plasmid) are found at the record's coordinates. pUC19 has no CDS in its 1986 record,
+so its two long ORFs are checked against what the record's COMMENT and the publication
+give: β-lactamase, 286 codons at 1,626..2,486 on the reverse strand, translating
+MSIQHFRVALIPFFAAFCLPVFA — TEM-1's signal peptide — and the lacZα fragment, 107 codons from
+pUC19's own ATG. Written from base 2,001, that β-lactamase gene lies across the join: one
+ORF of the circle, the same protein, and no ORF of the same bases read as a line.
+
+`server/tests/test_plasmid_pcr.py` uses NEB's M13/pUC sequencing primers (#S1201S,
+GTAAAACGACGGCCAGT, and #S1233S, CAGGAAACAGCTATGAC) on pUC19: each binds once, at the bases
+a plain search of the record puts it at, with the Tm Biopython's own `Tm_NN` gives under
+the stated conditions (49.2 °C and 43.6 °C), and the pair amplifies 103 bp of the
+polylinker whose bases are the record's own. The same primers with ten-base tails give a
+product 20 bp longer that begins and ends with them; pUC19 written from inside the
+polylinker gives the very same product across the origin; the forward primer with its last
+base changed binds nowhere, and with a base changed 13 from its 3' end still binds, with a
+lower Tm.
 
 `server/tests/test_plasmid_cloning.py` clones the 795 bp neo gene of pcDNA3.1(+) into
 pUC19's polylinker with EcoRI and HindIII (2,635 + 801 = 3,436 bp), and by Gibson

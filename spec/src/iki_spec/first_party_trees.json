@@ -43,7 +43,9 @@
       "610c5d65b6480afc562b6d6636104ad9c8ec2860",
       "0ee7067e45eae1c074bf89a96a5fb21d68185b56",
       "526b4b33441d136d38b19c13a266899fe21be9d0",
-      "2e2e9207fcc8188ae7dc94ff192cc601c7ff619b"
+      "2e2e9207fcc8188ae7dc94ff192cc601c7ff619b",
+      "dc48efdb02afe2fb8437d488691f18ecdb1ee4ac",
+      "5e78e32205464137cc142ba3a0d5dcc5784c68f1"
     ],
     "iki/example_lims": [
       "51ee81013451aafb10f4a1f377049d01ba0ee19c",
@@ -93,7 +95,14 @@
       "f928371d78e4eabf27ee23696f1d2d111e818f89",
       "3026212c09ad54bd1bbc235dc8266881a026ed3e",
       "9bc8809dcf42979f77514f34a3586fd6e567fffd",
-      "ca18059c73bb8e3ac4ecf7374fc4ebc23bf74c04"
+      "ca18059c73bb8e3ac4ecf7374fc4ebc23bf74c04",
+      "3eba833f1fbd4a5b4035c13b743c0e3125951bd8",
+      "00ef683ce5788a4ad738f01dbc2131671432b564",
+      "d201b06edf1ab6c612ec1554298b4aa1c4e0c6cf",
+      "5e63e326bfc68559de4ba6c380d556aa55c568b6",
+      "baec120854abb8d54fcb6da3fe9fadd96ba418a7",
+      "83952cab0cd06ab7afd2982fde0eb7103c58cce6",
+      "0e5e8785dce2dc7ce7bab13f3177537792eda2e5"
     ],
     "iki/protein": [
       "25079b3b2f8236772c7b7fc514e00d0d93499027",

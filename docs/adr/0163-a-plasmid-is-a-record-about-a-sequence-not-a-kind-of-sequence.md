@@ -10,7 +10,10 @@
   which widens it to linear plasmids: topology on the entry, a linear map, and
   plans whose products can end linear;
   [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
-  which exports a plasmid as its sequence's GenBank under its own name
+  which exports a plasmid as its sequence's GenBank under its own name;
+  [0172](0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md),
+  which keeps a record's ORFs and primer binding sites on the record, as its
+  annotation is, and makes a PCR a record of its own
 
 ## Context
 

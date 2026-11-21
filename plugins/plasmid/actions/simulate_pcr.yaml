@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: simulate_pcr
+label: Work out what a PCR amplifies
+description: >-
+  Works out the molecule a PCR gives from its template and its two primers, and registers
+  it as a linear DNA sequence derived from the reaction, so a cloning plan can use it as a
+  fragment before anything is amplified. The product is the forward primer whole, the
+  template between the two primers' 3' ends, and the reverse primer's reverse complement
+  whole: both 5' tails are in it, and so is every base where a primer mismatched the
+  template. A circular template is read round its origin, so a product may cross it; a
+  linear one is read between its ends. A pair that doesn't bind, or binds the wrong way
+  round, amplifies nothing and the run says which primer and why; a pair that makes
+  several products registers none and lists them.
+inputs:
+  pcr: { type: Pcr, schema: ">=1", include: [template, forward_primer, reverse_primer] }
+params:
+  least_three_prime_match:
+    type: int
+    min: 8
+    max: 40
+    default: 15
+    label: Least 3′ match
+    description: >-
+      How many of each primer's 3'-most bases must be found on the template, as the
+      binding sites use.
+  most_mismatch_weight:
+    type: int
+    min: 0
+    max: 12
+    default: 2
+    label: Most mismatch weight
+    description: >-
+      What a site's mismatches may weigh together: a mismatch among the primer's last five
+      bases weighs 3 and one further away weighs 1.
+  longest_product:
+    type: int
+    min: 50
+    max: 100000
+    default: 20000
+    label: Longest product
+    description: >-
+      The longest product to work out, in base pairs: a polymerase's reach, beyond which
+      a pair of sites amplifies nothing in the tube.
+effects:
+  creates:
+    - { type: iki/dna.DNASequence, derived_from: [pcr] }
+  updates:
+    - input: pcr
+      fields:
+        - product_length
+        - forward_melting_temperature
+        - reverse_melting_temperature
+        - tm_method
+        - products_found
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, pcr]
+deterministic: true
+metrics:
+  length: { label: Product (bp), description: The product's base pairs. }
+  products: { label: Products, description: How many molecules the two primers amplify. }
+timeout: 30m

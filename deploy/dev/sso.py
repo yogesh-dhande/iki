@@ -2027,8 +2027,129 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
         f"pUC19 read from base 1344 on the other strand is {plasmid['hrid']}, "
         f"reused ({run['hrid']})"
     )
+    read_bases(alice, project, plasmid)
     plan = assembled(alice, project, plasmid)
     constructs(alice, project, plan)
+
+
+#: NEB's M13/pUC sequencing primers (#S1201S and #S1233S), the pair pUC19's polylinker is
+#: read and screened with.
+M13_FORWARD = "GTAAAACGACGGCCAGT"
+M13_REVERSE = "CAGGAAACAGCTATGAC"
+
+
+def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]) -> None:
+    """What pUC19's own bases say, and what its primers do (ADR 0172), in the plugin's
+    environment on the cluster: its beta-lactamase gene as an open reading frame of 286
+    codons at 1626..2486 on the reverse strand, read by translation table 11; the M13/pUC
+    sequencing primers binding it once each, where the record's bases put them; and the two
+    of them amplifying 103 bp of its polylinker, registered as the linear DNA sequence a
+    cloning plan can use as a fragment."""
+    run = launch(
+        alice,
+        project,
+        "iki/plasmid.find_orfs",
+        {"plasmid": plasmid["id"]},
+        {"least_codons": 75, "genetic_code": "bacterial_archaeal_plant_plastid"},
+    )
+    values = record(alice, plasmid["id"])["values"]
+    bla = next(
+        (orf for orf in values.get("orfs") or [] if (orf["start"], orf["end"]) == (1626, 2486)),
+        None,
+    )
+    if bla is None or (bla["strand"], bla["amino_acids"], bla["frame"]) != ("reverse", 286, -3):
+        fail(f"{run['hrid']} wrote ORFs {values.get('orfs')}, not pUC19's bla at 1626..2486")
+    if not bla["translation"].startswith("MSIQHFRVALIP"):
+        fail(f"{run['hrid']} translated bla as {bla['translation'][:30]}, not TEM-1's start")
+    if "translation table 11" not in (values.get("orfs_found_with") or ""):
+        fail(f"{run['hrid']} wrote orfs_found_with {values.get('orfs_found_with')!r}")
+    ok(
+        f"iki/plasmid.find_orfs read {plasmid['hrid']}'s bases ({run['hrid']}): "
+        f"{len(values['orfs'])} ORFs of at least 75 codons, bla 1626..2486 on the reverse "
+        "strand, 286 codons from ATG"
+    )
+    primers = []
+    for bases, name in ((M13_FORWARD, "M13/pUC forward (-20)"), (M13_REVERSE, "M13/pUC reverse")):
+        made = api_call(
+            alice,
+            "POST",
+            "/entities",
+            {
+                "type": "iki/dna.Primer",
+                "project": project["id"],
+                "values": {"bases": bases, "name": name},
+            },
+        )
+        if made.status_code not in (200, 201):
+            fail(f"registering {name} answered HTTP {made.status_code}: {made.text[:300]}")
+        primers.append(made.json())
+    run = launch(
+        alice,
+        project,
+        "iki/plasmid.find_primer_binding_sites",
+        {"plasmid": plasmid["id"], "primers": [p["id"] for p in primers]},
+        {"least_three_prime_match": 15, "most_mismatch_weight": 2},
+    )
+    values = record(alice, plasmid["id"])["values"]
+    sites = {
+        (s["strand"], s["start"], s["end"]): s for s in values.get("primer_binding_sites") or []
+    }
+    if set(sites) != {("forward", 379, 395), ("reverse", 465, 481)}:
+        fail(f"{run['hrid']} found sites {list(sites)}, not the M13 pair's on pUC19")
+    if sites[("forward", 379, 395)]["melting_temperature"] != 49.2:
+        fail(f"{run['hrid']} wrote the forward site's Tm as {sites[('forward', 379, 395)]}")
+    ok(
+        f"iki/plasmid.find_primer_binding_sites placed both M13 primers on "
+        f"{plasmid['hrid']} ({run['hrid']}): 379..395 forward at 49.2 C, 465..481 reverse"
+    )
+    reaction = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "iki/plasmid.Pcr",
+            "project": project["id"],
+            "values": {
+                "name": "pUC19 polylinker",
+                "template": plasmid["values"]["sequence"],
+                "forward_primer": entry_of(primers[0]),
+                "reverse_primer": entry_of(primers[1]),
+            },
+        },
+    )
+    if reaction.status_code != 201:
+        fail(f"recording a PCR answered HTTP {reaction.status_code}: {reaction.text[:300]}")
+    pcr: dict[str, Any] = reaction.json()
+    run = launch(alice, project, "iki/plasmid.simulate_pcr", {"pcr": pcr["id"]})
+    amplified = next((e for e in run["effects"] if e["type"] == "iki/dna.DNASequence"), None)
+    if amplified is None:
+        fail(f"{run['hrid']} made {run['effects']}, not a DNA sequence for the product")
+    product = record(alice, amplified["entity"])["values"]
+    got = record(alice, pcr["id"])["values"]
+    # Its length is computed by a run of its own (compute_composition): count its bases.
+    made_bp = len(product.get("bases") or "")
+    if product.get("topology") != "linear" or made_bp != 103:
+        fail(f"{run['hrid']} registered {made_bp} bp {product.get('topology')}, not 103 linear")
+    if not product["bases"].startswith(M13_FORWARD):
+        begins = product["bases"][:30]
+        fail(f"{run['hrid']}'s product begins {begins}, not with the forward primer")
+    if (got.get("product_length"), got.get("products_found")) != (103, 1):
+        fail(f"{run['hrid']} wrote {got}, not one 103 bp product")
+    if (got.get("forward_melting_temperature"), got.get("reverse_melting_temperature")) != (
+        49.2,
+        43.6,
+    ):
+        fail(f"{run['hrid']} wrote the primers' Tms as {got}")
+    # The product is the reaction's in the graph: derived from it, as an assembly's is.
+    walked = api_call(alice, "GET", f"/entities/{pcr['id']}/downstream")
+    below = {i["entity"]["id"] for i in walked.json().get("items", [])} if walked.ok else set()
+    if amplified["entity"] not in below:
+        fail(f"{pcr['hrid']}'s downstream ({walked.status_code}) doesn't hold its product")
+    ok(
+        f"iki/plasmid.simulate_pcr amplified {pcr['hrid']} ({run['hrid']}): 103 bp of "
+        f"pUC19's polylinker, registered as the linear {amplified['entity'][:8]}…, Tm 49.2 "
+        "and 43.6 C by SantaLucia 1998"
+    )
 
 
 def assembled(

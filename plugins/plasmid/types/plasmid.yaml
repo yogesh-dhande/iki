@@ -17,7 +17,7 @@ kind: EntityType
 name: Plasmid
 label: Plasmid
 label_plural: Plasmids
-schema_version: 2
+schema_version: 3
 description: >-
   A plasmid or vector, by the DNA sequence that is it, circular or linear. Two plasmids of
   the same sequence are the same plasmid, so registering one again finds its registry
@@ -196,6 +196,142 @@ fields:
             type: object
             maxProperties: 20
             additionalProperties: { type: string, maxLength: 1000 }
+  orfs:
+    type: json
+    computed: true
+    label: Open reading frames
+    description: >-
+      Its open reading frames, in all six frames, as the ORF action found them: each with
+      its frame, where it lies, its length and the protein it codes for (ADR 0172). One on
+      a circle may read across the origin, and none on a linear molecule reads across its
+      ends.
+    schema:
+      type: array
+      maxItems: 5000
+      items:
+        type: object
+        additionalProperties: false
+        required: [start, end, strand, frame, length, amino_acids, start_codon, translation]
+        properties:
+          start:
+            type: integer
+            minimum: 1
+            description: Its first base on the forward strand, its start or stop codon's.
+          end:
+            type: integer
+            minimum: 1
+            description: >-
+              Its last base on the forward strand, the stop codon's included. Before
+              start, it reads across a circle's origin.
+          strand: { enum: [forward, reverse] }
+          frame:
+            type: integer
+            minimum: -3
+            maximum: 3
+            description: >-
+              Which of the six frames it is read in: 1, 2 or 3 on the forward strand, by
+              the base it starts at, and -1, -2 or -3 on the reverse.
+          length:
+            type: integer
+            minimum: 6
+            description: Its bases, its stop codon's included.
+          amino_acids:
+            type: integer
+            minimum: 1
+            description: Its codons, its start codon's included and its stop codon's not.
+          start_codon: { type: string, minLength: 3, maxLength: 3 }
+          translation:
+            type: string
+            maxLength: 20000
+            description: >-
+              The protein it codes for, by the translation table the run used, its start
+              codon read as methionine.
+  orfs_found_with:
+    type: string
+    max_length: 200
+    computed: true
+    label: ORFs found with
+    description: >-
+      What the ORFs were found with, so they can be read years later: "ORFs of at least
+      75 codons, translation table 11 (Bacterial, Archaeal, Plant Plastid), starting at
+      ATG only; read across its origin".
+  primer_binding_sites:
+    type: json
+    computed: true
+    label: Primer binding sites
+    description: >-
+      Where the primers a run was given bind it, on both strands: each with the primer it
+      is, where it lies, the base its 3' end pairs with, how much of it annealed, its 5'
+      tail, each mismatch and how far that is from its 3' end, and the site's melting
+      temperature (ADR 0172). One on a circle may cross the origin.
+    schema:
+      type: array
+      maxItems: 500
+      items:
+        type: object
+        additionalProperties: false
+        required: [primer, name, strand, start, end, three_prime, annealed, tail, mismatches]
+        properties:
+          primer:
+            type: string
+            maxLength: 32
+            description: The primer's ID, such as PRM-000001, which its row links to.
+          name: { type: string, minLength: 1, maxLength: 255 }
+          strand:
+            enum: [forward, reverse]
+            description: >-
+              The strand the primer's own bases are those of, and so the way it extends:
+              rightwards along the forward strand, leftwards along the reverse.
+          start: { type: integer, minimum: 1 }
+          end:
+            type: integer
+            minimum: 1
+            description: Before start, it crosses a circle's origin.
+          three_prime:
+            type: integer
+            minimum: 1
+            description: The base its 3' end pairs with, from which a polymerase extends.
+          annealed:
+            type: integer
+            minimum: 1
+            description: Its bases that pair with the template, from its 3' end.
+          tail:
+            type: integer
+            minimum: 0
+            description: >-
+              Its 5' bases that don't pair with the template. A product has them, since
+              there it is copied from the primer.
+          mismatches:
+            type: array
+            maxItems: 50
+            items:
+              type: object
+              additionalProperties: false
+              required: [from_three_prime, primer, template]
+              properties:
+                from_three_prime:
+                  type: integer
+                  minimum: 1
+                  description: >-
+                    How far the mismatched base is from the primer's 3' end, its 3'-most
+                    base being 1.
+                primer: { type: string, minLength: 1, maxLength: 1 }
+                template: { type: string, minLength: 1, maxLength: 1 }
+          melting_temperature:
+            type: number
+            description: >-
+              The site's Tm in degrees Celsius, of its annealed bases against the
+              template's own, so a mismatch lowers it. Left out where there are no
+              parameters for a mismatch.
+  primer_binding_sites_found_with:
+    type: string
+    max_length: 300
+    computed: true
+    label: Binding sites found with
+    description: >-
+      How the sites were found and their melting temperatures computed: the 3' bases a
+      primer was placed by, the mismatch weighting it was kept under, and the Tm method
+      with its salt and strand concentrations.
   annotated_with:
     type: string
     max_length: 200

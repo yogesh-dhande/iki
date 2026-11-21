@@ -26,7 +26,7 @@ from iki_server.files.services import EMPTY_SHA256
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import catalog, queue
 from iki_server.runs.models import ActionRun, Job, JobState, Lineage, RunEffect, RunOutput
-from iki_spec import schemas
+from iki_spec import outputs, schemas
 
 pytestmark = pytest.mark.django_db
 
@@ -194,6 +194,26 @@ def test_results_must_fit_what_the_action_declares(world: World) -> None:
     assert body["error"]["code"] == "invalid_output"
     assert len(body["error"]["errors"]) == 4
     assert body["effects"] == []
+
+
+def test_an_update_cant_refer_to_what_its_run_creates(world: World) -> None:
+    """A run's updates are written before its creates (ADR 0064), so an update's reference
+    can't be a `$create`: the run is refused saying so, and what to do instead, rather than
+    that the reference isn't an entity's ID."""
+    pod, run, job = leased(world)
+    stored = ActionRun.objects.get(pk=run["id"])
+    stored.spec["updates"][0]["fields"].append("encoded_by")
+    ActionRun.objects.filter(pk=stored.pk).update(spec=stored.spec)
+    entity = run["inputs"][0]["entity"]
+    errors = _failed(
+        pod,
+        job,
+        output(
+            updates={"protein": [{"entity": entity, "values": {"encoded_by": {"$create": "x"}}}]}
+        ),
+    )
+    assert errors["#/updates/protein/0/values/encoded_by"] == outputs.UPDATE_REFERS_TO_A_CREATE
+    assert Revision.objects.filter(entity_id=entity).count() == 1
 
 
 def test_values_must_fit_their_fields(world: World) -> None:

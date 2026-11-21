@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A PCR: a template and two primers, and the molecule they amplify. Like an assembly
+# (ADR 0163) it has no identity -- one fragment can be amplified by many primer pairs, and
+# how a lab made its own copy is the lab's record, not a fact about the molecule.
+#
+# Its product is the linear DNA sequence the reaction gives, worked out and registered by
+# the run, derived from this record: so a product, the PCR that made it, its template and
+# its primers are one chain in the graph (ADR 0123), and a cloning plan can take the
+# product as an insert by its sequence. As with an assembly, the reaction keeps what is
+# known of its product -- the length, the primers' Tms -- and the product itself is its in
+# the graph, not a reference of its own: a run's updates are written before what it
+# creates (ADR 0064).
+apiVersion: iki/v1
+kind: EntityType
+name: Pcr
+label: PCR
+label_plural: PCRs
+schema_version: 1
+description: >-
+  A PCR: the template, a forward and a reverse primer, and the linear molecule they
+  amplify. Iki works out the product from the three -- both primers' 5' tails included,
+  across a circular template's origin where that is the way round -- registers it as a DNA
+  sequence a cloning plan can use as a fragment, and reports each primer's melting
+  temperature and the product's length.
+hrid: { prefix: PCR }
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  template:
+    type: ref
+    to: iki/dna.DNASequence
+    required: true
+    description: >-
+      The DNA sequence amplified: a plasmid's sequence, a genome, a gene or another PCR's
+      product. A circular template is read round its origin, a linear one is not
+      (ADR 0168).
+  forward_primer:
+    type: ref
+    to: iki/dna.Primer
+    required: true
+    description: >-
+      The primer that extends along the template's forward strand, as the product is
+      written.
+  reverse_primer:
+    type: ref
+    to: iki/dna.Primer
+    required: true
+    description: The primer that extends along the other strand, back towards the first.
+  product_length:
+    type: quantity
+    unit: "{bp}"
+    computed: true
+    min: 0
+    description: The product's base pairs, both primers' whole lengths included.
+  forward_melting_temperature:
+    type: quantity
+    unit: Cel
+    computed: true
+    label: Forward primer Tm
+    description: >-
+      The forward primer's melting temperature where it binds: of the bases that annealed,
+      against the template's own bases, so a mismatch lowers it. `tm_method` says how.
+  reverse_melting_temperature:
+    type: quantity
+    unit: Cel
+    computed: true
+    label: Reverse primer Tm
+    description: The reverse primer's, the same way.
+  tm_method:
+    type: string
+    max_length: 300
+    computed: true
+    label: Tm method
+    description: >-
+      How the melting temperatures were computed, with the conditions they hold under, so
+      they can be compared with a vendor's or another tool's.
+  products_found:
+    type: int
+    computed: true
+    min: 0
+    description: >-
+      How many molecules the two primers amplify from this template. One is the product;
+      more than one and the run registers none, since the reaction doesn't say which it
+      means.
+display:
+  title: "{{ name or hrid }}"

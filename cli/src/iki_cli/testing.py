@@ -294,7 +294,12 @@ def _judge(
         creates = output.get("creates") or []
         problems += [
             f"output.json at {p.pointer}: {p.detail}"
-            for p in outputs.check_creates(test.action, creates, installed)
+            for p in [
+                *outputs.created_refs_in_updates(
+                    test.action, output.get("updates") or {}, installed
+                ),
+                *outputs.check_creates(test.action, creates, installed),
+            ]
         ]
         problems += _creates_file(test.action, output.get("creates_file"), creates, installed)
     if test.output is not None:

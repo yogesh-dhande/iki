@@ -7,7 +7,12 @@
 - Refined by:
   [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
   which writes the topology in GenBank's LOCUS line and leaves out features
-  across a linear molecule's ends, saying so
+  across a linear molecule's ends, saying so;
+  [0172](0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md),
+  which reads what a molecule's own bases say: its open reading frames in six
+  frames, where the project's primers bind it, and the product a pair of them
+  amplifies, each keeping a circle's origin and a line's ends as this ADR has
+  them
 
 ## Context
 
