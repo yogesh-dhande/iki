@@ -108,6 +108,18 @@ def test_app_pages_load_the_app_with_the_session_and_csrf_token(world: World, pa
     assert '<link rel="stylesheet" href="/static/iki/iki.css">' in html
 
 
+def test_app_pages_say_whether_the_identity_provider_provisions_accounts(world: World) -> None:
+    """So the forms that add people say how someone new gets an account (ADR 0026)."""
+    from iki_server.scim import tokens
+
+    meta = '<meta name="iki-provisioning" content="{}">'
+    assert meta.format("") in world.browser("admin").get("/projects/").content.decode()
+    tokens.create(by=world.users["org_admin"])
+    assert meta.format("scim") in world.browser("admin").get("/projects/").content.decode()
+    tokens.revoke(by=world.users["org_admin"])
+    assert meta.format("") in world.browser("admin").get("/projects/").content.decode()
+
+
 def test_app_pages_carry_no_data(world: World) -> None:
     # Everything comes from the API, which decides who sees what; the page is
     # the same for everyone, so it can't leak which projects exist.
@@ -186,6 +198,83 @@ def test_chunks_imported_by_the_entry_are_preloaded_once() -> None:
         "assets/vendor-test.js",
         "assets/shared.js",
     ]
+
+
+# --- The header ------------------------------------------------------------------
+
+
+def header_links(html: str) -> list[tuple[str, bool]]:
+    """The main navigation's links: each one's label, and whether it's the current page."""
+    nav = re.search(r'<nav class="site-nav" aria-label="Main">(.*?)</nav>', html, re.S)
+    assert nav, "no main navigation"
+    return [
+        (label, bool(current))
+        for current, label in re.findall(
+            r'<a href="[^"]*"( aria-current="page")?>([^<]+)</a>', nav[1]
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("principal", "expected"),
+    [
+        ("viewer", ["My work", "Projects", "Types", "Teams"]),
+        (
+            "org_admin",
+            ["My work", "Projects", "Types", "Teams", "People", "Settings", "Costs"],
+        ),
+        ("compute_admin", ["My work", "Projects", "Types", "Teams", "Costs", "Compute"]),
+        ("auditor", ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]),
+    ],
+)
+def test_server_pages_have_the_web_apps_header(
+    world: World, principal: str, expected: list[str]
+) -> None:
+    """The People, Teams, Settings and Audit pages offer what the web app's header does,
+    under the same conditions: the ones /me's `can` says they may open."""
+    from iki_server.web.navigation import items
+
+    session = world.browser(principal)
+    can = session.get("/api/v1/me").json()["can"]
+    offered = [i.label for i in items() if i.requires is None or can[i.requires]]
+    links = [label for label, _ in header_links(session.get("/teams/").content.decode())]
+    assert links == offered == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "section"),
+    [
+        ("/teams/", "Teams"),
+        ("/teams/structural-biology/", "Teams"),
+        ("/people/", "People"),
+        ("/service-accounts/", "People"),
+        ("/settings/sign-in/", "Settings"),
+        ("/settings/signatures/", "Settings"),
+        ("/settings/registries/", "Settings"),
+        ("/settings/email/", "Settings"),
+        ("/audit/", "Audit"),
+    ],
+)
+def test_the_header_marks_the_section_a_page_is_in(world: World, path: str, section: str) -> None:
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+
+    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.AUDITOR)
+    page = world.browser("org_admin").get(path)
+    assert page.status_code == 200
+    assert [label for label, current in header_links(page.content.decode()) if current] == [section]
+
+
+def test_the_headers_items_are_pages_and_the_app_routes_those_it_says() -> None:
+    from django.urls import resolve
+
+    from iki_server.api.schemas import MeCan
+    from iki_server.web.navigation import items
+
+    routed = set(routed_pages())
+    for item in items():
+        resolve(item.href)
+        assert item.app == (item.href in routed), item
+        assert item.requires is None or item.requires in MeCan.model_fields, item
 
 
 # --- Serving the build ---------------------------------------------------------

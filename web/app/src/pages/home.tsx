@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 
 import { meQuery, othersProjectsQuery, projectPagesQuery } from "../api";
 import { recordSearch, typesQuery } from "../entities";
-import { usePageTitle } from "../layout";
+import { provisionedOverScim, usePageTitle } from "../layout";
 import { dueText, workQuery, workStates } from "../people";
 import { registriesQuery } from "../registries";
 import { Button, buttonClass, Loading, PageHeader } from "../ui";
@@ -104,7 +104,7 @@ export function Home() {
             <>
               <h2>No projects yet</h2>
               <p>
-                Projects hold your entities, runs and views. Create one for your team, then invite
+                Projects hold your entities, runs and views. Create one for your team, then add
                 people to it.
               </p>
               <p>
@@ -117,8 +117,11 @@ export function Home() {
             <>
               <h2>Start by creating a team</h2>
               <p>
-                Every project belongs to a team. Create a team, add people once they’ve signed in,
-                and its members can create projects.
+                {`Every project belongs to a team. Create a team, add people ${
+                  provisionedOverScim()
+                    ? "once your identity provider provisions them"
+                    : "once they’ve signed in"
+                }, and its members can create projects.`}
               </p>
               <p>
                 <a className="button button-primary" href="/teams/">

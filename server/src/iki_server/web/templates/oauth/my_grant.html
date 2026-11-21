@@ -11,7 +11,7 @@
     <div class="row-main">
       <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
       <span class="row-meta">
-        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
+        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s T" }}</time>
         · {{ event.get_via_display }}
         {% if event.project %}· {{ event.project.name }}{% endif %}
         {% if event.agent.model %}· says it’s {{ event.agent.model }}{% endif %}

@@ -1,23 +1,25 @@
 """The audit log page, for Auditors."""
 
 import uuid
-from datetime import datetime, time
+from datetime import datetime, time, tzinfo
 from typing import Any
 
 from django import forms
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from iki_server.api.schemas import agent_out
+from iki_server.audit import details
 from iki_server.audit.log import ACTIONS
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
+from iki_server.web import timezones
 
 PAGE_SIZE = 50
 
@@ -58,6 +60,19 @@ class FilterForm(forms.Form):
     until = forms.DateField(
         label="Until", required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
+    #: The zone the dates are days in, so a link finds the same events for anyone.
+    tz = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    def __init__(self, data: QueryDict | None, *, zone: tzinfo) -> None:
+        name = timezones.zone_name(zone)
+        if data is not None:
+            # The zone the page used, whatever the address asked for.
+            data = data.copy()
+            data["tz"] = name
+        super().__init__(data, initial={"tz": name})
+        self.zone = zone
+        self.fields["since"].help_text = f"From the start of that day, in {name}."
+        self.fields["until"].help_text = f"To the end of that day, in {name}."
 
 
 def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
@@ -84,7 +99,7 @@ def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
         )
     if data["grant"]:
         events = events.filter(agent__grant=data["grant"])
-    zone = timezone.get_current_timezone()
+    zone = form.zone
     if data["since"]:
         events = events.filter(occurred_at__gte=datetime.combine(data["since"], time.min, zone))
     if data["until"]:
@@ -103,7 +118,8 @@ def _uuid(value: str | None) -> uuid.UUID | None:
 @require_GET
 def audit_log(request: HttpRequest) -> HttpResponse:
     permissions.require(request.user, Action.AUDIT_READ)
-    form = FilterForm(request.GET or None)
+    zone = timezones.viewer_zone(request)
+    form = FilterForm(request.GET or None, zone=zone)
     events = (
         _filtered(form)
         if request.GET
@@ -125,20 +141,25 @@ def audit_log(request: HttpRequest) -> HttpResponse:
     query.pop("before", None)
     if more:
         query["before"] = str(page[-1].pk)
-    return render(
-        request,
-        "audit/log.html",
-        {
-            "form": form,
-            "events": [
-                (
-                    event,
-                    ACTIONS.get(event.action, event.action),
-                    agent_out(event.agent, event.oauth_client),
-                )
-                for event in page
-            ],
-            "older_query": query.urlencode() if more else "",
-            "filtered": any(v for k, v in request.GET.items() if k != "before"),
-        },
-    )
+    with timezone.override(zone):
+        return render(
+            request,
+            "audit/log.html",
+            {
+                "form": form,
+                "zone": timezones.zone_name(zone),
+                "events": [
+                    (
+                        event,
+                        ACTIONS.get(event.action, event.action),
+                        agent_out(event.agent, event.oauth_client),
+                        details.describe(event.action, event.data),
+                    )
+                    for event in page
+                ],
+                "older_query": query.urlencode() if more else "",
+                "filtered": any(
+                    v for k, v in request.GET.items() if k not in {"before", timezones.PARAMETER}
+                ),
+            },
+        )

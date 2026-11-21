@@ -7,7 +7,6 @@ from iki_server.api.common import caller
 from iki_server.api.schemas import MeOut, agent_out
 from iki_server.audit import log as audit
 from iki_server.org import permissions
-from iki_server.org.permissions import Action
 
 router = Router(tags=["me"])
 
@@ -32,12 +31,5 @@ def me(request: HttpRequest) -> dict[str, Any]:
         "agent": agent_out(audit.current_agent_info()),
         "delegation": _delegation(request),
         "org_roles": sorted(str(role) for role in permissions.org_roles(user)),
-        "can": {
-            "manage_org": permissions.can(user, Action.ORG_MANAGE),
-            "read_audit": permissions.can(user, Action.AUDIT_READ),
-            "create_projects": permissions.teams_for_new_project(user).exists(),
-            "manage_webhooks": permissions.can(user, Action.ORG_WEBHOOKS_MANAGE),
-            "read_costs": permissions.can(user, Action.COSTS_READ),
-            "manage_compute": permissions.can(user, Action.COMPUTE_MANAGE),
-        },
+        "can": permissions.capabilities(user),
     }

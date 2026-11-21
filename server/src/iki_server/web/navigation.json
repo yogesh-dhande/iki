@@ -1,0 +1,23 @@
+{
+  "main": [
+    { "label": "My work", "href": "/work/", "app": true },
+    { "label": "Projects", "href": "/projects/", "app": true },
+    { "label": "Types", "href": "/types/", "app": true },
+    { "label": "Teams", "href": "/teams/" },
+    {
+      "label": "People",
+      "href": "/people/",
+      "requires": "manage_org",
+      "current": ["/people/", "/service-accounts/"]
+    },
+    {
+      "label": "Settings",
+      "href": "/settings/sign-in/",
+      "requires": "manage_org",
+      "current": ["/settings/"]
+    },
+    { "label": "Costs", "href": "/costs/", "requires": "read_costs", "app": true },
+    { "label": "Compute", "href": "/compute/", "requires": "manage_compute", "app": true },
+    { "label": "Audit", "href": "/audit/", "requires": "read_audit" }
+  ]
+}

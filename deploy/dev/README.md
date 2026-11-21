@@ -53,7 +53,7 @@ worker pod, so their backend actions run there.
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                               |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                             |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client         |
-| Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                                 |
+| Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
 | Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS plugin; lists the requests runs made    |
 | Fake FoldCloud                   | <http://localhost:8092/requests>     | `https://fake-foldcloud.iki.svc`, for the example models plugin; lists the requests made  |

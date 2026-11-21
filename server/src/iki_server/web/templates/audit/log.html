@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block title %}Audit log{% endblock %}
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Audit log</h1></div>
 <p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone. Projects kept whole for a matter are under <a href="{% url 'org:legal_holds' %}">Legal holds</a>.</p>
+<p class="muted">Times are in {{ zone }}, as are the dates you filter by.</p>
 <details class="filters"{% if filtered %} open{% endif %}>
   <summary>Filter</summary>
   <form method="get" class="filter-form">
@@ -15,6 +17,7 @@
     {% include "web/_field.html" with field=form.grant %}
     {% include "web/_field.html" with field=form.since %}
     {% include "web/_field.html" with field=form.until %}
+    {{ form.tz }}
     <div class="actions">
       <button class="button button-primary" type="submit">Apply</button>
       {% if filtered %}<a class="button button-quiet" href="{% url 'audit:audit_log' %}">Clear</a>{% endif %}
@@ -22,12 +25,12 @@
   </form>
 </details>
 <ol class="rows audit-events" aria-label="Events">
-  {% for event, label, agent in events %}
+  {% for event, label, agent, details in events %}
   <li class="row">
     <div class="row-main">
       <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
       <span class="row-meta">
-        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
+        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s T" }}</time>
         · {{ event.actor_label|default:"System" }}{% if agent %}, through {{ agent.name }}{% endif %}
         · {{ event.get_via_display }}
         {% if event.project %}· {{ event.project.name }}{% endif %}
@@ -35,9 +38,24 @@
       </span>
       <details class="event-details">
         <summary>Details</summary>
+        {% if details.changes %}
+        <div class="table-scroll">
+          <table class="table">
+            <caption class="visually-hidden">What changed</caption>
+            <thead><tr><th scope="col">Field</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+            <tbody>
+              {% for change in details.changes %}<tr><th scope="row">{{ change.label }}</th>
+                <td>{{ change.before }}</td>
+                <td>{{ change.after }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
         <dl class="summary">
           <dt>Action</dt><dd><code>{{ event.action }}</code></dd>
-          {% for key, value in event.data.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+          {% if zone != "UTC" %}<dt>In UTC</dt><dd>{{ event.occurred_at|utc|date:"j M Y, H:i:s" }} UTC</dd>{% endif %}
+          {% for fact in details.facts %}<dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd>{% endfor %}
           {% if agent %}
           <dt>Agent</dt>
           <dd>{{ agent.name }}{% if agent.client_id %} (<a href="?agent={{ agent.client_id|urlencode }}">client <code>{{ agent.client_id }}</code></a>){% endif %}</dd>
@@ -50,6 +68,12 @@
           {% if event.request_id %}<dt>Request ID</dt><dd><code>{{ event.request_id }}</code></dd>{% endif %}
           <dt>Event ID</dt><dd><code>{{ event.pk }}</code></dd>
         </dl>
+        {% if event.data %}
+        <details class="event-recorded">
+          <summary>Data as recorded</summary>
+          <pre><code>{{ details.recorded }}</code></pre>
+        </details>
+        {% endif %}
       </details>
     </div>
   </li>

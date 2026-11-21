@@ -140,6 +140,14 @@ function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
   return found;
 }
 
+/** The deployment's identity provider provisions accounts over SCIM (ADR 0026). */
+function provisionedOverScim() {
+  const meta = document.createElement("meta");
+  meta.name = "iki-provisioning";
+  meta.content = "scim";
+  document.head.append(meta);
+}
+
 describe("the frame", () => {
   it("shows the navigation each person may use", async () => {
     signedIn({
@@ -164,6 +172,37 @@ describe("the frame", () => {
       "page",
     );
     expect(document.title).toBe("Projects · Example Bio");
+  });
+
+  it("offers every section to someone who may open them all, as server pages do", async () => {
+    signedIn({
+      can: {
+        manage_org: true,
+        read_audit: true,
+        create_projects: true,
+        manage_webhooks: true,
+        read_costs: true,
+        manage_compute: true,
+      },
+    });
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["My work", "/work/"],
+      ["Projects", "/projects/"],
+      ["Types", "/types/"],
+      ["Teams", "/teams/"],
+      ["People", "/people/"],
+      ["Settings", "/settings/sign-in/"],
+      ["Costs", "/costs/"],
+      ["Compute", "/compute/"],
+      ["Audit", "/audit/"],
+    ]);
+    expect(links.filter((a) => a.getAttribute("aria-current") === "page")).toEqual([
+      within(nav).getByRole("link", { name: "Projects" }),
+    ]);
   });
 
   it("links to the person's account and their notifications", async () => {
@@ -295,7 +334,29 @@ describe("home", () => {
     answer("GET /api/v1/projects", page([]));
     await renderApp("/");
     expect(await screen.findByText("Start by creating a team")).toBeVisible();
+    expect(screen.getByText(/add people once they’ve signed in/)).toBeVisible();
     expect(screen.queryByRole("link", { name: "New project" })).toBeNull();
+  });
+
+  it("tells Org Admins that the identity provider provisions people, when it does", async () => {
+    provisionedOverScim();
+    signedIn({
+      can: {
+        manage_org: true,
+        read_audit: true,
+        create_projects: false,
+        manage_webhooks: false,
+        read_costs: false,
+        manage_compute: false,
+      },
+    });
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/");
+    expect(await screen.findByText("Start by creating a team")).toBeVisible();
+    expect(
+      screen.getByText(/add people once your identity provider provisions them/),
+    ).toBeVisible();
+    expect(screen.queryByText(/signed in/)).toBeNull();
   });
 
   it("tells everyone else whom to ask", async () => {
@@ -695,6 +756,31 @@ describe("members", () => {
         expect.stringContaining("No one with that email address has signed in to Iki yet."),
       );
     });
+    expect(calls("PUT")).toEqual([]);
+  });
+
+  it("says the identity provider provisions people, when it does", async () => {
+    provisionedOverScim();
+    signedIn();
+    onProjectPage();
+    answer(`GET ${MEMBERS}`, page(people));
+    answer(`GET /api/v1/projects/${PROJECT.id}/grantable-teams`, page([]));
+    answer("GET /api/v1/users", page([]));
+    const { user } = await renderApp("/projects/kinase-atlas/members/");
+    const email = screen.getByRole("textbox", { name: "Email address" });
+    expect(email).toHaveAccessibleDescription(
+      expect.stringContaining("People can be added once your identity provider provisions them."),
+    );
+    await user.type(email, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Add person" }));
+    await waitFor(() => {
+      expect(email).toHaveAccessibleDescription(
+        expect.stringContaining(
+          "No one with that email address has an Iki account. Your identity provider provisions them: assign Iki to them there, then add them once it has.",
+        ),
+      );
+    });
+    expect(email).not.toHaveAccessibleDescription(expect.stringContaining("signed in"));
     expect(calls("PUT")).toEqual([]);
   });
 

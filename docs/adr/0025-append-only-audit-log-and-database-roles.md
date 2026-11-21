@@ -49,6 +49,18 @@ detectable.
 project, channel, dates) and stable keyset pagination. Other roles, Org
 Admins included, can't see it unless they also hold the Auditor role.
 
+- **Times are in the viewer's time zone, and always name it,** as the web
+  app shows times. A day in the date filter is a day in that zone, so the
+  date a project's page shows for its creation finds the event.
+  - The browser tells the server its zone in a cookie. The page states the
+    zone it used, and each event also gives its time in UTC.
+  - The filter's link carries the zone (`tz`), so anyone who opens it sees
+    the same events.
+  - Without a known zone, the page is in UTC and says so.
+- **An event's details read as a change:** a table of what changed, before
+  and after, under the labels people set them with, then its other facts.
+  The data exactly as recorded is a click away.
+
 **Two database roles.**
 
 - **Migrator:** owns every table. Only the Helm migrate Job connects as it.

@@ -131,10 +131,15 @@ def set_active(user: User, active: bool, *, by: User) -> None:
             "Assign or unassign Iki for them there."
         )
     if user.is_placeholder:
-        raise Refused(
-            f"{user.email} stands for someone from {user.imported_from}: they can sign in once "
-            "someone with that email address does."
+        from iki_server.scim.tokens import scim_enabled
+
+        becomes = (
+            "it becomes their account once your identity provider provisions someone with "
+            "that email address"
+            if scim_enabled()
+            else "they can sign in once someone with that email address does"
         )
+        raise Refused(f"{user.email} stands for someone from {user.imported_from}: {becomes}.")
     with transaction.atomic():
         if not active:
             if user.pk == by.pk:
