@@ -40,6 +40,7 @@ class AssayRequest(Entity):
     )
     title = models.CharField(max_length=200)
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    assays = ArrayField(models.TextField(), null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
     form = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
@@ -69,6 +70,20 @@ class AssayRequest(Entity):
             models.CheckConstraint(
                 condition=~Q(title__regex='[\\r\\n]'),
                 name='acme__protein_assayrequest__title__one_line',
+            ),
+            models.CheckConstraint(
+                condition=checks.IsPlainList('assays'),
+                name='acme__protein_assayrequest__assays__plain_list',
+            ),
+            models.CheckConstraint(
+                condition=Q(assays__len__lte=4),
+                name='acme__protein_assayrequest__assays__max_items',
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    assays__contained_by=['sec_purity', 'intact_mass', 'peptide_map', 'endotoxin'],
+                ),
+                name='acme__protein_assayrequest__assays__item_values',
             ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('instructions'), 1),
@@ -115,6 +130,7 @@ class AssayRequest_History(models.Model):
     title = models.TextField(null=True)
     samples = ArrayField(models.UUIDField(), null=True)
     protein = models.UUIDField(db_column='protein_id', null=True)
+    assays = ArrayField(models.TextField(), null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
     form = models.UUIDField(db_column='form_id', null=True)

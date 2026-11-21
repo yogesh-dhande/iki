@@ -5724,7 +5724,7 @@
             "title": "Unit Symbol"
           },
           "values": {
-            "description": "Enums: the allowed values.",
+            "description": "Enums, and lists of them: the allowed values (for a list, its items').",
             "items": {
               "type": "string"
             },
@@ -11399,7 +11399,7 @@
             "title": "Unit Symbol"
           },
           "values": {
-            "description": "Enums: the allowed values.",
+            "description": "Enums, and lists of them: the allowed values (for a list, its items').",
             "items": {
               "type": "string"
             },

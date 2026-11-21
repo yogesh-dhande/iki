@@ -274,7 +274,9 @@ class FieldOut(Schema):
         "subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty "
         "otherwise."
     )
-    values: list[str] = Field(description="Enums: the allowed values.")
+    values: list[str] = Field(
+        description="Enums, and lists of them: the allowed values (for a list, its items')."
+    )
     items: str | None = Field(description="Lists: the type of each item.")
     role: str | None = Field(
         description="For a field naming people (`person`, or a list of them): the lab role "
@@ -1061,7 +1063,8 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         **_display(f.unit, f.display_unit),
         "input_units": _input_units(f.unit, f.display_unit),
         "to": list(f.items.to if f.type == "list" and f.items is not None else f.to),
-        "values": list(f.values),
+        # A list of choices offers its items' (`items: {type: enum, values: [...]}`).
+        "values": list(f.items.values if f.type == "list" and f.items is not None else f.values),
         "items": f.items.type if f.items is not None else None,
         "role": person_role(f),
         "role_label": lab_roles.label(role) if (role := person_role(f)) is not None else None,

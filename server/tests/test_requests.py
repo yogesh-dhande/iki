@@ -163,6 +163,26 @@ def test_a_type_says_its_records_are_requests_or_results(lab: Lab) -> None:
     assert api.get(f"/entity-types/{SAMPLE}").json()["request"] is None
 
 
+def test_a_request_names_its_assays_from_the_choices_its_list_offers(lab: Lab) -> None:
+    # A list's items' choices are the list's: a form offers them, and the type's
+    # reference lists them.
+    api = lab.api("editor")
+    fields = {f["name"]: f for f in api.get(f"/entity-types/{ASK}").json()["fields"]}
+    assert fields["assays"]["type"] == "list" and fields["assays"]["items"] == "enum"
+    assert fields["assays"]["values"] == ["sec_purity", "intact_mass", "peptide_map", "endotoxin"]
+    made = create(
+        api, lab.world.project, {"title": "Lot 12 release", "assays": ["sec_purity"]}, ASK
+    )
+    assert made.status_code == 201, made.content
+    assert made.json()["values"]["assays"] == ["sec_purity"]
+    body = problem(
+        create(api, lab.world.project, {"title": "Lot 13", "assays": ["purity"]}, ASK),
+        422,
+        "validation_failed",
+    )
+    assert [e["pointer"] for e in body["errors"]] == ["#/values/assays"]
+
+
 # --- Intake -------------------------------------------------------------------------------------
 
 

@@ -159,6 +159,50 @@ describe("creating an entity", () => {
     expect(new Set(searched)).toEqual(new Set(["iki/protein.Protein"]));
   });
 
+  it("offers a list of choices' items the list's choices, and sends those chosen", async () => {
+    signedIn();
+    const assays = ["sec_purity", "intact_mass", "peptide_map", "endotoxin"];
+    const typed: Schemas["EntityTypeOut"] = {
+      ...SAMPLE,
+      values_schema: {
+        properties: {
+          ...(SAMPLE.values_schema["properties"] as Record<string, unknown>),
+          assays: { type: "array", items: { type: "string", enum: assays } },
+        },
+      },
+      fields: [
+        ...SAMPLE.fields,
+        field({ name: "assays", label: "Assays", type: "list", items: "enum", values: assays }),
+      ],
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, typed]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(
+      "POST /api/v1/entities",
+      respond(201, { ...sample(), reused: false, registered: false }),
+    );
+    answer("GET /api/v1/entities/SMP-000001", sample());
+    answer("GET /api/v1/entities/SMP-000001/provenance", {});
+    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Plasma A");
+    await user.type(screen.getByRole("textbox", { name: "Code" }), "P-1");
+    await user.click(screen.getByRole("button", { name: "Add Assays" }));
+    const item = screen.getByRole("combobox", { name: "Assays, item 1" });
+    expect(
+      within(item)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Not set", ...assays]);
+    await user.selectOptions(item, "sec_purity");
+    await user.type(screen.getByRole("textbox", { name: /^Reason/ }), "Release testing");
+    await user.click(screen.getByRole("button", { name: "Create sample" }));
+    await screen.findByRole("heading", { level: 1, name: /^Plasma A/ });
+    expect(calls("POST", "/api/v1/entities")[0]?.body).toMatchObject({
+      values: { assays: ["sec_purity"] },
+    });
+  });
+
   it("checks what it can before sending, and focuses the first problem", async () => {
     onLab();
     answer("GET /api/v1/entities", page([]));

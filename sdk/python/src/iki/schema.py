@@ -1347,7 +1347,7 @@ class FieldOut(TypedDict):
     unit: str | None
     #: The unit as people write it, such as Å for Ao.
     unit_symbol: str | None
-    #: Enums: the allowed values.
+    #: Enums, and lists of them: the allowed values (for a list, its items').
     values: list[str]
 
 
@@ -2628,7 +2628,7 @@ class ParamOut(TypedDict):
     unit: str | None
     #: The unit as people write it, such as Å for Ao.
     unit_symbol: str | None
-    #: Enums: the allowed values.
+    #: Enums, and lists of them: the allowed values (for a list, its items').
     values: list[str]
 
 

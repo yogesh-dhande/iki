@@ -7004,7 +7004,7 @@ export interface components {
             unit_symbol: string | null;
             /**
              * Values
-             * @description Enums: the allowed values.
+             * @description Enums, and lists of them: the allowed values (for a list, its items').
              */
             values: string[];
         };
@@ -9609,7 +9609,7 @@ export interface components {
             unit_symbol: string | null;
             /**
              * Values
-             * @description Enums: the allowed values.
+             * @description Enums, and lists of them: the allowed values (for a list, its items').
              */
             values: string[];
         };
