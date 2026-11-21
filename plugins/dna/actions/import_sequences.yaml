@@ -4,26 +4,37 @@ kind: Action
 name: import_sequences
 label: Import DNA sequences from a file
 description: >-
-  Reads a FASTA or GenBank file and registers each record as a DNA sequence,
-  with its name, description, accession, organism and features where the file
-  gives them. A sequence already in Iki is found: the same bases, topology and
+  Reads a FASTA, GenBank or SnapGene (.dna) file and registers each record as a
+  DNA sequence, with its name, description, accession, organism and features
+  where the file gives them, and a SnapGene file's primers as primers bound to
+  it. A sequence already in Iki is found: the same bases, topology and
   strandedness, a circular one from any origin and a double-stranded one from
-  either strand. Each records which file and record it came from.
+  either strand. Each records which file and record it came from, and the run
+  says what of a file couldn't be kept.
 params:
   file:
     type: file
-    label: FASTA or GenBank file
+    label: FASTA, GenBank or SnapGene file
     required: true
-    media_types: [chemical/seq-na-fasta, chemical/seq-na-genbank, text/plain]
+    media_types:
+      [chemical/seq-na-fasta, chemical/seq-na-genbank, application/x-snapgene, text/plain]
     max_size: 1GiB
   topology:
     type: enum
+    label: Topology of FASTA records
     values: [linear, circular]
     default: linear
-    description: For FASTA records, which don't say. GenBank records do.
+    description: >-
+      Whether a FASTA record is circular, as FASTA doesn't say, unless its header
+      does ([topology=circular], as NCBI writes it). GenBank and SnapGene files
+      say, and their own topology is kept, whatever this is.
 effects:
   creates:
-    [{ type: DNASequence, cardinality: many }, { type: iki/core.Organism, cardinality: many }]
+    [
+      { type: DNASequence, cardinality: many },
+      { type: Primer, cardinality: many },
+      { type: iki/core.Organism, cardinality: many },
+    ]
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/imports.py]
 deterministic: true

@@ -27,6 +27,8 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
   faa: "chemical/seq-aa-fasta",
   gb: "chemical/seq-na-genbank",
   gbk: "chemical/seq-na-genbank",
+  // SnapGene's files, which have no registered type: the x- form, as AB1 traces' is.
+  dna: "application/x-snapgene",
   fastq: "text/x-fastq",
   fq: "text/x-fastq",
   sam: "text/x-sam",

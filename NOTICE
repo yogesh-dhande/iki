@@ -12,3 +12,9 @@ spec/src/iki_spec/units/UCUM-LICENSE.md or https://ucum.org/license.
 The UCUM table is provided on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 CONDITIONS OF ANY KIND, either express or implied. See the License for the
 disclaimer of warranties and the limitations under it.
+
+This product's tests include six SnapGene files from Biopython 1.88's test
+suite, server/tests/data/snapgene/*.dna, unmodified.
+Copyright the Biopython contributors. Distributed under the Biopython License
+Agreement; see server/tests/data/snapgene/BIOPYTHON-LICENSE.rst or
+https://github.com/biopython/biopython/blob/master/LICENSE.rst.

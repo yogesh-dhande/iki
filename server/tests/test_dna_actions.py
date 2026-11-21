@@ -706,7 +706,10 @@ def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -
         assert made(output)[0]["values"]["accession"] == accession
 
 
-NEITHER = "seqs.txt: It isn't FASTA (records start with '>') or GenBank (records start with LOCUS)."
+NEITHER = (
+    "seqs.txt: It isn't FASTA (records start with '>'), GenBank (records start with LOCUS) "
+    "or a SnapGene file."
+)
 
 
 def test_a_large_file_is_read_a_line_at_a_time_into_a_creates_file(tmp_path: Path) -> None:
@@ -960,3 +963,17 @@ def test_a_fetch_fails_whole_and_says_why(
     assert stopped.value.code == 1
     assert capsys.readouterr().out.splitlines()[-1] == error
     assert not (tmp_path / "out.json").exists()
+
+
+def test_a_placeholder_accession_is_no_accession(tmp_path: Path) -> None:
+    """Benchling and Biopython write `ACCESSION   .` and `VERSION     .` for a record with
+    none: the dot says there isn't one, so the record has no accession."""
+    text = GENBANK.replace("ACCESSION   L09137", "ACCESSION   .").replace(
+        "VERSION     L09137.2", "VERSION     ."
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout
+    assert output is not None
+    (record,) = made(output)
+    assert "accession" not in record["values"]
+    assert "version" not in record["origin"]

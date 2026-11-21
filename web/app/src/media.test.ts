@@ -9,6 +9,9 @@ describe("media", () => {
     expect(media.of({ name: "1abc.pdb", type: "application/vnd.palm" })).toBe("chemical/x-pdb");
     expect(media.of({ name: "7xyz.cif", type: "" })).toBe("chemical/x-mmcif");
     expect(media.of({ name: "plate.fcs", type: "" })).toBe("application/vnd.isac.fcs");
+    // SnapGene's own files, which systems without SnapGene don't know.
+    expect(media.of({ name: "pUC19.dna", type: "" })).toBe("application/x-snapgene");
+    expect(media.accept(["application/x-snapgene"])).toBe("application/x-snapgene,.dna");
   });
 
   it("keeps the browser's type for other files, or says it's unknown", () => {
