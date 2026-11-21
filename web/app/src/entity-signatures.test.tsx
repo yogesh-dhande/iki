@@ -5,7 +5,7 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
@@ -281,6 +281,43 @@ describe("a record's signatures", () => {
       return_to: "/entities/LOT-000001/",
     });
     expect(sent?.headers.get("If-Match")).toBe('"2"');
+  });
+
+  it("waits for whether it's a first signature before it can be signed", async () => {
+    onLot();
+    // What Iki knows of the signer comes later than the dialog opens.
+    let release = (): void => undefined;
+    answer(
+      "GET /api/v1/me/signing",
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve({
+              can_sign: true,
+              why_not: null,
+              acknowledged: false,
+              acknowledgment: "My electronic signature is legally binding.",
+              provider: "Acme SSO",
+              locked: false,
+            });
+          };
+        }),
+    );
+    const { user } = await renderApp("/entities/LOT-000001/");
+    const section = await screen.findByRole("region", { name: "Signatures" });
+    await user.click(within(section).getByRole("button", { name: "Sign: QA approval" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Sign LOT-000001: QA approval" });
+    const go = within(dialog).getByRole("button", { name: "Sign in again to sign" });
+    expect(go).toHaveAttribute("aria-disabled", "true");
+    await user.click(go);
+    expect(calls("POST", `/api/v1/entities/${LOT_ID}/signatures`)).toHaveLength(0);
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    // Its agreement shows before it can be pressed, not after.
+    expect(await within(dialog).findByRole("checkbox", { name: "I agree" })).not.toBeChecked();
+    expect(go).not.toHaveAttribute("aria-disabled");
   });
 
   it("says when the record changed while signing was open", async () => {
