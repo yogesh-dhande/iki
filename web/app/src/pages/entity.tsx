@@ -62,6 +62,7 @@ import { EntityAmount } from "./entity-amount";
 import { EntityState, StateBadges } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityWatch } from "./entity-watch";
+import { ExportButton } from "./entity-export";
 import {
   Badge,
   Button,
@@ -544,10 +545,13 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
       </Link>
     ) : null;
   const watch = <EntityWatch entity={entity} />;
+  // Anyone who reads it may download it (ADR 0169).
+  const exporting = <ExportButton entity={entity} type={type} />;
   if (!entity.can.edit || !type) {
     return (
       <div className="actions">
         {running}
+        {exporting}
         {watch}
       </div>
     );
@@ -571,6 +575,7 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
         </Link>
       )}
       {running}
+      {exporting}
       {watch}
       <Button
         {...(archiving ? { variant: "danger" as const } : {})}
@@ -1223,7 +1228,15 @@ function submittedText(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
-function RevisionRow({ revision, type }: { revision: Revision; type: EntityType | undefined }) {
+function RevisionRow({
+  entity,
+  revision,
+  type,
+}: {
+  entity: Entity;
+  revision: Revision;
+  type: EntityType | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const who = personName(revision.user);
   const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
@@ -1270,8 +1283,8 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
         ) : null}
         {open ? <Changes number={revision.number} type={type} /> : null}
       </div>
-      {revision.changed_fields.length ? (
-        <div className="row-actions">
+      <div className="row-actions">
+        {revision.changed_fields.length ? (
           <Button
             variant="quiet"
             label={`${open ? "Hide" : "Show"} changes in revision ${String(revision.number)}`}
@@ -1281,8 +1294,12 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
           >
             {open ? "Hide changes" : "Show changes"}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        {/* The latest is exported from the page's header. */}
+        {revision.number < entity.revision ? (
+          <ExportButton entity={entity} type={type} revision={revision.number} />
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -1405,7 +1422,7 @@ export function EntityHistory() {
       <Revisions
         query={revisions}
         label="the history"
-        row={(r) => <RevisionRow key={r.number} revision={r} type={type} />}
+        row={(r) => <RevisionRow key={r.number} entity={entity} revision={r} type={type} />}
       />
       {entry ? <EntryHistory entity={entity} type={type} /> : null}
     </>
