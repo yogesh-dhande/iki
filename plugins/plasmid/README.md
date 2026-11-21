@@ -88,7 +88,7 @@ annotated from.
     end, and Tm — and each layer's button says whether it is showing and how many it
     holds. A binding site's row names its primer, and names it as a way to that primer's
     record where Iki gave the map the project's primers
-    ([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places-than-a-tab.md));
+    ([ADR 0117](../../docs/adr/0117-components-show-many-entities-in-more-places.md));
     the map never navigates itself. A layer whose run has been and found nothing says so,
     which isn't what a layer whose run hasn't been says.
 - **`iki/plasmid.Assembly`** (`ASM-000001`): a cloning plan — a `backbone`, the

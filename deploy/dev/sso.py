@@ -2126,8 +2126,10 @@ def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[s
         fail(f"{run['hrid']} made {run['effects']}, not a DNA sequence for the product")
     product = record(alice, amplified["entity"])["values"]
     got = record(alice, pcr["id"])["values"]
-    if product.get("topology") != "linear" or product.get("length") != 103:
-        fail(f"{run['hrid']} registered {product.get('length')} bp {product.get('topology')}")
+    # Its length is computed by a run of its own (compute_composition): count its bases.
+    made_bp = len(product.get("bases") or "")
+    if product.get("topology") != "linear" or made_bp != 103:
+        fail(f"{run['hrid']} registered {made_bp} bp {product.get('topology')}, not 103 linear")
     if not product["bases"].startswith(M13_FORWARD):
         begins = product["bases"][:30]
         fail(f"{run['hrid']}'s product begins {begins}, not with the forward primer")

@@ -4,7 +4,7 @@
 - Date: 2026-11-20
 - Refines: [0163](0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md),
   [0168](0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md),
-  [0117](0117-components-show-many-entities-in-more-places-than-a-tab.md)
+  [0117](0117-components-show-many-entities-in-more-places.md)
 
 ## Context
 
