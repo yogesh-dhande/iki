@@ -91,7 +91,7 @@ from iki_live import REPO, Iki, until
 pytestmark = pytest.mark.gcp_live
 
 #: Bumped when what the suite checks changes: recorded with each passing run.
-SUITE_VERSION = "7"
+SUITE_VERSION = "8"
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -1428,10 +1428,20 @@ def compute_admin(admin: Iki) -> Iki:
     return admin
 
 
+def backend_online(compute_admin: Iki) -> bool:
+    workers = compute_admin.api("GET", "/compute/workers?limit=100").json()["items"]
+    return any(w["tier"] == "backend" and w["status"] == "online" for w in workers)
+
+
 @pytest.fixture(scope="module")
 def setup_build(deployment: Deployment, compute_admin: Iki) -> dict[str, Any]:
-    """A setup build of the live check's environment, asked for early: its machine fills
-    the volume while the other checks run."""
+    """Ask for the setup once the Gateway serves workers. The admin's port-forward can
+    already serve requests while the load balancer is still waiting for a healthy backend."""
+    until(
+        "a backend worker to register through the Gateway",
+        lambda: backend_online(compute_admin),
+        1200,
+    )
     made = compute_admin.api(
         "POST", "/compute/setups", {"environment": VM_ENVIRONMENT, "reason": "GCP live test"}
     )
@@ -1693,9 +1703,7 @@ def test_backend_workers_reach_the_server_only_at_its_load_balancers_address(
     assert [peer for rule in https for peer in rule["to"]] == [
         {"ipBlock": {"cidr": f"{address}/32"}}
     ], https
-    workers = compute_admin.api("GET", "/compute/workers?limit=100").json()["items"]
-    backend = [w for w in workers if w["tier"] == "backend" and w["status"] == "online"]
-    assert backend, workers
+    assert backend_online(compute_admin), "no backend worker is online"
 
 
 def test_the_setup_build_fills_its_volume_on_a_compute_engine_machine(
