@@ -58,5 +58,46 @@
       "test_the_setup_link_opens_the_wizard",
       "test_web_pods_are_ready_with_their_database"
     ]
+  },
+  {
+    "cloud": "aws",
+    "commit": "e22341317e69c58e2ee6c0e874c0232dccda6db4",
+    "started": "2026-11-21T02:27:58Z",
+    "duration_seconds": 6014,
+    "cost_usd": 0.56,
+    "suite_version": "1",
+    "checks": [
+      "test_a_backend_worker_computes_a_proteins_properties",
+      "test_a_file_goes_up_and_comes_down_through_urls_signed_with_short_lived_credentials",
+      "test_an_org_admin_creates_a_project_and_an_entity",
+      "test_setup_storage_finds_the_bucket_as_iki_needs_it",
+      "test_tearing_down_leaves_only_what_aws_keeps",
+      "test_the_alb_is_internal_and_named_only_inside_the_vpc",
+      "test_the_database_is_reached_privately_and_over_verified_tls",
+      "test_the_setup_link_opens_the_wizard",
+      "test_web_pods_are_ready_with_their_database"
+    ]
+  },
+  {
+    "cloud": "gcp",
+    "commit": "e22341317e69c58e2ee6c0e874c0232dccda6db4",
+    "started": "2026-11-21T02:23:19Z",
+    "duration_seconds": 3010,
+    "cost_usd": 0.7,
+    "suite_version": "8",
+    "checks": [
+      "test_a_backend_worker_computes_a_proteins_properties",
+      "test_a_compute_admin_asks_for_a_setup_build",
+      "test_a_file_goes_up_and_comes_down_through_urls_iam_signed",
+      "test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own",
+      "test_an_org_admin_creates_a_project_and_an_entity",
+      "test_backend_workers_reach_the_server_only_at_its_load_balancers_address",
+      "test_setup_storage_finds_the_bucket_as_iki_needs_it",
+      "test_tearing_down_leaves_only_what_google_cloud_keeps",
+      "test_the_database_is_reached_privately_and_over_verified_tls",
+      "test_the_setup_build_fills_its_volume_on_a_compute_engine_machine",
+      "test_the_setup_link_opens_the_wizard",
+      "test_web_pods_are_ready_with_their_database"
+    ]
   }
 ]
