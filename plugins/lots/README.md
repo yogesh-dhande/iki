@@ -43,7 +43,7 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   (`amount.material`), so a transfer into it takes only another lot of the
   same molecule, and an aliquot of it is of that molecule too. A released lot
   takes only released material, whatever its concentration.
-- **Its disposition**, which QA sets (the plugin's `iki/lots.qa` role):
+- **Its disposition**, which QA sets (the plugin's `iki/lots.qa` role, Lot QA):
 
   | State       | Locks it | Holds its amount | Signed                        | Set                                                                                                                                                                                                                                                                                                         |
   | ----------- | -------- | ---------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

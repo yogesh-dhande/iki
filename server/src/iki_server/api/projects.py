@@ -80,10 +80,11 @@ def list_lab_roles(request: HttpRequest) -> list[dict[str, Any]]:
     their project role, and what each lets its holders do. A lab role grants nothing by
     itself."""
     caller(request)
+    labels = lab_roles.labels()
     return [
         {
             "name": name,
-            "label": role.label,
+            "label": labels[name],
             "description": role.description,
             "plugin": role.plugin,
             "uses": lab_roles.uses(name),

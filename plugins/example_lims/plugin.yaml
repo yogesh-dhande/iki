@@ -46,7 +46,7 @@ roles:
     description: >-
       Checks analysts' results, and approves them or sends them back.
   qa:
-    label: QA
+    label: Sample and result QA
     description: >-
       Releases or rejects approved samples, sends released ones back when they
       need correcting, and says when an instrument's calibration is due.

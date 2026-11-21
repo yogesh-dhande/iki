@@ -8261,7 +8261,7 @@ export interface components {
             granted_by: components["schemas"]["UserOut"] | null;
             /**
              * Label
-             * @description What people call it, such as QA.
+             * @description What people call it, such as QA: with its plugin's title after it where another plugin's role has the same label, such as QA (Lots).
              */
             label: string;
             /**
@@ -8274,7 +8274,10 @@ export interface components {
         LabRoleOut: {
             /** Description */
             description: string | null;
-            /** Label */
+            /**
+             * Label
+             * @description What people call it: its label, and where another plugin's role has the same one, its plugin's title after it, such as QA (Lots).
+             */
             label: string;
             /**
              * Name

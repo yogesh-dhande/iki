@@ -7,11 +7,12 @@ a state field's states names those that set it (ADR 0125), which is what they're
 what needs them.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 
 from iki_spec.model import LabRole, is_lab_role, person_role
 
-__all__ = ["Use", "declared", "label", "uses"]
+__all__ = ["Use", "declared", "label", "labels", "uses"]
 
 
 def declared() -> dict[str, LabRole]:
@@ -24,10 +25,35 @@ def declared() -> dict[str, LabRole]:
     return out
 
 
+def labels() -> dict[str, str]:
+    """What people call each declared lab role, by qualified name: its label, and where
+    another plugin's role has the same one, its plugin's title after it, "QA (Lots)".
+
+    A plugin can't give two of its own roles one label (`duplicate-role-label`), but it
+    can't see other plugins' when it's checked. So two of them may each call a role QA,
+    and wherever they're named -- the dialog that gives them, notifications, audit
+    records, why a change was refused -- each says whose it is, as Slack and GitHub name
+    an app beside a command that two apps share.
+    """
+    from iki_server.entities import registry
+
+    plugins = registry.plugins()
+    roles = {name: role for p in plugins.values() for name, role in p.roles.items()}
+    shared = Counter(role.label.casefold() for role in roles.values())
+    return {
+        name: (
+            f"{role.label} ({plugins[role.plugin].title or role.plugin})"
+            if shared[role.label.casefold()] > 1
+            else role.label
+        )
+        for name, role in roles.items()
+    }
+
+
 def label(role: str) -> str:
-    """What people call a lab role: its label, or its name if no plugin declares it now."""
-    found = declared().get(role)
-    return found.label if found is not None else role.rpartition(".")[2]
+    """What people call a lab role (see :func:`labels`), or its name if no plugin declares
+    it now."""
+    return labels().get(role) or role.rpartition(".")[2]
 
 
 @dataclass(frozen=True)

@@ -1940,7 +1940,7 @@ class LabRoleGrantOut(TypedDict):
     declared: bool
     granted_at: str
     granted_by: UserOut | None
-    #: What people call it, such as QA.
+    #: What people call it, such as QA: with its plugin's title after it where another plugin's role has the same label, such as QA (Lots).
     label: str
     #: The lab role, by name, such as iki/example_lims.qa.
     role: str
@@ -1948,6 +1948,7 @@ class LabRoleGrantOut(TypedDict):
 
 class LabRoleOut(TypedDict):
     description: str | None
+    #: What people call it: its label, and where another plugin's role has the same one, its plugin's title after it, such as QA (Lots).
     label: str
     #: Its name, such as iki/example_lims.qa.
     name: str
