@@ -128,6 +128,7 @@ def build_version(world: World, gce: FakeGce, machines: GceFleet) -> SetupBuild:
     for image in gce.images_made.values():
         image["status"] = "READY"
     provisioner.tick(machines)
+    provisioner.tick(machines)  # Compute Engine now lists no setup disks
     done = SetupBuild.objects.get(hrid=build["hrid"])
     assert done.state == SetupState.SUCCEEDED, done.error
     return done
@@ -247,12 +248,68 @@ def test_its_disk_is_made_into_an_image_once_detached(world: World) -> None:
     assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SNAPSHOTTING
     image["status"] = "READY"
     provisioner.tick(machines)
+    provisioner.tick(machines)  # its disk is gone
     done = SetupBuild.objects.get(pk=build["id"])
     assert (done.state, done.data_version) == (SetupState.SUCCEEDED, "2026-10")
     record.refresh_from_db()
     assert (record.state, record.message) == (VolumeState.READY, "")
     # Its disk has served its purpose.
     assert gce.disks_made[(disk["zone"], disk["disk"])]["status"] == "DELETED"
+
+
+@pytest.mark.parametrize("recorded", [True, False])
+def test_a_build_waits_for_disks_from_all_attempts(
+    world: World, recorded: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build = ask(world)
+    gce = FakeGce()
+    machines = fleet(gce)
+    provisioner.tick(machines)
+    first = setup_launch()
+    instance = live(gce, first)
+    if recorded:
+        instance["status"] = "RUNNING"
+        provisioner.tick(machines)
+    instance["status"] = "TERMINATED"
+    provisioner.tick(machines)
+    second = setup_launch()
+    assert second.pk != first.pk
+    first.refresh_from_db()
+    assert bool(first.volumes) == recorded
+    run_script(gce, machines)
+    provisioner.tick(machines)
+    (image,) = gce.images_made.values()
+    assert image["sourceDisk"].endswith(f"/{second.machine}-d1")
+    image["status"] = "READY"
+
+    old = gce.disks_made[(first.zone, f"{first.machine}-d1")]
+    filled = gce.disks_made[(second.zone, f"{second.machine}-d1")]
+    other = {**old, "name": "other-disk", "labels": {**old["labels"], OWNER_LABEL: "other"}}
+    gce.disks_made[(first.zone, other["name"])] = other
+    old["users"] = ["still-detaching"]
+    provisioner.tick(machines)
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SNAPSHOTTING
+    assert old["status"] == "READY"
+    assert filled["status"] == "DELETED"
+    # A delete request returns before Compute Engine stops listing the disk.
+    requests = []
+
+    def begin_delete(project: str, zone: str, name: str) -> None:
+        requests.append((project, zone, name))
+        old["status"] = "DELETING"
+
+    monkeypatch.setattr(gce, "delete_disk", begin_delete)
+    old["users"] = []
+    provisioner.tick(machines)
+    assert old["status"] == "DELETING"
+    provisioner.tick(machines)
+    assert old["status"] == "DELETING"
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SNAPSHOTTING
+    assert requests == [(PROJECT, first.zone, old["name"])]
+    old["status"] = "DELETED"
+    provisioner.tick(machines)
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SUCCEEDED
+    assert other["status"] == "READY"
 
 
 def test_an_image_that_fails_fails_the_build_and_goes(world: World) -> None:
