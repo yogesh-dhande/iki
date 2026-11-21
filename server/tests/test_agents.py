@@ -262,12 +262,12 @@ def test_the_audit_log_finds_what_an_agent_or_a_grant_did(world: World) -> None:
     auditor = world.browser("auditor")
     page = auditor.get("/audit/", {"agent": client.client_id})
     assert page.status_code == 200, page.content
-    shown = sorted((e.action, a and a["name"]) for e, _, a in page.context["events"])
+    shown = sorted((e.action, a and a["name"]) for e, _, a, _ in page.context["events"])
     # Not the other app's, nor the consent given in the web app.
     assert shown == [("project.archived", "Old name"), ("project.updated", client.display_name())]
 
     by_grant = auditor.get("/audit/", {"grant": str(grant)})
-    assert [e.action for e, _, _ in by_grant.context["events"]] == ["project.updated"]
+    assert [e.action for e, *_ in by_grant.context["events"]] == ["project.updated"]
     text = by_grant.content.decode()
     assert f"{admin.email}, through {client.display_name()}" in text
     assert 'claude-opus-5-5 <span class="muted">(as the agent reports it)</span>' in text
