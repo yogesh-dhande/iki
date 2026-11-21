@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from component_frames import ERRORS, PLUGINS, open_frame, serving
+from component_frames import ERRORS, PLUGINS, open_frame, place, serving
 from playwright.sync_api import Browser
 from test_browser import (  # noqa: F401 - fixtures
     AXE,
@@ -145,14 +145,43 @@ def test_the_composition_tab_shows_its_parts_and_masses(
     page.context.close()
 
 
-def test_a_complex_not_yet_computed_says_so(browser: Browser, frame_server: str) -> None:
+COMPUTE = "iki/complex.compute_composition"
+TAB = {"slot": "entity.tab", "label": "Composition"}
+
+
+def test_a_complex_not_yet_computed_says_how_its_computed(
+    browser: Browser, frame_server: str
+) -> None:
+    # Its trigger is a project's, and off until someone turns it on (ADR 0080), so the
+    # tab doesn't promise it's computed when it's registered: it names the action, and
+    # offers it where the person viewing it may run it.
     values = {"components": TRASTUZUMAB_VALUES["components"]}
     page = open_frame(browser, frame_server, "composition.js", {**TRASTUZUMAB, "values": values})
     status = page.get_by_role("status")
     status.wait_for(timeout=30_000)
     assert status.text_content() == (
-        "ABY-000001 has no formula computed yet: it's computed from its parts when it's registered."
+        "ABY-000001 has no formula yet. Compute a complex's composition works it out from its "
+        "parts; a project can run it on each complex it gets, with its trigger Compute each "
+        "new complex's composition."
     )
+    # Until the page says it may be run here, nothing is offered.
+    assert page.get_by_role("button", name="Compute composition").count() == 0
+    place(page, "complex-composition", {**TAB, "runs": []})
+    assert page.get_by_role("button", name="Compute composition").count() == 0
+    place(page, "complex-composition", {**TAB, "runs": [COMPUTE]})
+    page.get_by_role("button", name="Compute composition").click()
+    assert page.evaluate("window.ran") == [COMPUTE]
+    assert ERRORS[page] == []
+    assert page.evaluate("window.refused") == []
+    page.context.close()
+
+
+def test_a_computed_complex_offers_nothing_to_run(browser: Browser, frame_server: str) -> None:
+    page = open_frame(browser, frame_server, "composition.js", TRASTUZUMAB)
+    page.get_by_role("heading", name="Composition").wait_for(timeout=30_000)
+    place(page, "complex-composition", {**TAB, "runs": [COMPUTE]})
+    page.get_by_role("table", name="Formula, masses and extinction coefficient").wait_for()
+    assert page.get_by_role("button", name="Compute composition").count() == 0
     page.context.close()
 
 
@@ -274,6 +303,27 @@ def test_it_passes_wcag_22_aa(browser: Browser, frame_server: str, scheme: str) 
     )
     page.get_by_role("heading").first.wait_for(timeout=30_000)
     page.get_by_text("Its 16 bonds").click()
+    page.evaluate(AXE.read_text())
+    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+    page.context.close()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_its_empty_state_passes_wcag_22_aa(
+    browser: Browser, frame_server: str, scheme: str
+) -> None:
+    values = {"components": TRASTUZUMAB_VALUES["components"]}
+    page = open_frame(
+        browser,
+        frame_server,
+        "composition.js",
+        {**TRASTUZUMAB, "values": values},
+        color_scheme=scheme,
+        bypass_csp=True,
+    )
+    place(page, "complex-composition", {**TAB, "runs": [COMPUTE]})
+    button = page.get_by_role("button", name="Compute composition")
+    button.focus()
     page.evaluate(AXE.read_text())
     assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     page.context.close()

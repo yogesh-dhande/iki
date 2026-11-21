@@ -14,6 +14,13 @@
 // below it with its coordinates, so nothing is told by colour alone. The two views are
 // buttons in a group, reachable and operable from the keyboard like any button, each
 // saying whether it is the view being shown (`aria-pressed`).
+//
+// Until the plasmid is annotated it says which action annotates it, and offers that
+// action where the person viewing it may run it (ADR 0169): the trigger that annotates
+// each new plasmid is each project's, and off until someone turns it on.
+
+//: The action that annotates a plasmid, which the map offers while it isn't drawn.
+const ANNOTATE = "iki/plasmid.annotate_plasmid";
 
 const STYLE = `
   :host { display: block; color: CanvasText; background: Canvas; padding: 1rem; border-radius: 8px;
@@ -49,6 +56,9 @@ const STYLE = `
   dt { font-weight: 600; }
   dd { margin: 0; }
   .note { color: color-mix(in srgb, CanvasText 70%, Canvas); }
+  .run { font: inherit; color: Canvas; background: CanvasText; cursor: pointer;
+    padding: 0.375rem 0.875rem; border: 1px solid CanvasText; border-radius: 6px; }
+  .run:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
 `;
 
 // A colour per role, each readable on Canvas in both light and dark, and each part also
@@ -459,6 +469,13 @@ class PlasmidMap extends HTMLElement {
     this.attachShadow({ mode: "open" });
     //: Which drawing is shown: the ring, or the line. A circle opens on its ring.
     this.view = "ring";
+    //: Where it is, as Iki says: which actions the person may run here.
+    this.at = null;
+  }
+
+  set place(place) {
+    this.at = place;
+    if (this.held) this.draw();
   }
 
   set entity(entity) {
@@ -487,14 +504,23 @@ class PlasmidMap extends HTMLElement {
       features.length > 0 ||
       (typeof values.annotated_with === "string" && values.annotated_with !== "");
     if (!length || !annotated) {
-      this.shadowRoot.replaceChildren(
+      const children = [
         style,
         element(
           "p",
           { role: "status" },
-          "Its map isn't drawn yet: it's drawn once the plasmid is annotated from the library, which happens when a project gets it.",
+          "Its map isn't drawn yet: it's drawn once the plasmid is annotated from the library, by Annotate a plasmid from the library. A project can run it on each plasmid it gets, with its trigger Annotate each new plasmid from the library.",
         ),
-      );
+      ];
+      if (this.at?.runs?.includes(ANNOTATE)) {
+        const button = element("button", { type: "button", className: "run" });
+        button.textContent = "Run annotation";
+        button.addEventListener("click", () => {
+          this.dispatchEvent(new CustomEvent("iki-run", { detail: { action: ANNOTATE } }));
+        });
+        children.push(element("p", {}, button));
+      }
+      this.shadowRoot.replaceChildren(...children);
       return;
     }
     const kept = features

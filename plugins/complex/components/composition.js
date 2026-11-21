@@ -25,7 +25,14 @@ const STYLE = `
   details { margin-top: 0.5rem; }
   summary { cursor: pointer; }
   summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  button { font: inherit; color: Canvas; background: CanvasText; cursor: pointer;
+    padding: 0.375rem 0.875rem; border: 1px solid CanvasText; border-radius: 6px; }
+  button:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
 `;
+
+// The action that computes what this tab shows, which it offers while it's empty where
+// the person viewing it may run it (ADR 0169): Iki's run page then runs it.
+const COMPUTE = "iki/complex.compute_composition";
 
 // A cystine's molar extinction coefficient at 280 nm in water, L/(mol.cm), as
 // compute_composition weighs it (Pace et al., Protein Sci 4:2411, 1995): each disulfide
@@ -274,9 +281,44 @@ class Composition extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this.held = null;
+    //: Where it is, as Iki says: which actions the person may run here.
+    this.at = null;
   }
 
   set entity(entity) {
+    this.held = entity;
+    this.draw();
+  }
+
+  set place(place) {
+    this.at = place;
+    if (this.held) this.draw();
+  }
+
+  /** What to do while its formula isn't computed: what computes it, and that action,
+   * where the person may run it here. Its trigger is each project's, and off until
+   * someone turns it on, so whether it runs by itself isn't promised. */
+  empty(entity) {
+    const out = [
+      element(
+        "p",
+        { role: "status" },
+        `${entity?.hrid ?? "It"} has no formula yet. Compute a complex's composition works it out from its parts; a project can run it on each complex it gets, with its trigger Compute each new complex's composition.`,
+      ),
+    ];
+    if (this.at?.runs?.includes(COMPUTE)) {
+      const button = element("button", { type: "button" }, "Compute composition");
+      button.addEventListener("click", () => {
+        this.dispatchEvent(new CustomEvent("iki-run", { detail: { action: COMPUTE } }));
+      });
+      out.push(element("p", {}, button));
+    }
+    return out;
+  }
+
+  draw() {
+    const entity = this.held;
     const style = element("style");
     style.textContent = STYLE;
     const values = entity?.values ?? {};
@@ -295,13 +337,7 @@ class Composition extends HTMLElement {
     );
     const out = [style, element("h2", {}, "Composition"), summary, partsTable(entity, components)];
     if (!values.molecular_formula) {
-      out.push(
-        element(
-          "p",
-          { role: "status" },
-          `${entity?.hrid ?? "It"} has no formula computed yet: it's computed from its parts when it's registered.`,
-        ),
-      );
+      out.push(...this.empty(entity));
     } else {
       const theirs = values.part_disulfides ?? 0;
       out.push(massesTable(values, disulfides, theirs));

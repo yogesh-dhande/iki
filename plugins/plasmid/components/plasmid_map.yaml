@@ -1,16 +1,22 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# A plasmid's map, drawn round a circle: Iki's own sequence viewer draws a sequence in
-# rows, which a plasmid isn't read as. It draws the annotation the plugin's actions find
-# (ADR 0084); Iki sets `entity` to the plasmid, as the person viewing it may read it.
+# A plasmid's map, a circle round a ring and a linear plasmid along a line (ADR 0168):
+# Iki's own sequence viewer draws a sequence in rows, which a plasmid isn't read as. It
+# draws the annotation the plugin's actions find (ADR 0084); Iki sets `entity` to the
+# plasmid, as the person viewing it may read it. Its description is above both views, so
+# it names both.
 apiVersion: iki/v1
 kind: Component
 name: plasmid_map
 label: Map
 description: >-
-  The plasmid round a circle, each annotated part an arc pointing the way its strand
-  runs, with its coordinates, how much of the library's part matched, and where that
-  part's bases are from.
+  The plasmid drawn as the molecule it is, round a ring for a circle and along a line
+  for a linear one or a circle cut at base 1, each annotated part pointing the way its
+  strand runs, with its coordinates, how much of the library's part matched, and where
+  that part's bases are from.
 module: ./components/plasmid-map.js
 element: plasmid-map
 slots: [{ slot: entity.tab, type: Plasmid }]
+# Until the plasmid is annotated, the map offers the action that annotates it, where the
+# person viewing it may run it (ADR 0169).
+events: { run: { actions: [annotate_plasmid] } }
