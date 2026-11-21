@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from django import forms
+from django.utils.functional import lazy
 
 from iki_server.accounts.models import User
 from iki_server.org.models import (
@@ -22,24 +23,53 @@ class TeamForm(forms.Form):
     )
 
 
+def once_they_have_an_account() -> str:
+    """When someone new can be added: once they have an account. With provisioning on,
+    only the identity provider makes accounts, and a first sign-in is refused (ADR 0026),
+    as GitHub's managed users and Slack's provisioned members are."""
+    from iki_server.scim.tokens import scim_enabled
+
+    if scim_enabled():
+        return "once your identity provider provisions them"
+    return "once they’ve signed in to Iki for the first time"
+
+
+def _person_help() -> str:
+    return (
+        f"People can be added {once_they_have_an_account()}. Add a service account by its address."
+    )
+
+
+def _registrar_help() -> str:
+    return (
+        "They curate its entries' facts and supersede mistaken entries. People can be "
+        f"appointed {once_they_have_an_account()}."
+    )
+
+
 class PersonField(forms.EmailField):
-    """An email address of someone who has signed in to Iki before."""
+    """An email address of someone who has an Iki account."""
 
     def __init__(self, **kwargs: Any) -> None:  # noqa: ANN401
         kwargs.setdefault("label", "Email address")
         kwargs.setdefault("max_length", 254)
-        kwargs.setdefault(
-            "help_text",
-            "People can be added once they’ve signed in to Iki for the first time. Add a "
-            "service account by its address.",
-        )
+        # Worked out as the form is shown: provisioning can be turned on and off.
+        kwargs.setdefault("help_text", lazy(_person_help, str)())
         super().__init__(**kwargs)
         self.widget.attrs.update({"autocomplete": "off", "spellcheck": "false"})
 
     def clean(self, value: Any) -> User:  # noqa: ANN401
+        from iki_server.scim.tokens import scim_enabled
+
         email = super().clean(value)
         user = User.objects.filter(email=email).first()
         if user is None:
+            if scim_enabled():
+                raise forms.ValidationError(
+                    "No one with that email address has an Iki account. Your identity "
+                    "provider provisions them: assign Iki to them there, then add them once "
+                    "it has."
+                )
             raise forms.ValidationError(
                 "No one with that email address has signed in to Iki yet. Ask them to sign in "
                 "once, then add them."
@@ -141,10 +171,7 @@ class RegistryForm(forms.Form):
 
 
 class AppointRegistrarForm(forms.Form):
-    person = PersonField(
-        help_text="They curate its entries' facts and supersede mistaken entries. People can "
-        "be appointed once they've signed in to Iki for the first time."
-    )
+    person = PersonField(help_text=lazy(_registrar_help, str)())
 
 
 class LegalHoldForm(forms.Form):

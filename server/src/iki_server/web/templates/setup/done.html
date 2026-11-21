@@ -7,11 +7,15 @@
 <section class="card">
   <h1>Iki is ready</h1>
   <div class="alert alert-success" role="status"><p>Setup is complete. Everyone in your organization can now sign in with your identity provider.</p></div>
+  {% if provisioned %}
+  <p>You’re an Org Admin. People get an Iki account when your identity provider provisions them over SCIM, with no access to anything until they join a team or project.</p>
+  {% else %}
   <p>You’re an Org Admin. People get an Iki account the first time they sign in, with no access to anything until they join a team or project.</p>
+  {% endif %}
   <h2>Next steps</h2>
   <ol>
-    <li><a href="{% url 'org:team_list' %}">Create a team</a> and add people to it once they’ve signed in.</li>
-    <li>Team members create projects and invite others.</li>
+    <li><a href="{% url 'org:team_list' %}">Create a team</a> and add people to it once {% if provisioned %}they’re provisioned{% else %}they’ve signed in{% endif %}.</li>
+    <li>Team members create projects and add others.</li>
   </ol>
   <p><a class="button button-primary" href="{% url 'home' %}">Go to Iki</a></p>
 </section>

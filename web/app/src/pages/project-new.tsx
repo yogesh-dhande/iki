@@ -65,7 +65,7 @@ export function ProjectNew() {
       <PageTitle>New project</PageTitle>
       {teams.length > 0 ? (
         <>
-          <p>You’ll be the project’s Admin and can invite others.</p>
+          <p>You’ll be the project’s Admin and can add others.</p>
           {form.alert}
           <form {...form.props} onSubmit={submit}>
             <SelectField

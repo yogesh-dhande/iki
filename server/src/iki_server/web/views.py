@@ -38,7 +38,16 @@ def app(request: HttpRequest, **_: str) -> HttpResponse:
     except frontend.AppNotBuilt:
         logger_web.exception("web_app_not_built")
         assets = None
-    return render(request, "web/app.html", {"assets": assets}, status=200 if assets else 503)
+    from iki_server.scim.tokens import scim_enabled
+
+    return render(
+        request,
+        "web/app.html",
+        # Whether accounts come only from the identity provider (ADR 0026), for the forms
+        # that add people: the same for everyone.
+        {"assets": assets, "provisioning": "scim" if scim_enabled() else ""},
+        status=200 if assets else 503,
+    )
 
 
 def _without_query(url: Any) -> str | None:  # noqa: ANN401

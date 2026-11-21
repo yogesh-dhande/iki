@@ -22,7 +22,7 @@ import {
   type RoleName,
 } from "../api";
 import { required, useForm } from "../forms";
-import { usePageTitle } from "../layout";
+import { onceTheyHaveAnAccount, provisionedOverScim, usePageTitle } from "../layout";
 import {
   Badge,
   Button,
@@ -476,12 +476,18 @@ function AddPerson({ project, roles }: { project: Project; roles: Role[] }) {
     const person = await findPerson(email);
     if (!person) {
       throw lookupFailed(
-        "No one with that email address has signed in to Iki yet. Ask them to sign in once, then add them.",
+        provisionedOverScim()
+          ? "No one with that email address has an Iki account. Your identity provider provisions them: assign Iki to them there, then add them once it has."
+          : "No one with that email address has signed in to Iki yet. Ask them to sign in once, then add them.",
       );
     }
     if (person.imported_from) {
       throw lookupFailed(
-        `They’re only known here from records imported from ${person.imported_from}: add them once they’ve signed in.`,
+        `They’re only known here from records imported from ${person.imported_from}: add them ${
+          provisionedOverScim()
+            ? "once your identity provider provisions them"
+            : "once they’ve signed in"
+        }.`,
       );
     }
     if (!person.active) {
@@ -530,7 +536,7 @@ function AddPerson({ project, roles }: { project: Project; roles: Role[] }) {
           value={email}
           onChange={setEmail}
           error={form.errors["email"]}
-          help="People can be added once they’ve signed in to Iki for the first time. Add a service account by its address."
+          help={`People can be added ${onceTheyHaveAnAccount()}. Add a service account by its address.`}
           maxLength={254}
         />
         <RadioField label="Role" value={role} onChange={setRole} options={roleOptions(roles)} />

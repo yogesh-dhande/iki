@@ -108,6 +108,18 @@ def test_app_pages_load_the_app_with_the_session_and_csrf_token(world: World, pa
     assert '<link rel="stylesheet" href="/static/iki/iki.css">' in html
 
 
+def test_app_pages_say_whether_the_identity_provider_provisions_accounts(world: World) -> None:
+    """So the forms that add people say how someone new gets an account (ADR 0026)."""
+    from iki_server.scim import tokens
+
+    meta = '<meta name="iki-provisioning" content="{}">'
+    assert meta.format("") in world.browser("admin").get("/projects/").content.decode()
+    tokens.create(by=world.users["org_admin"])
+    assert meta.format("scim") in world.browser("admin").get("/projects/").content.decode()
+    tokens.revoke(by=world.users["org_admin"])
+    assert meta.format("") in world.browser("admin").get("/projects/").content.decode()
+
+
 def test_app_pages_carry_no_data(world: World) -> None:
     # Everything comes from the API, which decides who sees what; the page is
     # the same for everyone, so it can't leak which projects exist.

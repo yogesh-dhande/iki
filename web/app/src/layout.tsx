@@ -18,6 +18,24 @@ export function organizationName(): string {
   );
 }
 
+/**
+ * Whether accounts come only from the identity provider, over SCIM (ADR 0026). Then a
+ * first sign-in from someone it hasn't provisioned is refused, so the forms that add
+ * people say to provision them rather than to sign in.
+ */
+export function provisionedOverScim(): boolean {
+  return (
+    document.querySelector<HTMLMetaElement>('meta[name="iki-provisioning"]')?.content === "scim"
+  );
+}
+
+/** When someone new can be added: once they have an account. */
+export function onceTheyHaveAnAccount(): string {
+  return provisionedOverScim()
+    ? "once your identity provider provisions them"
+    : "once they’ve signed in to Iki for the first time";
+}
+
 /** Sets the document title the way server pages do: "Page · Organization". */
 export function usePageTitle(title: string | undefined): void {
   useEffect(() => {

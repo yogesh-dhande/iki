@@ -15,6 +15,7 @@ from iki_server.org.models import (
     Project,
     ProjectMembership,
     ProjectRole,
+    Registry,
     Team,
     TeamMembership,
 )
@@ -112,6 +113,59 @@ def test_unknown_and_deactivated_people_cant_be_added(world: World) -> None:
     path = f"/projects/{project_id(world)}/members/users/{inactive['id']}"
     body = problem(admin.put(path, {"role": "viewer"}), 409, "refused")
     assert "deactivated" in body["detail"]
+
+
+@pytest.mark.parametrize("scim", [False, True])
+def test_team_forms_say_how_someone_new_gets_an_account(world: World, scim: bool) -> None:
+    """With provisioning on, only the identity provider makes accounts (ADR 0026): a
+    first sign-in is refused, so the forms say to provision them, not to sign in."""
+    from iki_server.scim import tokens
+
+    if scim:
+        tokens.create(by=world.users["org_admin"])
+    admin = world.browser("org_admin")
+    team = admin.get(f"/teams/{world.team.slug}/").content.decode()
+    refused = post(admin, f"/teams/{world.team.slug}/", {"person": "new@example.com"})
+    said = refused.content.decode()
+    registry = admin.get(f"/settings/registries/{Registry.default().pk}/").content.decode()
+    setup_done = admin.get("/setup/done/").content.decode()
+    if scim:
+        assert "People can be added once your identity provider provisions them." in team
+        assert (
+            "No one with that email address has an Iki account. Your identity provider "
+            "provisions them: assign Iki to them there, then add them once it has."
+        ) in said
+        assert "be appointed once your identity provider provisions them." in registry
+        assert "when your identity provider provisions them" in setup_done
+        pages = team + said + registry + setup_done
+        assert "signed in" not in pages and "sign in once" not in pages
+    else:
+        assert "People can be added once they’ve signed in to Iki for the first time." in team
+        assert (
+            "No one with that email address has signed in to Iki yet. Ask them to sign in "
+            "once, then add them."
+        ) in said
+        assert "be appointed once they’ve signed in to Iki for the first time." in registry
+        assert "the first time they sign in" in setup_done
+
+
+@pytest.mark.parametrize("scim", [False, True])
+def test_a_placeholder_says_how_it_becomes_someones_account(world: World, scim: bool) -> None:
+    from iki_server.scim import tokens
+
+    if scim:
+        tokens.create(by=world.users["org_admin"])
+    placeholder = User.objects.create_user("ada@example.com", "Ada Lovelace")
+    User.objects.filter(pk=placeholder.pk).update(imported_from="Example CRO")
+    placeholder.refresh_from_db()
+    with pytest.raises(services.Refused) as refused:
+        services.set_active(placeholder, False, by=world.users["org_admin"])
+    if scim:
+        assert "once your identity provider provisions someone with that email" in str(
+            refused.value
+        )
+    else:
+        assert "they can sign in once someone with that email address does" in str(refused.value)
 
 
 # --- Project members -----------------------------------------------------------

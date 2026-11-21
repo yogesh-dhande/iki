@@ -359,4 +359,8 @@ def complete(request: HttpRequest) -> HttpResponse:
 def done(request: HttpRequest) -> HttpResponse:
     if not (Installation.get().is_set_up and request.user.is_authenticated):
         return redirect("home")
-    return render(request, "setup/done.html", {"steps": STEPS, "step": 5})
+    from iki_server.scim.tokens import scim_enabled
+
+    return render(
+        request, "setup/done.html", {"steps": STEPS, "step": 5, "provisioned": scim_enabled()}
+    )
