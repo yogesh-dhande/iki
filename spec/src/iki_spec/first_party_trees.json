@@ -21,7 +21,8 @@
     ],
     "iki/complex": [
       "780a4315f60f3e764568272e9b0c9b2f0083cea7",
-      "bd4dc174dd767a29f437c616dc795e2765af91eb"
+      "bd4dc174dd767a29f437c616dc795e2765af91eb",
+      "3cf9c0dd593c7a80462311a0e6b04cc5db40e94b"
     ],
     "iki/dna": [
       "40397192fc2432cf43b2c249c3db77cab5afce6d",
@@ -57,7 +58,8 @@
       "377f54f40d71081afac41d752697af37496aa2f4",
       "abf29a6a1ca42bb782498aabf91cc62a2e1a4378",
       "08d841126ea504bc76ba606de672eeadb35279ee",
-      "4536f75ff458126bee70644834f4dd292d7321fb"
+      "4536f75ff458126bee70644834f4dd292d7321fb",
+      "7216afb1f6855e2da47569abfc048876ab8a268a"
     ],
     "iki/example_models": [
       "3667e222ea15d2c33f34083206e6896ad8e78d36",
@@ -67,14 +69,16 @@
     "iki/lots": [
       "a834be1e2af8eb1955104121169203bf085bcf71",
       "fc71f9dba4055920a2c101b331d6aeae53534c40",
-      "3b7e4c9c6b6c958b7d1f88aae2349a5e0dcbb423"
+      "3b7e4c9c6b6c958b7d1f88aae2349a5e0dcbb423",
+      "0980235ea534a97cbb358cdd43f0edee99ba35d8"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",
       "8fc295d75cce83119fab426cc910980d0e8509e7",
       "da9fef958f46967df3e18a3a8bc69694b434cde8",
       "0e8cb1a2710368fb3627582d910e163799b958c6",
-      "5abad0d82d52bd0b47c8946cb7dc47fbd9be7289"
+      "5abad0d82d52bd0b47c8946cb7dc47fbd9be7289",
+      "346811c19488e590e5d5d4905ce89e04d414fb01"
     ],
     "iki/plasmid": [
       "e3e1448a0e8247e6be0f50c31d96945f00192e2e",
@@ -84,7 +88,8 @@
       "312e238a0022fd0919e5ff33f05ae8787ac85e75",
       "de5d0dfb5880bf2d82288f9763b7ff0511d3260a",
       "08dda43f5f3bc588913447f12ad3fdcb9769df1f",
-      "f928371d78e4eabf27ee23696f1d2d111e818f89"
+      "f928371d78e4eabf27ee23696f1d2d111e818f89",
+      "3026212c09ad54bd1bbc235dc8266881a026ed3e"
     ],
     "iki/protein": [
       "25079b3b2f8236772c7b7fc514e00d0d93499027",
@@ -112,7 +117,8 @@
       "91f372eae980d94bd450fe8ad707fc87260c06ac",
       "c6424fb2a2e4f01ae61671e94a88082363031f96",
       "c6d3b0a4020cc7cafac622bf0233a5a62d72b0ea",
-      "625f8a9ff963913f753cdff7b195303413b1acd1"
+      "625f8a9ff963913f753cdff7b195303413b1acd1",
+      "81b020b08b5880479e1c5f03da4cd63d0dcf0673"
     ]
   }
 }
