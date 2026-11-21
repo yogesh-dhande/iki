@@ -30,6 +30,8 @@ expect:
           length: 18
           molecular_formula: "C234H340N61O128P17S17"
           molecular_weight: 7127.17
+          # EMA's 7,501.0 g/mol for nusinersen sodium: 17 sodiums for 17 protons.
+          molecular_weight_sodium: 7500.86
           monoisotopic_mass: 7122.2763
           modifications:
             ["2′-O-Methoxyethylribose (18)", "5-Methylcytosine (4)", "Phosphorothioate (17)"]

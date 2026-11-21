@@ -103,7 +103,11 @@ nobody states it.** `Assembly.simulated_topology` is computed by the run:
   plasmid. It takes no inserts, which a rule keeps.
 
 A plan that could make several molecules still makes none, and says which they
-are; the check against the clone's sequence settles it, as it did for circles.
+are, largest first, as a gel reads them; the check against the clone's sequence
+settles it, as it did for circles. To see the bands without making anything,
+`virtual_digest` lists every fragment of each of the plan's parts in its
+`fragments`, with where it lies and the enzyme and overhang at each end, as
+SnapGene's and Benchling's virtual digests do.
 A product of another topology is not what the plan makes, however its bases
 read, so a clone stated as linear can't pass for a plasmid and nobody reaches
 Checked on it.

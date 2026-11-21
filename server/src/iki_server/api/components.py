@@ -78,6 +78,11 @@ class ComponentOut(Schema):
     selects: str | None = Field(
         description="The type of the entities a person can select in it, or null."
     )
+    runs: list[str] = Field(
+        description="The actions it may offer to run on its tab's entity, qualified (ADR "
+        "0170): the page opens Iki's run page for one it asks for, and tells it, as "
+        "`place.runs`, those the person viewing it may run there now."
+    )
     sha256: str = Field(description="Its module's SHA-256: the code its frames run.")
     frame: str = Field(description='The page to show it in, in `<iframe sandbox="allow-scripts">`.')
 
@@ -109,6 +114,7 @@ def _out(component: Component) -> dict[str, Any]:
         if many is not None
         else None,
         "selects": component.selects or None,
+        "runs": list(component.runs),
         "sha256": component.sha256,
         "frame": reverse("component_frame", args=[component.qualified_name, component.sha256]),
     }

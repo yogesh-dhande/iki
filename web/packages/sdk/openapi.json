@@ -2859,6 +2859,14 @@
             "title": "Plugin",
             "type": "string"
           },
+          "runs": {
+            "description": "The actions it may offer to run on its tab's entity, qualified (ADR 0170): the page opens Iki's run page for one it asks for, and tells it, as `place.runs`, those the person viewing it may run there now.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
           "selects": {
             "anyOf": [
               {
@@ -2893,6 +2901,7 @@
           "slots",
           "entities",
           "selects",
+          "runs",
           "sha256",
           "frame"
         ],
@@ -8384,7 +8393,7 @@
             ]
           },
           "label": {
-            "description": "What people call it, such as QA.",
+            "description": "What people call it, such as QA: with its plugin's title after it where another plugin's role has the same label, such as QA (Lots).",
             "title": "Label",
             "type": "string"
           },
@@ -8418,6 +8427,7 @@
             "title": "Description"
           },
           "label": {
+            "description": "What people call it: its label, and where another plugin's role has the same one, its plugin's title after it, such as QA (Lots).",
             "title": "Label",
             "type": "string"
           },

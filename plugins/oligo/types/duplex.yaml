@@ -4,7 +4,7 @@ kind: EntityType
 name: Duplex
 label: Duplex
 label_plural: Duplexes
-schema_version: 1
+schema_version: 2
 description: >-
   Two oligonucleotide strands annealed: an siRNA's sense and antisense strands, by
   their registry entries. Its strands are its identity, by role, in either order, so
@@ -97,6 +97,7 @@ fields:
     registry: derived
     max_length: 1000
     computed: true
+    label: Molecular formula (free acid)
     description: Its two strands' formulas together, as the free acid.
   molecular_weight:
     type: quantity
@@ -105,6 +106,18 @@ fields:
     computed: true
     indexed: true
     min: 0
+    label: Molecular weight (free acid)
     description: Its two strands' weights together, as the free acid.
+  molecular_weight_sodium:
+    type: quantity
+    registry: derived
+    unit: g/mol
+    computed: true
+    min: 0
+    label: Molecular weight (sodium salt)
+    description: >-
+      Its two strands' weights together as their sodium salts, as marketed
+      siRNAs are: patisiran is 13,424 Da as the free acid and 14,304 Da as
+      patisiran sodium (EMA). None unless both strands have one.
 display:
   title: "{{ name or hrid }}"

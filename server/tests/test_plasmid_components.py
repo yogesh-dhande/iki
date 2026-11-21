@@ -17,7 +17,7 @@ import urllib.parse
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from playwright.sync_api import Browser, Page
@@ -66,6 +66,9 @@ document.addEventListener("securitypolicyviolation", (e) => {
 await customElements.whenDefined("plasmid-map");
 const element = document.createElement("plasmid-map");
 element.entity = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0170).
+window.ran = [];
+element.addEventListener("iki-run", (e) => window.ran.push(e.detail?.action));
 document.body.append(element);
 """
 
@@ -343,6 +346,57 @@ def test_a_plasmid_not_annotated_yet_says_so_rather_than_drawing_nothing(
     context.close()
 
 
+ANNOTATE = "iki/plasmid.annotate_plasmid"
+
+
+def _place(page: Page, runs: list[str]) -> None:
+    """Sets the element's place, as Iki's bridge does once the page says where it is."""
+    page.evaluate(
+        "(runs) => { document.querySelector('plasmid-map').place = "
+        "{ slot: 'entity.tab', label: 'Map', runs }; }",
+        runs,
+    )
+
+
+def test_a_plasmid_not_annotated_yet_says_how_and_offers_its_annotation(
+    browser: Browser, frame_server: str
+) -> None:
+    # The trigger that annotates each new plasmid is a project's, and off until someone
+    # turns it on (ADR 0080): the map names the action rather than promising it runs,
+    # and offers it where the person viewing it may run it (ADR 0170).
+    context = browser.new_context()
+    page = watch(context.new_page())
+    entity = {"hrid": "PLS-000003", "values": {"length": 4000}}
+    page.goto(f"{frame_server}/frame/{MODULE}#{urllib.parse.quote(json.dumps(entity))}")
+    status = page.get_by_role("status")
+    status.wait_for(timeout=30_000)
+    assert status.text_content() == (
+        "Its map isn't drawn yet: it's drawn once the plasmid is annotated from the library, "
+        "by Annotate a plasmid from the library. A project can run it on each plasmid it "
+        "gets, with its trigger Annotate each new plasmid from the library."
+    )
+    run = page.get_by_role("button", name="Run annotation")
+    assert run.count() == 0
+    _place(page, [])
+    assert run.count() == 0
+    _place(page, [ANNOTATE])
+    run.click()
+    assert page.evaluate("window.ran") == [ANNOTATE]
+    # And from the keyboard.
+    run.focus()
+    page.keyboard.press("Enter")
+    assert page.evaluate("window.ran") == [ANNOTATE, ANNOTATE]
+    context.close()
+
+
+def test_an_annotated_plasmid_offers_no_annotation(browser: Browser, frame_server: str) -> None:
+    page = _open(browser, frame_server, PCDNA)
+    _place(page, [ANNOTATE])
+    page.get_by_role("heading", name="Map").wait_for()
+    assert page.get_by_role("button", name="Run annotation").count() == 0
+    page.context.close()
+
+
 def test_an_annotated_plasmid_with_no_parts_found_says_none_were(
     browser: Browser, frame_server: str
 ) -> None:
@@ -376,6 +430,22 @@ def test_it_passes_wcag_22_aa(browser: Browser, frame_server: str, scheme: str) 
     page.evaluate(AXE.read_text())
     assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     page.context.close()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_its_empty_state_passes_wcag_22_aa(
+    browser: Browser, frame_server: str, scheme: Literal["light", "dark"]
+) -> None:
+    context = browser.new_context(color_scheme=scheme, bypass_csp=True)
+    page = watch(context.new_page())
+    entity = {"hrid": "PLS-000003", "values": {"length": 4000}}
+    page.goto(f"{frame_server}/frame/{MODULE}#{urllib.parse.quote(json.dumps(entity))}")
+    page.get_by_role("status").wait_for(timeout=30_000)
+    _place(page, [ANNOTATE])
+    page.get_by_role("button", name="Run annotation").focus()
+    page.evaluate(AXE.read_text())
+    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+    context.close()
 
 
 # --- the ring and the line (ADR 0168) ------------------------------------------------
@@ -497,3 +567,14 @@ def test_the_line_passes_wcag_22_aa(browser: Browser, frame_server: str, scheme:
     page.evaluate(AXE.read_text())
     assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     page.context.close()
+
+
+def test_its_introduction_is_true_of_both_views() -> None:
+    # The introduction is above the map whichever view is shown, a linear molecule's
+    # line or a circle's ring or line, so it doesn't say it's drawn round a circle.
+    import yaml
+
+    manifest = yaml.safe_load((COMPONENTS / "plasmid_map.yaml").read_text(encoding="utf-8"))
+    said = " ".join(manifest["description"].split())
+    assert "round a ring for a circle and along a line for a linear one" in said
+    assert not said.startswith("The plasmid round a circle")

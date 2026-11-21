@@ -1,6 +1,7 @@
 """Lab roles (ADR 0116): named roles plugins declare, given with project memberships beside
 their project role, which workflow approvals and state fields' states (ADR 0125) need."""
 
+import dataclasses
 from typing import Any
 
 import pytest
@@ -99,6 +100,41 @@ def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
         "set Status to Received, In testing or In review on samples",
         "set Custody to In the lab on samples",
     ]
+
+
+def test_two_plugins_roles_of_one_label_are_told_apart(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two plugins can each call a role QA, and neither can see the other's when it's
+    # checked: wherever they're named, each says whose it is, so an Admin doesn't give
+    # the one that releases lots when they meant the one that releases results, and a
+    # notification doesn't say "QA and QA".
+    from iki_server.entities import registry
+    from iki_spec.model import LabRole
+
+    installed = dict(registry.plugins())
+    for plugin, title, description in (
+        ("acme/lots", "Lots", "Releases lots."),
+        ("acme/lims", "Example LIMS", "Releases results."),
+    ):
+        role = LabRole(plugin=plugin, name="qa", label="QA", description=description)
+        installed[plugin] = dataclasses.replace(
+            installed["acme/protein"], name=plugin, title=title, roles={role.qualified_name: role}
+        )
+    monkeypatch.setattr(registry, "plugins", lambda: installed)
+    labels = {r["name"]: r["label"] for r in api_as(world, "viewer").get("/lab-roles").json()}
+    assert labels["acme/lots.qa"] == "QA (Lots)"
+    assert labels["acme/lims.qa"] == "QA (Example LIMS)"
+    # The test plugin's QA is called QA as well, so it says whose it is too, by its name
+    # where it has no title; a role no other plugin's shares a label with is called by its
+    # label alone.
+    assert labels[QA] == f"QA ({installed['acme/protein'].title})"
+    assert labels[REVIEWER] == "Reviewer"
+    answer = give(world, membership(world, "viewer"), "acme/lots.qa", "acme/lims.qa")
+    assert answer.status_code == 200, answer.content
+    assert [g["label"] for g in answer.json()["lab_roles"]] == ["QA (Example LIMS)", "QA (Lots)"]
+    told = Notification.objects.filter(recipient=world.users["viewer"]).latest("created_at")
+    assert "QA (Example LIMS) and QA (Lots)" in told.title
 
 
 # --- Giving them --------------------------------------------------------------------------------

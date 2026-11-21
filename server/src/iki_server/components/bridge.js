@@ -1,9 +1,9 @@
-// Iki's bridge, in a component's sandboxed frame (ADR 0084, ADR 0117). It creates the
-// component's element, gives it what the page sends (the entity whose page it is, the
-// many entities its place shows, and where it is), and passes on what the element tells
-// the page, through the one port the page hands it. The page checks every message
-// itself: the bridge shares the frame with the component's code, so it's a convenience,
-// not a guard.
+// Iki's bridge, in a component's sandboxed frame (ADR 0084, ADR 0117, ADR 0170). It creates
+// the component's element, gives it what the page sends (the entity whose page it is, the
+// many entities its place shows, and where it is, with the actions it may offer), and
+// passes on what the element tells the page, through the one port the page hands it. The
+// page checks every message itself: the bridge shares the frame with the component's
+// code, so it's a convenience, not a guard.
 const config = JSON.parse(document.getElementById("iki-component").textContent);
 let port = null;
 let element = null;
@@ -40,6 +40,12 @@ function opened(event) {
   if (typeof entity === "string") send({ type: "open", entity });
 }
 
+function ran(event) {
+  // An action its place offers, to run on its entity: the page opens Iki's run page.
+  const action = event.detail?.action;
+  if (typeof action === "string") send({ type: "run", action });
+}
+
 // What the page sets on the element, each by the message of its name.
 const PROPERTIES = ["entity", "entities", "place"];
 
@@ -55,6 +61,7 @@ async function start() {
   element.addEventListener("iki-more", () => send({ type: "more" }));
   element.addEventListener("iki-refine", refined);
   element.addEventListener("iki-open", opened);
+  element.addEventListener("iki-run", ran);
   document.body.append(element);
   const size = () => send({ type: "resize", height: document.documentElement.scrollHeight });
   new ResizeObserver(size).observe(document.body);

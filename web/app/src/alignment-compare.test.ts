@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { call, compared, MAX_COMPARED, possibleOf } from "./alignment-compare";
+import { call, compared, MAX_COMPARED, possibleOf, stepped } from "./alignment-compare";
 
 const row = (aligned: string) => ({ aligned });
 
@@ -20,6 +20,8 @@ describe("compared", () => {
       // 7 and 9 aren't covered.
       covered: 8,
       differing: 2,
+      // From 0: the C at 3 and the deletion at 5.
+      columns: [2, 4],
     });
   });
 
@@ -31,6 +33,7 @@ describe("compared", () => {
       residues: 4,
       covered: 3,
       differing: 1,
+      columns: [2],
     });
   });
 
@@ -45,6 +48,7 @@ describe("compared", () => {
       residues: 80,
       covered: 24,
       differing: 0,
+      columns: [],
     });
   });
 
@@ -75,11 +79,12 @@ describe("compared", () => {
     expect(possibleOf(header)).toEqual(new Map([[19, "KN"]]));
     expect(
       compared([reference, { aligned: read, description: header }], reference, "protein"),
-    ).toEqual({ residues: 41, covered: 40, differing: 1 });
+    ).toEqual({ residues: 41, covered: 40, differing: 1, columns: [19] });
     expect(compared([reference, row(read)], reference, "protein")).toEqual({
       residues: 41,
       covered: 39,
       differing: 0,
+      columns: [],
     });
     // A stop is one of what a codon can be: TGN is Cys, Trp or a stop.
     expect(possibleOf("r possible=3:*CW,12:FL")).toEqual(
@@ -105,6 +110,7 @@ describe("compared", () => {
       residues: 41,
       covered: 41,
       differing: 0,
+      columns: [],
     });
     const unknown = row(`${hba.slice(0, 20)}X${hba.slice(21)}`);
     const aan = { aligned: unknown.aligned, description: "r forward frame 1 possible=21:KN" };
@@ -112,15 +118,42 @@ describe("compared", () => {
       residues: 41,
       covered: 41,
       differing: 0,
+      columns: [],
     });
     expect(compared([unknown, row(unknown.aligned)], unknown, "protein")).toEqual({
       residues: 41,
       covered: 40,
       differing: 0,
+      columns: [],
     });
     // A nucleotide's ambiguity code says nothing of the same code, as align_reads in the
     // DNA plugin has it.
     expect(call("R", "R", "nucleotide")).toBe("unresolved");
+  });
+
+  it("lists the columns it counts as differing, in order, each once", () => {
+    // Two reads differing from the reference at the same column count it once.
+    const reference = row("ACGTACGTAC");
+    const rows = [reference, row("ACGAAC----"), row("----ACGTCC"), row("-CGAAC----")];
+    const found = compared(rows, reference, "nucleotide");
+    expect(found?.columns).toEqual([3, 8]);
+    expect(found?.differing).toBe(found?.columns.length);
+  });
+
+  it("steps to the next or previous differing column, round past either end", () => {
+    const columns = [3, 8, 429];
+    expect(stepped(columns, 0, 1)).toEqual({ index: 0, wrapped: false });
+    expect(stepped(columns, 3, 1)).toEqual({ index: 1, wrapped: false });
+    expect(stepped(columns, 5, 1)).toEqual({ index: 1, wrapped: false });
+    expect(stepped(columns, 429, 1)).toEqual({ index: 0, wrapped: true });
+    expect(stepped(columns, 900, 1)).toEqual({ index: 0, wrapped: true });
+    expect(stepped(columns, 429, -1)).toEqual({ index: 1, wrapped: false });
+    expect(stepped(columns, 9, -1)).toEqual({ index: 1, wrapped: false });
+    expect(stepped(columns, 3, -1)).toEqual({ index: 2, wrapped: true });
+    expect(stepped(columns, 0, -1)).toEqual({ index: 2, wrapped: true });
+    // With one, it's where it is either way.
+    expect(stepped([429], 429, 1)).toEqual({ index: 0, wrapped: true });
+    expect(stepped([], 0, 1)).toBeNull();
   });
 
   it("says nothing of an alignment too large to compare on the page", () => {

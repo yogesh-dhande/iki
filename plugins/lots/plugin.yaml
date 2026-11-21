@@ -26,7 +26,7 @@ dependencies:
       Plasmid: ">=1"
 roles:
   qa:
-    label: QA
+    label: Lot QA
     description: >-
       Releases lots for use once their records and certificates of analysis meet their
       specification, puts them on hold or rejects them, says when they've expired, and

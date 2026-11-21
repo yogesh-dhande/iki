@@ -325,7 +325,10 @@ class ProjectPatch(Schema):
 
 class LabRoleGrantOut(Schema):
     role: str = Field(description="The lab role, by name, such as iki/example_lims.qa.")
-    label: str = Field(description="What people call it, such as QA.")
+    label: str = Field(
+        description="What people call it, such as QA: with its plugin's title after it where "
+        "another plugin's role has the same label, such as QA (Lots)."
+    )
     declared: bool = Field(
         description="Whether an installed plugin declares it. One that stopped declaring it "
         "leaves its grants, which count for nothing until someone takes them away."
@@ -413,7 +416,10 @@ class LabRoleUseOut(Schema):
 
 class LabRoleOut(Schema):
     name: str = Field(description="Its name, such as iki/example_lims.qa.")
-    label: str
+    label: str = Field(
+        description="What people call it: its label, and where another plugin's role has the "
+        "same one, its plugin's title after it, such as QA (Lots)."
+    )
     description: str | None
     plugin: str = Field(description="The plugin that declares it.")
     uses: list[LabRoleUseOut] = Field(description="What it lets its holders do.")

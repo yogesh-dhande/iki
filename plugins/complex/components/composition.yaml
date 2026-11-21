@@ -10,3 +10,6 @@ description: >-
 module: ./components/composition.js
 element: complex-composition
 slots: [{ slot: entity.tab, type: iki/core.Complex }]
+# While a complex's composition isn't computed, the tab offers the action that computes
+# it, where the person viewing it may run it (ADR 0170).
+events: { run: { actions: [compute_composition] } }

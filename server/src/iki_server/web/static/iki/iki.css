@@ -882,6 +882,33 @@ input:focus-visible {
   margin: 0 0 0.75rem;
 }
 
+/* The summary's count of differences, which goes to the first: a link's look, a button's job. */
+.alignment-jump {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.alignment-jump:hover {
+  color: var(--accent-hover);
+}
+
+.alignment-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alignment-steps [role="status"] {
+  margin: 0;
+}
+
 .alignment-go {
   display: flex;
   align-items: center;

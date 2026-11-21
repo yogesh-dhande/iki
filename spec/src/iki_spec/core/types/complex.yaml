@@ -191,7 +191,7 @@ fields:
     computed: true
     min: 0
     description: >-
-      Its molar absorbance at 280 nm in water, each cysteine's thiol free (Pace
+      Its molar extinction coefficient at 280 nm (ε280) in water, each cysteine's thiol free (Pace
       et al., 1995): 5,500 for each tryptophan in its parts and 1,490 for each
       tyrosine, each times its copies, or a part complex's own. Each disulfide
       makes a cystine, 125 more. None if a part isn't a protein or a complex
@@ -202,14 +202,18 @@ fields:
   # they are then. Its own bonds are read where they're shown, as they are.
   part_disulfides:
     type: int
-    label: Its parts' disulfides
+    # Its label says it isn't its bonds' count: an antibody's 16 disulfides are its own
+    # bonds, and its chains have none of their own, so this is 0 beside its 16.
+    label: Its parts' own disulfides, besides its bonds
     computed: true
     min: 0
     description: >-
       The disulfides its parts have of their own, each times its copies, and
       their parts' too: a Fab's four, in a complex of the Fab and its antigen.
-      With its own bonds' disulfides, they're the cystines a lot of it has
-      while its cysteines are oxidized.
+      Its own bonds aren't counted here: an antibody's disulfides are its own
+      bonds between and within its chains, which have none of their own, so
+      it has none here. With its own bonds' disulfides, they're the cystines a
+      lot of it has while its cysteines are oxidized.
   part_bonds_complete:
     type: bool
     label: Its parts' bonds counted

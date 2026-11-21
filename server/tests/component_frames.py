@@ -2,7 +2,8 @@
 component frame's policy (iki_server.components.views.frame), running Iki's hardening
 script first and the module by its integrity. The frame is served here, not by Iki, so a
 component's test needs no plugin installed; a driver of the test's own sets the element's
-`entity` as Iki's bridge does, and notes any request the policy refused."""
+`entity` as Iki's bridge does, notes any request the policy refused, and keeps the actions
+it asks to run (`window.ran`); a test sets its `place` itself, as the page would."""
 
 import base64
 import hashlib
@@ -47,6 +48,9 @@ const name = %s[new URL(import.meta.url).search.slice(1)];
 await customElements.whenDefined(name);
 const element = document.createElement(name);
 element.entity = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0170).
+window.ran = [];
+element.addEventListener("iki-run", (e) => window.ran.push(e.detail?.action));
 document.body.append(element);
 """
 #: Each page's uncaught errors. Not its console's: Firefox logs its own favicon request,
@@ -110,3 +114,11 @@ def open_frame(browser: Browser, origin: str, module: str, entity: object, **opt
     page.on("pageerror", lambda error: ERRORS[page].append(str(error)))
     page.goto(f"{origin}/frame/{module}#{urllib.parse.quote(json.dumps(entity))}")
     return page
+
+
+def place(page: Page, element: str, value: object) -> None:
+    """Sets the element's ``place``, as Iki's bridge does once the page says where it is."""
+    page.wait_for_function(f"document.querySelector({json.dumps(element)}) !== null")
+    page.evaluate(
+        "([name, value]) => { document.querySelector(name).place = value; }", [element, value]
+    )

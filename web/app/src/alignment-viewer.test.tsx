@@ -155,12 +155,17 @@ describe("the alignment viewer", () => {
     expect(read.mock.calls[0]?.[1]).toBe("protein");
     expect(screen.queryByText(/from its letters/)).not.toBeInTheDocument();
     // Compared with the reference: PRT-000001 has a gap at its A, read_7 that and an R.
-    expect(
-      screen.getByText(
-        "3 rows, 5 columns · the others cover 5 of PRT-000002’s 5 residues (100%) and differ " +
-          "from it at 2 columns",
-      ),
-    ).toBeVisible();
+    // The count goes to the first of them.
+    const count = screen.getByRole("button", {
+      name: "Go to the first of the 2 columns where they differ",
+    });
+    expect(count).toHaveTextContent(/^2 columns$/);
+    expect(count.closest("p")).toHaveTextContent(
+      "3 rows, 5 columns · the others cover 5 of PRT-000002’s 5 residues (100%) and differ " +
+        "from it at 2 columns",
+      { normalizeWhitespace: true },
+    );
+    expect(count.closest("p")).toBeVisible();
 
     const reference = within(grid).getByText("Reference").closest(".alignment-label");
     expect(reference).toHaveTextContent("PRT-000002");
@@ -266,6 +271,97 @@ describe("the alignment viewer", () => {
     expect(document.querySelector(".alignment-at")).toHaveTextContent(
       "PRT-000002, column 4: L, residue 4 of 5.",
     );
+  });
+
+  it("goes from its count of differences to the first", async () => {
+    await onAlignment();
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    const grid = await screen.findByRole("application");
+    // read_7's R at 2 is the first column where the others differ from PRT-000002.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Go to the first of the 2 columns where they differ" }),
+    );
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000002, column 2: K, residue 2 of 5.",
+    );
+    expect(screen.getByText("Difference 1 of 2: column 2.")).toHaveAttribute("role", "status");
+    expect(grid).toHaveFocus();
+  });
+
+  it("steps through the columns where the others differ, round past either end", async () => {
+    await onAlignment();
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    await screen.findByRole("application");
+    const at = () => document.querySelector(".alignment-at")?.textContent ?? "";
+    const next = screen.getByRole("button", { name: "Next difference" });
+    const previous = screen.getByRole("button", { name: "Previous difference" });
+    // Said in a status of its own, beside the buttons.
+    const status = () =>
+      screen.getAllByRole("status").find((s) => s.textContent.startsWith("Difference"));
+
+    fireEvent.click(next);
+    expect(at()).toContain("PRT-000002, column 2: K");
+    expect(status()).toHaveTextContent("Difference 1 of 2: column 2.");
+    fireEvent.click(next);
+    expect(at()).toContain("PRT-000002, column 3: A");
+    expect(status()).toHaveTextContent("Difference 2 of 2: column 3.");
+    fireEvent.click(next);
+    expect(at()).toContain("PRT-000002, column 2: K");
+    expect(status()).toHaveTextContent("Difference 1 of 2: column 2, back at the start.");
+    fireEvent.click(previous);
+    expect(at()).toContain("PRT-000002, column 3: A");
+    expect(status()).toHaveTextContent("Difference 2 of 2: column 3, back at the end.");
+    // The buttons keep focus, so each press goes on from the last.
+    previous.focus();
+    fireEvent.click(previous);
+    expect(at()).toContain("PRT-000002, column 2: K");
+    expect(previous).toHaveFocus();
+    // Moving off a difference leaves nothing stale.
+    fireEvent.keyDown(screen.getByRole("application"), { key: "End" });
+    expect(status()).toBeUndefined();
+  });
+
+  it("steps through the differences with N and Shift+N", async () => {
+    await onAlignment();
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    const grid = await screen.findByRole("application");
+    expect(grid).toHaveAccessibleDescription(
+      expect.stringContaining(
+        "N and Shift+N go to the next and previous column where they differ from PRT-000002.",
+      ) as string,
+    );
+    fireEvent.keyDown(grid, { key: "ArrowDown" });
+    fireEvent.keyDown(grid, { key: "n" });
+    // It keeps the cursor's row.
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000001, column 2: K, residue 2 of 4.",
+    );
+    fireEvent.keyDown(grid, { key: "n" });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000001, column 3: a gap.",
+    );
+    fireEvent.keyDown(grid, { key: "N", shiftKey: true });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent("PRT-000001, column 2");
+    // A shortcut with Control or Command held is the browser's.
+    fireEvent.keyDown(grid, { key: "n", ctrlKey: true });
+    fireEvent.keyDown(grid, { key: "n", metaKey: true });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent("PRT-000001, column 2");
+  });
+
+  it("offers no way to the differences where there are none", async () => {
+    await onAlignment();
+    read.mockResolvedValue({
+      ...ALIGNED,
+      rows: ALIGNED.rows.map((r) => ({ ...r, aligned: "MKALV", residues: 5 })),
+    });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    const grid = await screen.findByRole("application");
+    expect(screen.getByText(/and differ from it at 0 columns/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /differ/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next difference" })).not.toBeInTheDocument();
+    expect(grid).not.toHaveAccessibleDescription(expect.stringContaining("Shift+N") as string);
+    fireEvent.keyDown(grid, { key: "n" });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent("PRT-000002, column 1");
   });
 
   it("runs an action on the sequences picked", async () => {

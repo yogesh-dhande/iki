@@ -146,4 +146,4 @@ rules:
       path longer than 0.
     fields: [path_length]
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"

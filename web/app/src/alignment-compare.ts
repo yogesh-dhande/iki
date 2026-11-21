@@ -34,6 +34,9 @@ export interface Compared {
   /** Columns where another row has something the reference can't be: another residue, a
    * gap where the reference has a residue, or a residue where it has a gap. */
   differing: number;
+  /** Those columns, from 0, in order: what the viewer steps through, so it goes to just the
+   * columns it counts. */
+  columns: number[];
 }
 
 /** The bases each IUPAC nucleotide code stands for (IUBMB, 1985). */
@@ -161,12 +164,39 @@ export function compared(
   }
   let residues = 0;
   let within = 0;
-  let differing = 0;
+  const columns: number[] = [];
   for (let at = 0; at < length; at++) {
     const residue = residueAt(ref, at);
     if (residue) residues++;
     if (residue && covered[at]) within++;
-    if (differs[at]) differing++;
+    if (differs[at]) columns.push(at);
   }
-  return { residues, covered: within, differing };
+  return { residues, covered: within, differing: columns.length, columns };
+}
+
+/** Which of `columns` (in order) is the next after `column` (`1`) or the last before it
+ * (`-1`), and whether that went round past the end or the start to get there, as find on a
+ * page does; null when there are none. */
+export function stepped(
+  columns: readonly number[],
+  column: number,
+  direction: 1 | -1,
+): { index: number; wrapped: boolean } | null {
+  if (!columns.length) return null;
+  // The first of them past `column`.
+  let low = 0;
+  let high = columns.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((columns[middle] ?? 0) <= column) low = middle + 1;
+    else high = middle;
+  }
+  if (direction === 1) {
+    return low < columns.length ? { index: low, wrapped: false } : { index: 0, wrapped: true };
+  }
+  // The last before `column`: before the first past it, and before `column` itself if it's one.
+  const before = low > 0 && columns[low - 1] === column ? low - 2 : low - 1;
+  return before >= 0
+    ? { index: before, wrapped: false }
+    : { index: columns.length - 1, wrapped: true };
 }

@@ -27,6 +27,7 @@ effects:
         - pairing
         - molecular_formula
         - molecular_weight
+        - molecular_weight_sodium
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
 runs_on: { tier: backend, environment: oligo-tools }

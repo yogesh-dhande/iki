@@ -80,6 +80,7 @@ def read_component(plugin: str, body: dict[str, Any], document: Document) -> Com
     name = body["name"]
     label = body.get("label") or name.replace("_", " ").capitalize()
     selects = (body.get("events") or {}).get("select")
+    runs = ((body.get("events") or {}).get("run") or {}).get("actions") or []
     many = body.get("entities")
     entities = (
         ComponentEntities(
@@ -100,6 +101,7 @@ def read_component(plugin: str, body: dict[str, Any], document: Document) -> Com
         slots=tuple(_slot(s, plugin, label, entities) for s in body["slots"]),
         entities=entities,
         selects=qualify(selects["type"], plugin) if selects else "",
+        runs=tuple(f"{plugin}.{name}" for name in runs),
         file=document.file,
     )
 
@@ -172,6 +174,45 @@ class _Rules:
         seen: dict[tuple[str, str], int] = {}
         for index, slot in enumerate(self.component.slots):
             self.slot(slot, index, seen)
+        for index, action in enumerate(self.component.runs):
+            self.offered(action.rpartition(".")[2], ("events", "run", "actions", index))
+
+    def offered(self, name: str, path: Path) -> None:
+        """An action it offers to run on its tab's entity: the plugin's own, reviewed with
+        it, as a trigger's is, and taking the entity of each tab it's on (ADR 0170)."""
+        action = self.s.plugin.actions.get(name)
+        if action is None:
+            self.add(
+                "component-unknown-action",
+                f"This plugin has no action `{name}`.",
+                self.source,
+                path,
+                hint=schemas._did_you_mean(name, list(self.s.plugin.actions)),
+            )
+            return
+        tabs = [s for s in self.component.slots if s.slot == "entity.tab"]
+        if not tabs:
+            self.add(
+                "component-run-needs-a-tab",
+                f"`{name}` would run on the entity whose tab it is, and this component is on "
+                "no entity's tab.",
+                self.source,
+                path,
+                hint="Add an `entity.tab` slot, or offer nothing to run.",
+            )
+            return
+        for tab in tabs:
+            shown = self.s.types.get(tab.type)
+            if shown is None:
+                continue  # its slot says so
+            lineage = {shown.qualified_name, *(t.qualified_name for t in self.s.ancestors(shown))}
+            if not any(put.type in lineage for put in action.inputs.values()):
+                self.add(
+                    "component-action-takes-no-entity",
+                    f"`{name}` takes no `{tab.type}`, whose tab this is: none of its inputs does.",
+                    self.source,
+                    path,
+                )
 
     def fields_of(self, entity_type: EntityType) -> dict[str, Field]:
         """The type's fields: its own, its parents', and those this plugin's extensions and

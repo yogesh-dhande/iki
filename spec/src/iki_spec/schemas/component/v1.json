@@ -74,7 +74,7 @@
       }
     },
     "events": {
-      "description": "What it tells the page, by name. `select`: entities a person picked in it, as an `iki-select` event whose `detail.entities` lists their HRIDs, so the page can act on them. Asking for more entities (`iki-more`), narrowing them (`iki-refine`) and opening one it was given (`iki-open`) need no declaration.",
+      "description": "What it tells the page, by name. `select`: entities a person picked in it, as an `iki-select` event whose `detail.entities` lists their HRIDs, so the page can act on them. `run`: an action of its plugin a person asked to run on its entity. Asking for more entities (`iki-more`), narrowing them (`iki-refine`) and opening one it was given (`iki-open`) need no declaration.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -89,6 +89,22 @@
             },
             "description": {
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+            }
+          }
+        },
+        "run": {
+          "description": "Actions it may offer to run on the entity whose tab it is, such as the one that fills it while it's empty: an `iki-run` event whose `detail.action` names one, qualified. Iki opens its run page with the action and the entity chosen, where the person checks and starts it. Its `place.runs` lists those the person viewing it may run there now.",
+          "type": "object",
+          "required": ["actions"],
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "description": "The plugin's own actions, by name, each with an input that takes the tab's type.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
             }
           }
         }

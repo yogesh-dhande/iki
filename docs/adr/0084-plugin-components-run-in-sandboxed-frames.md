@@ -4,6 +4,8 @@
 - Date: 2026-11-14
 - Refines: [0029](0029-react-web-app.md),
   [0047](0047-workers-run-only-the-code-a-run-was-launched-with.md)
+- Refined by: [0170](0170-a-component-can-offer-its-plugins-actions-on-its-entity.md),
+  on offering a plugin's actions from its tab
 
 ## Context
 

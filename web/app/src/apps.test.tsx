@@ -358,6 +358,7 @@ describe("a plugin's component in an app", () => {
     slots: [{ slot: "entity.tab", type: "iki/dna.DNASequence", label: "Map", search: null }],
     entities: { type: "iki/dna.DNASequence", fields: ["name"], limit: 50 },
     selects: "iki/dna.DNASequence",
+    runs: [],
     sha256: "ef".repeat(32),
     frame: `/plugin-components/iki/dna.map/${"ef".repeat(32)}/`,
   };

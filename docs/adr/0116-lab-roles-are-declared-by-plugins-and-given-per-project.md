@@ -49,7 +49,12 @@ as `acme/qms.release_officer`, which needs that plugin in its
 names `viewer`, `editor`, `runner` and `admin` are reserved for the
 project roles. A plugin declares at most 50. The validator refuses a role
 nobody declares (`unknown-role`) and warns when two of a plugin's roles
-have the same label (`duplicate-role-label`).
+have the same label (`duplicate-role-label`). A plugin can't see other
+plugins' roles when it's checked, so two of them may each call one QA:
+wherever such a role is named, in the dialog that gives it, notifications,
+audit records and refusals, its plugin's title follows its label, "QA
+(Lots)", as Slack names the app beside a command two apps share. Iki's own
+plugins label theirs by what they release, Lot QA and Sample and result QA.
 
 Org Admins don't define roles in the web app. What a role lets someone do
 is written in the plugin that checks it, so the two are reviewed together,

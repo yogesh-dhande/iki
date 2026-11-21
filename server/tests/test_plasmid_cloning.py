@@ -559,7 +559,7 @@ def test_a_double_digest_leaves_ends_that_cant_close_on_themselves(tmp_path: Pat
         ),
     )
     assert not output
-    assert "make 2 different linear molecules (51 bp, 2635 bp)" in log
+    assert "make 2 different linear molecules (2635 bp, 51 bp)" in log
     # Its longest fragment, which is the band a vector digest is purified down to, is one
     # linear molecule: the cut vector, registered as a sequence and not as a plasmid.
     output, log = command(
@@ -867,7 +867,7 @@ def test_a_digest_of_a_plasmid_cuts_out_the_band_asked_for(tmp_path: Path) -> No
         ),
     )
     assert not output
-    assert "make 2 different linear molecules (51 bp, 2635 bp)" in log
+    assert "make 2 different linear molecules (2635 bp, 51 bp)" in log
     output, log = command(
         tmp_path,
         "assemble",
@@ -1055,3 +1055,125 @@ def test_a_linear_product_isnt_what_a_ligation_closing_a_circle_makes(
     assert values["simulated_topology"] == "circular"
     assert "the plan closes a circular double-stranded molecule" in log
     assert "DNA-000003 is linear and double-stranded" in log
+
+
+# --- the virtual digest ----------------------------------------------------------------
+
+LAMBDA_END, ECO = "End of the molecule", "EcoRI, 5' AATT"
+
+
+def test_an_ambiguous_digest_names_its_bands_largest_first(tmp_path: Path) -> None:
+    """A digest of lambda kept as `any` of its six EcoRI bands makes none, as designed,
+    and names them largest first, as a gel reads them, and says where to see each."""
+    lam = read_fasta("J02459.1")
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan(
+            "digest",
+            sequence(1, lam, topology="linear", name="lambda"),
+            [],
+            enzymes=["EcoRI"],
+            params={"backbone_fragment": "any"},
+        ),
+    )
+    assert not output
+    lengths = ", ".join(f"{n} bp" for n in LAMBDA_ECORI)
+    assert f"make 6 different linear molecules ({lengths})" in log
+    assert "Digest a plan's parts virtually" in log
+
+
+def test_a_virtual_digest_lists_every_fragment_largest_first(tmp_path: Path) -> None:
+    """Lambda (J02459.1, 48,502 bp, linear) cut with EcoRI gives the six bands of the
+    marker it's sold as (NEB's and Thermo Fisher's lambda DNA-EcoRI digests), each with
+    where it lies and what made each end, as a result on the plan. Its sites are
+    Biopython's (EcoRI.search)."""
+    lam = read_fasta("J02459.1")
+    sites = sorted(p - 1 for p in Restriction.EcoRI.search(Seq(lam), linear=True))  # type: ignore[attr-defined]
+    assert sites == [21226, 26104, 31747, 39168, 44972]
+    output, log = command(
+        tmp_path,
+        "digest",
+        plan("digest", sequence(1, lam, topology="linear", name="lambda"), [], enzymes=["EcoRI"]),
+    )
+    assert output, log
+    (update,) = output["updates"]["assembly"]
+    rows = update["values"]["fragments"]
+    part = "lambda (DNA-000001)"
+    assert rows == [
+        {"part": part, "length": 21226, "start": 1, "end": 21226, "left": LAMBDA_END, "right": ECO},
+        {"part": part, "length": 7421, "start": 31748, "end": 39168, "left": ECO, "right": ECO},
+        {"part": part, "length": 5804, "start": 39169, "end": 44972, "left": ECO, "right": ECO},
+        {"part": part, "length": 5643, "start": 26105, "end": 31747, "left": ECO, "right": ECO},
+        {"part": part, "length": 4878, "start": 21227, "end": 26104, "left": ECO, "right": ECO},
+        {
+            "part": part,
+            "length": 3530,
+            "start": 44973,
+            "end": 48502,
+            "left": ECO,
+            "right": LAMBDA_END,
+        },
+    ]
+    assert [r["length"] for r in rows] == LAMBDA_ECORI
+    assert sum(r["length"] for r in rows) == len(lam)
+    assert f"{part}: 6 fragments with EcoRI: 21226, 7421, 5804, 5643, 4878, 3530 bp" in log
+
+
+def test_a_virtual_digest_of_a_circle_crosses_its_origin(tmp_path: Path) -> None:
+    """pUC19 (L09137.2) cut by EcoRI after base 396 and HindIII after base 447: the
+    2,635 bp vector, from base 448 round the origin to base 396, and the 51 bp piece of
+    its polylinker. Every end of a circle's fragment is a cut."""
+    puc, _, _ = read("L09137.2")
+    output, log = command(
+        tmp_path,
+        "digest",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI", "HindIII"],
+        ),
+    )
+    assert output, log
+    rows = output["updates"]["assembly"][0]["values"]["fragments"]
+    hind = "HindIII, 5' AGCT"
+    assert rows == [
+        {
+            "part": "pUC19 (DNA-000001)",
+            "length": 2635,
+            "start": 448,
+            "end": 396,
+            "left": hind,
+            "right": ECO,
+        },
+        {
+            "part": "pUC19 (DNA-000001)",
+            "length": 51,
+            "start": 397,
+            "end": 447,
+            "left": ECO,
+            "right": hind,
+        },
+    ]
+
+
+def test_a_virtual_digest_says_what_isnt_cut(tmp_path: Path) -> None:
+    """pUC19 has no NotI site: it stays a circle, which is no fragment, and the run says
+    so rather than listing nothing."""
+    puc, _, _ = read("L09137.2")
+    output, log = command(
+        tmp_path,
+        "digest",
+        plan("digest", sequence(1, puc, name="pUC19"), [], enzymes=["NotI"]),
+    )
+    assert output, log
+    assert output["updates"]["assembly"][0]["values"]["fragments"] == []
+    assert "isn't cut by NotI" in log
+
+
+def test_a_virtual_digest_needs_the_plans_enzymes(tmp_path: Path) -> None:
+    puc, _, _ = read("L09137.2")
+    output, log = command(tmp_path, "digest", plan("gibson", sequence(1, puc, name="pUC19"), []))
+    assert not output
+    assert "names no enzymes" in log

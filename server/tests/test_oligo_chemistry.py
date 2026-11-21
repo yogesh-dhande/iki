@@ -365,3 +365,89 @@ def test_the_library_galnac_has_l96s_stereochemistry() -> None:
     assert sugars == ["ZEVOCXOZYFLVKN-SYHAXYEDSA-N"] * 3
     ((acyl, _, n, *_),) = galnac.GetSubstructMatches(ring)
     assert cut((acyl, n), 1) == "CALDMMCNNFPJSI-CRCLSJGQSA-N"
+
+
+# --- The sodium salt ---------------------------------------------------------------------
+
+#: Nusinersen (Spinraza): 18 2′-O-methoxyethyl nucleotides, phosphorothioates throughout.
+NUSINERSEN = (
+    "RNA1{[MOE](T)[sP].[MOE]([5meC])[sP].[MOE](A)[sP].[MOE]([5meC])[sP].[MOE](T)[sP]."
+    "[MOE](T)[sP].[MOE](T)[sP].[MOE]([5meC])[sP].[MOE](A)[sP].[MOE](T)[sP].[MOE](A)[sP]."
+    "[MOE](A)[sP].[MOE](T)[sP].[MOE](G)[sP].[MOE]([5meC])[sP].[MOE](T)[sP].[MOE](G)[sP]."
+    "[MOE](G)}$$$$V2.0"
+)
+#: A methylphosphonate, a lab's own linker: a phosphate with a methyl for its acidic OH.
+METHYLPHOSPHONATE = chemistry.Monomer(
+    "RNA",
+    "mP",
+    "CP([OH:1])([OH:2])=O",
+    name="Methylphosphonate",
+    role="linker",
+    natural_analogue="P",
+)
+
+
+def test_a_sodium_salt_weighs_a_sodium_for_each_acidic_proton() -> None:
+    """Nusinersen is marketed as its sodium salt, C234H323N61O128P17S17Na17: 7,501.0
+    g/mol, beside 7,127 g/mol as the free acid (EMA's EPAR for Spinraza; PubChem CID
+    131801471). Each of its 17 phosphorothioates gives up its proton to a sodium,
+    22.990 - 1.008 g/mol more each (CIAAW 2021)."""
+    found = _computed(NUSINERSEN)
+    assert found["molecular_weight"] == 7127.17
+    assert found["molecular_weight_sodium"] == pytest.approx(7127.17 + 17 * 21.982, abs=0.01)
+    assert found["molecular_weight_sodium"] == pytest.approx(7501.0, abs=0.5)
+
+
+@pytest.mark.parametrize(
+    ("text", "sodiums"),
+    [
+        # A 5′ phosphate has two acidic protons, beside its linkage's one.
+        ("RNA1{P.[dR](A)P.[dR](C)}$$$$V2.0", 3),
+        # Cy3's charge is taken by one phosphate's proton (an inner salt), which leaves
+        # one fewer for a sodium: here the one linkage's, so none.
+        ("RNA1{[dR](A)P.[dR](C)}|CHEM1{[5Cy3]}$RNA1,CHEM1,1:R1-1:R1$$$V2.0", 0),
+    ],
+)
+def test_its_sodiums_are_its_acidic_protons(text: str, sodiums: int) -> None:
+    found = _computed(text)
+    if sodiums:
+        assert found["molecular_weight_sodium"] == pytest.approx(
+            found["molecular_weight"] + sodiums * 21.982, abs=0.01
+        )
+    else:
+        assert "molecular_weight_sodium" not in found
+
+
+def test_a_molecule_with_no_acidic_proton_has_no_sodium_salt() -> None:
+    """A methylphosphonate has a methyl where a phosphate has its acidic OH, so d(ApmC)
+    is neutral, as a morpholino's phosphorodiamidates are: no salt, and no salt's weight."""
+    found = _computed("RNA1{[dR](A)[mP].[dR](C)}$$$$V2.0", METHYLPHOSPHONATE)
+    assert "molecular_weight_sodium" not in found
+
+
+def test_a_duplexs_sodium_salt_is_its_strands() -> None:
+    """Patisiran (Onpattro) is 13,424 Da as the free acid and 14,304 Da as its sodium
+    salt, C412H480N148Na40O290P40 (EMA's EPAR for Onpattro, Table 1): its 40
+    phosphates' protons, 20 on each strand."""
+    sense = {
+        "hrid": "OLI-000001",
+        "values": {
+            "bases": "GUAACCAAGAGUAUUCCAUTT",
+            "molecular_weight": 6764.32,
+            "molecular_weight_sodium": round(6764.32 + 20 * 21.982, 2),
+            "molecular_formula": "C210H268N76O143P20",
+        },
+    }
+    antisense = {
+        "hrid": "OLI-000002",
+        "values": {
+            "bases": "AUGGAAUACUCUUGGUUACTT",
+            "molecular_weight": 6660.07,
+            "molecular_weight_sodium": round(6660.07 + 20 * 21.982, 2),
+            "molecular_formula": "C202H252N72O147P20",
+        },
+    }
+    values = oligos.duplex_values(sense, antisense)
+    assert values["molecular_weight"] == 13424.39
+    assert values["molecular_weight_sodium"] == pytest.approx(14303.67, abs=0.01)
+    assert values["molecular_weight_sodium"] == pytest.approx(14304, abs=0.5)

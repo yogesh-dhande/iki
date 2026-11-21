@@ -330,6 +330,24 @@ def _node(helm: Helm, piece: tuple[str, int]) -> Node:
 
 
 _ACID = Chem.MolFromSmarts("[OX2H1,SX2H1][P]")
+#: What a sodium salt weighs more than the free acid for each sodium in place of a proton.
+SODIUM_FOR_PROTON = ATOMIC_WEIGHTS["Na"] - ATOMIC_WEIGHTS["H"]
+
+
+def acidic_protons(mol: Chem.Mol) -> int:
+    """Its phosphates' and phosphorothioates' acidic protons, which its sodium salt has a
+    sodium for each of: one for each linkage, two for a terminal phosphate, none for a
+    methylphosphonate (nor a morpholino's phosphorodiamidate), and one fewer for each a
+    cationic dye took to make it an inner salt."""
+    return len(mol.GetSubstructMatches(_ACID, maxMatches=100_000))
+
+
+def sodium_salt_weight(mol: Chem.Mol) -> float | None:
+    """Its average molecular weight as its sodium salt, as marketed oligonucleotides are
+    (nusinersen sodium, patisiran sodium): a sodium for each acidic proton. None for a
+    molecule with none, which isn't a salt."""
+    n = acidic_protons(mol)
+    return average_weight(mol) + n * SODIUM_FOR_PROTON if n else None
 
 
 def _inner_salt(mol: Chem.Mol) -> Chem.Mol:
