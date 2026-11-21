@@ -15,17 +15,16 @@ what you can't read isn't there at all, as nothing of it is yours to see.
 
 from __future__ import annotations
 
-import csv
-import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, Literal
 from uuid import UUID
 
-from django.http import HttpRequest, StreamingHttpResponse
+from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema
 
 from iki_server.accounts.models import User
+from iki_server.api import csvs
 from iki_server.api.common import caller
 from iki_server.api.entities import RefOut, RunRefOut, _find, _lookup
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
@@ -356,11 +355,6 @@ def _path_text(root: dict[str, Any], path: list[dict[str, Any]], direction: str)
     return " ".join(parts)
 
 
-def _safe(text: str) -> str:
-    """A value as a spreadsheet shows it, never as a formula it runs."""
-    return f"'{text}" if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
-
-
 def _csv(request: HttpRequest, ref: str, params: WalkParams, direction: str) -> Any:  # noqa: ANN401
     me = caller(request)
     root, q = _walk(me, ref, params, direction)
@@ -381,46 +375,25 @@ def _csv(request: HttpRequest, ref: str, params: WalkParams, direction: str) -> 
     top = out.entities[root.pk]
     columns = ["hrid", "title", "type", "project", "depth", "archived", "path", "id"]
 
-    def lines() -> Iterator[str]:
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(columns)
+    def table() -> Iterator[list[Any]]:
+        yield columns
         for item in items:
             e = item["entity"]
-            writer.writerow(
-                [
-                    e["hrid"],
-                    _safe(e["title"]),
-                    e["type"],
-                    _safe(e["project"]["name"]) if e["project"] else "",
-                    item["depth"],
-                    "yes" if e["archived"] else "",
-                    _safe(_path_text(top, item["path"], direction)),
-                    e["id"],
-                ]
-            )
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate()
+            yield [
+                e["hrid"],
+                e["title"],
+                e["type"],
+                e["project"]["name"] if e["project"] else "",
+                item["depth"],
+                "yes" if e["archived"] else "",
+                _path_text(top, item["path"], direction),
+                e["id"],
+            ]
         if hidden:
-            writer.writerow(
-                [
-                    "",
-                    f"{hidden} more lead to entities you can't read: ask someone who can.",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                ]
-            )
-        yield buffer.getvalue()
+            note = f"{hidden} more lead to entities you can't read: ask someone who can."
+            yield ["", note, "", "", "", "", "", ""]
 
-    response = StreamingHttpResponse(lines(), content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="{top["hrid"]}-{direction}.csv"'
-    response["Cache-Control"] = "no-store"
-    return response
+    return csvs.streamed(request, csvs.chunks(table()), f"{top['hrid']}-{direction}.csv")
 
 
 _CSV = {"responses": {200: {"description": "As CSV", "content": {"text/csv": {}}}}}

@@ -16793,6 +16793,120 @@
         "title": "ScopeSearch",
         "type": "object"
       },
+      "SearchCsvParams": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Members of this collection: its ID or HRID.",
+            "title": "Collection"
+          },
+          "columns": {
+            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Columns",
+            "type": "array"
+          },
+          "descending": {
+            "default": false,
+            "title": "Descending",
+            "type": "boolean"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text in their HRID, or a text field in their title.",
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A field to sort by.",
+            "title": "Sort"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.",
+            "title": "Where"
+          }
+        },
+        "title": "SearchCsvParams",
+        "type": "object"
+      },
       "SearchIn": {
         "properties": {
           "archived": {
@@ -25681,7 +25795,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"DNR-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"DNR-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"purity_in_specification\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"DNR-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"DNR-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"purity_in_specification\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -25715,6 +25829,200 @@
           }
         ],
         "summary": "Search entities",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/search.csv": {
+      "get": {
+        "description": "Every entity you can read that the search finds, as CSV: what ``POST\n/entities/search`` finds with the same filters, in its order, with the grid's columns\n(ADR 0175). Values are as the grid shows them, as you can read them: a reference by\nits HRID, a person by name, a state by its label; numbers in full, a quantity's unit\nin its column's heading, times in ISO 8601 (UTC). Each row ends with when the record\nlast changed, its revision and its UUID.\n\nIt's written a page at a time as it's read, so a large result starts at once. Each\npage may run for 15 seconds; one that runs out ends the file with a row saying so. No\ncell starts as a formula would (OWASP's CSV injection guidance): one that would starts\nwith a quote. Each download is in the audit log (``search.exported``) before its\nfirst row is sent.",
+        "operationId": "iki_server_api_entities_search_csv",
+        "parameters": [
+          {
+            "description": "This type and its subtypes.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "This type and its subtypes.",
+              "title": "Type"
+            }
+          },
+          {
+            "description": "Only the type itself, not its subtypes.",
+            "in": "query",
+            "name": "exact_type",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only the type itself, not its subtypes.",
+              "title": "Exact Type",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Entities that belong to this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entities that belong to this project.",
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Archived"
+            }
+          },
+          {
+            "description": "Text in their HRID, or a text field in their title.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Text in their HRID, or a text field in their title.",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "Members of this collection: its ID or HRID.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Members of this collection: its ID or HRID.",
+              "title": "Collection"
+            }
+          },
+          {
+            "description": "Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.",
+            "in": "query",
+            "name": "where",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 20000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.",
+              "title": "Where"
+            }
+          },
+          {
+            "description": "A field to sort by.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A field to sort by.",
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "descending",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Descending",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+            "in": "query",
+            "name": "columns",
+            "required": false,
+            "schema": {
+              "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 200,
+              "title": "Columns",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download a search's results",
         "tags": [
           "entities"
         ]

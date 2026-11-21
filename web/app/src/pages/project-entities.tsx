@@ -19,6 +19,7 @@ import {
   gridSearch,
   inSentence,
   recordSearch,
+  searchCsvUrl,
   typeLabel,
   typesQuery,
   valueText,
@@ -651,11 +652,23 @@ export function EntityGrid({
               }}
             />
           ) : null}
-          <p className="muted" id={captionId}>
-            {count} {noun}
-            {show === "archived" ? ", archived" : ""}
-            {narrowed ? " match" : ""}
-          </p>
+          <div className="grid-caption">
+            <p className="muted" id={captionId}>
+              {count} {noun}
+              {show === "archived" ? ", archived" : ""}
+              {narrowed ? " match" : ""}
+            </p>
+            {/* Every one the search finds, not only those loaded: written by the server as
+                it reads them, and in the audit log (ADR 0175). */}
+            <a
+              className={buttonClass("quiet")}
+              href={searchCsvUrl(filter)}
+              download
+              aria-describedby={captionId}
+            >
+              Download CSV
+            </a>
+          </div>
           {/* A scrolling region people reach with Tab, so the keyboard scrolls it. */}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region */}
           <div className="data-grid" ref={scroller} tabIndex={0} aria-labelledby={captionId}>

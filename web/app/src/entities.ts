@@ -92,6 +92,24 @@ export function gridSearch(filter: EntityFilter) {
   };
 }
 
+/** The address of everything the grid's search finds, as CSV (ADR 0175): the same search,
+ * as the download's parameters. */
+export function searchCsvUrl(filter: EntityFilter): string {
+  const search = gridSearch(filter);
+  const query = new URLSearchParams();
+  if (search.type) query.set("type", search.type);
+  if ("project" in search) query.set("project", search.project);
+  if ("collection" in search) query.set("collection", search.collection);
+  if (search.archived !== undefined) query.set("archived", String(search.archived));
+  if (search.q) query.set("q", search.q);
+  if (search.where) query.set("where", JSON.stringify(search.where));
+  if (search.sort) {
+    query.set("sort", search.sort.field);
+    if (search.sort.descending) query.set("descending", "true");
+  }
+  return `/api/v1/entities/search.csv?${query.toString()}`;
+}
+
 /** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
 export function entitiesQuery(filter: EntityFilter) {
   return infiniteQueryOptions({

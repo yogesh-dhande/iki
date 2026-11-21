@@ -2019,6 +2019,19 @@ input[type="date"] {
 }
 
 /* What's picked, and what can be done with it. */
+/* The grid's count, and the download of everything it counts. */
+.grid-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.grid-caption p {
+  margin: 0;
+}
+
 .selection-bar {
   display: flex;
   flex-wrap: wrap;

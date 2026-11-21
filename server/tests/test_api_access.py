@@ -891,6 +891,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
+    ("GET", "/entities/search.csv", fixed("/entities/search.csv?q=kin"), row(200)),
     (
         "GET",
         "/entities/lookup",
