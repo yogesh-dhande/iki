@@ -178,6 +178,12 @@ sequon = {"any": [{"field": "sequence", "op": "motif", "value": v} for v in ("NX
 iki.entities.search("iki/protein.Protein", where=sequon)
 ```
 
+A search's results also download as CSV, for a spreadsheet:
+`GET /api/v1/entities/search.csv` takes the same search as parameters (`where` as
+JSON), and writes the grid's columns, as you may read them, a page at a time. Each
+download is in the audit log, and no cell is one a spreadsheet would run as a formula
+(ADR 0175). The grid's Download CSV link is this download.
+
 ## Running actions
 
 ```python
