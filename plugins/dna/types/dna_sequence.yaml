@@ -146,3 +146,12 @@ display:
   # A tab with its bases, and its features as a track along them.
   viewers:
     - { viewer: sequence, sequence: bases, features: features }
+# Downloads as GenBank and FASTA, written by Iki from these fields at any revision, for
+# anyone who can read it, each download audited (ADR 0171).
+exports:
+  - export: sequence
+    sequence: bases
+    features: features
+    description: description
+    accession: accession
+    organism: organism

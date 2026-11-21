@@ -4703,6 +4703,14 @@
             "description": "The date or datetime field saying when its records are due (ADR 0122), which My work sorts by.",
             "title": "Due"
           },
+          "exports": {
+            "description": "The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.",
+            "items": {
+              "$ref": "#/components/schemas/FileExportOut"
+            },
+            "title": "Exports",
+            "type": "array"
+          },
           "extends": {
             "anyOf": [
               {
@@ -5472,6 +5480,50 @@
         "title": "ExportOut",
         "type": "object"
       },
+      "ExportParams": {
+        "properties": {
+          "format": {
+            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "enum": [
+              "genbank",
+              "fasta"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose record of a registry entry, as for reading it (ADR 0115).",
+            "title": "Project"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which revision, as it was then. Its latest if left out.",
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "ExportParams",
+        "type": "object"
+      },
       "FieldOut": {
         "properties": {
           "assignment": {
@@ -5774,6 +5826,30 @@
         "title": "FieldOut",
         "type": "object"
       },
+      "FileExportOut": {
+        "properties": {
+          "export": {
+            "const": "sequence",
+            "description": "What it writes. `sequence`: a DNA or RNA sequence, with its features.",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          }
+        },
+        "required": [
+          "export",
+          "formats"
+        ],
+        "title": "FileExportOut",
+        "type": "object"
+      },
       "FileFilters": {
         "properties": {
           "cursor": {
@@ -5816,6 +5892,48 @@
           }
         },
         "title": "FileFilters",
+        "type": "object"
+      },
+      "FileFormatOut": {
+        "properties": {
+          "description": {
+            "description": "What of a record it holds.",
+            "title": "Description",
+            "type": "string"
+          },
+          "extension": {
+            "description": "Its file name's, such as gb.",
+            "title": "Extension",
+            "type": "string"
+          },
+          "format": {
+            "description": "What `/entities/{ref}/export` takes.",
+            "enum": [
+              "genbank",
+              "fasta"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "label": {
+            "description": "Its name, such as GenBank.",
+            "title": "Label",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "Its media type, such as chemical/seq-na-genbank.",
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "label",
+          "extension",
+          "media_type",
+          "description"
+        ],
+        "title": "FileFormatOut",
         "type": "object"
       },
       "FileOut": {
@@ -26408,6 +26526,97 @@
         "summary": "Download what was derived from it",
         "tags": [
           "graph"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/export": {
+      "get": {
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
+        "operationId": "iki_server_api_entities_export_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "in": "query",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+              "enum": [
+                "genbank",
+                "fasta"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which revision, as it was then. Its latest if left out.",
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which revision, as it was then. Its latest if left out.",
+              "title": "Revision"
+            }
+          },
+          {
+            "description": "Whose record of a registry entry, as for reading it (ADR 0115).",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Whose record of a registry entry, as for reading it (ADR 0115).",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "chemical/seq-na-fasta": {},
+              "chemical/seq-na-genbank": {}
+            },
+            "description": "The file, as an attachment named for the record."
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download it as a file, such as GenBank",
+        "tags": [
+          "entities"
         ]
       }
     },

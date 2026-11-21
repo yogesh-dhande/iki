@@ -12,3 +12,6 @@ spec/src/iki_spec/units/UCUM-LICENSE.md -text
 
 # A CSV file as Excel writes it, CRLF line ends and all: its records' digests are of them.
 plugins/oligo/tests/data/excel.csv -text
+
+# SnapGene files are binary, and the tests' digests are of their bytes as SnapGene wrote them.
+*.dna binary

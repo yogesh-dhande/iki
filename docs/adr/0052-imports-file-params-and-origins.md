@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-11-11
 - Refines: [0040](0040-action-and-environment-manifests.md), [0044](0044-run-results-are-written-all-or-nothing.md), [0046](0046-how-iki-worker-runs-a-command.md)
+- Refined by:
+  [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
+  which reads SnapGene's `.dna` files and says what of them isn't kept
 
 ## Context
 

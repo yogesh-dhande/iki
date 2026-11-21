@@ -47,6 +47,7 @@ from iki_spec.model import (
     Component,
     EntityType,
     Environment,
+    Export,
     Extension,
     Field,
     LabRole,
@@ -708,6 +709,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         fields=_fields(body.get("fields", {}), plugin),
         display_title=(body.get("display") or {}).get("title"),
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
+        exports=tuple(_export(x) for x in body.get("exports") or ()),
         file=document.file,
         due=body.get("due"),
         rules=rules.read(body.get("rules"), plugin),
@@ -810,6 +812,17 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 
 #: Each viewer's name, when a type doesn't give it one.
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
+
+
+def _export(body: dict[str, Any]) -> Export:
+    return Export(
+        export=body["export"],
+        sequence=body["sequence"],
+        features=body.get("features", ""),
+        description=body.get("description", ""),
+        accession=body.get("accession", ""),
+        organism=body.get("organism", ""),
+    )
 
 
 def _viewer(body: dict[str, Any]) -> Viewer:
@@ -1246,6 +1259,9 @@ class _Semantics:
         if entity_type.viewers:
             present = {n: f for n, f in names.items() if not f.removed}
             self.viewers(entity_type, source, present)
+        if entity_type.exports:
+            present = {n: f for n, f in names.items() if not f.removed}
+            self.exports(entity_type, source, present)
         for name, f in entity_type.fields.items():
             if f.type == "state":
                 self.state_field(entity_type, f, source, ("fields", name), names)
@@ -2203,6 +2219,76 @@ class _Semantics:
                         where,
                     )
                 tracked.add(track.field)
+
+    def exports(self, entity_type: EntityType, source: Document, fields: dict[str, Field]) -> None:
+        """Each export names fields the type has, of the kind it writes, once per type. A
+        sequence export's sequence is a DNA or RNA field, or a reference to a type that
+        exports a sequence (ADR 0171)."""
+        seen: set[str] = set()
+        for index, export in enumerate(entity_type.exports):
+            path: Path = ("exports", index)
+            if export.export in seen:
+                self.add(
+                    "export-twice",
+                    f"This type has a `{export.export}` export already.",
+                    source,
+                    (*path, "export"),
+                    hint="Give each export once: its files are offered on the record's page.",
+                )
+            seen.add(export.export)
+            for role, wanted, kinds in self._export_roles():
+                name = getattr(export, role)
+                if not name:
+                    continue
+                found = fields.get(name)
+                if found is None:
+                    self.add(
+                        "unknown-field", f"This type has no field `{name}`.", source, (*path, role)
+                    )
+                elif not kinds(found):
+                    self.add(
+                        "export-field",
+                        f"`{name}` isn't {wanted}, which a {export.export} export's `{role}` "
+                        "writes.",
+                        source,
+                        (*path, role),
+                    )
+
+    def _export_roles(self) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
+        return (
+            (
+                "sequence",
+                "a DNA or RNA sequence, or a reference to a type that exports one",
+                lambda f: (
+                    (f.type == "string" and f.format in NUCLEIC_FORMATS)
+                    or (f.type == "ref" and len(f.to) == 1 and self._exports_sequence(f.to[0]))
+                ),
+            ),
+            ("features", "a json field", lambda f: f.type == "json"),
+            ("description", "a string or text field", lambda f: f.type in ("string", "text")),
+            ("accession", "a string field", lambda f: f.type == "string"),
+            (
+                "organism",
+                "a reference to iki/core.Organism",
+                lambda f: f.type == "ref" and f.to == ("iki/core.Organism",),
+            ),
+        )
+
+    def _exports_sequence(self, qualified: str) -> bool:
+        """Whether a type, or its nearest ancestor that declares exports, exports a sequence
+        written from a field of its own: a reference to one that only refers on isn't."""
+        target = self.types.get(qualified)
+        if target is None:
+            return False
+        declared = next((t.exports for t in [target, *self.ancestors(target)] if t.exports), ())
+        fields = {n: f for n, (f, _) in self.all_fields(target).items()}
+        return any(
+            e.export == "sequence"
+            and (f := fields.get(e.sequence)) is not None
+            and f.type == "string"
+            and f.format in NUCLEIC_FORMATS
+            for e in declared
+        )
 
     def hrid_prefixes(self) -> None:
         seen: dict[str, str] = {}

@@ -1,0 +1,22 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Vector
+label: Vector
+schema_version: 1
+description: >-
+  A record about a plasmid, as the fixtures have it: its identity is its plasmid,
+  and its file is its plasmid's, under its own name with its own annotation.
+hrid: { prefix: VEC }
+identity: [plasmid]
+fields:
+  plasmid: { type: ref, to: Plasmid, required: true, immutable: true }
+  name: { type: string, max_length: 255 }
+  description: { type: text, max_length: 10000 }
+  annotated_features: { type: json }
+display:
+  title: "{{ name or hrid }}"
+exports:
+  - export: sequence
+    sequence: plasmid
+    features: annotated_features
+    description: description

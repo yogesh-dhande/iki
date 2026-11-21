@@ -35,6 +35,8 @@ const BY_EXTENSION: Readonly<Record<string, readonly string[]>> = {
   faa: [AA_FASTA],
   gb: ["chemical/seq-na-genbank"],
   gbk: ["chemical/seq-na-genbank"],
+  // SnapGene's files, which have no registered type: the x- form, as AB1 traces' is.
+  dna: ["application/x-snapgene"],
   fastq: ["text/x-fastq"],
   fq: ["text/x-fastq"],
   sam: ["text/x-sam"],
@@ -68,6 +70,7 @@ const NAMES: Readonly<Record<string, { name: string; an?: true }>> = {
   [NA_FASTA]: { name: "nucleotide FASTA" },
   [AA_FASTA]: { name: "protein FASTA" },
   "chemical/seq-na-genbank": { name: "GenBank" },
+  "application/x-snapgene": { name: "SnapGene" },
   "text/x-fastq": { name: "FASTQ" },
   "text/x-sam": { name: "SAM", an: true },
   "application/x-bam": { name: "BAM" },

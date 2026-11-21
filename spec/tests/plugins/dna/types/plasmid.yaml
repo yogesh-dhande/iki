@@ -34,3 +34,9 @@ display:
   title: "{{ name or hrid }}"
   viewers:
     - { viewer: sequence, sequence: bases, features: features }
+exports:
+  - export: sequence
+    sequence: bases
+    features: features
+    description: description
+    organism: organism

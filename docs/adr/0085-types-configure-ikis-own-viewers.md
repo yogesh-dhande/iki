@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-11-14
 - Refines: [0084](0084-plugin-components-run-in-sandboxed-frames.md)
+- Refined by:
+  [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
+  which configures the files a type's records export the same way
 
 ## Context
 

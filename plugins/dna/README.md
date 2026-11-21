@@ -58,7 +58,8 @@ makes is recorded as made with it
 - **`primer_properties`**: a primer's length, GC content and melting
   temperature, for many at once.
 - **`import_sequences`**: registers each record of a FASTA or GenBank file
-  (up to 10,000, and 1 GiB) as a DNA sequence. A sequence already registered
+  (up to 10,000, and 1 GiB), or a SnapGene file (`.dna`), as a DNA sequence,
+  and a SnapGene file's primers as primers. A sequence already registered
   is found, and the project gets its record of it, or keeps the one it has. Each records the file and record it came from, with the record's
   SHA-256.
 - **`fetch_sequences`**: fetches nucleotide records from NCBI by accession
@@ -141,15 +142,54 @@ When none is, its organism is left out and the run says why. A record without
 a taxon has no organism, and the run says so. FASTA records give a name (the header's first word) and a
 description (the rest), and an accession where the header has one
 (`L09137.2`, NCBI's `gb|L09137.2|`, or a RefSeq one such as
-`ref|NZ_CP009273.1|`). FASTA doesn't say whether a sequence is circular, so
-the `topology` param does: it is `linear` unless it's set to `circular`, which
-is the right default for a file of genes, reads or primers, and what a plasmid
-in a FASTA file needs changed. A GenBank record's own LOCUS line settles it,
-whatever the param says, since the record knows. Nothing of a linear record
+`ref|NZ_CP009273.1|`). A FASTA header can say its record's topology with
+NCBI's source modifier, `[topology=circular]` or `[topology=linear]`, as Iki's
+own FASTA export writes it; the modifier is taken out of the description.
+Otherwise FASTA doesn't say whether a sequence is circular, so the "Topology
+of FASTA records" param does: it is `linear` unless it's set to `circular`,
+which is the right default for a file of genes, reads or primers, and what a
+plasmid in a FASTA file needs changed. A GenBank record's own LOCUS line, and
+a SnapGene file's own flag, settle it, whatever the param says, since the
+file knows; the run's log says, for each record, which of them its topology
+came from. Nothing of a linear record
 reads across its ends: a location that runs off the end and back to base 1
 (`join(2306..3215,1..1623)`, as INSDC writes a gene across a circular genome's
 origin) says the molecule is a circle, so on a record whose LOCUS says `linear`
 that feature is left out, with a message saying which and why.
+
+SnapGene files: SnapGene doesn't publish its format, so the import reads it as
+Biopython and other readers do, and is tested against files SnapGene itself
+wrote (`server/tests/data/snapgene/`). It reads:
+
+- the bases (upper-cased) and topology, from the file's DNA packet;
+- the name, from the file's custom map label when SnapGene uses one, or else
+  the file's name;
+- the description and accession, from the file's notes;
+- each feature's name, type, strand, qualifiers and segments, as the GenBank
+  import keeps them. A segment that runs past the end of a circle and back is
+  two parts across the origin; gaps between segments aren't parts;
+- each primer, as an `iki/dna.Primer` bound to the sequence, and each binding
+  site SnapGene would show as a `primer_bind` feature named for its primer.
+
+What a DNA sequence can't hold isn't kept, and the run says so for each file.
+That covers:
+
+- the host's methylation (Dam, Dcm, EcoKI);
+- a feature marked as running both ways (kept with no strand), its segments'
+  names and its cleavage sites;
+- notes with no field here, such as the file's type, references, and what it
+  was transformed into;
+- a linear molecule's sticky ends and end modifications;
+- an organism, which a SnapGene file names without an NCBI Taxonomy ID;
+- SnapGene's history of how it was made, and the sequences aligned to it in
+  SnapGene, such as sequencing reads (align those with `align_reads`);
+- binding sites below the file's own hybridization settings.
+
+SnapGene's display state (colours, the map's layout, enzyme choices) isn't
+kept either, and isn't mentioned. The whole file is kept as the record's
+origin, so nothing in it is lost. A file of a protein or RNA (`.prot`,
+`.rna`), or one that keeps its bases compressed, fails the import, saying
+why.
 
 A record that can't be read (RNA written with U, gaps, letters that aren't
 IUPAC bases, a file cut short, or a GenBank record whose bases aren't as many
@@ -216,8 +256,37 @@ In the alignment, each read's row is as it lies on the
 sequence (its reverse complement if it read the other strand), and bases a
 read has that the sequence doesn't get columns of their own.
 
-Reverse complements, restriction digests, primer design and GenBank export
-come later.
+Reverse complements, restriction digests and primer design come later.
+
+## Exports
+
+A DNA sequence downloads as GenBank (`.gb`) or FASTA from the Export button on
+its page, at its latest revision or, from its history, at an earlier one
+([ADR 0171](../../docs/adr/0171-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
+Iki writes the file from the record's values at that revision, for anyone who
+can read it, and each download is in the audit log with the file's SHA-256.
+
+- **GenBank** gives the name, length, molecule (`DNA`, or `ss-DNA` for a
+  single strand), topology and the revision's date in its LOCUS line, then:
+  - the description;
+  - the accession, when the record has one;
+  - the organism and its NCBI Taxonomy ID;
+  - in COMMENT, the record's Iki ID and revision;
+  - each feature with its parts, partial ends, `order()` and qualifiers. A
+    feature across a circle's origin is a `join(…)` across it, and a name no
+    qualifier gives is its `/label`.
+
+  What GenBank can't hold is left out and listed in COMMENT: a feature across
+  a linear molecule's ends, or one beyond the sequence. A feature with no
+  strand reads as forward in GenBank, and COMMENT says so.
+
+- **FASTA** gives the ID, name, description and topology in its header
+  (`>DNA-000001 pUC19 Cloning vector pUC19 [topology=circular]`), and the
+  bases in lines of 70. It holds no features.
+
+Importing either back gives the same sequence, and GenBank its features too.
+Iki reads SnapGene files but doesn't write them, since SnapGene doesn't publish
+its format; SnapGene opens the GenBank file with its features (ADR 0171).
 
 ## Developing it
 
