@@ -174,6 +174,42 @@ def keys(
         seen.add(item["key"])
 
 
+#: Why an update can't refer to what its run creates.
+UPDATE_REFERS_TO_A_CREATE = (
+    "An update can't refer to what its run creates: a run's updates are written before its "
+    "creates (ADR 0064). Let the create refer to the entity instead, by `derived_from` or a "
+    "reference of its own."
+)
+
+
+def created_refs_in_updates(
+    action: Action, updates: Mapping[str, Any], types: Types
+) -> list[Problem]:
+    """Each ``{"$create": key}`` an output's ``updates`` give a ref field (or an item of a
+    list of refs) the action declares it updates: refused, as the server refuses them, with
+    what to do instead. Elsewhere, as in a JSON field, it is kept as written (ADR 0064); an
+    input or a field the action doesn't declare is refused for that."""
+    typed = {name: i.type for name, i in action.inputs.items()}
+    sets = {u.input: set(u.fields) for u in action.updates}
+    out: list[Problem] = []
+    for name, items in updates.items():
+        type_name = typed.get(name)
+        if type_name is None or name not in sets or not isinstance(items, list):
+            continue
+        for index, item in enumerate(items):
+            if not isinstance(item, Mapping) or not isinstance(item.get("values"), Mapping):
+                continue  # the output's schema says so
+            values = {k: v for k, v in item["values"].items() if k in sets[name]}
+            for field, _, where in created_refs({"type": type_name, "values": values}, types):
+                out.append(
+                    Problem(
+                        pointer("updates", name, index, "values", field, *where),
+                        UPDATE_REFERS_TO_A_CREATE,
+                    )
+                )
+    return out
+
+
 def check_creates(
     action: Action, creates: Sequence[Mapping[str, Any]], types: Types
 ) -> list[Problem]:

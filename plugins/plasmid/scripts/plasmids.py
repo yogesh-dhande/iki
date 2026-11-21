@@ -320,11 +320,6 @@ def _site_for(sites: list[priming.Site], primer: dict[str, Any], strand: str) ->
 def simulate_pcr(run: dict[str, Any]) -> dict[str, Any]:
     params = run["params"]
     pcr = run["inputs"]["pcr"][0]
-    if values_of(pcr).get("product"):
-        raise Stop(
-            f"{pcr['hrid']} has a product already: it was worked out once, and a reaction "
-            "with other primers or another template is its own record."
-        )
     template = one_included(pcr, "template", "template")
     bases = values_of(template)["bases"].upper()
     circular = (values_of(template).get("topology") or "linear") == "circular"
@@ -472,7 +467,6 @@ def _one_product(
                 {
                     "entity": pcr["id"],
                     "values": {
-                        "product": {"$create": "product"},
                         "product_length": product.length,
                         "forward_melting_temperature": ahead.tm,
                         "reverse_melting_temperature": back.tm,

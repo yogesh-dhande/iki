@@ -7,7 +7,10 @@
 # Its product is the linear DNA sequence the reaction gives, worked out and registered by
 # the run, derived from this record: so a product, the PCR that made it, its template and
 # its primers are one chain in the graph (ADR 0123), and a cloning plan can take the
-# product as an insert by its sequence.
+# product as an insert by its sequence. As with an assembly, the reaction keeps what is
+# known of its product -- the length, the primers' Tms -- and the product itself is its in
+# the graph, not a reference of its own: a run's updates are written before what it
+# creates (ADR 0064).
 apiVersion: iki/v1
 kind: EntityType
 name: Pcr
@@ -44,14 +47,6 @@ fields:
     to: iki/dna.Primer
     required: true
     description: The primer that extends along the other strand, back towards the first.
-  product:
-    type: ref
-    to: iki/dna.DNASequence
-    computed: true
-    description: >-
-      The linear DNA sequence the reaction gives, as the run worked it out and registered
-      it. A reaction that makes nothing, or more than one molecule, has none: the run says
-      why.
   product_length:
     type: quantity
     unit: "{bp}"

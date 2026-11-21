@@ -140,7 +140,12 @@ its primers are one chain in the graph (ADR 0123), walkable in both directions,
 and a cloning plan takes the product as a fragment by its sequence, exactly as
 it takes a synthesised one. The reaction keeps the product's length, each
 primer's Tm where it binds, and `tm_method`, the conditions those were computed
-under.
+under. **The product itself is the reaction's in the graph, not a field of it,** as
+what an assembly makes is: a run's updates are written before what it creates
+(ADR 0064), so a reference to it couldn't be written in the same run, and a second
+run to set it would leave a reaction that says nothing of its product in between.
+So working a reaction out again, after its primers or template were corrected,
+gives what it now says, and the same bases are the entry the registry has.
 
 **A reaction that doesn't make one molecule makes none, and says why.** A
 primer that binds nowhere is named, with the 3' match and mismatch budget it

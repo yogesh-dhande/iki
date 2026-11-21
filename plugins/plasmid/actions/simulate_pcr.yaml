@@ -49,7 +49,6 @@ effects:
   updates:
     - input: pcr
       fields:
-        - product
         - product_length
         - forward_melting_temperature
         - reverse_melting_temperature

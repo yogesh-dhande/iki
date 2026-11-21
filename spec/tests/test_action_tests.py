@@ -9,7 +9,7 @@ import pytest
 
 from iki_spec import action_tests, outputs
 from iki_spec.builtin import core_plugin
-from iki_spec.model import Creates, EntityType, Plugin
+from iki_spec.model import Creates, EntityType, Input, Plugin, Updates
 from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).parent / "plugins"
@@ -277,6 +277,36 @@ def test_outputs_may_change_only_what_the_action_declares(
         "It sets sequence on protein, which compute_properties doesn't declare it updates.",
         "It updates other, which compute_properties doesn't declare it updates.",
     ]
+
+
+def test_an_update_cant_refer_to_what_its_run_creates(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    """A run's updates are written before its creates, so `$create` names a create only in
+    another create's references (ADR 0064): in an update's reference, or an item of a list
+    of them, it is refused as the server refuses it, saying what to do instead. In a field
+    that isn't a reference it is a value like any other."""
+    _, plugin, types = protein
+    every = outputs.SpecTypes(
+        {**types, **{t.qualified_name: t for t in plugin.types.values()}}, plugin.extensions
+    )
+    action = dataclasses.replace(
+        plugin.actions["fetch_proteins"],
+        inputs={"request": Input(name="request", type="acme/protein.AssayRequest")},
+        updates=(Updates(input="request", fields=("protein", "samples", "title")),),
+    )
+    made = {"$create": "made"}
+    updates = {
+        "request": [
+            {"entity": "x", "values": {"protein": made, "samples": ["y", made], "title": made}}
+        ],
+        "undeclared": [{"entity": "x", "values": {"protein": made}}],
+    }
+    assert outputs.created_refs_in_updates(action, updates, every) == [
+        outputs.Problem("#/updates/request/0/values/protein", outputs.UPDATE_REFERS_TO_A_CREATE),
+        outputs.Problem("#/updates/request/0/values/samples/1", outputs.UPDATE_REFERS_TO_A_CREATE),
+    ]
+    assert "derived_from" in outputs.UPDATE_REFERS_TO_A_CREATE
 
 
 def test_creates_are_checked_as_the_server_checks_them(

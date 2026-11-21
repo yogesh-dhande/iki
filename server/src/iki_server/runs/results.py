@@ -208,6 +208,10 @@ def checked(run: ActionRun, document: Mapping[str, Any]) -> Checked:
     for row in RunInput.objects.filter(run=run).order_by("name", "position"):
         inputs.setdefault(row.name, {})[row.entity_id] = row.revision
     check = Check(run, action_from_dict(run.spec), inputs)
+    for problem in outputs.created_refs_in_updates(
+        check.action, document.get("updates") or {}, INSTALLED
+    ):
+        check.error(problem.pointer, problem.detail)
     updates = _updates(check, document.get("updates") or {})
     creates = _creates(check, document.get("creates") or [])
     creates_file = _creates_file(check, document.get("creates_file"))

@@ -2138,6 +2138,11 @@ def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[s
         43.6,
     ):
         fail(f"{run['hrid']} wrote the primers' Tms as {got}")
+    # The product is the reaction's in the graph: derived from it, as an assembly's is.
+    walked = api_call(alice, "GET", f"/entities/{pcr['id']}/downstream")
+    below = {i["entity"]["id"] for i in walked.json().get("items", [])} if walked.ok else set()
+    if amplified["entity"] not in below:
+        fail(f"{pcr['hrid']}'s downstream ({walked.status_code}) doesn't hold its product")
     ok(
         f"iki/plasmid.simulate_pcr amplified {pcr['hrid']} ({run['hrid']}): 103 bp of "
         f"pUC19's polylinker, registered as the linear {amplified['entity'][:8]}…, Tm 49.2 "

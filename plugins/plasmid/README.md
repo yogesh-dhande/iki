@@ -122,11 +122,14 @@ annotated from.
 - **`iki/plasmid.Pcr`** (`PCR-000001`): a PCR — a `template`, a `forward_primer` and a
   `reverse_primer`, and the linear molecule they amplify. Like an assembly it has no
   identity: one fragment can be amplified by many pairs of primers, and how a lab made its
-  own copy is the lab's record. Its `product` is the DNA sequence `simulate_pcr` worked out
-  and registered, `derived_from` the reaction, so the product, the PCR, its template and
+  own copy is the lab's record. Its product is the DNA sequence `simulate_pcr` works out
+  and registers, `derived_from` the reaction, so the product, the PCR, its template and
   its primers are one chain in the graph
   ([ADR 0123](../../docs/adr/0123-queries-walk-the-graph-of-what-depends-on-what.md)) and a
-  cloning plan takes the product as an insert by its sequence. It keeps the
+  cloning plan takes the product as an insert by its sequence. As with an assembly, the
+  product is the reaction's in the graph rather than a field of it, so a reaction worked
+  out again, after its primers were corrected, gives what it now says, and the same bases
+  are the entry the registry has already. It keeps the
   `product_length`, each primer's melting temperature where it binds
   (`forward_melting_temperature`, `reverse_melting_temperature`), the `tm_method` those
   were computed under, and `products_found`, which is more than one where the primers don't

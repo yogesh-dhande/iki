@@ -147,7 +147,6 @@ expect:
     updates:
       pcr:
         - values:
-            product: { $create: product }
             product_length: 91
             forward_melting_temperature: 49.2
             reverse_melting_temperature: 43.6

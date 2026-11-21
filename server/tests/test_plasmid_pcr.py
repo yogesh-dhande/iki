@@ -298,7 +298,8 @@ def test_the_m13_pair_amplifies_puc19s_polylinker(tmp_path: Path) -> None:
     assert "GAATTC" in expected
     assert "AAGCTT" in expected
     values = output["updates"]["pcr"][0]["values"]
-    assert values["product"] == {"$create": "product"}
+    # The product is the reaction's in the graph, derived from it, as an assembly's is.
+    assert "product" not in values
     assert values["product_length"] == 103
     assert values["forward_melting_temperature"] == 49.2
     assert values["reverse_melting_temperature"] == 43.6
@@ -404,11 +405,15 @@ def test_several_products_register_none_and_say_which(tmp_path: Path) -> None:
     assert "amplify 2 molecules" in log
 
 
-def test_a_reaction_worked_out_already_isnt_worked_out_again(tmp_path: Path) -> None:
+def test_a_reaction_worked_out_again_gives_the_same_molecule(tmp_path: Path) -> None:
+    """Working a reaction out again, after its primers or its template were corrected or
+    for nothing at all, gives the product of what it now says: the same bases, which the
+    registry gives back as the entry it has, so a rerun registers nothing twice."""
     bases, _, _ = read("L09137.2")
     forward, reverse = pair()
-    run = reaction(given(bases), forward, reverse)
-    run["inputs"]["pcr"][0]["values"]["product"] = "00000000-0000-0000-0000-000000000031"
-    output, log = command(tmp_path, "pcr", run)
-    assert output == {}
-    assert "::error PCR-000001 has a product already" in log
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, _ = command(tmp_path / "a", "pcr", reaction(given(bases), forward, reverse))
+    again, _ = command(tmp_path / "b", "pcr", reaction(given(bases), forward, reverse))
+    assert first["creates"] == again["creates"]
+    assert first["creates"][0]["values"]["bases"] == bases[378:481]
