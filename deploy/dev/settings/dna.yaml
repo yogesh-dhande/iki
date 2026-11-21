@@ -1,0 +1,2 @@
+# The dev cluster's values for the dna plugin's settings, so it can fetch from NCBI.
+ncbi_email: iki-dev@example.com

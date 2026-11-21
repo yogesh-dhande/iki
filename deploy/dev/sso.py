@@ -1137,6 +1137,11 @@ def actions() -> None:
     for name in ("iki/dna.compute_composition", "iki/dna.primer_properties"):
         if not listed.get(name, {}).get("available"):
             fail(f"{name} isn't available to run: {listed.get(name)}")
+    # Fetching from NCBI needs the plugin's ncbi_email setting (ADR 0169), which the
+    # cluster sets (settings/dna.yaml).
+    fetch = listed.get("iki/dna.fetch_sequences", {})
+    if not fetch.get("available"):
+        fail(f"iki/dna.fetch_sequences isn't available to run: {fetch}")
     # New bases each time, so each check registers new entities.
     bases = "".join(secrets.choice("ACGT") for _ in range(40))
     primer = bases[:20]

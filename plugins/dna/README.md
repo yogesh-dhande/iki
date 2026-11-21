@@ -37,7 +37,11 @@ proteins and other plugins' sequences.
 ## Settings
 
 - `ncbi_email`: the address NCBI asks automated clients to give, so it can
-  contact the lab before blocking heavy use. Fetching from NCBI needs it.
+  contact the lab before blocking heavy use. Fetching from NCBI needs it:
+  `fetch_sequences` names it under `requires_settings`, so on a deployment
+  that leaves it unset the fetch isn't offered, and a launch is refused before
+  it's queued
+  ([ADR 0169](../../docs/adr/0169-an-action-names-the-settings-it-cant-run-without.md)).
 
 ## Secrets
 

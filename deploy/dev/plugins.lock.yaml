@@ -6,7 +6,8 @@
 apiVersion: iki/v1
 kind: PluginLock
 plugins:
-  - { name: iki/dna, local: ../../plugins/dna, state: active }
+  # Its ncbi_email setting, so the cluster can fetch from NCBI.
+  - { name: iki/dna, local: ../../plugins/dna, state: active, settings: settings/dna.yaml }
   - { name: iki/protein, local: ../../plugins/protein, state: active }
   - { name: iki/antibody, local: ../../plugins/antibody, state: active }
   - { name: iki/small_molecule, local: ../../plugins/small_molecule, state: active }
