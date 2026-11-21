@@ -2039,7 +2039,7 @@ M13_REVERSE = "CAGGAAACAGCTATGAC"
 
 
 def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]) -> None:
-    """What pUC19's own bases say, and what its primers do (ADR 0169), in the plugin's
+    """What pUC19's own bases say, and what its primers do (ADR 0172), in the plugin's
     environment on the cluster: its beta-lactamase gene as an open reading frame of 286
     codons at 1626..2486 on the reverse strand, read by translation table 11; the M13/pUC
     sequencing primers binding it once each, where the record's bases put them; and the two

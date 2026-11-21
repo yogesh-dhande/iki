@@ -1,4 +1,4 @@
-# 0169. What the bases say: ORFs, primer binding sites, and the product of a PCR
+# 0172. What the bases say: ORFs, primer binding sites, and the product of a PCR
 
 - Status: Accepted
 - Date: 2026-11-20

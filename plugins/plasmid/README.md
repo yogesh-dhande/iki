@@ -52,7 +52,7 @@ annotated from.
     them, and a cloning plan for it doesn't close.
   - **What its own bases say, and where the lab's primers sit on it, are each project's
     record's too**
-    ([ADR 0169](../../docs/adr/0169-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)):
+    ([ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)):
     its `orfs`, in all six frames, with the frame, the coordinates, the length and the
     protein of each, and its `primer_binding_sites`, with the primer, the strand, the base
     each primer's 3' end pairs with, how much annealed, the 5' tail, every mismatch and the
@@ -253,7 +253,7 @@ parts), at least 90% identity`.
 ## Reading the bases: ORFs, primer binding sites and PCR
 
 See
-[ADR 0169](../../docs/adr/0169-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)
+[ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)
 for why each of these is the record's rather than the registry entry's, and what is left
 out.
 

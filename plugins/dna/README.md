@@ -258,7 +258,7 @@ read has that the sequence doesn't get columns of their own.
 
 Where a primer binds a molecule, and what a pair of primers amplifies, are the
 plasmid plugin's: it holds the annotation and the maps those are read on
-([ADR 0169](../../docs/adr/0169-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)).
+([ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)).
 A PCR product it works out is registered here, as the linear `DNASequence` it
 is. Reverse complements, restriction digests and primer design come later.
 

@@ -202,7 +202,7 @@ fields:
     label: Open reading frames
     description: >-
       Its open reading frames, in all six frames, as the ORF action found them: each with
-      its frame, where it lies, its length and the protein it codes for (ADR 0169). One on
+      its frame, where it lies, its length and the protein it codes for (ADR 0172). One on
       a circle may read across the origin, and none on a linear molecule reads across its
       ends.
     schema:
@@ -263,7 +263,7 @@ fields:
       Where the primers a run was given bind it, on both strands: each with the primer it
       is, where it lies, the base its 3' end pairs with, how much of it annealed, its 5'
       tail, each mismatch and how far that is from its 3' end, and the site's melting
-      temperature (ADR 0169). One on a circle may cross the origin.
+      temperature (ADR 0172). One on a circle may cross the origin.
     schema:
       type: array
       maxItems: 500

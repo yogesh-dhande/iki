@@ -139,7 +139,7 @@ def annotate(run: dict[str, Any]) -> dict[str, Any]:
     return {"updates": {"plasmid": updates}, "messages": messages}
 
 
-# --- open reading frames and primer binding sites (ADR 0169) -------------------------
+# --- open reading frames and primer binding sites (ADR 0172) -------------------------
 
 #: What each `genetic_code` param is, as NCBI numbers its translation tables.
 TABLES = {

@@ -12,7 +12,7 @@
 //
 // Three layers can lie along it, each what a run of the plugin found and each a layer the
 // person turns off: the library's parts, the open reading frames, and where the project's
-// primers bind (ADR 0169). Each layer has its own ring or lanes and its own table beneath,
+// primers bind (ADR 0172). Each layer has its own ring or lanes and its own table beneath,
 // so they are never read as one another, and each is turned on and off by a button that
 // says whether it is showing.
 //
