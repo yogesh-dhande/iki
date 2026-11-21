@@ -2,7 +2,7 @@
  * A tab a plugin adds to an entity's page: its component, in a sandboxed frame (ADR 0084),
  * given the entity and, if its tab declares a search, what that finds about it in its
  * project (ADR 0117), and what a person picks in it, ready to run an action on. Of the
- * actions it offers to run on the entity (ADR 0169), its element is told those the person
+ * actions it offers to run on the entity (ADR 0170), its element is told those the person
  * may run here now, and one they ask for opens Iki's run page with it and the entity
  * chosen, where they check and start it.
  */

@@ -31,7 +31,7 @@ const STYLE = `
 `;
 
 // The action that computes what this tab shows, which it offers while it's empty where
-// the person viewing it may run it (ADR 0169): Iki's run page then runs it.
+// the person viewing it may run it (ADR 0170): Iki's run page then runs it.
 const COMPUTE = "iki/complex.compute_composition";
 
 // A cystine's molar extinction coefficient at 280 nm in water, L/(mol.cm), as

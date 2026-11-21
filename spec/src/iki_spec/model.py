@@ -1621,7 +1621,7 @@ def _component(data: dict[str, Any]) -> Component:
         return ComponentSlot(**{**x, "search": ComponentSearch(**search) if search else None})
 
     # Plugins built before ADR 0117 show only the entity whose page they're on, and those
-    # built before ADR 0169 offer nothing to run.
+    # built before ADR 0170 offer nothing to run.
     entities = data.get("entities")
     return Component(
         **{

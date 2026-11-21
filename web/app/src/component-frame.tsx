@@ -4,7 +4,7 @@
  * call the API as the person. The page hands Iki's bridge in it one port, gives it the
  * entity and the many entities its place shows (ADR 0117), and checks every message it
  * sends back: more, a refinement and an entity to open only for what it was given, and an
- * action to run only one its place offers (ADR 0169).
+ * action to run only one its place offers (ADR 0170).
  */
 
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";

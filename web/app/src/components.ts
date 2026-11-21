@@ -25,7 +25,7 @@ export type PlaceRequest =
 
 /** Where a component is, as its element is told: its slot (or an app's panel), the
  * name it's shown under there, and, on an entity's tab, which of the actions it offers
- * the person viewing it may run there now (ADR 0169). */
+ * the person viewing it may run there now (ADR 0170). */
 export interface PlaceInfo {
   slot: SlotKind | "app.panel";
   label: string;

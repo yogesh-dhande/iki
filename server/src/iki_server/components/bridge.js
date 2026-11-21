@@ -1,4 +1,4 @@
-// Iki's bridge, in a component's sandboxed frame (ADR 0084, ADR 0117, ADR 0169). It creates
+// Iki's bridge, in a component's sandboxed frame (ADR 0084, ADR 0117, ADR 0170). It creates
 // the component's element, gives it what the page sends (the entity whose page it is, the
 // many entities its place shows, and where it is, with the actions it may offer), and
 // passes on what the element tells the page, through the one port the page hands it. The

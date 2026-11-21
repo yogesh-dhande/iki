@@ -720,7 +720,7 @@ class ComponentOut(TypedDict):
     #: Its qualified name, such as `protein.plate_map`.
     name: str
     plugin: str
-    #: The actions it may offer to run on its tab's entity, qualified (ADR 0169): the page opens Iki's run page for one it asks for, and tells it, as `place.runs`, those the person viewing it may run there now.
+    #: The actions it may offer to run on its tab's entity, qualified (ADR 0170): the page opens Iki's run page for one it asks for, and tells it, as `place.runs`, those the person viewing it may run there now.
     runs: list[str]
     #: The type of the entities a person can select in it, or null.
     selects: str | None

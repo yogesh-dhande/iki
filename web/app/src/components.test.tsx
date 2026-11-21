@@ -195,7 +195,7 @@ describe("a selection", () => {
 });
 
 describe("an action it offers", () => {
-  /** Residues offers compute_properties, which fills it while it's empty (ADR 0169). */
+  /** Residues offers compute_properties, which fills it while it's empty (ADR 0170). */
   const OFFERING: PluginComponent = { ...RESIDUES, runs: [ACTION.name] };
 
   async function open(can: string[]) {

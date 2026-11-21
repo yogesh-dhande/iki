@@ -48,7 +48,7 @@ export function PluginPlace({
   types: EntityType[];
   /** What's picked, as read back: an app's panel offers it to the panels after it. */
   onPicked?: ((entities: Entity[]) => void) | undefined;
-  /** A person asked to run one of the actions its place offers (ADR 0169). */
+  /** A person asked to run one of the actions its place offers (ADR 0170). */
   onRun?: ((action: string) => void) | undefined;
   onFailed?: (() => void) | undefined;
 }) {

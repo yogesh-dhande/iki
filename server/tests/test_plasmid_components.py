@@ -66,7 +66,7 @@ document.addEventListener("securitypolicyviolation", (e) => {
 await customElements.whenDefined("plasmid-map");
 const element = document.createElement("plasmid-map");
 element.entity = JSON.parse(decodeURIComponent(location.hash.slice(1)));
-// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0169).
+// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0170).
 window.ran = [];
 element.addEventListener("iki-run", (e) => window.ran.push(e.detail?.action));
 document.body.append(element);
@@ -363,7 +363,7 @@ def test_a_plasmid_not_annotated_yet_says_how_and_offers_its_annotation(
 ) -> None:
     # The trigger that annotates each new plasmid is a project's, and off until someone
     # turns it on (ADR 0080): the map names the action rather than promising it runs,
-    # and offers it where the person viewing it may run it (ADR 0169).
+    # and offers it where the person viewing it may run it (ADR 0170).
     context = browser.new_context()
     page = watch(context.new_page())
     entity = {"hrid": "PLS-000003", "values": {"length": 4000}}

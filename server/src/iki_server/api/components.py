@@ -80,7 +80,7 @@ class ComponentOut(Schema):
     )
     runs: list[str] = Field(
         description="The actions it may offer to run on its tab's entity, qualified (ADR "
-        "0169): the page opens Iki's run page for one it asks for, and tells it, as "
+        "0170): the page opens Iki's run page for one it asks for, and tells it, as "
         "`place.runs`, those the person viewing it may run there now."
     )
     sha256: str = Field(description="Its module's SHA-256: the code its frames run.")

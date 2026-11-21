@@ -18,5 +18,5 @@ module: ./components/plasmid-map.js
 element: plasmid-map
 slots: [{ slot: entity.tab, type: Plasmid }]
 # Until the plasmid is annotated, the map offers the action that annotates it, where the
-# person viewing it may run it (ADR 0169).
+# person viewing it may run it (ADR 0170).
 events: { run: { actions: [annotate_plasmid] } }

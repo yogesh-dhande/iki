@@ -48,7 +48,7 @@ const name = %s[new URL(import.meta.url).search.slice(1)];
 await customElements.whenDefined(name);
 const element = document.createElement(name);
 element.entity = JSON.parse(decodeURIComponent(location.hash.slice(1)));
-// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0169).
+// The actions it asks to run, as Iki's bridge would pass them to the page (ADR 0170).
 window.ran = [];
 element.addEventListener("iki-run", (e) => window.ran.push(e.detail?.action));
 document.body.append(element);

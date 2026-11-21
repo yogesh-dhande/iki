@@ -16,7 +16,7 @@
 // saying whether it is the view being shown (`aria-pressed`).
 //
 // Until the plasmid is annotated it says which action annotates it, and offers that
-// action where the person viewing it may run it (ADR 0169): the trigger that annotates
+// action where the person viewing it may run it (ADR 0170): the trigger that annotates
 // each new plasmid is each project's, and off until someone turns it on.
 
 //: The action that annotates a plasmid, which the map offers while it isn't drawn.

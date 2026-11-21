@@ -179,7 +179,7 @@ class _Rules:
 
     def offered(self, name: str, path: Path) -> None:
         """An action it offers to run on its tab's entity: the plugin's own, reviewed with
-        it, as a trigger's is, and taking the entity of each tab it's on (ADR 0169)."""
+        it, as a trigger's is, and taking the entity of each tab it's on (ADR 0170)."""
         action = self.s.plugin.actions.get(name)
         if action is None:
             self.add(

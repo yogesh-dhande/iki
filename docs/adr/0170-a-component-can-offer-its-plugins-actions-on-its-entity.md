@@ -1,4 +1,4 @@
-# 0169. A component can offer its plugin's actions on its entity
+# 0170. A component can offer its plugin's actions on its entity
 
 - Status: Accepted
 - Date: 2026-11-20
