@@ -14228,7 +14228,13 @@
                 "type": "null"
               }
             ],
-            "description": "The run that made it, when `via` is `run` and you can read the run's project."
+            "description": "The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record."
+          },
+          "run_withheld": {
+            "default": false,
+            "description": "A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.",
+            "title": "Run Withheld",
+            "type": "boolean"
           },
           "state": {
             "anyOf": [
@@ -14370,7 +14376,13 @@
                 "type": "null"
               }
             ],
-            "description": "The run that made it, when `via` is `run` and you can read the run's project."
+            "description": "The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record."
+          },
+          "run_withheld": {
+            "default": false,
+            "description": "A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.",
+            "title": "Run Withheld",
+            "type": "boolean"
           },
           "state": {
             "anyOf": [

@@ -10885,8 +10885,14 @@ export interface components {
             refs: {
                 [key: string]: components["schemas"]["RefOut"];
             };
-            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Run Withheld
+             * @description A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+             * @default false
+             */
+            run_withheld: boolean;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
             /**
@@ -10939,8 +10945,14 @@ export interface components {
             number: number;
             /** Reason */
             reason: string;
-            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record. */
             run?: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Run Withheld
+             * @description A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+             * @default false
+             */
+            run_withheld: boolean;
             /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
             state: components["schemas"]["RevisionStateOut"] | null;
             /**

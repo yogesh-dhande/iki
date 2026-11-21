@@ -1478,12 +1478,24 @@ class RunEffect(models.Model):
     kind = models.CharField(max_length=16, choices=EffectKind.choices)
     #: The revision it made (none when it reused an entity, or changed nothing).
     revision = models.PositiveIntegerField(null=True, blank=True)
+    #: For a record of a registry entry (ADR 0115): the entry, and the revisions the run
+    #: made of it, registering it or filling in its values (two lines of an import can
+    #: each fill it). Kept apart from the record, which can move to another entry later.
+    entry = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    entry_revisions = ArrayField(
+        models.PositiveIntegerField(), default=list, blank=True, db_default=[]
+    )
 
     class Meta:
         db_table = "iki_run_effect"
         db_table_comment = "Every entity each run created or updated, with the revision it made."
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["entity", "revision"], name="iki_run_effect_revision"),
+            models.Index(
+                fields=["entry"], name="iki_run_effect_entry", condition=Q(entry__isnull=False)
+            ),
             # A run's effects in the order it wrote them, a page at a time: a bulk import
             # writes millions (ADR 0056).
             models.Index(fields=["run", "id"], name="iki_run_effect_run"),
@@ -1492,6 +1504,11 @@ class RunEffect(models.Model):
             models.UniqueConstraint(fields=["run", "entity"], name="iki_run_effect_once"),
             models.CheckConstraint(
                 condition=Q(kind__in=EffectKind.values), name="iki_run_effect_kind"
+            ),
+            # An entry's revisions are of the entry the effect names.
+            models.CheckConstraint(
+                condition=Q(entry_revisions=[]) | Q(entry__isnull=False),
+                name="iki_run_effect_entry_of",
             ),
         ]
 

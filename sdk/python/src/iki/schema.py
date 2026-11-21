@@ -3235,8 +3235,10 @@ class RevisionDetailOut(TypedDict):
     reason: str
     #: The entities its values and changes refer to that you can read, by ID.
     refs: dict[str, RefOut]
-    #: The run that made it, when `via` is `run` and you can read the run's project.
+    #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.
     run: NotRequired[RunRefOut | None]
+    #: A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+    run_withheld: NotRequired[bool]
     #: For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`.
     state: RevisionStateOut | None
     #: A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.
@@ -3261,8 +3263,10 @@ class RevisionOut(TypedDict):
     kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     reason: str
-    #: The run that made it, when `via` is `run` and you can read the run's project.
+    #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.
     run: NotRequired[RunRefOut | None]
+    #: A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+    run_withheld: NotRequired[bool]
     #: For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`.
     state: RevisionStateOut | None
     #: A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.

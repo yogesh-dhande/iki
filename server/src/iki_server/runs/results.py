@@ -27,11 +27,12 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F, Func, Value
 
 from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of, identity_of
-from iki_server.entities.models import Entity, UniqueValue
+from iki_server.entities.models import Entity, Revision, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
 from iki_server.org.models import registry_of
@@ -524,6 +525,26 @@ def invalid(check: Check, at: str, error: Invalid, *, values: str = "values") ->
         check.error(where, " ".join(messages))
 
 
+def entry_made(saved: entities.Saved) -> dict[str, Any]:
+    """A run effect's registry entry and the entry's revision the save made (ADR 0115), if
+    it made one: so the entry's values name the run, as the record's do."""
+    made = saved.entry_revision
+    if made is None:
+        return {}
+    return {"entry_id": made.entity_id, "entry_revisions": [made.number]}
+
+
+def add_entry_revision(run: ActionRun, record: Any, made: Revision | None) -> None:  # noqa: ANN401 - a UUID
+    """Adds an entry's revision the run made to its effect on the record, which it has
+    already: the same identity given again filled in its entry (ADR 0115)."""
+    if made is None:
+        return
+    RunEffect.objects.filter(run=run, entity_id=record).update(
+        entry_id=made.entity_id,
+        entry_revisions=Func(F("entry_revisions"), Value(made.number), function="array_append"),
+    )
+
+
 def _write_updates(check: Check, updates: list[_Update]) -> None:
     user = check.run.requested_by
     for update in updates:
@@ -552,6 +573,7 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
             entity_id=entity.pk,
             kind=EffectKind.UPDATED,
             revision=saved.revision.number if saved.revision is not None else None,
+            **entry_made(saved),
         )
 
 
@@ -717,7 +739,9 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
             # The same record, made twice: the same identity, registered again. Where this
             # one came from is kept too: one molecule is in several databases' records,
-            # each the source of what's known of it (ADR 0154).
+            # each the source of what's known of it (ADR 0154). What it filled in of its
+            # entry was this run's too.
+            add_entry_revision(run, entity_id, saved.entry_revision)
             if create.origin is not None:
                 again = ExternalOrigin.objects.create(
                     run=run, entity_id=entity_id, revision=None, **create.origin
@@ -730,6 +754,7 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
             entity_id=entity_id,
             kind=_kind(saved, matched=match is not None),
             revision=revision,
+            **entry_made(saved),
         )
         origin = None
         if create.origin is not None:

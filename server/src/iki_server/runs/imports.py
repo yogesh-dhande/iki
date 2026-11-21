@@ -946,6 +946,7 @@ def _update_matches_of(
                 entity_id=entity.pk,
                 kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
                 revision=revision,
+                **results.entry_made(saved),
             )
             kept = None
             if origin is not None:
@@ -1189,11 +1190,18 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         created = cursor.rowcount
+        # A record whose line registered its entry names the entry's first revision too,
+        # as a create's does (ADR 0115).
         cursor.execute(
-            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision)"
-            " SELECT %(run)s, target, CASE WHEN reused THEN 'reused' ELSE 'created' END,"
-            "  CASE WHEN reused THEN NULL ELSE 1 END"
-            " FROM iki_import_resolved WHERE first ORDER BY line",
+            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
+            " entry_revisions)"
+            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN 'reused' ELSE 'created' END,"
+            "  CASE WHEN r.reused THEN NULL ELSE 1 END, m.entry_id,"
+            "  CASE WHEN m.entry_id IS NOT NULL THEN ARRAY[1] ELSE '{}' END"
+            " FROM iki_import_resolved r"
+            " LEFT JOIN (SELECT target, entry_id FROM iki_import_resolved WHERE makes_entry) m"
+            "  ON m.target = r.target"
+            " WHERE r.first ORDER BY r.line",
             params,
         )
         reused = cursor.rowcount - created
@@ -1581,7 +1589,7 @@ class _Filling:
         with entities.quietly():
             for entry_id, values in new.items():
                 try:
-                    entities.fill_entry(
+                    filled = entities.fill_entry(
                         self.run.requested_by,
                         shape(locked[entry_id].type),
                         locked[entry_id],
@@ -1597,6 +1605,13 @@ class _Filling:
                             min(self.set_by[(entry_id, n)] for n in values),
                         )
                         self.error(line, name, f"It {' '.join(messages)}")
+                    continue
+                if filled is not None:
+                    # The project's record of the entry has this run's effect already.
+                    record = Entity.objects.filter(
+                        owner_project=self.run.project, entry_id=entry_id
+                    ).values_list("pk", flat=True)
+                    results.add_entry_revision(self.run, record.first(), filled)
 
     def _given(
         self, line: int, form: Shape, parts: dict[str, Any], identity: frozenset[str]

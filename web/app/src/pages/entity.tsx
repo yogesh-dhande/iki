@@ -98,18 +98,24 @@ const VIA: Record<string, string> = {
   system: "by Iki",
 };
 
-/** How a revision was made; a run's links to the run. */
+/** How a revision was made; a run's links to the run. One the reader can't read is said
+ * to be hidden; one with no run recorded, as one imported from elsewhere, says so. */
 function Via({ revision }: { revision: Revision }) {
   if (revision.via === "run") {
-    return revision.run ? (
-      <>
-        by{" "}
-        <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
-          {revision.run.hrid}
-        </Link>
-      </>
-    ) : (
+    if (revision.run) {
+      return (
+        <>
+          by{" "}
+          <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
+            {revision.run.hrid}
+          </Link>
+        </>
+      );
+    }
+    return revision.run_withheld ? (
       <>by a run in a project you can’t see</>
+    ) : (
+      <>by a run not recorded here</>
     );
   }
   const how = VIA[revision.via] ?? revision.via;

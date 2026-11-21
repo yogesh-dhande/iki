@@ -18,12 +18,12 @@ from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, launch, protein
 from test_workers import LOCAL, WorkerClient, keep_connection, queued, registration, worker
 
-from iki_server.entities.models import Entity, Revision
+from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import UploadState
 from iki_server.files.services import EMPTY_SHA256
-from iki_server.org.models import ProjectMembership
+from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import catalog, queue
 from iki_server.runs.models import ActionRun, Job, JobState, Lineage, RunEffect, RunOutput
 from iki_spec import schemas
@@ -457,6 +457,61 @@ def test_new_entities_can_refer_to_ones_made_with_them(world: World, s3: Any) ->
     as_entries = [str(entries[UUID(i)]) for i in (heavy, parent, parent)]
     assert made.json()["values"]["chains"] == as_entries
     assert [e["kind"] for e in effects if e["entity"] == parent] == ["reused"]
+
+
+def test_a_registry_entrys_values_name_the_run_that_registered_them(world: World, s3: Any) -> None:
+    # A run that registers a new identity makes its registry entry's first revision too:
+    # who can read the run is told it, as they are for the record's own values.
+    gpu, run, job = _predicting(world)
+    _also_creating_proteins(run)
+    # Insulin's B chain (UniProt P01308, residues 25-54).
+    chain_b = "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"
+    created = {"type": "acme/protein.Protein", "values": {"sequence": chain_b}}
+    # Given again, it fills in its entry: a second revision of it, by the run too.
+    again = {"type": "acme/protein.Protein", "values": {"sequence": chain_b, "hazard": "none"}}
+    body = done(gpu, job, output(creates=[_structure(gpu, job, run), created, again]))
+    assert body["run_status"] == "succeeded", body
+    runner = api_as(world, "runner")
+    effects = runner.get(f"/runs/{run['id']}").json()["effects"]
+    made = next(e["entity"] for e in effects if e["type"] == "acme/protein.Protein")
+    entry = Entity.objects.get(pk=made).entry_id
+    by = {"id": run["id"], "hrid": run["hrid"], "action": PREDICT}
+    provenance = runner.get(f"/entities/{made}/provenance").json()
+    assert provenance["sequence"]["entry"] is True
+    assert provenance["sequence"]["run"] == by
+    assert provenance["sequence"]["run_withheld"] is False
+    told = runner.get(f"/entries/{entry}/revisions").json()["items"]
+    assert [(r["number"], r["run"]) for r in told] == [(2, by), (1, by)]
+    assert runner.get(f"/entities/{made}/provenance").json()["hazard"]["run"] == by
+    assert runner.get(f"/entries/{entry}/revisions/1").json()["run"] == by
+    # The record's own first revision names it too.
+    assert runner.get(f"/entities/{made}/revisions").json()["items"][0]["run"] == by
+
+
+def test_a_value_set_by_a_run_says_whether_the_run_is_hidden_or_unrecorded(
+    world: World,
+) -> None:
+    pod, run, job = leased(world)
+    done(pod, job, output(updates=weight(run)))
+    entity_id = run["inputs"][0]["entity"]
+    # Someone who reads the record through another project, but not the run's project,
+    # isn't shown the run, and is told it's hidden.
+    enzymes = Project.objects.create(team=world.team, name="Enzymes")
+    ProjectMembership.objects.create(
+        project=enzymes, user=world.users["outsider"], role=ProjectRole.VIEWER
+    )
+    ProjectLink.objects.create(
+        entity_id=entity_id, project=enzymes, linked_by=world.users["editor"]
+    )
+    hidden = api_as(world, "outsider").get(f"/entities/{entity_id}/provenance").json()
+    assert hidden["molecular_weight"]["run"] is None
+    assert hidden["molecular_weight"]["run_withheld"] is True
+    # A run's revision with no run recorded, as one imported from elsewhere can be, says
+    # neither.
+    RunEffect.objects.filter(run_id=run["id"]).delete()
+    unrecorded = api_as(world, "editor").get(f"/entities/{entity_id}/provenance").json()
+    assert unrecorded["molecular_weight"]["run"] is None
+    assert unrecorded["molecular_weight"]["run_withheld"] is False
 
 
 def test_a_new_entity_refers_only_to_earlier_creates_by_their_keys(world: World, s3: Any) -> None:

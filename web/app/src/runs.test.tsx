@@ -1315,7 +1315,14 @@ describe("an entity's provenance", () => {
         via: "run",
         run: { id: RUN_ID, hrid: "RUN-000001", action: "iki/protein.compute_properties" },
       }),
-      name: revision({ via: "run", run: null }),
+      name: revision({ via: "run", run: null, run_withheld: true }),
+      // A registry entry's value (ADR 0115), made through this project by a run.
+      sequence: revision({
+        number: 1,
+        entry: true,
+        via: "run",
+        run: { id: RUN_ID, hrid: "RUN-000002", action: "iki/protein.import_proteins" },
+      }),
     });
     answer("GET /api/v1/entities/PRT-000001/projects", []);
     await renderApp("/entities/PRT-000001/");
@@ -1330,5 +1337,21 @@ describe("an entity's provenance", () => {
         .closest(".cell-meta"),
     ).toHaveTextContent(/^Changed by Rosalind Franklin .+ by RUN-000001 \(revision 3\)$/);
     expect(within(values).getByText(/by a run in a project you can’t see/)).toBeInTheDocument();
+    expect(
+      within(values).getByRole("link", { name: "RUN-000002" }).closest(".cell-meta"),
+    ).toHaveTextContent(/by RUN-000002 \(entry revision 1\)$/);
+  });
+
+  it("says when no run is recorded for a value a run set", async () => {
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {
+      name: revision({ via: "run", run: null, run_withheld: false }),
+    });
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    await renderApp("/entities/PRT-000001/");
+    const values = screen.getByRole("region", { name: "Values" });
+    expect(await within(values).findByText(/by a run not recorded here/)).toBeInTheDocument();
+    expect(within(values).queryByText(/can’t see/)).not.toBeInTheDocument();
   });
 });

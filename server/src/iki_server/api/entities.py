@@ -18,7 +18,7 @@
 """
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
@@ -910,7 +910,13 @@ class RevisionOut(Schema):
     )
     run: RunRefOut | None = Field(
         None,
-        description="The run that made it, when `via` is `run` and you can read the run's project.",
+        description="The run that made it, when `via` is `run` and you can read the run's "
+        "project. For a registry entry's revision, the run that made it through a record.",
+    )
+    run_withheld: bool = Field(
+        False,
+        description="A run made it, in a project you can't read, so `run` is null. When `via` "
+        "is `run` and both are empty, no run is recorded for it: it was imported, say.",
     )
     reason: str
     state: RevisionStateOut | None = Field(
@@ -2289,7 +2295,7 @@ def list_revisions(
     entity = _find(me, ref, project)
     revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
-    made = _runs_of(me, entity, result["items"])
+    made = _runs_of(me, result["items"])
     states = revision_states(result["items"])
     result["items"] = [_revision(r, made, states=states) for r in result["items"]]
     return result
@@ -2327,7 +2333,7 @@ def get_revision(
             wanted[kind] |= ids
     refs, files = _lookup(me, wanted)
     return {
-        **_revision(revision, _runs_of(me, entity, [revision])),
+        **_revision(revision, _runs_of(me, [revision])),
         "values": {n: to_json(fields[n], v) for n, v in values.items()},
         "changes": {
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
@@ -2348,24 +2354,47 @@ def _people_out(me: User, ids: set[Any], entity: Entity) -> dict[str, dict[str, 
     }
 
 
-def _runs_of(me: User, entity: Entity, revisions: list[Revision]) -> dict[int, dict[str, Any]]:
-    """The runs that made these revisions, by revision number, if the caller can read them."""
-    numbers = [r.number for r in revisions if r.via == "run"]
-    if not numbers:
+#: A revision's run, as :func:`_runs_of` finds it: one the reader can't read.
+WITHHELD: dict[str, Any] = {}
+
+
+def _runs_of(me: User, revisions: Iterable[Revision]) -> dict[tuple[Any, int], dict[str, Any]]:
+    """The runs that made these revisions, by their entity and number: each as ``RunRefOut``
+    if the caller can read it, or :data:`WITHHELD`. A revision a run made with no run
+    recorded, as one imported from elsewhere can be, isn't there. A record's revisions are
+    its own effects'; a registry entry's (ADR 0115), those of the records it was made
+    through."""
+    made = [r for r in revisions if r.via == "run"]
+    if not made:
         return {}
-    effects = RunEffect.objects.filter(
-        entity=entity, revision__in=numbers, run__in=visible_runs(me)
-    ).select_related("run")
-    return {
-        e.revision: {"id": e.run.pk, "hrid": e.run.hrid, "action": e.run.action}
-        for e in effects
-        if e.revision is not None
-    }
+    ids = {r.entity_id for r in made}
+    numbers = {r.number for r in made}
+    effects = list(
+        RunEffect.objects.filter(
+            Q(entity_id__in=ids, revision__in=numbers)
+            | Q(entry_id__in=ids, entry_revisions__overlap=list(numbers))
+        ).select_related("run")
+    )
+    readable = set(
+        visible_runs(me).filter(pk__in={e.run_id for e in effects}).values_list("pk", flat=True)
+    )
+    out: dict[tuple[Any, int], dict[str, Any]] = {}
+    for e in effects:
+        shown = (
+            {"id": e.run.pk, "hrid": e.run.hrid, "action": e.run.action}
+            if e.run_id in readable
+            else WITHHELD
+        )
+        keys = [(e.entity_id, e.revision), *((e.entry_id, n) for n in e.entry_revisions)]
+        for entity, number in keys:
+            if number is not None and entity in ids and number in numbers:
+                out[(entity, number)] = shown
+    return out
 
 
 def _revision(
     revision: Revision,
-    runs: dict[int, dict[str, Any]],
+    runs: dict[tuple[Any, int], dict[str, Any]],
     *,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
@@ -2386,7 +2415,8 @@ def _revision(
         "via": revision.via,
         "client": revision.client,
         "agent": agent_out(revision.agent, revision.client),
-        "run": None if of_entry else runs.get(revision.number),
+        "run": (run := runs.get((revision.entity_id, revision.number))) or None,
+        "run_withheld": run is WITHHELD,
         "reason": revision.reason,
         "state": (states if states is not None else revision_states([revision])).get(revision.pk),
         "submitted": revision.submitted,
@@ -2439,6 +2469,7 @@ def undisclosed(revision: Revision) -> dict[str, Any]:
         "client": "",
         "agent": None,
         "run": None,
+        "run_withheld": False,
         "reason": "",
         "state": None,
         "submitted": None,
@@ -2458,7 +2489,7 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     entity = _find(me, ref)
     fields = shape(entity.type).fields()
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
-    made = _runs_of(me, entity, [r for r in found.values() if r.entity_id == entity.pk])
+    made = _runs_of(me, found.values())
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     states = revision_states(list(found.values()))
     return {
