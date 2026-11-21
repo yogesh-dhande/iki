@@ -256,7 +256,11 @@ In the alignment, each read's row is as it lies on the
 sequence (its reverse complement if it read the other strand), and bases a
 read has that the sequence doesn't get columns of their own.
 
-Reverse complements, restriction digests and primer design come later.
+Where a primer binds a molecule, and what a pair of primers amplifies, are the
+plasmid plugin's: it holds the annotation and the maps those are read on
+([ADR 0169](../../docs/adr/0169-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)).
+A PCR product it works out is registered here, as the linear `DNASequence` it
+is. Reverse complements, restriction digests and primer design come later.
 
 ## Exports
 
