@@ -136,4 +136,4 @@ rules:
       species of both.
     fields: [drug_loads]
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"

@@ -138,4 +138,4 @@ fields:
     label: Received on
     description: When it arrived, or was made.
 display:
-  title: "{{ hrid }}"
+  title: "{{ name or hrid }}"

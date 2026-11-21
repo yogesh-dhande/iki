@@ -116,4 +116,4 @@ rules:
       weight average is never below the number average of the same chains.
     fields: [mw]
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"

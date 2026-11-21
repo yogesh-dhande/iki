@@ -42,4 +42,4 @@ fields:
       complex's are the disulfides its bonds place, each two hydrogens lighter and
       125 L/(mol·cm) more.
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"

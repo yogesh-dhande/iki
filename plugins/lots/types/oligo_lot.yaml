@@ -172,4 +172,4 @@ rules:
       an ε260 above 0.
     fields: [extinction_260]
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"

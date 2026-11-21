@@ -44,4 +44,4 @@ fields:
     max_length: 200
     description: How its purity was measured, such as HPLC at 254 nm.
 display:
-  title: "{{ hrid }}"
+  title: "{{ lot_number or hrid }}"
