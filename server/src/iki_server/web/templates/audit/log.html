@@ -25,7 +25,7 @@
   </form>
 </details>
 <ol class="rows audit-events" aria-label="Events">
-  {% for event, label, agent in events %}
+  {% for event, label, agent, details in events %}
   <li class="row">
     <div class="row-main">
       <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
@@ -38,10 +38,24 @@
       </span>
       <details class="event-details">
         <summary>Details</summary>
+        {% if details.changes %}
+        <div class="table-scroll event-changes">
+          <table class="table">
+            <caption class="visually-hidden">What changed</caption>
+            <thead><tr><th scope="col">Field</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+            <tbody>
+              {% for change in details.changes %}<tr><th scope="row">{{ change.label }}</th>
+                <td>{{ change.before }}</td>
+                <td>{{ change.after }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
         <dl class="summary">
           <dt>Action</dt><dd><code>{{ event.action }}</code></dd>
           {% if zone != "UTC" %}<dt>In UTC</dt><dd>{{ event.occurred_at|utc|date:"j M Y, H:i:s" }} UTC</dd>{% endif %}
-          {% for key, value in event.data.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+          {% for fact in details.facts %}<dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd>{% endfor %}
           {% if agent %}
           <dt>Agent</dt>
           <dd>{{ agent.name }}{% if agent.client_id %} (<a href="?agent={{ agent.client_id|urlencode }}">client <code>{{ agent.client_id }}</code></a>){% endif %}</dd>
@@ -54,6 +68,12 @@
           {% if event.request_id %}<dt>Request ID</dt><dd><code>{{ event.request_id }}</code></dd>{% endif %}
           <dt>Event ID</dt><dd><code>{{ event.pk }}</code></dd>
         </dl>
+        {% if event.data %}
+        <details class="event-recorded">
+          <summary>Data as recorded</summary>
+          <pre><code>{{ details.recorded }}</code></pre>
+        </details>
+        {% endif %}
       </details>
     </div>
   </li>

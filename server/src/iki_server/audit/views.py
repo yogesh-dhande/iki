@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from iki_server.api.schemas import agent_out
+from iki_server.audit import details
 from iki_server.audit.log import ACTIONS
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.org import permissions
@@ -151,6 +152,7 @@ def audit_log(request: HttpRequest) -> HttpResponse:
                         event,
                         ACTIONS.get(event.action, event.action),
                         agent_out(event.agent, event.oauth_client),
+                        details.describe(event.action, event.data),
                     )
                     for event in page
                 ],
