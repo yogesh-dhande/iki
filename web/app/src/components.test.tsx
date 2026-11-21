@@ -17,7 +17,8 @@ import {
   type PluginComponent,
 } from "./components";
 import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
-import { answer, calls, page } from "./test-server";
+import { ACTION } from "./run-fixtures";
+import { answer, calls, page, project } from "./test-server";
 
 const RESIDUES: PluginComponent = {
   name: "iki/protein.residues",
@@ -28,6 +29,7 @@ const RESIDUES: PluginComponent = {
   slots: [{ slot: "entity.tab", type: "iki/protein.Protein", label: "Residues", search: null }],
   entities: null,
   selects: "iki/protein.Protein",
+  runs: [],
   sha256: "ab".repeat(32),
   frame: `/plugin-components/iki/protein.residues/${"ab".repeat(32)}/`,
 };
@@ -189,6 +191,72 @@ describe("a selection", () => {
       await screen.findByText("201 selected: an action runs on at most 200 at once"),
     ).toBeInTheDocument();
     expect(calls("POST", "/api/v1/entities/search")).toEqual([]);
+  });
+});
+
+describe("an action it offers", () => {
+  /** Residues offers compute_properties, which fills it while it's empty (ADR 0169). */
+  const OFFERING: PluginComponent = { ...RESIDUES, runs: [ACTION.name] };
+
+  async function open(can: string[]) {
+    withTypes();
+    answer("GET /api/v1/components", [OFFERING]);
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/actions", [ACTION]);
+    answer(
+      "GET /api/v1/projects",
+      page([project({ can: { ...project().can, run: can as never } })]),
+    );
+    const { router } = await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
+    const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
+    const { port, received } = connect(frame);
+    port.postMessage({ type: "ready" });
+    return { router, port, received };
+  }
+
+  function places(received: unknown[]) {
+    return received.filter((m) => (m as { type: string }).type === "place");
+  }
+
+  it("is offered to its element where the person may run it, and opens the run page", async () => {
+    const { router, port, received } = await open(["backend"]);
+    await vi.waitFor(() => {
+      expect(places(received).at(-1)).toEqual({
+        type: "place",
+        place: { slot: "entity.tab", label: "Residues", runs: [ACTION.name] },
+      });
+    });
+    port.postMessage({ type: "run", action: ACTION.name });
+    await vi.waitFor(() => {
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/runs/new/");
+    });
+    // Iki's run page, with the action and the entity chosen: the person starts it there.
+    expect(router.state.location.search).toEqual({ action: ACTION.name, entities: "PRT-000001" });
+  });
+
+  it("isn't, where the person may not run its tier, and asking for it does nothing", async () => {
+    const { router, port, received } = await open(["self_hosted"]);
+    await vi.waitFor(() => {
+      expect(places(received).at(-1)).toEqual({
+        type: "place",
+        place: { slot: "entity.tab", label: "Residues", runs: [] },
+      });
+    });
+    port.postMessage({ type: "run", action: ACTION.name });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(router.state.location.pathname).toBe(
+      "/entities/PRT-000001/components/iki/protein.residues/",
+    );
+  });
+
+  it("is only one it declared", () => {
+    expect(readMessage(OFFERING, { type: "run", action: ACTION.name })).toEqual({
+      type: "run",
+      action: ACTION.name,
+    });
+    expect(readMessage(RESIDUES, { type: "run", action: ACTION.name })).toBeNull();
+    expect(readMessage(OFFERING, { type: "run", action: "iki/protein.delete_all" })).toBeNull();
+    expect(readMessage(OFFERING, { type: "run", action: 7 })).toBeNull();
   });
 });
 

@@ -23,11 +23,13 @@ export type PlaceSearch = Schemas["PlaceSearchIn"];
 export type PlaceRequest =
   { entity: string } | { search: PlaceSearch } | { project: string } | { home: true };
 
-/** Where a component is, as its element is told: its slot (or an app's panel), and the
- * name it's shown under there. */
+/** Where a component is, as its element is told: its slot (or an app's panel), the
+ * name it's shown under there, and, on an entity's tab, which of the actions it offers
+ * the person viewing it may run there now (ADR 0169). */
 export interface PlaceInfo {
   slot: SlotKind | "app.panel";
   label: string;
+  runs?: string[] | undefined;
 }
 
 /** The installed components: they change only when the deployment does. */
@@ -153,7 +155,8 @@ export type FrameMessage =
   | { type: "select"; entities: string[] }
   | { type: "more" }
   | { type: "refine"; refinement: Refinement | null }
-  | { type: "open"; entity: string };
+  | { type: "open"; entity: string }
+  | { type: "run"; action: string };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -265,6 +268,13 @@ export function readMessage(component: PluginComponent, data: unknown): FrameMes
     case "open": {
       const hrid = readHrid(message["entity"]);
       return hrid ? { type: "open", entity: hrid } : null;
+    }
+    case "run": {
+      // Only an action it declared it offers: the page then checks the person may run it.
+      const action = message["action"];
+      return typeof action === "string" && component.runs.includes(action)
+        ? { type: "run", action }
+        : null;
     }
     default:
       return null;

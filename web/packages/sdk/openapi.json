@@ -2859,6 +2859,14 @@
             "title": "Plugin",
             "type": "string"
           },
+          "runs": {
+            "description": "The actions it may offer to run on its tab's entity, qualified (ADR 0169): the page opens Iki's run page for one it asks for, and tells it, as `place.runs`, those the person viewing it may run there now.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
           "selects": {
             "anyOf": [
               {
@@ -2893,6 +2901,7 @@
           "slots",
           "entities",
           "selects",
+          "runs",
           "sha256",
           "frame"
         ],

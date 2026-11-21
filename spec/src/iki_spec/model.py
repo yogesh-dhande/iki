@@ -1336,6 +1336,9 @@ class Component:
     entities: ComponentEntities | None = None
     #: The type of the entities it can select (qualified), or empty if it selects none.
     selects: str = ""
+    #: The plugin's actions it may offer to run on its tab's entity (qualified): Iki's run
+    #: page runs them, for whoever may.
+    runs: tuple[str, ...] = ()
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""
     file: str | None = None
@@ -1617,11 +1620,13 @@ def _component(data: dict[str, Any]) -> Component:
         search = x.get("search")
         return ComponentSlot(**{**x, "search": ComponentSearch(**search) if search else None})
 
-    # Plugins built before ADR 0117 show only the entity whose page they're on.
+    # Plugins built before ADR 0117 show only the entity whose page they're on, and those
+    # built before ADR 0169 offer nothing to run.
     entities = data.get("entities")
     return Component(
         **{
             **data,
+            "runs": tuple(data.get("runs", ())),
             "slots": tuple(slot(x) for x in data["slots"]),
             "entities": ComponentEntities(**{**entities, "fields": tuple(entities["fields"])})
             if entities

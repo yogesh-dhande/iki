@@ -5643,6 +5643,11 @@ export interface components {
             /** Plugin */
             plugin: string;
             /**
+             * Runs
+             * @description The actions it may offer to run on its tab's entity, qualified (ADR 0169): the page opens Iki's run page for one it asks for, and tells it, as `place.runs`, those the person viewing it may run there now.
+             */
+            runs: string[];
+            /**
              * Selects
              * @description The type of the entities a person can select in it, or null.
              */

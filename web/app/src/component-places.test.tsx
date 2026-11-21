@@ -62,6 +62,7 @@ const BOARD: PluginComponent = {
   ],
   entities: { type: "iki/protein.Protein", fields: ["name", "sequence"], limit: 3 },
   selects: "iki/protein.Protein",
+  runs: [],
   sha256: "cd".repeat(32),
   frame: `/plugin-components/iki/protein.board/${"cd".repeat(32)}/`,
 };

@@ -6,4 +6,4 @@ description: How many residues a protein has.
 module: ./components/residues.js
 element: protein-residues
 slots: [{ slot: entity.tab, type: Protein }]
-events: { select: { type: Protein } }
+events: { select: { type: Protein }, run: { actions: [compute_properties] } }

@@ -43,6 +43,8 @@ def test_components_are_listed_with_where_they_appear(world: World) -> None:
         ],
         "entities": None,
         "selects": "acme/protein.Protein",
+        # What it may offer to run on its protein: the page runs it, never the frame.
+        "runs": ["acme/protein.compute_properties"],
         "sha256": hashlib.sha256(module).hexdigest(),
         "frame": f"/plugin-components/{RESIDUES}/{hashlib.sha256(module).hexdigest()}/",
     }

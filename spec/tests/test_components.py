@@ -372,3 +372,86 @@ def test_a_persons_home_is_theirs(tmp_path: Path) -> None:
     assert "its search names them" in only(
         made(tmp_path, many(slots=everything)), "home-not-personal"
     )
+
+
+# --- What it offers to run -----------------------------------------------------------
+
+ACTIONS = """\
+apiVersion: iki/v1
+kind: Action
+name: fit_curve
+inputs:
+  assay: { type: Assay, schema: ">=1" }
+effects:
+  creates: [{ type: Readout, derived_from: [assay] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+---
+apiVersion: iki/v1
+kind: Action
+name: read_plate
+inputs:
+  readout: { type: Readout, schema: ">=1" }
+effects:
+  updates: [{ input: readout, fields: [signal] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+"""
+ENVIRONMENT = """\
+apiVersion: iki/v1
+kind: Environment
+name: tools
+tiers: [backend]
+python: { version: "3.12", requirements: requirements.txt }
+"""
+
+
+def offering(tmp_path: Path, events: str, **changes: str) -> Result:
+    return made(
+        tmp_path,
+        component(events=events, **changes),
+        **{
+            "actions/actions.yaml": ACTIONS,
+            "environments/tools.yaml": ENVIRONMENT,
+            "requirements.txt": "numpy==2.1.0 --hash=sha256:" + "a" * 64 + "\n",
+            "run.py": "",
+        },
+    )
+
+
+def test_a_component_can_offer_its_plugins_actions_on_its_entity(tmp_path: Path) -> None:
+    # What an empty tab needs: the action that fills it, which Iki's run page then runs,
+    # with its confirmations, for whoever may run it.
+    result = offering(tmp_path, "{ run: { actions: [fit_curve] } }")
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    (found,) = result.plugin.components.values()
+    assert found.runs == ("acme/lab.fit_curve",)
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+def test_it_offers_only_actions_of_its_own_that_take_its_entity(tmp_path: Path) -> None:
+    unknown = offering(tmp_path, "{ run: { actions: [fit_curves] } }")
+    assert only(unknown, "component-unknown-action") == "This plugin has no action `fit_curves`."
+    # read_plate takes a readout, and the tab is an assay's.
+    other = offering(tmp_path, "{ run: { actions: [read_plate] } }")
+    assert only(other, "component-action-takes-no-entity") == (
+        "`read_plate` takes no `acme/lab.Assay`, whose tab this is: none of its inputs does."
+    )
+    # And it's offered only where there's an entity to run it on: a tab.
+    many = offering(
+        tmp_path,
+        "{ run: { actions: [fit_curve] } }",
+        slots="[{ slot: project.page, search: {} }]",
+        entities="{ type: Readout, fields: [well] }",
+    )
+    assert codes(many) == ["component-run-needs-a-tab"]
+
+
+def test_a_plugin_built_before_offering_runs_reads_back(tmp_path: Path) -> None:
+    plugin = offering(tmp_path, "{}").plugin
+    assert plugin is not None
+    built = plugin_to_dict(plugin)
+    (old,) = built["components"].values()
+    del old["runs"]
+    assert plugin_from_dict(built) == plugin
