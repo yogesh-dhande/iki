@@ -136,9 +136,7 @@ def describe(action: str, data: dict[str, Any]) -> Details:
             compare(rest.pop(old, None), rest.pop(new, None))
     for key in [k for k in rest if k.startswith("previous_") and k[len("previous_") :] in rest]:
         name = key[len("previous_") :]
-        changes.append(
-            Change(label(name), shown(rest.pop(key), name), shown(rest.pop(name), name))
-        )
+        changes.append(Change(label(name), shown(rest.pop(key), name), shown(rest.pop(name), name)))
     for key in [k for k in rest if k in PAIRS]:
         value = rest[key]
         if isinstance(value, list) and len(value) == 2:

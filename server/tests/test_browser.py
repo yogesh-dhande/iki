@@ -1958,7 +1958,9 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
     page = open_as("auditor", "/", timezone_id="America/Los_Angeles")
 
     def header() -> list[str]:
-        return page.get_by_role("navigation", name="Main").get_by_role("link").all_inner_texts()
+        nav = page.get_by_role("navigation", name="Main")
+        links: list[str] = nav.get_by_role("link").all_inner_texts()
+        return links
 
     in_the_app = header()
     assert in_the_app == ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]

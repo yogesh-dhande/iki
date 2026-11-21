@@ -74,6 +74,7 @@ class FilterForm(forms.Form):
         self.fields["since"].help_text = f"From the start of that day, in {name}."
         self.fields["until"].help_text = f"To the end of that day, in {name}."
 
+
 def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
     events = AuditEvent.objects.select_related("project", "team", "agent")
     if not form.is_valid():
