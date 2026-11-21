@@ -4,7 +4,9 @@ Six `.dna` files, each written by SnapGene itself, from Biopython's test suite
 (`Tests/SnapGene/` in the Biopython 1.88 source distribution). SnapGene doesn't publish
 its file format, so files SnapGene wrote are what a reader of it is checked against;
 `server/tests/test_dna_snapgene.py` reads each with the plugin's import and with
-Biopython's own reader (`Bio.SeqIO`, format `snapgene`), and checks that the two agree.
+Biopython's own reader (`Bio.SeqIO`, format `snapgene`), and checks that the two agree;
+`server/tests/test_sequence_files.py` writes what the import made of each as GenBank and
+checks it against the same reading.
 
 They're copied unmodified from
 <https://files.pythonhosted.org/packages/f6/a0/cf657d076ec56a5f9e5c29a560c1f97b8eb6ae6608dc8bc95b4e2437f129/biopython-1.88.tar.gz>
