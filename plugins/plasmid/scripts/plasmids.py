@@ -1,6 +1,7 @@
 """The plasmid plugin's commands: `register` a plasmid from its bases, `annotate` one from
-the library of common vector parts, `assemble` what a cloning plan makes, `check` a
-plan against the sequence its clone turned out to have, and `digest` a plan's parts
+the library of common vector parts, `orfs` its open reading frames, `primer_sites` where
+primers bind it, `pcr` what a PCR amplifies, `assemble` what a cloning plan makes, `check`
+a plan against the sequence its clone turned out to have, and `digest` a plan's parts
 virtually, listing every fragment.
 
 Each reads the run input from $IKI_INPUT, reports progress with `::progress` lines, says
@@ -18,6 +19,8 @@ from typing import Any
 
 import cloning
 import library
+import orfs as orf_finder
+import priming
 
 HERE = Path(__file__).resolve().parent
 FEATURES = HERE.parent / "data" / "features.json"
@@ -134,6 +137,353 @@ def annotate(run: dict[str, Any]) -> dict[str, Any]:
         print(f"{plasmid['hrid']}: {len(bases)} bp, {topology}, {len(hits)} parts found: {found}")
         progress(done, len(plasmids))
     return {"updates": {"plasmid": updates}, "messages": messages}
+
+
+# --- open reading frames and primer binding sites (ADR 0169) -------------------------
+
+#: What each `genetic_code` param is, as NCBI numbers its translation tables.
+TABLES = {
+    "standard": 1,
+    "bacterial_archaeal_plant_plastid": 11,
+    "vertebrate_mitochondrial": 2,
+    "yeast_mitochondrial": 3,
+    "mold_protozoan_coelenterate_mitochondrial": 4,
+    "invertebrate_mitochondrial": 5,
+    "alternative_yeast_nuclear": 12,
+}
+
+
+def _sequence_of(plasmid: dict[str, Any]) -> tuple[str, bool]:
+    """A plasmid's bases and whether they are a circle, from its sequence entry."""
+    sequence = one_included(plasmid, "sequence", "sequence")
+    values = values_of(sequence)
+    return values["bases"].upper(), (values.get("topology") or "linear") == "circular"
+
+
+def find_orfs(run: dict[str, Any]) -> dict[str, Any]:
+    params = run["params"]
+    least = int(params.get("least_codons", orf_finder.LEAST_CODONS))
+    code = str(params.get("genetic_code", "standard"))
+    table = TABLES[code]
+    alternative = bool(params.get("alternative_starts", False))
+    plasmids = run["inputs"]["plasmid"]
+    updates, messages = [], []
+    found_all, longest = 0, 0
+    for done, plasmid in enumerate(plasmids, start=1):
+        try:
+            bases, circular = _sequence_of(plasmid)
+        except Stop as why:
+            messages.append({"level": "error", "text": str(why), "entity": plasmid["id"]})
+            continue
+        found = orf_finder.find(
+            bases,
+            circular,
+            table_number=table,
+            alternative_starts=alternative,
+            least=least,
+        )
+        found_all += len(found)
+        longest = max([longest, *[orf.codons for orf in found]])
+        updates.append(
+            {
+                "entity": plasmid["id"],
+                "values": {
+                    "orfs": [orf.value() for orf in found],
+                    "orfs_found_with": orf_finder.described(table, alternative, least, circular),
+                },
+            }
+        )
+        across = sum(1 for orf in found if orf.end < orf.start)
+        print(
+            f"{plasmid['hrid']}: {len(found)} ORFs of at least {least} codons in six frames, "
+            f"table {table}" + (f", {across} across its origin" if across else "")
+        )
+        for orf in found:
+            print(
+                f"  frame {orf.frame:+d} {orf.start}..{orf.end} ({orf.strand}), "
+                f"{orf.codons} codons from {orf.start_codon}"
+            )
+        progress(done, len(plasmids))
+    return {
+        "updates": {"plasmid": updates},
+        "messages": messages,
+        "metrics": {"orfs": found_all, "longest": longest},
+    }
+
+
+def _primers(run: dict[str, Any]) -> list[dict[str, Any]]:
+    given = []
+    for primer in run["inputs"].get("primers") or []:
+        values = values_of(primer)
+        given.append(
+            {
+                "hrid": primer["hrid"],
+                "name": values.get("name") or primer["hrid"],
+                "bases": values["bases"].upper(),
+            }
+        )
+    return given
+
+
+def find_primer_sites(run: dict[str, Any]) -> dict[str, Any]:
+    params = run["params"]
+    anchor = int(params.get("least_three_prime_match", priming.ANCHOR))
+    most = int(params.get("most_mismatch_weight", priming.MOST_PENALTY))
+    plasmid = run["inputs"]["plasmid"][0]
+    primers = _primers(run)
+    bases, circular = _sequence_of(plasmid)
+    short = [p["hrid"] for p in primers if len(p["bases"]) < priming.SHORTEST]
+    sites = priming.find_sites(bases, circular, primers, anchor=anchor, most_penalty=most)
+    found_with = (
+        f"placed by their {anchor} 3' bases, mismatches weighing at most {most} "
+        f"(3 within the last {priming.THREE_PRIME} bases, 1 beyond); "
+        f"Tm by {priming.CONDITIONS_TEXT}"
+    )
+    messages = []
+    if short:
+        messages.append(
+            {
+                "level": "warning",
+                "text": (
+                    f"{', '.join(short)} {'is' if len(short) == 1 else 'are'} shorter than "
+                    f"{priming.SHORTEST} bases, which binds too many places to say anything, "
+                    "so no site is reported for it."
+                ),
+                "entity": plasmid["id"],
+            }
+        )
+    bound = {site.hrid for site in sites}
+    silent = [p["hrid"] for p in primers if p["hrid"] not in bound and p["hrid"] not in short]
+    if silent:
+        messages.append(
+            {
+                "level": "warning",
+                "text": (
+                    f"{', '.join(silent)} {'binds' if len(silent) == 1 else 'bind'} nowhere on "
+                    f"{plasmid['hrid']} under this 3' match and mismatch weight: allow more "
+                    "mismatches, or a shorter 3' match, to see weaker sites."
+                ),
+                "entity": plasmid["id"],
+            }
+        )
+    exact = sum(1 for site in sites if not site.mismatches)
+    print(
+        f"{plasmid['hrid']}: {len(sites)} binding sites of {len(primers)} primers "
+        f"({exact} exact), {len(bases)} bp {'circular' if circular else 'linear'}"
+    )
+    for site in sites:
+        how = (
+            "exactly"
+            if not site.mismatches
+            else ", ".join(
+                f"{mine}->{theirs} {away} from its 3' end" for away, mine, theirs in site.mismatches
+            )
+        )
+        print(
+            f"  {site.hrid} {site.strand} {site.start}..{site.end}, 3' end at "
+            f"{site.three_prime}, {site.annealed} of {len(site.bases)} bases paired {how}"
+            + (f", Tm {site.tm} C" if site.tm is not None else "")
+        )
+    return {
+        "updates": {
+            "plasmid": [
+                {
+                    "entity": plasmid["id"],
+                    "values": {
+                        "primer_binding_sites": [site.value() for site in sites],
+                        "primer_binding_sites_found_with": found_with,
+                    },
+                }
+            ]
+        },
+        "messages": messages,
+        "metrics": {"sites": len(sites), "exact": exact},
+    }
+
+
+# --- PCR -----------------------------------------------------------------------------
+
+#: Cleared when a PCR gives no one product: what an earlier run worked out says nothing
+#: about this reaction, and nobody must read it as current.
+NO_PRODUCT: dict[str, Any] = {
+    "product_length": None,
+    "forward_melting_temperature": None,
+    "reverse_melting_temperature": None,
+    "products_found": None,
+}
+
+
+def _site_for(sites: list[priming.Site], primer: dict[str, Any], strand: str) -> list[priming.Site]:
+    return [s for s in sites if s.hrid == primer["hrid"] and s.strand == strand]
+
+
+def simulate_pcr(run: dict[str, Any]) -> dict[str, Any]:
+    params = run["params"]
+    pcr = run["inputs"]["pcr"][0]
+    if values_of(pcr).get("product"):
+        raise Stop(
+            f"{pcr['hrid']} has a product already: it was worked out once, and a reaction "
+            "with other primers or another template is its own record."
+        )
+    template = one_included(pcr, "template", "template")
+    bases = values_of(template)["bases"].upper()
+    circular = (values_of(template).get("topology") or "linear") == "circular"
+    forward = one_included(pcr, "forward_primer", "forward primer")
+    reverse = one_included(pcr, "reverse_primer", "reverse primer")
+    pair = [
+        {
+            "hrid": one["hrid"],
+            "name": values_of(one).get("name") or one["hrid"],
+            "bases": values_of(one)["bases"].upper(),
+        }
+        for one in (forward, reverse)
+    ]
+    anchor = int(params.get("least_three_prime_match", priming.ANCHOR))
+    most = int(params.get("most_mismatch_weight", priming.MOST_PENALTY))
+    longest = int(params.get("longest_product", priming.LONGEST_PRODUCT))
+    sites = priming.find_sites(bases, circular, pair, anchor=anchor, most_penalty=most)
+    ahead = _site_for(sites, pair[0], "forward")
+    back = _site_for(sites, pair[1], "reverse")
+    _refuse_unless_both_bind(pcr, template, pair, sites, ahead, back, circular)
+    made = priming.products(bases, circular, [*ahead, *back], longest=longest)
+    if not made:
+        raise Stop(
+            f"{pair[0]['hrid']} and {pair[1]['hrid']} both bind {template['hrid']}, but no pair "
+            "of their sites faces the other with a product between them"
+            + (
+                ": the forward primer's 3' end lies after the reverse primer's, so they point "
+                "away from each other. Swap them, or give the primers for the other strand."
+                if not circular
+                else f", or none is within {longest:,} bp."
+            )
+        )
+    print(
+        f"{pcr['hrid']}: {pair[0]['hrid']} and {pair[1]['hrid']} on {template['hrid']} "
+        f"({len(bases)} bp, {'circular' if circular else 'linear'}) amplify {len(made)} "
+        f"molecule{'' if len(made) == 1 else 's'}"
+    )
+    if len(made) > 1:
+        return _several(pcr, made)
+    product = made[0]
+    return _one_product(pcr, template, product, len(made))
+
+
+def _refuse_unless_both_bind(
+    pcr: dict[str, Any],
+    template: dict[str, Any],
+    pair: list[dict[str, Any]],
+    sites: list[priming.Site],
+    ahead: list[priming.Site],
+    back: list[priming.Site],
+    circular: bool,
+) -> None:
+    """Why the two primers can't amplify anything, where one of them doesn't bind the
+    strand it must: a reaction that makes nothing is said plainly, naming the primer."""
+    for primer, wanted, found in ((pair[0], "forward", ahead), (pair[1], "reverse", back)):
+        if found:
+            continue
+        other = [s for s in sites if s.hrid == primer["hrid"]]
+        if other:
+            raise Stop(
+                f"{primer['hrid']} binds {template['hrid']} only on the "
+                f"{other[0].strand} strand, and {pcr['hrid']} has it as the {wanted} primer, "
+                "which binds the other: the two primers of a PCR bind opposite strands and "
+                "point at each other. Swap the forward and reverse primers."
+            )
+        raise Stop(
+            f"{primer['hrid']} doesn't bind {template['hrid']} "
+            f"({'circular' if circular else 'linear'}): its 3' end pairs nowhere under this 3' "
+            "match and mismatch weight, so nothing is amplified. Check the primer and the "
+            "template, or allow more mismatches."
+        )
+
+
+def _several(pcr: dict[str, Any], made: list[priming.Product]) -> dict[str, Any]:
+    """Several products, so none is registered: the reaction doesn't say which it means,
+    and a band on a gel settles it."""
+    lengths = ", ".join(f"{len(one.bases):,} bp" for one in made)
+    for one in made:
+        print(
+            f"  {len(one.bases):,} bp from {one.template_start} to {one.template_end} "
+            f"({one.forward.hrid} 3' end {one.forward.three_prime}, {one.reverse.hrid} 3' end "
+            f"{one.reverse.three_prime})"
+        )
+    return {
+        "updates": {
+            "pcr": [
+                {
+                    "entity": pcr["id"],
+                    "values": {**NO_PRODUCT, "products_found": len(made)},
+                }
+            ]
+        },
+        "messages": [
+            {
+                "level": "warning",
+                "text": (
+                    f"The primers amplify {len(made)} molecules of this template ({lengths}), so "
+                    "none is registered: the reaction doesn't say which. Use primers that bind "
+                    "one place each, or raise the 3' match."
+                ),
+                "entity": pcr["id"],
+            }
+        ],
+        "metrics": {"products": len(made), "length": len(made[0].bases)},
+    }
+
+
+def _one_product(
+    pcr: dict[str, Any], template: dict[str, Any], product: priming.Product, count: int
+) -> dict[str, Any]:
+    name = values_of(pcr).get("name") or pcr["hrid"]
+    across = product.template_end < product.template_start
+    ahead, back = product.forward, product.reverse
+    print(
+        f"  {product.length:,} bp from {product.template_start} to {product.template_end}"
+        + (" across the template's origin" if across else "")
+        + f"; {ahead.hrid} 3' end at {ahead.three_prime} (Tm {ahead.tm} C, {ahead.tail} bp 5' "
+        f"tail), {back.hrid} 3' end at {back.three_prime} (Tm {back.tm} C, {back.tail} bp 5' "
+        "tail)"
+    )
+    description = (
+        f"Amplified from {template['hrid']} by {pcr['hrid']}, "
+        f"{product.template_start} to {product.template_end}"
+        + (" across its origin" if across else "")
+        + f", with {ahead.hrid} and {back.hrid}."
+    )
+    return {
+        "creates": [
+            {
+                "type": "iki/dna.DNASequence",
+                "key": "product",
+                "derived_from": [pcr["id"]],
+                "values": {
+                    "bases": product.bases,
+                    # A PCR product has two ends, whatever its template was (ADR 0168).
+                    "topology": "linear",
+                    "strandedness": "double",
+                    "name": name,
+                    "description": description,
+                },
+            }
+        ],
+        "updates": {
+            "pcr": [
+                {
+                    "entity": pcr["id"],
+                    "values": {
+                        "product": {"$create": "product"},
+                        "product_length": product.length,
+                        "forward_melting_temperature": ahead.tm,
+                        "reverse_melting_temperature": back.tm,
+                        "tm_method": priming.CONDITIONS_TEXT,
+                        "products_found": count,
+                    },
+                }
+            ]
+        },
+        "metrics": {"products": count, "length": product.length},
+    }
 
 
 # --- assemble and check --------------------------------------------------------------
@@ -525,6 +875,9 @@ def digest(run: dict[str, Any]) -> dict[str, Any]:
 COMMANDS = {
     "register": register,
     "annotate": annotate,
+    "orfs": find_orfs,
+    "primer_sites": find_primer_sites,
+    "pcr": simulate_pcr,
     "assemble": assemble,
     "check": check,
     "digest": digest,
@@ -536,7 +889,7 @@ def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
     try:
         output = command(run)
-    except (Stop, cloning.Impossible) as why:
+    except (Stop, cloning.Impossible, orf_finder.Refused, priming.Refused) as why:
         print(f"::error {why}")
         raise SystemExit(1) from why
     Path(os.environ["IKI_OUTPUT"]).write_text(

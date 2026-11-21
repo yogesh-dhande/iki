@@ -5,11 +5,12 @@ name: iki/plasmid
 version: 0.1.0
 title: Plasmids and vectors
 description: >-
-  Plasmids and vectors by the circular sequence that is each one, with what the sequence
-  alone doesn't say: its selection markers, origins and copy number, the hosts it works
-  in, its promoters, its biosafety level, where it came from and the agreement it came
-  under; the cloning plans that make them, simulated and checked against the sequence
-  they give; and the common vector parts a plasmid is annotated from.
+  Plasmids and vectors by the sequence that is each one, circular or linear, with what the
+  sequence alone doesn't say: its selection markers, origins and copy number, the hosts it
+  works in, its promoters, its biosafety level, where it came from and the agreement it
+  came under; the cloning plans that make them, simulated and checked against the sequence
+  they give; the open reading frames and primer binding sites along them, and the PCRs
+  that amplify them; and the common vector parts a plasmid is annotated from.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/plasmid
@@ -17,6 +18,7 @@ dependencies:
   iki/dna:
     types:
       DNASequence: ">=3"
+      Primer: ">=1"
 roles:
   cloner:
     label: Cloning scientist

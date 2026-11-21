@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: find_orfs
+label: Find its open reading frames
+description: >-
+  Finds the open reading frames of a plasmid's sequence in all six frames: each a start
+  codon and the in-frame stop codon that ends it, with at least the codons asked for
+  between them. The genetic code is one of NCBI's translation tables, and ATG alone starts
+  an ORF unless the table's other start codons are allowed too. An ORF of a circular
+  molecule may read across its origin; nothing is read across a linear molecule's two ends
+  (ADR 0168).
+inputs:
+  plasmid: { type: Plasmid, schema: ">=3", include: [sequence] }
+params:
+  least_codons:
+    type: int
+    min: 1
+    max: 10000
+    default: 75
+    label: Fewest codons
+    description: >-
+      The fewest codons an ORF has, its start codon's included and its stop codon's not.
+      75 by default, as SnapGene's ORFs and NCBI ORFfinder's shortest offered protein are:
+      any stretch of DNA has shorter reading frames by chance.
+  genetic_code:
+    type: enum
+    default: standard
+    label: Genetic code
+    values:
+      [
+        standard,
+        bacterial_archaeal_plant_plastid,
+        vertebrate_mitochondrial,
+        yeast_mitochondrial,
+        mold_protozoan_coelenterate_mitochondrial,
+        invertebrate_mitochondrial,
+        alternative_yeast_nuclear,
+      ]
+    description: >-
+      Which of NCBI's translation tables reads the codons: standard is table 1, and
+      bacterial_archaeal_plant_plastid table 11, which is what an E. coli vector's genes
+      are read by. The others are tables 2, 3, 4, 5 and 12. A table whose stop codons are
+      read as sense codons in some places and as stops in others (NCBI's tables 27, 28 and
+      31) isn't offered: the bases alone don't say which.
+  alternative_starts:
+    type: bool
+    default: false
+    label: Allow alternative start codons
+    description: >-
+      Whether every start codon of the table starts an ORF, not ATG alone: table 11's TTG,
+      CTG, ATT, ATC, ATA and GTG as well, as a bacterial gene may start. It finds genes
+      that don't start at ATG, and more ORFs that are nothing.
+effects:
+  updates:
+    - input: plasmid
+      fields: [orfs, orfs_found_with]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, orfs]
+deterministic: true
+batchable: 20
+metrics:
+  orfs: { label: ORFs, description: "How many it found, in all six frames." }
+  longest:
+    label: Longest (codons)
+    description: The codons of the longest, its start codon's included.
+timeout: 30m

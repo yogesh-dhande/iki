@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: find_primer_binding_sites
+label: Find where primers bind it
+description: >-
+  Finds where the primers chosen bind a plasmid's sequence, on both strands: a primer is
+  placed by its 3' end, since that is the end a polymerase extends, and a site is kept
+  where those bases pair exactly or with the mismatches allowed -- a mismatch in the
+  primer's last five bases weighing more than one further away. Each site says which
+  primer it is, where it lies, how much of the primer annealed, its 5' tail, every
+  mismatch and the site's melting temperature. A site may cross a circular molecule's
+  origin, and none crosses a linear molecule's ends (ADR 0168).
+inputs:
+  plasmid: { type: Plasmid, schema: ">=3", include: [sequence] }
+  primers:
+    type: iki/dna.Primer
+    schema: ">=1"
+    cardinality: many
+    max: 500
+    label: Primers
+    description: >-
+      The primers to look for: the project's own, such as its sequencing and screening
+      primers.
+params:
+  least_three_prime_match:
+    type: int
+    min: 8
+    max: 40
+    default: 15
+    label: Least 3′ match
+    description: >-
+      How many of the primer's 3'-most bases are looked for on the template. A primer
+      shorter than this is placed by all of it. More finds fewer, surer sites, as
+      SnapGene's 3' match does.
+  most_mismatch_weight:
+    type: int
+    min: 0
+    max: 12
+    default: 2
+    label: Most mismatch weight
+    description: >-
+      What a site's mismatches may weigh together, within the 3' bases it was placed by: a
+      mismatch among the primer's last five bases weighs 3 and one further away weighs 1,
+      since a mismatch at or near the 3' end stops extension and one away from it doesn't.
+      So 0 keeps exact sites only, 2 allows two mismatches away from the 3' end, and 3
+      allows one at it.
+effects:
+  updates:
+    - input: plasmid
+      fields: [primer_binding_sites, primer_binding_sites_found_with]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, primer_sites]
+deterministic: true
+metrics:
+  sites: { label: Sites, description: "Places the primers bind, on both strands." }
+  exact: { label: Exact, description: How many of them pair with no mismatch. }
+timeout: 30m
