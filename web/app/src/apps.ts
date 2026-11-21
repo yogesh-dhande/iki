@@ -58,11 +58,20 @@ export function entityAppsQuery(ref: string) {
   });
 }
 
+/**
+ * The key of what a project's page opens with and could. It's under the entities' key:
+ * the choices are the project's apps, which are entities, so creating, editing,
+ * archiving or restoring one (each of which refreshes the entities) refreshes them too.
+ */
+export function dashboardKey(projectId: string) {
+  return [...ENTITIES, "dashboard", projectId] as const;
+}
+
 /** The app a project's page opens with, chosen by its Admins: none if there isn't one,
  * or the reader can't read it there now. */
 export function dashboardQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["projects", projectId, "dashboard"],
+    queryKey: dashboardKey(projectId),
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/dashboard", {
@@ -75,7 +84,7 @@ export function dashboardQuery(projectId: string) {
 /** The project's apps its Admins could choose for its page: not about an entity. */
 export function dashboardChoicesQuery(projectId: string) {
   return queryOptions({
-    queryKey: ["projects", projectId, "dashboard", "choices"],
+    queryKey: [...dashboardKey(projectId), "choices"],
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/dashboard/choices", {

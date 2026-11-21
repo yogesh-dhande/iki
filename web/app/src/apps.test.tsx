@@ -548,6 +548,50 @@ describe("a project's dashboard", () => {
     expect(await within(card).findByRole("alert")).toHaveTextContent(refusal);
   });
 
+  it("offers an app made from Settings as soon as it's saved, starting from its type's starter", async () => {
+    withTypes();
+    const starter = { version: 1, panels: [NOTE] };
+    const typed = {
+      ...APP,
+      values_schema: {
+        type: "object",
+        required: ["name", "spec"],
+        properties: { name: { type: "string" }, spec: { type: "object", default: starter } },
+      },
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, PLASMID, typed]);
+    answer("GET /api/v1/projects", page([project()]));
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
+    answer(`GET ${DASHBOARD}/choices`, []);
+    answer("GET /api/v1/entities", page([]));
+    const { user, router } = await renderApp("/projects/kinase-atlas/settings/");
+    await user.click(await screen.findByRole("link", { name: "make one" }));
+
+    // The form starts from a spec that saves, to change.
+    const spec = await screen.findByRole("textbox", { name: /Spec/ });
+    expect(JSON.parse((spec as HTMLTextAreaElement).value)).toEqual(starter);
+    const made = { ...app([NOTE]), values: { name: "Atlas", spec: starter } };
+    answer("POST /api/v1/entities", respond(201, { ...made, reused: false, registered: false }));
+    answer("GET /api/v1/entities/APP-000001", made);
+    answer("GET /api/v1/entities/APP-000001/provenance", {});
+    answer("GET /api/v1/entities/APP-000001/projects", []);
+    answer(`GET ${DASHBOARD}/choices`, [{ id: made.id, hrid: "APP-000001", name: "Atlas" }]);
+    await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Atlas");
+    await user.click(screen.getByRole("button", { name: "Create app" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/APP-000001/");
+    });
+
+    // Back in Settings, without reloading: the new app is there to choose.
+    await router.navigate({ to: "/projects/$slug/settings/", params: { slug: "kinase-atlas" } });
+    const card = (await screen.findByRole("heading", { name: "Dashboard" })).closest("section");
+    if (!card) throw new Error("no Dashboard card");
+    const select = await within(card).findByRole("combobox", {
+      name: "Open the project’s page with",
+    });
+    expect(within(select).getByRole("option", { name: /Atlas/ })).toBeInTheDocument();
+  });
+
   it("points to making an app when the project has none", async () => {
     onProject();
     answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });

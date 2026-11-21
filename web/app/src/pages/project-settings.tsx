@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
 import { iki, meQuery, problemOf, useApiMutation, type Project } from "../api";
-import { APP_TYPE, dashboardChoicesQuery, dashboardQuery } from "../apps";
+import { APP_TYPE, dashboardChoicesQuery, dashboardKey, dashboardQuery } from "../apps";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import { registriesQuery, REGISTRY_SETTINGS } from "../registries";
@@ -155,7 +155,7 @@ function Dashboard({ project }: { project: Project }) {
         );
       }
     },
-    [["projects", project.id, "dashboard"]],
+    [dashboardKey(project.id)],
   );
   const shown = current.data?.app?.hrid ?? "";
   const value = picked ?? shown;
