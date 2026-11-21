@@ -363,11 +363,10 @@ ships too, the same file, as that test checks): `make check-deps` checks they
 match, and that each is at least 3 days old.
 
 MAFFT's image is built from `images/alignment-tools` (CI builds it and runs its
-`check.py`, which aligns through `scripts/multiple.py`). Until `main` has
-published `iki-dna-alignment-tools`, `environments/alignment-tools.yaml` pins
-the protein plugin's alignment-tools image, the same MAFFT build on the same
-base; once it has, pin the digest the publish workflow's summary gives there,
-and in `deploy/dev/sso.py`.
+`check.py`, which aligns through `scripts/multiple.py`), and published, signed,
+as `iki-dna-alignment-tools` from `main`. `environments/alignment-tools.yaml`
+pins it by the digest the publish workflow's summary gives; changing the image
+is a commit to its Dockerfile, then a new pin there and in `deploy/dev/sso.py`.
 
 `server/tests/test_first_party_plugins.py` checks that it's valid, that its
 migrations match its manifests, and that it migrates forwards and back.

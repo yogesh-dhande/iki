@@ -1333,8 +1333,8 @@ def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         within=900,
     )
     (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
-    if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
-        fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
+    if attempt["environment_build"] != DNA_ALIGNMENT_TOOLS.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't run in the dna plugin's alignment-tools image: {attempt}")
     if attempt["template"] != "container-alignments":
         fail(f"{run['hrid']} didn't run on the alignments' template: {attempt}")
     metrics = run.get("metrics") or {}
@@ -2695,11 +2695,15 @@ MB = (
     "MGLSDGEWQLVLNVWGKVEADIPGHGQEVLIRLFKGHPETLEKFDKFKHLKSEDEMKASEDLKKHGATVLTALGGILKKKGHHEAE"
     "IKPLAQSHATKHKIPVKYLEFISECIIQVLQSKHPGDFGADAQGAMNKALELFRKDMASNYKELGFQG"
 )
-#: The protein plugin's alignment-tools image (plugins/protein/environments/alignment-tools.yaml),
-#: which the dna plugin's alignment-tools environment pins too, until main publishes its own.
+#: The protein plugin's alignment-tools image (plugins/protein/environments/alignment-tools.yaml).
 ALIGNMENT_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-protein-alignment-tools"
     "@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd"
+)
+#: The dna plugin's alignment-tools image (plugins/dna/environments/alignment-tools.yaml).
+DNA_ALIGNMENT_TOOLS = (
+    "ghcr.io/yogesh-dhande/iki-dna-alignment-tools"
+    "@sha256:a6792250dfaa87d5c2398b24c6d33d144a646053c63984481be17706ffdbda39"
 )
 
 #: Trastuzumab's variable domains (PDB 1N8Z), a humanized IgG1 against HER2.
