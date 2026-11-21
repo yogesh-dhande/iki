@@ -3821,6 +3821,8 @@ class SequenceViewerOut(TypedDict):
     sequence: str
     #: For DNA or RNA: the enum field saying whether a record is double- or single-stranded (`double` or `single`), as its sequence field's `strands` names it, so its length is counted in bp or nt; null when it has none.
     strands: str | None
+    #: The enum field saying whether a record's sequence is circular (`circular`), as its sequence field's `topology` names it, so a search for bases reads across a circle's origin and not across a line's ends; null when it has none.
+    topology: str | None
     #: Values along its residues, each a track.
     tracks: list[TrackOut]
     #: `sequence`: the sequence, with its features and tracks along it.
