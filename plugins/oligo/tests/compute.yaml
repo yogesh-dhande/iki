@@ -151,7 +151,8 @@ kind: ActionTest
 name: patisiran_as_a_duplex
 description: >-
   Patisiran's two strands as a duplex: 19 base pairs with a two-nucleotide 3′ overhang
-  on each strand (its dTdTs), and C412H520N148O290P40, 13,424 Da, as the free acid (EMA's
+  on each strand (its dTdTs), and C412H520N148O290P40, 13,424 Da, as the free acid, and
+  14,304 Da as patisiran sodium, a sodium for each of its 40 phosphates' protons (EMA's
   EPAR for Onpattro, Table 1).
 action: register_duplex
 inputs:
@@ -160,11 +161,13 @@ inputs:
         bases: GUAACCAAGAGUAUUCCAUTT
         molecular_formula: C210H268N76O143P20
         molecular_weight: 6764.32
+        molecular_weight_sodium: 7203.96
   antisense:
     - values:
         bases: AUGGAAUACUCUUGGUUACTT
         molecular_formula: C202H252N72O147P20
         molecular_weight: 6660.07
+        molecular_weight_sodium: 7099.71
 params: { name: patisiran }
 expect:
   output:
@@ -180,6 +183,7 @@ expect:
           antisense_overhang_3: 2
           molecular_formula: C412H520N148O290P40
           molecular_weight: 13424.39
+          molecular_weight_sodium: 14303.67
 ---
 apiVersion: iki/v1
 kind: ActionTest

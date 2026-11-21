@@ -201,6 +201,9 @@ def computed(helm_text: str, resolve: Resolver) -> tuple[dict[str, Any], list[ch
     }
     if e.value is not None:
         values["extinction_260"] = e.value
+    sodium = chemistry.sodium_salt_weight(built.mol)
+    if sodium is not None:
+        values["molecular_weight_sodium"] = round(sodium, 2)
     return values, [monomers[k] for k in keys]
 
 
@@ -628,6 +631,13 @@ def duplex_values(sense: Mapping[str, Any], antisense: Mapping[str, Any]) -> dic
     if s.get("molecular_weight") is not None and a.get("molecular_weight") is not None:
         values["molecular_weight"] = round(
             _number(s["molecular_weight"]) + _number(a["molecular_weight"]), 2
+        )
+    if (
+        s.get("molecular_weight_sodium") is not None
+        and a.get("molecular_weight_sodium") is not None
+    ):
+        values["molecular_weight_sodium"] = round(
+            _number(s["molecular_weight_sodium"]) + _number(a["molecular_weight_sodium"]), 2
         )
     if s.get("molecular_formula") and a.get("molecular_formula"):
         values["molecular_formula"] = chemistry.add_formulas(

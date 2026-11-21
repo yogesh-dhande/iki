@@ -18,6 +18,7 @@ effects:
         - length
         - molecular_formula
         - molecular_weight
+        - molecular_weight_sodium
         - monoisotopic_mass
         - extinction_260
         - extinction_note

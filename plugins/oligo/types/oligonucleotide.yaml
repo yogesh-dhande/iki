@@ -5,7 +5,7 @@ name: Oligonucleotide
 label: Oligonucleotide
 label_plural: Oligonucleotides
 extends: iki/core.Sequence
-schema_version: 1
+schema_version: 2
 description: >-
   A single-stranded oligonucleotide, modified or not, by its HELM: an antisense
   oligonucleotide, an siRNA's strand, a primer or a probe, with the chemical groups on
@@ -65,6 +65,7 @@ fields:
     max_length: 500
     computed: true
     indexed: true
+    label: Molecular formula (free acid)
     description: >-
       Its formula as the free acid, in Hill order, as the WHO's INN lists give it:
       every phosphate and phosphorothioate protonated, and a cationic dye's charge
@@ -76,16 +77,34 @@ fields:
     computed: true
     indexed: true
     min: 0
+    label: Molecular weight (free acid)
     description: >-
       Its average molecular weight as the free acid, from its monomers' structures
       and CIAAW's abridged standard atomic weights (2021). A sodium salt weighs
       21.98 g/mol more for each sodium.
+  # Marketed oligonucleotides are sodium salts, and their published weights say which
+  # form each is: nusinersen is 7,127 g/mol as the free acid and 7,501.0 as nusinersen
+  # sodium (EMA). Both are given, each named, so a reviewer compares like with like.
+  molecular_weight_sodium:
+    type: quantity
+    registry: derived
+    unit: g/mol
+    computed: true
+    min: 0
+    label: Molecular weight (sodium salt)
+    description: >-
+      Its average molecular weight as its sodium salt: a sodium for each acidic
+      proton of its phosphates and phosphorothioates (one for each linkage, two
+      for a terminal phosphate, one fewer for each a cationic dye's charge took),
+      22.990 − 1.008 g/mol more for each. None for a molecule with no acidic
+      proton, such as a methylphosphonate or a morpholino, which isn't a salt.
   monoisotopic_mass:
     type: quantity
     registry: derived
     unit: u
     computed: true
     min: 0
+    label: Monoisotopic mass (free acid)
     description: >-
       Its monoisotopic mass as the free acid, from each element's most abundant
       isotope: what mass spectrometry's deconvoluted neutral mass is compared with.

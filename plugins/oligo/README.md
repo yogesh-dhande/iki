@@ -105,8 +105,12 @@ bond, keeping every atom's stereochemistry.
 - **Formula and weight** are the free acid's, as the WHO's INN lists, EMA's
   assessment reports and vendors give them: every phosphate and
   phosphorothioate protonated, and a cationic dye's charge (Cy3, Cy5) taken by
-  one, as an inner salt. A sodium salt weighs 21.98 g/mol more for each
-  sodium. The average molecular weight is from CIAAW's abridged standard
+  one, as an inner salt, and each is labelled "(free acid)". The weight as the
+  sodium salt, which is how marketed oligonucleotides are given (nusinersen
+  sodium, 7,501.0 g/mol; patisiran sodium, 14,304 Da), is beside it: 21.98
+  g/mol more for each acidic proton of its phosphates and phosphorothioates,
+  and none for a molecule with no acidic proton, such as a methylphosphonate
+  or a morpholino. The average molecular weight is from CIAAW's abridged standard
   atomic weights (Prohaska et al., _Pure Appl. Chem._ 94, 573, 2022), sulfur
   32.06; the monoisotopic mass from each element's most abundant isotope.
   RDKit's own table, which the small_molecule plugin uses, has sulfur at
