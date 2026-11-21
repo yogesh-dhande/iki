@@ -85,6 +85,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
       name: "sequence",
       label: "Sequence",
       type: "string",
+      format: "protein_sequence",
       required: true,
       immutable: true,
       registry: "identity",

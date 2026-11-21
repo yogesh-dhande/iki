@@ -2981,7 +2981,8 @@
                   "starts_with",
                   "matches",
                   "has",
-                  "of"
+                  "of",
+                  "motif"
                 ],
                 "type": "string"
               },
@@ -5616,6 +5617,18 @@
               }
             ],
             "title": "Display Unit Symbol"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).",
+            "title": "Format"
           },
           "immutable": {
             "description": "Can be set once, and can't change after.",
@@ -11413,6 +11426,18 @@
               }
             ],
             "title": "Display Unit Symbol"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).",
+            "title": "Format"
           },
           "immutable": {
             "description": "Can be set once, and can't change after.",

@@ -40,6 +40,7 @@ fields:
   signal: { type: float }
   notes: { type: text }
   read_at: { type: datetime }
+  probe: { type: string, format: dna_sequence, max_length: 60 }
 """
 
 MODULE = "customElements.define('acme-assay-plot', class extends HTMLElement {});\n"
@@ -255,6 +256,15 @@ def test_each_place_is_given_once(tmp_path: Path) -> None:
 
 def search(where: str, slot: str = "project.page") -> str:
     return many(slots=f"[{{ slot: {slot}, search: {{ where: {where} }} }}]")
+
+
+def test_a_search_finds_a_sequence_by_a_motif_and_only_a_sequence(tmp_path: Path) -> None:
+    """A string field with a sequence format takes `motif` (ADR 0175); others don't."""
+    assert made(tmp_path, search("{ field: probe, op: motif, value: GAATTY }")).problems == []
+    wrong = made(tmp_path, search("{ field: well, op: motif, value: GAATTC }"))
+    assert only(wrong, "unknown-operator") == (
+        "`well` takes `is_set`, `eq`, `ne`, `in`, `contains`, `starts_with`, not `motif`."
+    )
 
 
 def test_a_search_names_the_types_fields_with_their_operators(tmp_path: Path) -> None:

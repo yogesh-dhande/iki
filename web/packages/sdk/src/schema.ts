@@ -5709,7 +5709,7 @@ export interface components {
             /** @description Not this. */
             not?: components["schemas"]["Condition"] | null;
             /** Op */
-            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has" | "of") | null;
+            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has" | "of" | "motif") | null;
             /**
              * Value
              * @description What to compare with, as the field takes it.
@@ -6976,6 +6976,11 @@ export interface components {
             display_unit: string | null;
             /** Display Unit Symbol */
             display_unit_symbol: string | null;
+            /**
+             * Format
+             * @description A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+             */
+            format?: string | null;
             /**
              * Immutable
              * @description Can be set once, and can't change after.
@@ -9674,6 +9679,11 @@ export interface components {
             display_unit: string | null;
             /** Display Unit Symbol */
             display_unit_symbol: string | null;
+            /**
+             * Format
+             * @description A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+             */
+            format?: string | null;
             /**
              * Immutable
              * @description Can be set once, and can't change after.

@@ -738,7 +738,7 @@ Condition = TypedDict(
         'any': 'NotRequired[list[Condition] | None]',
         'field': 'NotRequired[str | None]',
         'not': 'NotRequired[Condition | None]',
-        'op': "NotRequired[Literal['is_set', 'eq', 'ne', 'in', 'lt', 'lte', 'gt', 'gte', 'contains', 'starts_with', 'matches', 'has', 'of'] | None]",
+        'op': "NotRequired[Literal['is_set', 'eq', 'ne', 'in', 'lt', 'lte', 'gt', 'gte', 'contains', 'starts_with', 'matches', 'has', 'of', 'motif'] | None]",
         'value': 'NotRequired[Any]',
     },
 )
@@ -1326,6 +1326,8 @@ class FieldOut(TypedDict):
     display_scale: float | None
     display_unit: str | None
     display_unit_symbol: str | None
+    #: A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+    format: NotRequired[str | None]
     #: Can be set once, and can't change after.
     immutable: bool
     #: State fields (ADR 0125): the state new records start in. Null otherwise.
@@ -2650,6 +2652,8 @@ class ParamOut(TypedDict):
     display_scale: float | None
     display_unit: str | None
     display_unit_symbol: str | None
+    #: A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+    format: NotRequired[str | None]
     #: Can be set once, and can't change after.
     immutable: bool
     #: State fields (ADR 0125): the state new records start in. Null otherwise.

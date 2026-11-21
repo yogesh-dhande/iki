@@ -69,7 +69,8 @@ export type Operator =
   | "contains"
   | "starts_with"
   | "matches"
-  | "has";
+  | "has"
+  | "motif";
 
 /** What a component may ask for, to narrow what its place shows: conditions on the fields
  * it reads (and `hrid`), at most {@link MAX_CONDITIONS} of them, {@link MAX_DEPTH} deep, a

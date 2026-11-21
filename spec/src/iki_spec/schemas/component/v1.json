@@ -227,6 +227,7 @@
                 "starts_with",
                 "matches",
                 "has",
+                "motif",
                 "is_set"
               ]
             },

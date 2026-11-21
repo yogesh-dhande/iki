@@ -8,6 +8,8 @@ hrid: { prefix: PRT, digits: 6 }
 identity: [sequence]
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
+  # Its N-terminal signal peptide, indexed to be found by its residues.
+  signal_peptide: { type: string, format: protein_sequence, max_length: 70, indexed: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
   lims_id:
     type: string

@@ -162,8 +162,21 @@ for record in caught:
 ```
 
 Conditions take `op` as one of `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`,
-`contains`, `starts_with`, `matches`, `has`, `of` and `is_set`, and combine with
+`contains`, `starts_with`, `matches`, `has`, `of`, `motif` and `is_set`, and combine with
 `{"all": [...]}`, `{"any": [...]}` and `{"not": ...}`.
+
+A sequence field takes `motif` (ADR 0175): bases or residues in IUPAC codes, found on a
+duplex's other strand too, and across a circular one's origin:
+
+```python
+# EcoRI's site; the M13/pUC reverse primer's, on either strand of a duplex.
+for site in ("GAATTC", "CAGGAAACAGCTATGAC"):
+    motif = {"field": "bases", "op": "motif", "value": site}
+    iki.entities.search("iki/dna.DNASequence", where=motif)
+# N, any residue, S or T: N-glycosylation sequons, in IUPAC codes for proteins.
+sequon = {"any": [{"field": "sequence", "op": "motif", "value": v} for v in ("NXS", "NXT")]}
+iki.entities.search("iki/protein.Protein", where=sequon)
+```
 
 ## Running actions
 

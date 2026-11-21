@@ -245,6 +245,11 @@ class FieldOut(Schema):
     label: str
     description: str | None
     type: str
+    format: str | None = Field(
+        None,
+        description="A string's format, such as `dna_sequence`: a sequence's takes `motif` "
+        "in a search (ADR 0175).",
+    )
     plugin: str = Field(description="The plugin that defines the field.")
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
@@ -1045,6 +1050,7 @@ OPERATOR = Literal[
     "matches",
     "has",
     "of",
+    "motif",
 ]
 
 
@@ -1101,6 +1107,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "label": f.label,
         "description": f.description,
         "type": f.type,
+        "format": f.format,
         "plugin": plugin,
         "required": f.required,
         "immutable": f.immutable,
@@ -1954,7 +1961,12 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
 
     Each kind of field takes its own operators, and every field takes ``is_set``:
 
-    - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)
+    - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence
+      (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)
+      also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each
+      matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found
+      on a duplex's other strand as its reverse complement, and across a circle's origin, as
+      the record's strands and topology say
     - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``"\"active site\""``)
     - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
     - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
