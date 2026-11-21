@@ -7,7 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 
-import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery } from "./api";
+import navigation from "../../../server/src/iki_server/web/navigation.json";
+import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery, type Me } from "./api";
 import { useLiveUpdates } from "./events";
 import { markNavigated, MessagesProvider } from "./ui";
 
@@ -24,6 +25,41 @@ export function usePageTitle(title: string | undefined): void {
     const org = organizationName();
     document.title = org ? `${title} · ${org}` : title;
   }, [title]);
+}
+
+/** An item of the header's main navigation (the server's navigation.json, which its
+ * base.html renders too, so the two headers can't drift apart). */
+export interface NavItem {
+  label: string;
+  href: string;
+  /** The one of `me.can` it needs, if any. */
+  requires?: keyof Me["can"];
+  /** The paths it's the current section for, by prefix: its `href` if left out. */
+  current?: string[];
+  /** The app routes it, so its link doesn't load a page. */
+  app?: boolean;
+}
+
+export const MAIN_NAVIGATION = navigation.main as NavItem[];
+
+function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
+  return (
+    <nav className="site-nav" aria-label="Main">
+      {MAIN_NAVIGATION.filter((item) => !item.requires || me.can[item.requires]).map((item) => {
+        const current = (item.current ?? [item.href]).some((p) => pathname.startsWith(p));
+        const props = { "aria-current": current ? ("page" as const) : undefined };
+        return item.app ? (
+          <Link key={item.href} to={item.href} {...props}>
+            {item.label}
+          </Link>
+        ) : (
+          <a key={item.href} href={item.href} {...props}>
+            {item.label}
+          </a>
+        );
+      })}
+    </nav>
+  );
 }
 
 function csrfToken(): string {
@@ -100,38 +136,7 @@ export function Layout() {
         </Link>
         {me ? (
           <>
-            <nav className="site-nav" aria-label="Main">
-              <Link to="/work/" activeProps={{ "aria-current": "page" }}>
-                My work
-              </Link>
-              <Link to="/projects/" activeProps={{ "aria-current": "page" }}>
-                Projects
-              </Link>
-              <Link to="/types/" activeProps={{ "aria-current": "page" }}>
-                Types
-              </Link>
-              <a href="/teams/">Teams</a>
-              {me.can.manage_org ? <a href="/people/">People</a> : null}
-              {me.can.manage_org ? (
-                <a
-                  href="/settings/sign-in/"
-                  aria-current={pathname.startsWith("/settings/") ? "page" : undefined}
-                >
-                  Settings
-                </a>
-              ) : null}
-              {me.can.read_costs ? (
-                <Link to="/costs/" activeProps={{ "aria-current": "page" }}>
-                  Costs
-                </Link>
-              ) : null}
-              {me.can.manage_compute ? (
-                <Link to="/compute/" activeProps={{ "aria-current": "page" }}>
-                  Compute
-                </Link>
-              ) : null}
-              {me.can.read_audit ? <a href="/audit/">Audit</a> : null}
-            </nav>
+            <MainNavigation me={me} pathname={pathname} />
             <form className="header-actions" method="post" action="/logout/">
               <input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} />
               <Bell />

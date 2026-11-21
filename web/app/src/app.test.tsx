@@ -166,6 +166,37 @@ describe("the frame", () => {
     expect(document.title).toBe("Projects · Example Bio");
   });
 
+  it("offers every section to someone who may open them all, as server pages do", async () => {
+    signedIn({
+      can: {
+        manage_org: true,
+        read_audit: true,
+        create_projects: true,
+        manage_webhooks: true,
+        read_costs: true,
+        manage_compute: true,
+      },
+    });
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["My work", "/work/"],
+      ["Projects", "/projects/"],
+      ["Types", "/types/"],
+      ["Teams", "/teams/"],
+      ["People", "/people/"],
+      ["Settings", "/settings/sign-in/"],
+      ["Costs", "/costs/"],
+      ["Compute", "/compute/"],
+      ["Audit", "/audit/"],
+    ]);
+    expect(links.filter((a) => a.getAttribute("aria-current") === "page")).toEqual([
+      within(nav).getByRole("link", { name: "Projects" }),
+    ]);
+  });
+
   it("links to the person's account and their notifications", async () => {
     signedIn();
     answer("GET /api/v1/notifications/summary", { unread: 3 });

@@ -7,6 +7,8 @@
     // Workspace packages resolve to their sources, so nothing needs building first.
     "customConditions": ["@ikisci/source"],
     "jsx": "react-jsx",
+    // The header's navigation is the server's navigation.json, which both render.
+    "resolveJsonModule": true,
     "types": ["vite/client"],
     "declaration": false,
     "declarationMap": false,
