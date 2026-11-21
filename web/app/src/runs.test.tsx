@@ -381,7 +381,7 @@ describe("a run's page", () => {
 
   it("says when a run couldn't reach the internet", async () => {
     onRun(
-      () => run(),
+      () => run({ status: "succeeded", finished_at: "2026-03-14T09:01:05Z" }),
       () => [attempt()],
     );
     withLog(() => "");
@@ -391,7 +391,128 @@ describe("a run's page", () => {
     expect(within(details).getByText("Network").nextSibling).toHaveTextContent(
       "None: it couldn’t reach the internet",
     );
+    expect(within(details).getByText("Ran on").nextSibling).toHaveTextContent(
+      "A backend worker, in the sequence-tools environment",
+    );
     expect(screen.queryByRole("list", { name: /Network use/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      when: "it waits for a worker",
+      at: { status: "queued", started_at: null },
+      where: "Will run on",
+      reach: "May reach",
+      none: "None: it won’t be able to reach the internet",
+    },
+    {
+      when: "it's running",
+      at: { status: "running" },
+      where: "Running on",
+      reach: "May reach",
+      none: "None: it can’t reach the internet",
+    },
+    {
+      when: "it's done",
+      at: { status: "failed", finished_at: "2026-03-14T09:01:05Z" },
+      where: "Ran on",
+      reach: "Could reach",
+      none: "None: it couldn’t reach the internet",
+    },
+    {
+      when: "it was cancelled before it started",
+      at: { status: "cancelled", started_at: null, finished_at: "2026-03-14T09:01:05Z" },
+      where: "Was to run on",
+      reach: "Could have reached",
+      none: "None: it couldn’t have reached the internet",
+    },
+  ] as const)("says where it runs and what it may reach as $when", async (c) => {
+    onRun(
+      () => run({ ...c.at }),
+      () => [],
+    );
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect((await within(details).findByText(c.where)).nextSibling).toHaveTextContent(
+      "A backend worker, in the sequence-tools environment",
+    );
+    expect(within(details).getByText("Network").nextSibling).toHaveTextContent(c.none);
+  });
+
+  it.each([
+    {
+      when: "it waits for a worker",
+      at: { status: "queued", started_at: null },
+      reach: "May reach",
+    },
+    { when: "it's running", at: { status: "running" }, reach: "May reach" },
+    {
+      when: "it's done",
+      at: { status: "succeeded", finished_at: "2026-03-14T09:01:05Z" },
+      reach: "Could reach",
+    },
+    {
+      when: "it was rejected before it started",
+      at: { status: "rejected", started_at: null, finished_at: "2026-03-14T09:01:05Z" },
+      reach: "Could have reached",
+    },
+  ] as const)("says which hosts it may reach as $when", async (c) => {
+    onRun(
+      () => run({ ...c.at, network: ["eutils.ncbi.nlm.nih.gov"] }),
+      () => [],
+    );
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect((await within(details).findByText("Network")).nextSibling).toHaveTextContent(
+      `${c.reach} eutils.ncbi.nlm.nih.gov, through Iki’s egress proxy`,
+    );
+  });
+
+  it("says what each param is for, as its form did", async () => {
+    // The dna plugin's import: its topology is only for FASTA records.
+    const [ph] = ACTION.params as [Schemas["ParamOut"]];
+    const IMPORT = {
+      ...ACTION,
+      name: "iki/dna.import_sequences",
+      inputs: [],
+      params: [
+        { ...ph, name: "file", label: "FASTA or GenBank file", type: "file" as const },
+        {
+          ...ph,
+          name: "topology",
+          label: "Topology",
+          type: "enum" as const,
+          description: "For FASTA records, which don't say. GenBank records do.",
+        },
+      ],
+    };
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
+    answer("GET /api/v1/actions", [IMPORT]);
+    const FILE = "00000000-0000-7000-8000-00000000f001";
+    answer(
+      "GET /api/v1/runs/RUN-000001",
+      run({
+        action: IMPORT.name,
+        inputs: [],
+        params: { file: FILE, topology: "linear" },
+        files: {
+          [FILE]: { name: "L09137.2.gb", media_type: "chemical/seq-na-genbank", size: 6044 },
+        },
+      }),
+    );
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    await renderApp("/runs/RUN-000001/");
+    const inputs = screen.getByRole("region", { name: "Inputs" });
+    const topology = (await within(inputs).findByText("Topology")).nextSibling as HTMLElement;
+    expect(topology).toHaveTextContent(/^linear/);
+    expect(
+      within(topology).getByText("For FASTA records, which don't say. GenBank records do."),
+    ).toHaveClass("field-help");
+    expect(within(inputs).getByText("FASTA or GenBank file").nextSibling).toHaveTextContent(
+      "L09137.2.gb 5.9 KiB · GenBank",
+    );
   });
 
   it("says what its machine has cost so far, and in the end", async () => {

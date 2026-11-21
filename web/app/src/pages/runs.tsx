@@ -1350,7 +1350,9 @@ export function RunPage() {
     wasDone.current = done;
   }, [done, client, run.hrid]);
 
+  const tense = tenseOf(run);
   const paramLabels = new Map(action?.params.map((p) => [p.name, p.label]) ?? []);
+  const paramNotes = new Map(action?.params.map((p) => [p.name, p.description]) ?? []);
   const paramTypes = new Map(action?.params.map((p) => [p.name, p.type]) ?? []);
   const paramItems = new Map(action?.params.map((p) => [p.name, p.items]) ?? []);
   const inputLabels = new Map(action?.inputs.map((i) => [i.name, i.label]) ?? []);
@@ -1561,19 +1563,25 @@ export function RunPage() {
               </dd>
             </div>
           ))}
-          {params.map(([name, value]) => (
-            <div key={name} className="value-row">
-              <dt>{paramLabels.get(name) ?? name}</dt>
-              <dd>
-                <ParamValue
-                  run={run}
-                  type={paramTypes.get(name)}
-                  items={paramItems.get(name)}
-                  value={value}
-                />
-              </dd>
-            </div>
-          ))}
+          {params.map(([name, value]) => {
+            // What the form said it's for, such as "For FASTA records": without it, a
+            // value can read as more than it was.
+            const note = paramNotes.get(name);
+            return (
+              <div key={name} className="value-row">
+                <dt>{paramLabels.get(name) ?? name}</dt>
+                <dd>
+                  <ParamValue
+                    run={run}
+                    type={paramTypes.get(name)}
+                    items={paramItems.get(name)}
+                    value={value}
+                  />
+                  {note ? <p className="field-help">{note}</p> : null}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </section>
 
@@ -1631,7 +1639,7 @@ export function RunPage() {
           ) : null}
           {run.started_at ? (
             <>
-              <dt>Ran</dt>
+              <dt>{tense === "now" ? "Running" : "Ran"}</dt>
               <dd>
                 Started <RelativeTime value={run.started_at} />
                 {run.finished_at ? `, took ${duration(run.started_at, run.finished_at)}` : ""}
@@ -1674,7 +1682,7 @@ export function RunPage() {
           <dd>
             {run.network.length ? (
               <>
-                May reach{" "}
+                {TENSES[tense].reach}{" "}
                 {run.network.map((host, index) => (
                   <span key={host}>
                     {index ? ", " : ""}
@@ -1684,10 +1692,10 @@ export function RunPage() {
                 , through Iki’s egress proxy
               </>
             ) : (
-              "None: it couldn’t reach the internet"
+              TENSES[tense].offline
             )}
           </dd>
-          <dt>Ran on</dt>
+          <dt>{TENSES[tense].on}</dt>
           <dd>
             {run.tier === "self_hosted" ? "A self-hosted worker" : `A ${run.tier} worker`}
             {run.labels.length ? (
@@ -1720,6 +1728,30 @@ export function RunPage() {
       </section>
     </>
   );
+}
+
+/** How far a run has got, as its details speak of where it runs and what it reaches:
+ * before a worker takes it, while it runs, once it ran, or ended before it ever ran. */
+type Tense = "ahead" | "now" | "past" | "never";
+
+const TENSES: Record<Tense, { on: string; reach: string; offline: string }> = {
+  ahead: {
+    on: "Will run on",
+    reach: "May reach",
+    offline: "None: it won’t be able to reach the internet",
+  },
+  now: { on: "Running on", reach: "May reach", offline: "None: it can’t reach the internet" },
+  past: { on: "Ran on", reach: "Could reach", offline: "None: it couldn’t reach the internet" },
+  never: {
+    on: "Was to run on",
+    reach: "Could have reached",
+    offline: "None: it couldn’t have reached the internet",
+  },
+};
+
+function tenseOf(run: Run): Tense {
+  if (finished(run.status)) return run.started_at ? "past" : "never";
+  return run.status === "running" || run.status === "parked" ? "now" : "ahead";
 }
 
 /** What the run's machines cost (ADR 0070): so far while one is still its, then all. */
