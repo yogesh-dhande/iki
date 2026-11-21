@@ -76,6 +76,12 @@ CONDITIONS_TEXT = (
 )
 
 
+#: The sites are found by walking every place a primer's 3' end could sit, which costs a
+#: run about a second for every 10 primers on a 100 kb molecule -- plasmid-sized work, which
+#: is what this plugin's types hold. A genome-wide search would want the seed index the
+#: annotation uses (``library.py``) rather than this scan.
+
+
 class Refused(ValueError):  # noqa: N818 - reads as "the run refuses"
     """Why the primers can't be placed, or the product worked out, as asked."""
 

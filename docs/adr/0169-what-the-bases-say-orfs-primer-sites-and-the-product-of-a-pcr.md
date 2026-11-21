@@ -206,6 +206,10 @@ A primer Iki didn't give it is named in plain words.
   rather than keeping some and not others. A primer shorter than 8 bases is not
   placed at all, and the run says so: it would bind too many places to mean
   anything.
+- The sites are found by walking every place a primer's 3' end could sit, which costs
+  about a second for every ten primers on a 100 kb molecule: plasmid-sized work, which is
+  what this plugin's types hold. Looking for a lab's primers across a genome would want the
+  seed index the annotation already uses, and a type that holds genomes to look at.
 - A primer's IUPAC codes pair with what they may be, so a degenerate primer is
   placed; a degenerate **template** base pairs only where every base it may be
   is one the primer's code may be, since nothing else says the primer pairs
