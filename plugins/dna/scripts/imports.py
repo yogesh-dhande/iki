@@ -13,9 +13,12 @@ fails: a record missing a line of them would be another molecule under its acces
 feature's location is kept as its first and last base and its strand, with its parts when
 it has several (`join(...)`, or `order(...)`, kept as its operator), lies between two
 bases (`5^6`), or has partial ends (`<1`, `>99`, kept on its parts); such locations
-keep GenBank's own text in the `location` qualifier too. A record of several source
-features is of the one marked /focus or /transgenic, or else the one spanning it all; the
-others are kept as features. Features on other records (`J00194.1:100..202`) are left out,
+keep GenBank's own text in the `location` qualifier too. A location that reads across the
+origin -- off the end of the record and back to base 1, as INSDC writes a gene across a
+circular genome's origin -- is kept on a circular record and left out of a linear one,
+saying so: a linear molecule has two ends, and nothing of it reads across them. A record
+of several source features is of the one marked /focus or /transgenic, or else the one
+spanning it all; the others are kept as features. Features on other records (`J00194.1:100..202`) are left out,
 with a warning. A RefSeq model's (XM_, XR_) COMMENT says NCBI's annotation pipeline
 predicted it, with which gene prediction method: its origin says so, as NCBI's word (ADR
 0106). Other records don't say how their sequence was made, so theirs don't.
@@ -625,6 +628,23 @@ def _feature(
         operator, parts = "join", []
     circle = topology == "circular"
 
+    def in_the_record(part: dict[str, Any]) -> bool:
+        a, b = part["start"], part["end"]
+        return 1 <= a <= length and 1 <= b <= length
+
+    def reads_across_the_origin() -> bool:
+        """Whether the location reads across the origin: a range that ends before it
+        starts, a join whose parts run off the end and back to base 1
+        (`join(2306..3215,1..1623)`, as INSDC writes a gene across a circular genome's
+        origin), or a site between the last base and the first (`100^1`). Only a circle
+        has an origin to cross; parts merely out of order along the molecule don't."""
+        if not all(in_the_record(part) for part in parts):
+            return False
+        if any(part.get("between") for part in parts):
+            return any((part["start"], part["end"]) == (length, 1) for part in parts)
+        first, last = extent(parts, length, "circular")
+        return last < first
+
     def fits(part: dict[str, Any]) -> bool:
         a, b = part["start"], part["end"]
         if not (1 <= a <= length and 1 <= b <= length):
@@ -634,6 +654,16 @@ def _feature(
             return b == a + 1 or (circle and (a, b) == (length, 1))
         return a <= b or circle  # a range ending before it starts crosses the origin
 
+    # A location that reads across the origin says the molecule is a circle, and the
+    # LOCUS line says it isn't: the two can't both be right, so the feature is refused
+    # with what is wrong with it rather than with the general message.
+    if not circle and parts and reads_across_the_origin():
+        record.warnings.append(
+            f"{record.label}: a {key} at {location!r} reads across the origin, which only a "
+            "circular molecule has, and its LOCUS line says linear. It was left out: say the "
+            "molecule is circular, or give the feature's place on the linear one."
+        )
+        return None
     if not parts or not all(fits(part) for part in parts):
         record.warnings.append(f"{record.label}: a {key} at {location!r} was left out.")
         return None

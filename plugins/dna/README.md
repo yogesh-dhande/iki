@@ -142,7 +142,14 @@ a taxon has no organism, and the run says so. FASTA records give a name (the hea
 description (the rest), and an accession where the header has one
 (`L09137.2`, NCBI's `gb|L09137.2|`, or a RefSeq one such as
 `ref|NZ_CP009273.1|`). FASTA doesn't say whether a sequence is circular, so
-the `topology` param does.
+the `topology` param does: it is `linear` unless it's set to `circular`, which
+is the right default for a file of genes, reads or primers, and what a plasmid
+in a FASTA file needs changed. A GenBank record's own LOCUS line settles it,
+whatever the param says, since the record knows. Nothing of a linear record
+reads across its ends: a location that runs off the end and back to base 1
+(`join(2306..3215,1..1623)`, as INSDC writes a gene across a circular genome's
+origin) says the molecule is a circle, so on a record whose LOCUS says `linear`
+that feature is left out, with a message saying which and why.
 
 A record that can't be read (RNA written with U, gaps, letters that aren't
 IUPAC bases, a file cut short, or a GenBank record whose bases aren't as many
