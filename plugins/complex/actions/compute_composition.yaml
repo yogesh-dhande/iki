@@ -10,12 +10,13 @@ description: >-
   small molecule's, an oligonucleotide's or another complex's from its entry's
   molecular formula. A part with none (a sequence with an ambiguous residue or
   base, or a molecule whose formula isn't known yet) is named, and nothing is
-  computed for that complex. And its molar absorbance at 280 nm, Pace's, from
+  computed for that complex. And its molar extinction coefficient at 280 nm
+  (ε280), Pace's, from
   its parts' tryptophans and tyrosines with each cysteine's thiol free, if its
   parts are all proteins or complexes with one. It counts the disulfides its
   parts have of their own, such as a Fab's in a complex of the Fab and its
   antigen, for this project's record. The run also says its formula, masses
-  and absorbance with its disulfides, its own and its parts': two hydrogens
+  and ε280 with its disulfides, its own and its parts': two hydrogens
   off and a cystine's 125 L/(mol.cm) on for each.
 inputs:
   complex: { type: iki/core.Complex, schema: ">=1", include: [components.part] }

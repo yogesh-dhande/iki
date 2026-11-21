@@ -1,7 +1,7 @@
 # complex
 
 Iki's complex plugin: protein complexes of any parts, and every complex's
-formula, masses and absorbance at 280 nm, whatever its type.
+formula, masses and molar extinction coefficient at 280 nm (ε280), whatever its type.
 
 A complex is `iki/core.Complex`'s
 ([ADR 0161](../../docs/adr/0161-a-complex-is-its-parts-and-their-copies.md)),
@@ -30,8 +30,8 @@ cysteines.
 - **Every complex's composition**, on `iki/core.Complex`, so every type has
   it: its `molecular_formula` (Hill order), `molecular_weight` (average, in u,
   shown in ku), `monoisotopic_mass`, `chain_count` and
-  `extinction_coefficient_reduced` (its molar absorbance at 280 nm, in
-  L/(mol.cm)). They're derived from its parts and copies (`registry:
+  `extinction_coefficient_reduced` (its molar extinction coefficient at 280
+  nm, ε280, in L/(mol.cm)). They're derived from its parts and copies (`registry:
 derived`): its parts as they are, each cysteine's thiol free. Its bonds are a
   fact that a registrar may correct, so what they change (two hydrogens, 2.016
   u, off for each disulfide, and a cystine's 125 L/(mol.cm) on at 280 nm) is
@@ -41,9 +41,9 @@ derived`): its parts as they are, each cysteine's thiol free. Its bonds are a
 
 ## Actions
 
-| Action                | What it does                                                                          | Tier    |
-| --------------------- | ------------------------------------------------------------------------------------- | ------- |
-| `compute_composition` | Computes a complex's formula, masses, chain count and absorbance at 280 nm, any type. | backend |
+| Action                | What it does                                                          | Tier    |
+| --------------------- | --------------------------------------------------------------------- | ------- |
+| `compute_composition` | Computes a complex's formula, masses, chain count and ε280, any type. | backend |
 
 The trigger `compute_new_complex_composition` runs it on each complex a
 project gets, of any type, batching up to 100 a run: its entry's derived
@@ -84,7 +84,7 @@ weights are, and its monoisotopic mass with each element's most abundant
 isotope's mass (AME2020: Wang et al., _Chin Phys C_ 45:030003, 2021). Its chain
 count is each part's chains times its copies: a protein, nucleic acid or
 oligonucleotide is one, a duplex two, a complex its own count, a compound none.
-Its molar absorbance at 280 nm in water is Pace's (Pace et al., _Protein Sci_
+Its molar extinction coefficient at 280 nm in water, ε280, is Pace's (Pace et al., _Protein Sci_
 4:2411–2423, 1995), as the protein plugin's is: 5,500 L/(mol.cm) for each
 tryptophan and 1,490 for each tyrosine in its parts, each times its copies,
 with each cysteine's thiol free, as its masses are; a part that's another
@@ -117,15 +117,16 @@ Every mass is its parts' formulas', so a glycoprotein's is its chains' without
 their glycans, or any other modification its parts' formulas don't have.
 Amivantamab's formula, from KEGG DRUG's chains, is KEGG's exactly; its average
 mass differs in its last figures, as KEGG's atomic weights differ from
-Biopython's. Absorbances are
+Biopython's. Extinction coefficients are
 Biopython ProtParam's for each chain with its thiols free
 (`molar_extinction_coefficient`), summed over copies.
 
 ## Components
 
 **Composition**, a tab on every complex's page: its parts with their roles and
-copies; its formula, masses and absorbance at 280 nm as computed, with its
-disulfides, and with its parts' own as well; whether any may not be counted;
+copies; its formula, masses and ε280 as computed, with the absorbance of 1
+g/L over 1 cm that follows from ε280 and its average mass (ProtParam's "Abs
+0.1%"), and each with its disulfides, and with its parts' own as well; whether any may not be counted;
 and its bonds, each from a copy's residue to another's. It's named for screen readers
 as it's drawn for the eye.
 

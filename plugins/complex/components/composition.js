@@ -1,12 +1,13 @@
 // The complex plugin's Composition tab: a complex's parts, each with its role and copies;
-// its formula, masses and absorbance at 280 nm as compute_composition computed them from
-// its parts (each cysteine's thiol free), and with its disulfides, each of which takes two
-// hydrogens off and adds a cystine's absorbance: its own, and those its parts have of
-// their own (a Fab's, in a complex of the Fab and its antigen), which compute_composition
-// counted for this project's record; whether any may be missing; and its bonds. Its bonds
-// are a registry fact that may be corrected, so what they change is worked out here, from
-// them as they are now, not stored (ADR 0161). Iki sets `entity` to the complex, as the
-// person viewing it may read it (ADR 0084).
+// its formula, masses and molar extinction coefficient at 280 nm (ε280) as
+// compute_composition computed them from its parts (each cysteine's thiol free), and with
+// its disulfides, each of which takes two hydrogens off and adds a cystine's ε280: its
+// own, and those its parts have of their own (a Fab's, in a complex of the Fab and its
+// antigen), which compute_composition counted for this project's record; the absorbance
+// of 1 g/L of it that follows from ε280 and its mass; whether any may be missing; and
+// its bonds. Its bonds are a registry fact that may be corrected, so what they change is
+// worked out here, from them as they are now, not stored (ADR 0161). Iki sets `entity`
+// to the complex, as the person viewing it may read it (ADR 0084).
 
 const STYLE = `
   :host { display: block; color: CanvasText; background: Canvas; padding: 1rem; border-radius: 8px; font: 14px/1.45 system-ui, sans-serif; }
@@ -26,8 +27,11 @@ const STYLE = `
   summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
 `;
 
-// A cystine's molar absorbance at 280 nm in water, L/(mol.cm), as compute_composition
-// weighs it (Pace et al., Protein Sci 4:2411, 1995): each disulfide adds one.
+// A cystine's molar extinction coefficient at 280 nm in water, L/(mol.cm), as
+// compute_composition weighs it (Pace et al., Protein Sci 4:2411, 1995): each disulfide
+// adds one. An absorbance is ε times a concentration and a path: ExPASy's ProtParam gives
+// that of 1 g/L over 1 cm ("Abs 0.1%"), ε over the average mass, as the table's last row
+// does.
 const CYSTINE = 125;
 
 // Hydrogen's standard atomic weight, as compute_composition weighs it (Biopython's), and
@@ -123,7 +127,7 @@ function partsTable(entity, components) {
   );
 }
 
-/** Its formula, masses and absorbance with `n` disulfides. */
+/** Its formula, masses and ε280 with `n` disulfides. */
 function bonded(free, n) {
   return {
     formula: adjusted(free.formula, "H", -2 * n),
@@ -168,8 +172,21 @@ function massesTable(values, disulfides, theirs) {
     ["Formula", "formula", formulaNode, ""],
     ["Average mass", "average", (v) => massText(v, 2), "number"],
     ["Monoisotopic mass", "monoisotopic", (v) => massText(v, 4), "number"],
-    ["Absorbance at 280 nm", "absorbance", (v) => `${grouped(v, 0)} L/(mol·cm)`, "number"],
+    [
+      "Molar extinction coefficient, ε280",
+      "absorbance",
+      (v) => `${grouped(v, 0)} L/(mol·cm)`,
+      "number",
+    ],
+    ["Absorbance at 280 nm of 1 g/L, 1 cm", "per_gram", (v) => grouped(v, 3), "number"],
   ];
+  for (const column of columns) {
+    // ε over the average mass, L/(g.cm): the absorbance of 1 g/L over 1 cm.
+    column.per_gram =
+      column.absorbance === null || column.absorbance === undefined || !column.average
+        ? null
+        : column.absorbance / column.average;
+  }
   const body = element("tbody");
   for (const [label, key, shown, className] of rows) {
     const tr = element("tr", {}, element("th", { scope: "row" }, label));
@@ -184,7 +201,7 @@ function massesTable(values, disulfides, theirs) {
   return element(
     "table",
     {},
-    element("caption", {}, "Formula, masses and absorbance"),
+    element("caption", {}, "Formula, masses and extinction coefficient"),
     element("thead", {}, head),
     body,
   );
@@ -295,7 +312,7 @@ class Composition extends HTMLElement {
         element(
           "p",
           { className: "muted" },
-          "Its parts as they are have each cysteine's thiol free; each disulfide takes two hydrogens off and, as a cystine, adds 125 L/(mol·cm) at 280 nm (Pace's values, which weigh only proteins: a complex with another kind of part, such as a heme, has none)." +
+          "Its parts as they are have each cysteine's thiol free; each disulfide takes two hydrogens off and, as a cystine, adds 125 L/(mol·cm) to ε280 (Pace's values, which weigh only proteins: a complex with another kind of part, such as a heme, has none)." +
             (others > 0
               ? ` Its ${others} other bond${others === 1 ? "" : "s"} aren't weighed: what each takes off depends on its chemistry.`
               : ""),

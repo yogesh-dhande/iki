@@ -82,3 +82,15 @@ def test_the_package_ships_its_manifests() -> None:
     assert (CORE_DIRECTORY / "plugin.yaml").is_file()
     assert (CORE_DIRECTORY / "types" / "entity.yaml").is_file()
     assert (CORE_DIRECTORY / "types" / "collection.yaml").is_file()
+
+
+def test_a_complexs_own_bonds_and_its_parts_disulfides_read_apart() -> None:
+    # An antibody's 16 disulfides are its own bonds, and its chains have none of their
+    # own, so its parts' count is 0 a few lines below its 16 bonds: its label says it
+    # counts something else, since an entity's page shows labels, not descriptions.
+    fields = BUILTIN_TYPES["iki/core.Complex"].fields
+    assert fields["part_disulfides"].label == "Its parts' own disulfides, besides its bonds"
+    # And its ε280 is a molar extinction coefficient, not an absorbance.
+    assert "molar extinction coefficient" in (
+        fields["extinction_coefficient_reduced"].description or ""
+    )

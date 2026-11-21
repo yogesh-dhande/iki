@@ -118,14 +118,18 @@ def test_the_composition_tab_shows_its_parts_and_masses(
         ["PRT-000001 · Trastuzumab heavy chain", "heavy", "2"],
         ["PRT-000002 · Trastuzumab light chain", "light", "2"],
     ]
-    masses = page.get_by_role("table", name="Formula, masses and absorbance")
+    masses = page.get_by_role("table", name="Formula, masses and extinction coefficient")
     rows = [cells(r) for r in masses.get_by_role("row").all()]
+    # Its molar extinction coefficient is ε280, not an absorbance: an absorbance needs a
+    # concentration and a path, which ProtParam's "Abs 0.1% (=1 g/l)" gives, ε over the
+    # average mass (Pace et al. 1995).
     assert rows == [
         ["", "Its parts as they are", "With its 16 disulfides"],
         ["Formula", "C6448H9980N1720O2012S44", "C6448H9948N1720O2012S44"],
         ["Average mass", "145,197.41 u (145.20 ku)", "145,165.16 u (145.17 ku)"],
         ["Monoisotopic mass", "145,107.9205 u (145.11 ku)", "145,075.6701 u (145.08 ku)"],
-        ["Absorbance at 280 nm", "213,380 L/(mol·cm)", "215,380 L/(mol·cm)"],
+        ["Molar extinction coefficient, ε280", "213,380 L/(mol·cm)", "215,380 L/(mol·cm)"],
+        ["Absorbance at 280 nm of 1 g/L, 1 cm", "1.470", "1.484"],
     ]
     page.get_by_text("Its 16 bonds").click()
     # The first of its rows whose name starts so: bonds 10 to 16's do too.
@@ -157,9 +161,12 @@ def test_a_complex_without_an_absorbance_shows_none(browser: Browser, frame_serv
     # compute_composition gives it none, with its disulfides or without.
     values = {k: v for k, v in TRASTUZUMAB_VALUES.items() if k != "extinction_coefficient_reduced"}
     page = open_frame(browser, frame_server, "composition.js", {**TRASTUZUMAB, "values": values})
-    masses = page.get_by_role("table", name="Formula, masses and absorbance")
+    masses = page.get_by_role("table", name="Formula, masses and extinction coefficient")
     masses.wait_for(timeout=30_000)
-    assert cells(masses.get_by_role("row").last) == ["Absorbance at 280 nm", "—", "—"]
+    assert [cells(r) for r in masses.get_by_role("row").all()[-2:]] == [
+        ["Molar extinction coefficient, ε280", "—", "—"],
+        ["Absorbance at 280 nm of 1 g/L, 1 cm", "—", "—"],
+    ]
     page.context.close()
 
 
@@ -196,7 +203,7 @@ def test_a_complex_of_a_complex_counts_its_parts_disulfides(
     browser: Browser, frame_server: str
 ) -> None:
     page = open_frame(browser, frame_server, "composition.js", FAB_HER2)
-    masses = page.get_by_role("table", name="Formula, masses and absorbance")
+    masses = page.get_by_role("table", name="Formula, masses and extinction coefficient")
     masses.wait_for(timeout=30_000)
     assert [cells(r) for r in masses.get_by_role("row").all()] == [
         ["", "Its parts as they are", "With its 23 disulfides", "With its parts' 4 as well"],
@@ -219,11 +226,12 @@ def test_a_complex_of_a_complex_counts_its_parts_disulfides(
             "113,639.8154 u (113.64 ku)",
         ],
         [
-            "Absorbance at 280 nm",
+            "Molar extinction coefficient, ε280",
             "133,620 L/(mol·cm)",
             "136,495 L/(mol·cm)",
             "136,995 L/(mol·cm)",
         ],
+        ["Absorbance at 280 nm of 1 g/L, 1 cm", "1.175", "1.200", "1.205"],
     ]
     assert page.get_by_role("note").count() == 0
     page.context.close()
