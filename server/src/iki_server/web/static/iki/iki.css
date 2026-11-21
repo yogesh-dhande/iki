@@ -66,6 +66,9 @@ body {
   min-height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* One column, the viewport's width. An auto column would grow to its widest content,
+     a row of tabs that scrolls within itself for one, and widen the whole page with it. */
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   color: var(--text);
 }

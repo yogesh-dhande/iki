@@ -637,6 +637,10 @@ def test_a_long_value_never_widens_the_page(open_as: Any, world: World) -> None:
     assert page.evaluate(width)
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(width)
+    # And at 320 pixels, the width WCAG's reflow criterion (1.4.10) asks a page to fit,
+    # where the record's tabs no longer fit in a row and scroll within it instead.
+    page.set_viewport_size({"width": 320, "height": 640})
+    assert page.evaluate(width)
     # Playwright’s Firefox crashes in axe on this page (see assert_clean).
     assert_clean(page, axe_in_firefox=False)
 
