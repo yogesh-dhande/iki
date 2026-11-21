@@ -1049,8 +1049,9 @@ function FileInput({
 
   async function send(file: File) {
     setProblem(null);
-    if (allowed.length && !media.allowed(media.of(file), allowed)) {
-      setProblem(`${file.name} is ${media.of(file)}: choose ${media.either(allowed)}.`);
+    const refused = media.refusal(file, allowed);
+    if (refused) {
+      setProblem(refused);
       onChange(emptyDraft(field));
       return;
     }
@@ -1065,7 +1066,13 @@ function FileInput({
     transfer.current = controller;
     onChange({ id: "", hrid: "", title: file.name, uploading: true });
     try {
-      const made = await upload(file, projectId, setProgress, controller.signal);
+      const made = await upload(
+        file,
+        projectId,
+        setProgress,
+        controller.signal,
+        media.of(file, allowed),
+      );
       onChange({ id: made.id, hrid: "", title: made.name });
       void client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey });
     } catch (failure) {

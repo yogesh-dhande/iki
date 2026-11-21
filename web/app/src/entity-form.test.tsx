@@ -785,7 +785,9 @@ describe("file fields", () => {
       new File(["x"], "c.pdb"),
     ]);
     expect(
-      await within(group).findByText("notes.txt is text/plain: choose chemical/x-pdb."),
+      await within(group).findByText(
+        "notes.txt is a plain-text file. Choose a PDB (.pdb or .ent) file.",
+      ),
     ).toBeInTheDocument();
     // Each file sent is one line, with Remove; the refused one's place is left to choose
     // again. What the list takes is said once, for the list.
@@ -800,10 +802,51 @@ describe("file fields", () => {
     expect(within(group).getAllByRole("combobox", { name: /already in the project/ })).toHaveLength(
       1,
     );
-    expect(group).toHaveAccessibleDescription("It takes chemical/x-pdb files.");
+    expect(group).toHaveAccessibleDescription("It takes PDB (.pdb or .ent) files.");
     expect(within(group).getAllByText("It takes", { exact: false })).toHaveLength(1);
     expect(calls("POST", "/api/v1/uploads")).toHaveLength(2);
     expect(within(group).queryByText("Traces takes at most 3 files", { exact: false })).toBeNull();
+  });
+
+  it("uploads a protein .fasta as the protein FASTA its field takes", async () => {
+    vi.stubGlobal("XMLHttpRequest", Storage);
+    signedIn();
+    const chains: typeof STRUCTURE = {
+      ...STRUCTURE,
+      values_schema: {
+        properties: {
+          structure: {
+            type: "string",
+            "x-iki-media-types": ["chemical/seq-aa-fasta", "text/plain"],
+          },
+        },
+      },
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, chains]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answer("GET /api/v1/files", page([]));
+    answer("POST /api/v1/uploads", problem(503, "unavailable", "Storage is resting."));
+    await renderApp("/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure");
+    const structure = screen.getByRole("group", { name: "Structure" });
+    expect(structure).toHaveAccessibleDescription(
+      "It takes protein FASTA (.fasta, .fa or .faa) or plain-text files.",
+    );
+    const input = within(structure).getByLabelText("Upload a file");
+    // The system's file chooser offers .fasta and .fa files too.
+    expect(input).toHaveAttribute("accept", "chemical/seq-aa-fasta,text/plain,.fasta,.fa,.faa");
+    // UniProt's human insulin, as UniProt names its download; browsers give no type.
+    const insulin =
+      ">sp|P01308|INS_HUMAN Insulin OS=Homo sapiens OX=9606 GN=INS PE=1 SV=1\n" +
+      "MALWMRLLPLLALLALWGPDPAAAFVNQHLCGSHLVEALYLVCGERGFFYTPKTRREAEDLQVGQVELGGGPGAGSLQPLALEGSLQKRGIVEQCCTSICSLYQLENYCN\n";
+    const user = userEvent.setup();
+    await user.upload(input, new File([insulin], "P01308.fasta"));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/uploads")[0]?.body).toMatchObject({
+        name: "P01308.fasta",
+        media_type: "chemical/seq-aa-fasta",
+      });
+    });
   });
 
   it("refuses a file its field doesn't take, before uploading it", async () => {
@@ -828,12 +871,16 @@ describe("file fields", () => {
     // As if the browser's file chooser let it through: some do, for "All files".
     const user = userEvent.setup({ applyAccept: false });
     const structure = screen.getByRole("group", { name: "Structure" });
-    expect(structure).toHaveAccessibleDescription("It takes chemical/x-pdb files, up to 1.0 KiB.");
+    expect(structure).toHaveAccessibleDescription(
+      "It takes PDB (.pdb or .ent) files, up to 1.0 KiB.",
+    );
     const input = within(structure).getByLabelText("Upload a file");
     expect(input).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent");
     await user.upload(input, new File(["x"], "notes.txt", { type: "text/plain" }));
     expect(
-      await within(structure).findByText("notes.txt is text/plain: choose chemical/x-pdb."),
+      await within(structure).findByText(
+        "notes.txt is a plain-text file. Choose a PDB (.pdb or .ent) file.",
+      ),
     ).toBeInTheDocument();
     expect(calls("POST", "/api/v1/uploads")).toEqual([]);
   });

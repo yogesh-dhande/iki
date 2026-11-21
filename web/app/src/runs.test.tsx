@@ -233,7 +233,7 @@ describe("a run's page", () => {
       "href",
       `/api/v1/files/${FILE}/content`,
     );
-    expect(within(inputs).getByText("2.0 KiB · chemical/seq-aa-fasta")).toBeInTheDocument();
+    expect(within(inputs).getByText("2.0 KiB · protein FASTA")).toBeInTheDocument();
     expect(within(inputs).getByText("Extra file").nextSibling).toHaveTextContent(
       "A file you can’t read",
     );

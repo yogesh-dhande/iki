@@ -20,6 +20,7 @@ import { capacityText, slurmRequestText, type AttemptSlurm } from "../compute";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { media } from "../media";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
@@ -926,7 +927,7 @@ function ParamValue({
           {file.name}
         </a>{" "}
         <span className="muted">
-          {formatSize(file.size)} · {file.media_type}
+          {formatSize(file.size)} · {media.named(file.media_type)}
         </span>
       </span>
     );
