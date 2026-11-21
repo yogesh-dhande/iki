@@ -18,10 +18,11 @@ origin -- off the end of the record and back to base 1, as INSDC writes a gene a
 circular genome's origin -- is kept on a circular record and left out of a linear one,
 saying so: a linear molecule has two ends, and nothing of it reads across them. A record
 of several source features is of the one marked /focus or /transgenic, or else the one
-spanning it all; the others are kept as features. Features on other records (`J00194.1:100..202`) are left out,
-with a warning. A RefSeq model's (XM_, XR_) COMMENT says NCBI's annotation pipeline
-predicted it, with which gene prediction method: its origin says so, as NCBI's word (ADR
-0106). Other records don't say how their sequence was made, so theirs don't.
+spanning it all; the others are kept as features. Features on other records
+(`J00194.1:100..202`) are left out, with a warning. A RefSeq model's (XM_, XR_) COMMENT
+says NCBI's annotation pipeline predicted it, with which gene prediction method: its
+origin says so, as NCBI's word (ADR 0106). Other records don't say how their sequence
+was made, so theirs don't.
 
 FASTA headers give a name (the first word) and a description (the rest). A word of
 the header that looks like an INSDC accession with its version (`L09137.2`,
