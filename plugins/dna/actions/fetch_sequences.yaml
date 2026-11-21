@@ -26,6 +26,9 @@ effects:
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/ncbi.py]
 network: [eutils.ncbi.nlm.nih.gov]
+# NCBI asks automated clients for a contact address: until the deployment sets one, the
+# fetch isn't offered, and a launch is refused before it's queued (ADR 0169).
+requires_settings: [ncbi_email]
 secrets:
   - name: NCBI_API_KEY
     required: false

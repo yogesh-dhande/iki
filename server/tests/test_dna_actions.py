@@ -965,6 +965,27 @@ def test_a_fetch_fails_whole_and_says_why(
     assert not (tmp_path / "out.json").exists()
 
 
+def test_a_fetch_needs_the_contact_address_before_it_runs() -> None:
+    """Fetching names `ncbi_email` as a setting it can't run without (ADR 0169), so on a
+    deployment without it the fetch isn't offered and a launch is refused before it's
+    queued, the script's own check left as a backstop; nothing else the plugin does needs
+    it. The dev cluster sets it, so it can fetch."""
+    from iki_spec.validate import check_settings_text, load_plugin
+
+    plugin = load_plugin(SCRIPT.parents[1]).plugin
+    assert plugin is not None
+    needing = {a.name for a in plugin.actions.values() if a.requires_settings}
+    assert needing == {"fetch_sequences"}
+    assert plugin.actions["fetch_sequences"].requires_settings == ("ncbi_email",)
+    (unset,) = check_settings_text(plugin, "", "dna.yaml")
+    assert unset.code == "setting-needed"
+    assert unset.message == (
+        "`ncbi_email` isn't set, so Fetch DNA sequences from NCBI can't run on this deployment."
+    )
+    dev = SCRIPT.parents[3] / "deploy" / "dev" / "settings" / "dna.yaml"
+    assert check_settings_text(plugin, dev.read_text(), dev.name) == []
+
+
 def test_a_placeholder_accession_is_no_accession(tmp_path: Path) -> None:
     """Benchling and Biopython write `ACCESSION   .` and `VERSION     .` for a record with
     none: the dot says there isn't one, so the record has no accession."""

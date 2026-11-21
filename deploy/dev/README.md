@@ -67,6 +67,10 @@ trusts it, with the public CAs, through `backendWorkers.caSecret`, as a
 deployment would trust its internal CA. Its token is in `iki-run-secrets`
 (`runSecrets`), which the fake LIMS checks.
 
+The dna plugin's `ncbi_email` setting is set (`settings/dna.yaml`), so the
+cluster can fetch from NCBI, through the egress proxy; a deployment that
+leaves it unset doesn't offer the fetch (ADR 0169).
+
 ## Signing in
 
 A fresh cluster isn't set up yet. Either run `make dev-sso`, which goes
