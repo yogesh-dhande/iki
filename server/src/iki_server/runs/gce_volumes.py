@@ -12,8 +12,8 @@ Each round, for each build in a region the deployment's Compute Engine templates
   still writing), an image of each, in the template's region, encrypted with the
   deployment's key. Runs' machines get a new disk from it: an image, not a snapshot, as
   Compute Engine makes at most six disks an hour from one snapshot in a zone, and any
-  number from an image. Once every image is ready, the build has succeeded and its disks
-  are deleted.
+  number from an image. Once every image is ready, all the build's attempts' disks are
+  deleted before the build succeeds.
 - **Ended otherwise:** its disks, and any images, are deleted.
 - **Succeeded:** a retired version's images are deleted once no live machine has a copy.
 
@@ -309,11 +309,16 @@ def _capture(listing: Listing, build: SetupBuild, now: datetime) -> int:
         return 1
     if ready < len(build.spec["volumes"]):
         return 0
-    # Its disks have served their purpose.
-    for disk in recorded.values():
-        if "disk" in disk:
-            listing.gce.delete_disk(listing.project, disk["zone"], disk["disk"])
-    return volumes.succeed(build)
+    # An earlier machine can leave a disk even if it never registered or recorded it.
+    remaining = [
+        disk for disk in listing.disks().values() if _label(disk, SETUP_LABEL) == str(build.pk)
+    ]
+    if not remaining:
+        return volumes.succeed(build)
+    for disk in remaining:
+        if not disk.get("users") and disk.get("status") not in BUSY:
+            listing.gce.delete_disk(listing.project, disk["zone"], disk["name"])
+    return 0  # deletion is asynchronous; confirm absence on a fresh listing
 
 
 def _take(
