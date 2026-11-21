@@ -3,7 +3,8 @@
     uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
     uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
                                               # alice (also in Chromium), her
-                                              # notification and its email, SCIM
+                                              # notification and its email,
+                                              # Keycloak's own email, SCIM
                                               # provisioning, the API, webhooks,
                                               # the DNA plugin's actions on the
                                               # cluster's worker, a model behind
@@ -335,6 +336,57 @@ def told(member: requests.Session, email: str, team: str) -> None:
     if headers.get("Auto-Submitted") != ["auto-generated"] or "List-Unsubscribe" not in headers:
         fail(f"the email lacks Auto-Submitted or List-Unsubscribe: {sorted(headers)}")
     ok("the task runner emailed it, marked automatic (no out-of-office replies)")
+
+
+def identity_provider_mail(user: str) -> None:
+    """Keycloak sends account email (setup, password resets) to Mailpit, as Iki does: an
+    admin adding a test person can send them their setup email."""
+    keycloak = ISSUER.removesuffix("/realms/iki")
+    token = requests.post(
+        f"{keycloak}/realms/master/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": "admin-cli",
+            "username": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_USERNAME"),
+            "password": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_PASSWORD"),
+        },
+        timeout=10,
+    )
+    if token.status_code != 200:
+        fail(f"Keycloak's admin token: HTTP {token.status_code} {token.text[:200]}")
+    admin = {"Authorization": f"Bearer {token.json()['access_token']}"}
+    found = requests.get(
+        f"{keycloak}/admin/realms/iki/users",
+        params={"username": user, "exact": "true"},
+        headers=admin,
+        timeout=10,
+    ).json()
+    if len(found) != 1:
+        fail(f"Keycloak has {len(found)} users named {user}")
+    # Verifying an address that's verified already: harmless, should anyone follow it.
+    sent = requests.put(
+        f"{keycloak}/admin/realms/iki/users/{found[0]['id']}/execute-actions-email",
+        params={"lifespan": 300},
+        json=["VERIFY_EMAIL"],
+        headers=admin,
+        timeout=30,
+    )
+    if sent.status_code != 204:
+        fail(f"Keycloak couldn't send {user} an email: HTTP {sent.status_code} {sent.text[:200]}")
+    email = f"{user}@iki.test"
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        messages = requests.get(f"{MAILPIT['url']}/api/v1/messages?limit=50", timeout=5).json()
+        if any(
+            m["From"]["Address"] == "identity@iki.test"
+            and any(t["Address"] == email for t in m["To"])
+            for m in messages["messages"]
+        ):
+            break
+        time.sleep(1)
+    else:
+        fail(f"Keycloak's email to {email} didn't reach Mailpit within a minute")
+    ok(f"Keycloak emails {user} through Mailpit, from identity@iki.test")
 
 
 def landed(session: requests.Session, response: requests.Response, user: str) -> None:
@@ -997,6 +1049,7 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     ok(f"{user} signed in through Keycloak with PKCE; session cookie is HttpOnly")
 
     teams_and_projects(admin, session, f"{user}@iki.test")
+    identity_provider_mail(user)
     in_a_browser(user, ports)
 
     action, inputs = form(session.get(f"{IKI}/teams/"))
