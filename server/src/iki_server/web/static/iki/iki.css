@@ -2268,6 +2268,22 @@ a.lineage-node:focus-visible {
   display: contents;
 }
 
+/* A value never widens the page: a long one without spaces, such as a SMILES string or
+   HELM, wraps within its cell. */
+.values dd {
+  overflow-wrap: anywhere;
+}
+
+/* A long value, cut short (a sequence's bases, say), wrapped within its cell. */
+.value-long {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.value-long code {
+  word-break: break-all;
+}
+
 .value-list {
   margin: 0;
   padding-left: 1.1rem;

@@ -37,6 +37,7 @@ import {
   typesQuery,
   valueText,
   type Entity,
+  type EntityPageSearch,
   type EntityType,
   type FieldDef,
   type Making,
@@ -200,16 +201,103 @@ export function linkTo(field: FieldDef, value: unknown): string | null {
   return field.link.replaceAll("{value}", encodeURIComponent(value));
 }
 
+/** A text value longer than this is cut short on a page, as a genome's bases are: shown in
+ * full on asking, or in the viewer that shows it, as GitHub folds a long file and Benchling
+ * keeps a sequence in its sequence view. */
+const LONG_VALUE = 300;
+/** How much of a long value shows before it's cut short. */
+const LONG_SHOWN = 200;
+
+/** A viewer tab that shows a field's value in full, such as a sequence's. */
+export interface ShownIn {
+  viewer: string;
+  label: string;
+  /** What its characters are: bases, residues. */
+  noun: string;
+  search: EntityPageSearch;
+  hrid: string;
+}
+
+/** The viewer tab that shows a field, if a sequence viewer of its type does. */
+export function shownIn(
+  entity: Entity,
+  type: EntityType | undefined,
+  field: string,
+): ShownIn | undefined {
+  const viewer = (type?.viewers ?? []).find(
+    (v) => v.viewer === "sequence" && "sequence" in v && v.sequence === field,
+  );
+  if (!viewer || !("alphabet" in viewer)) return undefined;
+  return {
+    viewer: viewer.viewer,
+    label: viewer.label,
+    noun: viewer.alphabet === "protein" ? "residues" : "bases",
+    search: recordSearch(entity),
+    hrid: entity.hrid,
+  };
+}
+
+/** A long text value, cut short: it wraps within its cell, never widening the page. */
+function LongValue({
+  value,
+  label,
+  text,
+  shown,
+}: {
+  value: string;
+  label: string;
+  text: boolean;
+  shown: ShownIn | undefined;
+}) {
+  const [all, setAll] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-misused-spread -- code points, as the API counts
+  const length = [...value].length;
+  const counted = `${length.toLocaleString()} ${shown?.noun ?? "characters"}`;
+  const cut = all ? value : `${value.slice(0, LONG_SHOWN)}…`;
+  return (
+    <span className="value-long">
+      {text ? <span className="preserve-lines">{cut}</span> : <code>{cut}</code>}
+      <span className="cell-meta">
+        {counted}.{" "}
+        <Button
+          variant="quiet"
+          label={`${all ? "Show less of" : "Show all of"} ${label}`}
+          onClick={() => {
+            setAll(!all);
+          }}
+        >
+          {all ? "Show less" : `Show all ${counted}`}
+        </Button>
+        {shown ? (
+          <>
+            {" "}
+            <Link
+              to="/entities/$ref/viewers/$viewer/"
+              params={{ ref: shown.hrid, viewer: shown.viewer }}
+              search={shown.search}
+            >
+              Open in {shown.label}
+            </Link>
+          </>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
 /** One value as it reads on the page: references link, files download, units show. */
 export function Value({
   field,
   value,
   entity,
+  shown,
 }: {
   field: FieldDef;
   value: unknown;
   /** With its owner project, references to registry entries open that project's records. */
   entity: Pick<Entity, "refs" | "files" | "people"> & { owner_project?: { slug: string } | null };
+  /** The viewer tab that shows it in full, for a long value. */
+  shown?: ShownIn | undefined;
 }) {
   if (value === null || value === undefined) {
     return <span className="muted">Not set</span>;
@@ -238,6 +326,15 @@ export function Value({
       <a href={link} target="_blank" rel="noreferrer noopener">
         {value as string}
       </a>
+    );
+  }
+  if (
+    typeof value === "string" &&
+    (field.type === "string" || field.type === "text") &&
+    value.length > LONG_VALUE
+  ) {
+    return (
+      <LongValue value={value} label={field.label} text={field.type === "text"} shown={shown} />
     );
   }
   switch (field.type) {
@@ -763,11 +860,13 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
 function ValueList({
   fields,
   entity,
+  type,
   provenance,
   marks,
 }: {
   fields: FieldDef[];
   entity: Entity;
+  type: EntityType | undefined;
   provenance: Record<string, Revision> | undefined;
   /** Say how each is kept in its registry entry: identity, derived or fact. */
   marks: boolean;
@@ -790,7 +889,12 @@ function ValueList({
                 ) : null}
               </dt>
               <dd>
-                <Value field={f} value={entity.values[f.name]} entity={entity} />
+                <Value
+                  field={f}
+                  value={entity.values[f.name]}
+                  entity={entity}
+                  shown={shownIn(entity, type, f.name)}
+                />
                 <Provenance revision={provenance?.[f.name]} />
               </dd>
             </div>
@@ -1024,7 +1128,13 @@ export function EntityOverview() {
               Open the entry
             </Link>
           </p>
-          <ValueList fields={entryFields} entity={entity} provenance={provenance} marks />
+          <ValueList
+            fields={entryFields}
+            entity={entity}
+            type={type}
+            provenance={provenance}
+            marks
+          />
         </section>
       ) : null}
       <section className="card" aria-labelledby="values-title">
@@ -1036,7 +1146,13 @@ export function EntityOverview() {
             {project}’s own record of {entry.hrid}. Other projects with it keep their own.
           </p>
         ) : null}
-        <ValueList fields={asked} entity={entity} provenance={provenance} marks={false} />
+        <ValueList
+          fields={asked}
+          entity={entity}
+          type={type}
+          provenance={provenance}
+          marks={false}
+        />
       </section>
       {/* A request's service fills in its own fields (ADR 0132). */}
       {sides && served.length ? (
@@ -1049,7 +1165,13 @@ export function EntityOverview() {
               ? `${sides.service.name}, the service it’s sent to, fills these in.`
               : "The service it’s sent to fills these in, once it’s sent."}
           </p>
-          <ValueList fields={served} entity={entity} provenance={provenance} marks={false} />
+          <ValueList
+            fields={served}
+            entity={entity}
+            type={type}
+            provenance={provenance}
+            marks={false}
+          />
         </section>
       ) : null}
       {collection ? <CollectionMembers entity={entity} types={types} /> : null}

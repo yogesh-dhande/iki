@@ -3,6 +3,7 @@
  * fake API.
  */
 
+import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -22,7 +23,7 @@ import {
 import { formatNumber, quantity } from "./entities";
 import { MAX_FILTERS } from "./filters";
 import { MAX_BATCH } from "./runs";
-import { answer, calls, ME, page, problem, project, respond } from "./test-server";
+import { answer, calls, ME, page, problem, project, respond, signedIn } from "./test-server";
 
 const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
 
@@ -921,6 +922,43 @@ describe("an entity's page", () => {
         .getAllByRole("row")
         .map((r) => r.textContent),
     ).toEqual(["FieldBeforeAfter", "Resolution2.4 Å2.1 Å"]);
+  });
+
+  it("cuts a long value short, with all of it on asking and in its viewer", async () => {
+    signedIn();
+    const viewed: Schemas["EntityTypeOut"] = {
+      ...PROTEIN,
+      viewers: [
+        {
+          viewer: "sequence",
+          label: "Sequence",
+          sequence: "sequence",
+          alphabet: "protein",
+          strands: null,
+          features: null,
+          tracks: [],
+        },
+      ],
+    };
+    answer("GET /api/v1/entity-types", [viewed]);
+    answer("GET /api/v1/components", []);
+    // Titin's first 60 residues (UniProt Q8WZ42), seven times: longer than a page shows.
+    const sequence = "MTTQAPTFTQPLQSVVVLEGSTATFEAHISGFPVPEVSWFRDGQVISTSTLPGVQISFSD".repeat(7);
+    answer("GET /api/v1/entities/PRT-000001", entity({ values: { name: "Titin", sequence } }));
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const { user } = await renderApp("/entities/PRT-000001/");
+    const values = await screen.findByRole("region", { name: "Values" });
+    const shown = within(values).getByText(/^MTTQAPTFTQ.+…$/);
+    expect(shown.textContent).toHaveLength(201);
+    expect(within(values).getByRole("link", { name: "Open in Sequence" })).toHaveAttribute(
+      "href",
+      "/entities/PRT-000001/viewers/sequence/",
+    );
+    await user.click(within(values).getByRole("button", { name: "Show all of Sequence" }));
+    expect(within(values).getByText(sequence)).toBeInTheDocument();
+    expect(within(values).getByRole("button", { name: "Show less of Sequence" })).toBeVisible();
+    expect(within(values).getByText(/^420 residues\./)).toBeInTheDocument();
   });
 
   it("keeps each hold a revision opened, and who reviewed it, why and when", async () => {
