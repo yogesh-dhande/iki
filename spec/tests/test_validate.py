@@ -860,6 +860,23 @@ def test_files_and_json(tmp_path: Path) -> None:
     assert "at most 5 TiB" in only(result, "file-too-large")
     result = make(tmp_path, fields("j: { type: json, schema: { type: nope } }\n"))
     assert "isn't a valid JSON Schema" in only(result, "invalid-json-schema")
+    # A form starts from its schema's default, so the default must fit it.
+    result = make(
+        tmp_path,
+        fields(
+            "j: { type: json, schema: { type: object, required: [panels], "
+            "default: { version: 1 } } }\n"
+        ),
+    )
+    assert (
+        only(result, "invalid-default")
+        == "The default doesn't fit `schema`: 'panels' is a required property."
+    )
+    result = make(
+        tmp_path,
+        fields("j: { type: json, schema: { type: object, default: { panels: [] } } }\n"),
+    )
+    assert codes(result) == []
 
 
 def test_identity(tmp_path: Path) -> None:

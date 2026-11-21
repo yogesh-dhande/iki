@@ -793,7 +793,7 @@ type's history. Identity fields can't be removed.
 | `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
 | `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
 | `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
-| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.                                        |
+| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match; forms start from its `default`. Not indexable.        |
 | `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.                                             |
 
 A reference's `to` may list several types, any one of which it may name,

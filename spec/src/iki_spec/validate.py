@@ -2528,6 +2528,20 @@ class _Semantics:
                     source,
                     (*path, "schema", *error.path),
                 )
+            else:
+                # A form starts from the schema's default, so it must be a value it takes.
+                if "default" in f.schema:
+                    wrong = next(
+                        iter(Draft202012Validator(f.schema).iter_errors(f.schema["default"])),
+                        None,
+                    )
+                    if wrong is not None:
+                        self.add(
+                            "invalid-default",
+                            f"The default doesn't fit `schema`: {wrong.message}.",
+                            source,
+                            (*path, "schema", "default", *wrong.absolute_path),
+                        )
         if f.is_rows:
             assert f.items is not None  # noqa: S101 - lists have items
             self.rows(f.items, source, (*path, "items"))
