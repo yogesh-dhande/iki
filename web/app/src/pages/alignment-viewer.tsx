@@ -502,7 +502,9 @@ function AlignmentGrid({
   const identity = length ? alignment.identical / length : 0;
   const atRow = rows[cursor.row];
   const residue = atRow?.row.aligned.charAt(cursor.column) ?? "";
-  const residueAt = atRow ? residueNumber(atRow.row.aligned, cursor.column, atRow.row.start) : null;
+  const residueAt = atRow
+    ? residueNumber(atRow.row.aligned, cursor.column, atRow.row.start, atRow.row.reverse)
+    : null;
   /** What the residue at the cursor could be, where its row's header says (`possible=`). */
   const could = atRow ? possibleOf(atRow.row.description).get(cursor.column) : undefined;
   const couldBe = could
@@ -511,11 +513,16 @@ function AlignmentGrid({
         .map((r) => (r === "*" ? "a stop" : r))
         .join(" or ")})`
     : "";
+  /** Which part of its sequence a row is, first residue to last: down, on its other strand. */
+  const span = (r: Shown) => {
+    const last = r.row.reverse
+      ? r.row.start - r.row.residues + 1
+      : r.row.start + r.row.residues - 1;
+    return `${number.format(r.row.start)}–${number.format(last)}${r.row.reverse ? ", its reverse strand" : ""}`;
+  };
   /** A row's residues: their count, or which part of its sequence they are. */
   const extent = (r: Shown) =>
-    !r.row.spanned
-      ? `of ${number.format(r.row.residues)}`
-      : `of ${number.format(r.row.start)}–${number.format(r.row.start + r.row.residues - 1)}`;
+    !r.row.spanned ? `of ${number.format(r.row.residues)}` : `of ${span(r)}`;
   const labelOf = (r: Shown) => r.entity?.hrid ?? r.row.id;
 
   return (
@@ -526,7 +533,7 @@ function AlignmentGrid({
           cover {number.format(comparison.covered)} of {labelOf(reference)}’s{" "}
           {!reference.row.spanned
             ? `${number.format(comparison.residues)} residues`
-            : `residues ${number.format(reference.row.start)}–${number.format(reference.row.start + reference.row.residues - 1)}`}{" "}
+            : `residues ${span(reference)}`}{" "}
           ({percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
           differ from it at{" "}
           {comparison.differing ? (

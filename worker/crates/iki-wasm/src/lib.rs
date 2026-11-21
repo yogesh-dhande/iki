@@ -193,6 +193,10 @@ pub struct Row {
     /// Whether its header names the part of its sequence it is (`name/1-4`), even from 1:
     /// then its residues are that span, not necessarily the whole sequence.
     pub spanned: bool,
+    /// Whether it's its sequence's other strand, its header's span running down
+    /// (`name/2686-1`), as Rfam and Pfam write a row on the reverse strand: then `start`
+    /// is the number of its first residue, and each after it is one less.
+    pub reverse: bool,
 }
 
 /// An alignment's rows, and how well each of its columns is conserved.
@@ -281,22 +285,24 @@ fn consensus(column: &[u8]) -> (u8, usize) {
     }
 }
 
-/// A header's first word, the number of its first residue, and whether it named its span:
-/// `name/4-7` is residues 4 to 7 of `name`, when that's as many residues as the row has,
-/// as `name/1-4` is residues 1 to 4, which may be only part of it; anything else is the
-/// whole of a sequence, from 1.
-fn numbered(id: &str, residues: usize) -> (String, usize, bool) {
+/// A header's first word, the number of its first residue, whether it named its span, and
+/// whether that span runs down: `name/4-7` is residues 4 to 7 of `name`, when that's as
+/// many residues as the row has, as `name/1-4` is residues 1 to 4, which may be only part
+/// of it; `name/7-4` is residues 7 down to 4, its other strand (Rfam's way); anything else
+/// is the whole of a sequence, from 1.
+fn numbered(id: &str, residues: usize) -> (String, usize, bool, bool) {
     if let Some((name, span)) = id.rsplit_once('/')
         && let Some((first, last)) = span.split_once('-')
         && let (Ok(first), Ok(last)) = (first.parse::<usize>(), last.parse::<usize>())
         && !name.is_empty()
         && first >= 1
-        && last >= first
-        && last - first + 1 == residues
+        && last >= 1
+        && first.abs_diff(last) + 1 == residues
     {
-        return (name.to_owned(), first, true);
+        // One residue's span (`name/5-5`) runs neither way: it's read as forward.
+        return (name.to_owned(), first, true, last < first);
     }
-    (id.to_owned(), 1, false)
+    (id.to_owned(), 1, false, false)
 }
 
 /// The records as an alignment, if they're one: two or more rows, all the same length.
@@ -333,7 +339,7 @@ pub fn layout(records: &[Record], declared: Option<Alphabet>) -> Option<Alignmen
         .iter()
         .map(|r| {
             let residues = r.residues.bytes().filter(|&b| !is_gap(b)).count();
-            let (id, start, spanned) = numbered(&r.id, residues);
+            let (id, start, spanned, reverse) = numbered(&r.id, residues);
             Row {
                 id,
                 description: r.description.clone(),
@@ -341,6 +347,7 @@ pub fn layout(records: &[Record], declared: Option<Alphabet>) -> Option<Alignmen
                 residues,
                 start,
                 spanned,
+                reverse,
             }
         })
         .collect();
@@ -724,6 +731,32 @@ mod tests {
         assert_eq!(
             (named.rows[0].id.as_str(), named.rows[0].start),
             ("a/1-9", 1)
+        );
+        assert!(!aligned.rows[0].reverse);
+    }
+
+    #[test]
+    fn a_rows_header_can_say_its_the_other_strand() {
+        // DNA-2/8-1 is DNA-2's reverse complement, its first base DNA-2's eighth, as Rfam
+        // writes a row on the reverse strand; DNA-3/7-4 is part of its other strand.
+        let aligned = layout(
+            &records(">DNA-1\nACGTACGT\n>DNA-2/8-1\nACGTACGT\n>DNA-3/7-4\n--GTAC--\n"),
+            None,
+        )
+        .unwrap_or_else(|| unreachable!());
+        let read = |i: usize| {
+            let r = &aligned.rows[i];
+            (r.id.as_str(), r.start, r.spanned, r.reverse)
+        };
+        assert_eq!(read(0), ("DNA-1", 1, false, false));
+        assert_eq!(read(1), ("DNA-2", 8, true, true));
+        assert_eq!(read(2), ("DNA-3", 7, true, true));
+        // A span running down that isn't as long as the row's residues is part of its name.
+        let named =
+            layout(&records(">a/9-1\nACGT\n>b\nACGT\n"), None).unwrap_or_else(|| unreachable!());
+        assert_eq!(
+            (named.rows[0].id.as_str(), named.rows[0].reverse),
+            ("a/9-1", false)
         );
     }
 

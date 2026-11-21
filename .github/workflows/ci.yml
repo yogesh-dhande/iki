@@ -497,6 +497,9 @@ jobs:
           - image: iki-protein-alignment-tools
             plugin: plugins/protein
             dir: plugins/protein/images/alignment-tools
+          - image: iki-dna-alignment-tools
+            plugin: plugins/dna
+            dir: plugins/dna/images/alignment-tools
           - image: iki-antibody-numbering-tools
             plugin: plugins/antibody
             dir: plugins/antibody/images/numbering-tools

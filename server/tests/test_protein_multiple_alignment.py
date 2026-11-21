@@ -116,6 +116,13 @@ def called(tmp_path: Path) -> list[str]:
     return found
 
 
+def on_threads(tmp_path: Path) -> str:
+    """What the method says of the threads MAFFT was given, as it was called."""
+    args = called(tmp_path)
+    n = int(args[args.index("--thread") + 1])
+    return f"{n} thread" + ("" if n == 1 else "s")
+
+
 def test_aligns_proteins_into_an_alignment_of_them_in_the_order_given(tmp_path: Path) -> None:
     given = [
         protein(1, "MKTAYIAKQRQISFVKSHFSRQ", "A"),
@@ -140,7 +147,8 @@ def test_aligns_proteins_into_an_alignment_of_them_in_the_order_given(tmp_path: 
             ),
             "members": [p["id"] for p in given],
             "aligned": {"$file": "alignment.fasta", "media_type": "chemical/seq-aa-fasta"},
-            "method": "MAFFT v7.505 (2022/Apr/10), L-INS-i (chosen by --auto)",
+            "method": "MAFFT v7.505 (2022/Apr/10), L-INS-i (chosen by --auto), "
+            + on_threads(tmp_path),
         },
         "derived_from": [p["id"] for p in given],
     }
@@ -184,7 +192,8 @@ def test_names_strategies_and_unusual_residues(tmp_path: Path) -> None:
     values = output["creates"][0]["values"]
     assert values["name"] == "Selenoproteins"
     assert values["method"] == (
-        "MAFFT v7.505 (2022/Apr/10), L-INS-i, with --anysymbol for unusual residues"
+        "MAFFT v7.505 (2022/Apr/10), L-INS-i, with --anysymbol for unusual residues, "
+        + on_threads(tmp_path)
     )
     assert called(tmp_path)[:3] == ["--genafpair", "--maxiterate", "1000"]
     assert "--anysymbol" in called(tmp_path)

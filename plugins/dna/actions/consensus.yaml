@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: consensus
+label: Register an alignment's consensus
+description: >-
+  Registers the consensus of an alignment of DNA, such as reads of a clone, as
+  a DNA sequence, derived from the alignment. Each column gives the base at
+  least the threshold's share of its rows have, or IUPAC's code for the fewest
+  commonest bases that together do. Rows with a gap or nothing observed there
+  say nothing of its base; a column mostly gaps is left out, and one no row
+  observes is N, or left out at either end of a linear sequence. A sequence
+  already in Iki (the same bases, topology and strandedness) is found.
+inputs:
+  alignment:
+    type: iki/core.Alignment
+    schema: ">=1"
+    include: [reference]
+    description: An alignment of DNA, such as reads aligned to a plasmid, or a multiple alignment.
+params:
+  threshold:
+    type: float
+    label: Threshold (%)
+    min: 1
+    max: 100
+    default: 50
+    description: >-
+      The share of a column's rows with a base that a base, or a set of bases,
+      must have. Bases tied at the edge are taken together.
+  ambiguity:
+    type: bool
+    label: Ambiguity codes
+    default: true
+    description: >-
+      Write a column no one base reaches the threshold in as the IUPAC code of
+      the bases that together do (R for A or G). Otherwise it's N.
+  include_reference:
+    type: bool
+    label: Count the reference
+    default: true
+    description: >-
+      Count the alignment's reference as one of its rows. Leave it out for
+      reads, so the consensus is what they read, not what was designed.
+  topology:
+    type: enum
+    values: [linear, circular]
+    default: linear
+    description: >-
+      The consensus's topology. A circular one keeps every column, N where no
+      row observes it, as a circle has no ends to leave out.
+  strandedness:
+    type: enum
+    values: [double, single]
+    default: double
+  name:
+    type: string
+    description: The sequence's name. Without one, it's the consensus of the alignment's name.
+effects:
+  creates: [{ type: DNASequence, cardinality: one, derived_from: [alignment] }]
+runs_on: { tier: backend, environment: sequence-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/consensus.py, nucleotide]
+deterministic: true
+metrics:
+  rows: { label: Rows, description: The alignment's rows counted. }
+  length: { label: Length, description: The consensus's bases. }
+  ambiguous: { label: Ambiguous, description: "Its bases that are ambiguity codes, N included." }
+  unobserved: { label: Unobserved, description: "Its places no row observes, written N." }
+  columns_left_out:
+    { label: Columns left out, description: Columns where more rows have a gap than a base. }
+timeout: 30m

@@ -1177,6 +1177,7 @@ def actions() -> None:
             fail(f"{run['hrid']} wrote no melting temperature: {got}")
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
     reads_aligned(alice, project)
+    sequences_aligned(alice, project)
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
@@ -1275,6 +1276,97 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
         f"{metrics['coverage_percent']}% covered, {expected[:-1].split(': ', 1)[1]}, "
         f"making {created[0]['hrid']}"
+    )
+
+
+def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
+    """iki/dna.align_pair, align_multiple and consensus: a clone of a plasmid, one base
+    changed and registered from its other strand, aligned to the plasmid as designed, as
+    needle aligns two and through MAFFT in a pod of its own; then the MAFFT alignment's
+    consensus, the design left out, which is the clone, found in the registry."""
+    # pUC19 with a new tag in its polylinker each time, so each check registers new ones.
+    tag = "".join(secrets.choice("ACGT") for _ in range(24))
+    designed_bases = PUC19[:420] + tag + PUC19[420:]
+    clone_bases = designed_bases[:1500] + ("A" if designed_bases[1500] != "A" else "C")
+    clone_bases += designed_bases[1501:]
+    other_strand = clone_bases.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    made = []
+    for name, bases in (("pUC19-tag", designed_bases), ("pUC19-tag clone 3", other_strand)):
+        got = api_call(
+            alice,
+            "POST",
+            "/entities",
+            {
+                "type": "iki/dna.DNASequence",
+                "project": project["id"],
+                "values": {"name": name, "bases": bases, "topology": "circular"},
+            },
+        )
+        if got.status_code not in (200, 201):
+            fail(f"registering {name} answered HTTP {got.status_code}: {got.text[:300]}")
+        made.append(got.json())
+    designed, clone = made
+    length = len(designed_bases)
+
+    action = "iki/dna.align_pair"
+    run = launch(alice, project, action, {"query": clone["id"], "target": designed["id"]})
+    metrics = run.get("metrics") or {}
+    one_off = 100 * (length - 1) / length
+    if metrics.get("length") != length or abs(metrics.get("identity_percent", 0) - one_off) > 1e-9:
+        fail(f"{run['hrid']} ({action}) measured {metrics}, not {length} columns, one differing")
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    values = record(alice, created[0]["entity"])["values"]
+    if not values["method"].endswith("the query's reverse complement"):
+        fail(f"{run['hrid']} didn't align {clone['hrid']} as its other strand: {values}")
+    ok(
+        f"{action} aligned {clone['hrid']} as its other strand to {designed['hrid']} "
+        f"({run['hrid']}): {metrics['identity_percent']:.2f}% identical, making "
+        f"{created[0]['hrid']}"
+    )
+
+    action = "iki/dna.align_multiple"
+    run = launch(
+        alice,
+        project,
+        action,
+        {"sequences": [clone["id"]], "reference": designed["id"]},
+        within=900,
+    )
+    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
+    if attempt["template"] != "container-alignments":
+        fail(f"{run['hrid']} didn't run on the alignments' template: {attempt}")
+    metrics = run.get("metrics") or {}
+    if metrics.get("rows") != 2 or metrics.get("reversed") != 1:
+        fail(f"{run['hrid']} ({action}) measured {metrics}, not two rows, one turned round")
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in created] != ["iki/core.Alignment"]:
+        fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
+    alignment = created[0]
+    values = record(alice, alignment["entity"])["values"]
+    members = [entry_of(designed), entry_of(clone)]
+    if values["members"] != members or values["reference"] != members[0]:
+        fail(f"{alignment['hrid']} is {values}")
+    ok(
+        f"{action} ran MAFFT in a pod of its own ({run['hrid']}): {values['method']}, "
+        f"{clone['hrid']} turned round, making {alignment['hrid']}"
+    )
+
+    action = "iki/dna.consensus"
+    run = launch(
+        alice,
+        project,
+        action,
+        {"alignment": alignment["entity"]},
+        {"include_reference": False, "topology": "circular"},
+    )
+    found = [e for e in run.get("effects") or [] if e["type"] == "iki/dna.DNASequence"]
+    if [(e["kind"], e["entity"]) for e in found] != [("reused", clone["id"])]:
+        fail(f"{run['hrid']} ({action}) made {run['effects']}, not {clone['hrid']} found")
+    ok(
+        f"{action}: {alignment['hrid']}'s consensus, the design left out, is {clone['hrid']}, "
+        f"found in the registry ({run['hrid']})"
     )
 
 
@@ -2482,7 +2574,8 @@ MB = (
     "MGLSDGEWQLVLNVWGKVEADIPGHGQEVLIRLFKGHPETLEKFDKFKHLKSEDEMKASEDLKKHGATVLTALGGILKKKGHHEAE"
     "IKPLAQSHATKHKIPVKYLEFISECIIQVLQSKHPGDFGADAQGAMNKALELFRKDMASNYKELGFQG"
 )
-#: The protein plugin's alignment-tools image (plugins/protein/environments/alignment-tools.yaml).
+#: The protein plugin's alignment-tools image (plugins/protein/environments/alignment-tools.yaml),
+#: which the dna plugin's alignment-tools environment pins too, until main publishes its own.
 ALIGNMENT_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-protein-alignment-tools"
     "@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd"
