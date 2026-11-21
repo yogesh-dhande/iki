@@ -111,6 +111,13 @@
         "pattern": "^((\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}|\\{settings\\.[a-z][a-z0-9_]{0,62}\\})$"
       }
     },
+    "requires_settings": {
+      "description": "The plugin's settings a run needs, by name, such as `ncbi_email`: ones that are neither required nor have a default, so a deployment may leave them unset. Until it sets them, the action can't run there, and people see why before they launch it.",
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" }
+    },
     "software": {
       "description": "The tools its runs make entities with, by name and version, such as ImmuneBuilder 1.2: what its image or requirements install, for whoever reviews the plugin. Entities its runs create are recorded as made with them (ADR 0106). An action that only fetches or reads records lists none.",
       "type": "array",

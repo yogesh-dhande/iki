@@ -19,7 +19,7 @@ from iki_spec.model import (
     plugin_to_dict,
 )
 from iki_spec.problems import Severity
-from iki_spec.validate import Result, load_plugin
+from iki_spec.validate import Result, check_settings_text, load_plugin
 
 PLUGINS = Path(__file__).parent / "plugins"
 DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "structure_prediction"
@@ -777,6 +777,60 @@ def test_a_setting_can_give_a_host(tmp_path: Path) -> None:
     # Only a whole entry: a setting can't be part of a host.
     part = make(tmp_path, action(network='["{settings.lims_host}.org"]'))
     assert only(part, "schema")
+
+
+def test_an_action_can_need_a_setting_a_deployment_may_leave_unset(tmp_path: Path) -> None:
+    plugin = PLUGIN + (
+        "settings:\n"
+        "  ncbi_email: { type: string, format: email }\n"
+        "  batch_size: { type: int, min: 1, default: 100 }\n"
+        "  lab: { type: string, required: true }\n"
+    )
+    files = {"plugin.yaml": plugin}
+    result = make(tmp_path, action(requires_settings="[ncbi_email]"), files=files)
+    assert result.problems == []
+    assert result.plugin is not None
+    (found,) = result.plugin.actions.values()
+    assert found.requires_settings == ("ncbi_email",)
+    unknown = make(tmp_path, action(requires_settings="[ncbi_mail]"), files=files)
+    assert only(unknown, "requires-unknown-setting") == "The plugin has no setting `ncbi_mail`."
+    assert unknown.problems[0].hint == "Did you mean `ncbi_email`?"
+    # One every deployment has is no prerequisite.
+    for name, why in (("batch_size", "given a default"), ("lab", "required")):
+        always = make(tmp_path, action(requires_settings=f"[{name}]"), files=files)
+        assert only(always, "requires-setting-always-set") == (
+            f"`{name}` is {why}, so every deployment has it."
+        )
+        assert always.ok
+    assert only(make(tmp_path, action(requires_settings="[Bad-Name]"), files=files), "schema")
+
+
+def test_a_deployment_is_told_which_actions_its_settings_leave_unable_to_run(
+    tmp_path: Path,
+) -> None:
+    plugin = PLUGIN + (
+        "settings:\n"
+        "  ncbi_email:\n"
+        "    type: string\n"
+        "    format: email\n"
+        "    description: The address NCBI asks automated clients to give.\n"
+    )
+    found = make(
+        tmp_path,
+        action(label="Score assays", requires_settings="[ncbi_email]"),
+        files={"plugin.yaml": plugin},
+    ).plugin
+    assert found is not None
+    (unset,) = check_settings_text(found, "", "acme.yaml")
+    assert (unset.code, unset.severity, unset.message, unset.hint) == (
+        "setting-needed",
+        Severity.WARNING,
+        "`ncbi_email` isn't set, so Score assays can't run on this deployment.",
+        "The address NCBI asks automated clients to give.",
+    )
+    blank = check_settings_text(found, "ncbi_email: ''\n", "acme.yaml")
+    assert "setting-needed" in [p.code for p in blank]
+    assert check_settings_text(found, "ncbi_email: lab@example.org\n", "acme.yaml") == []
 
 
 def test_deterministic_warnings(tmp_path: Path) -> None:

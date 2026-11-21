@@ -17,6 +17,56 @@ describe("media", () => {
     expect(media.of({ name: ".pdb", type: "" })).toBe("application/octet-stream");
   });
 
+  it("reads .fasta and .fa as the FASTA its field takes: they're used for both", () => {
+    // UniProt's downloads are .fasta, and so are NCBI's nucleotide ones.
+    const uniprot = { name: "P01308.fasta", type: "" };
+    expect(media.of(uniprot, ["chemical/seq-aa-fasta", "text/plain"])).toBe(
+      "chemical/seq-aa-fasta",
+    );
+    expect(media.of({ name: "L09137.fa", type: "" }, ["chemical/seq-na-fasta"])).toBe(
+      "chemical/seq-na-fasta",
+    );
+    // A field that takes either, or anything, gets the nucleotide reading, as before.
+    expect(media.of(uniprot)).toBe("chemical/seq-na-fasta");
+    // .faa and .fna say which they are.
+    expect(media.of({ name: "P01308.fna", type: "" }, ["chemical/seq-aa-fasta"])).toBe(
+      "chemical/seq-na-fasta",
+    );
+    expect(media.of({ name: "P01308.faa", type: "" }, ["chemical/seq-na-fasta"])).toBe(
+      "chemical/seq-aa-fasta",
+    );
+  });
+
+  it("offers .fasta and .fa files to protein FASTA pickers", () => {
+    expect(media.accept(["chemical/seq-aa-fasta", "text/plain"])).toBe(
+      "chemical/seq-aa-fasta,text/plain,.fasta,.fa,.faa",
+    );
+    expect(media.accept(["chemical/seq-na-fasta"])).toBe("chemical/seq-na-fasta,.fasta,.fa,.fna");
+  });
+
+  it("names types the way scientists do, with their extensions", () => {
+    expect(media.either(["chemical/seq-aa-fasta", "text/plain"])).toBe(
+      "protein FASTA (.fasta, .fa or .faa) or plain-text",
+    );
+    expect(media.either(["chemical/x-pdb", "chemical/x-mmcif", "image/*"])).toBe(
+      "PDB (.pdb or .ent), mmCIF (.cif or .mmcif) or image",
+    );
+    expect(media.named("chemical/seq-na-genbank")).toBe("GenBank");
+    expect(media.named("application/pdf")).toBe("PDF");
+    // One it doesn't know is given as it is.
+    expect(media.named("application/x-acme-plate")).toBe("application/x-acme-plate");
+  });
+
+  it("says why a file isn't one a field takes", () => {
+    expect(
+      media.refusal({ name: "notes.pdf", type: "application/pdf" }, ["chemical/seq-aa-fasta"]),
+    ).toBe("notes.pdf is a PDF file. Choose a protein FASTA (.fasta, .fa or .faa) file.");
+    expect(media.refusal({ name: "plate", type: "" }, ["chemical/x-pdb", "text/plain"])).toBe(
+      "plate isn’t a file this takes. Choose a PDB (.pdb or .ent) or plain-text file.",
+    );
+    expect(media.refusal({ name: "1abc.pdb", type: "" }, ["chemical/x-pdb"])).toBeNull();
+  });
+
   it("lets pickers offer files by extension too", () => {
     expect(media.accept([])).toBeUndefined();
     expect(media.accept(["chemical/x-mmcif", "chemical/x-pdb"])).toBe(

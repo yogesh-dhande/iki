@@ -108,28 +108,65 @@ export function actionsTakingQuery(types: string[]) {
  */
 export const MAX_BATCH = 200;
 
-/** Entities by HRID, as a new run's address names them. */
+/** Every entity the person can read with one of `hrids`, in `project` if it's given. */
+async function searchHrids(hrids: string[], project?: string): Promise<Schemas["EntityOut"][]> {
+  const found: Schemas["EntityOut"][] = [];
+  let cursor: string | undefined;
+  do {
+    const page = unwrap(
+      await iki.POST("/api/v1/entities/search", {
+        body: {
+          where: { field: "hrid", op: "in", value: hrids },
+          ...(project ? { project } : {}),
+          exact_type: false,
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        },
+      }),
+    );
+    found.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return found;
+}
+
+/** Entities by HRID, as a plugin's component picks them. */
 export function entitiesByHridQuery(hrids: string[]) {
   return queryOptions({
     queryKey: ["entities", "by-hrid", ...hrids],
+    queryFn: () => searchHrids(hrids),
+  });
+}
+
+/**
+ * What a new run in `projectId` runs on, as its address names them by HRID: one record
+ * for each. Projects hold their own records of a registry's entries, under the entry's
+ * HRID, so an HRID can name several. The project's own record (or one linked into it)
+ * is the one; only an HRID it doesn't hold is looked for in other projects, where a run
+ * would add it first (ADR 0066). One held by several of those is `ambiguous`: which
+ * project's record to add is the person's choice, so it isn't guessed.
+ */
+export function runEntitiesQuery(hrids: string[], projectId: string) {
+  return queryOptions({
+    queryKey: ["entities", "for-run", projectId, ...hrids],
     queryFn: async () => {
-      const found: Schemas["EntityOut"][] = [];
-      let cursor: string | undefined;
-      do {
-        const page = unwrap(
-          await iki.POST("/api/v1/entities/search", {
-            body: {
-              where: { field: "hrid", op: "in", value: hrids },
-              exact_type: false,
-              limit: 100,
-              ...(cursor ? { cursor } : {}),
-            },
-          }),
-        );
-        found.push(...page.items);
-        cursor = page.next_cursor ?? undefined;
-      } while (cursor);
-      return found;
+      // Its own record first, before one another project shares with it.
+      const own = (await searchHrids(hrids, projectId)).sort(
+        (a, b) =>
+          Number(b.owner_project?.id === projectId) - Number(a.owner_project?.id === projectId),
+      );
+      const here = new Map<string, Schemas["EntityOut"]>();
+      for (const e of own) if (!here.has(e.hrid)) here.set(e.hrid, e);
+      const rest = hrids.filter((h) => !here.has(h));
+      const elsewhere = rest.length ? await searchHrids(rest) : [];
+      const holders = new Map<string, number>();
+      for (const e of elsewhere) holders.set(e.hrid, (holders.get(e.hrid) ?? 0) + 1);
+      const ambiguous = rest.filter((h) => (holders.get(h) ?? 0) > 1);
+      const entities = [
+        ...here.values(),
+        ...elsewhere.filter((e) => holders.get(e.hrid) === 1),
+      ].sort((a, b) => hrids.indexOf(a.hrid) - hrids.indexOf(b.hrid));
+      return { entities, ambiguous };
     },
   });
 }

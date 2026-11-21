@@ -315,6 +315,30 @@ def test_how_to_write_one_and_its_example_saves(world: World) -> None:
     assert made.status_code == 201, made.content
 
 
+def test_a_new_app_starts_from_one_that_saves_and_shows_the_projects_records(
+    world: World,
+) -> None:
+    """The spec's schema gives a starter as its `default`, which the form starts from: a
+    grid of what changed in the project, and text that reads it. It saves in any
+    deployment, since it names only Iki's own types."""
+    api = api_as(world)
+    found = api.get("/entity-types").json()
+    app_type = next(t for t in found if t["name"] == "iki/core.App")
+    spec = app_type["values_schema"]["properties"]["spec"]
+    starter = spec["default"]
+    # A starter, not a default the server fills in: an app still says what it shows.
+    assert "spec" in app_type["values_schema"]["required"]
+    assert [(p["id"], p["component"]) for p in starter["panels"]] == [
+        ("records", "iki.entities"),
+        ("about", "iki.text"),
+    ]
+    assert starter["panels"][0]["props"]["type"] == "iki/core.Entity"
+    made = create(api, world.project, {"name": "Starter", "spec": starter}, "iki/core.App")
+    assert made.status_code == 201, made.content
+    checked = api.post("/apps/check", {"spec": starter})
+    assert checked.json() == {"problems": []}
+
+
 def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None:
     api = api_as(world, "viewer")
     spec = {

@@ -39,9 +39,9 @@ import { consentFor, SendsOutside, useSending } from "../outside-apis";
 import {
   actionsQuery,
   actionsTakingQuery,
-  entitiesByHridQuery,
   MAX_BATCH,
   RUNS,
+  runEntitiesQuery,
   type Action,
 } from "../runs";
 import {
@@ -205,21 +205,31 @@ function Chooser({
   chosen: string | undefined;
 }) {
   const navigate = useNavigate({ from: "/projects/$slug/runs/new" });
-  const given = useQuery({ ...entitiesByHridQuery(hrids), enabled: hrids.length > 0 });
-  const entities = hrids.length ? given.data : [];
+  const given = useQuery({ ...runEntitiesQuery(hrids, project.id), enabled: hrids.length > 0 });
+  const entities = hrids.length ? given.data?.entities : [];
+  const ambiguous = given.data?.ambiguous ?? [];
   const kinds = [...new Set((entities ?? []).map((e) => e.type))];
   const all = useQuery({ ...actionsQuery, enabled: hrids.length === 0 });
   const taking = useQuery({ ...actionsTakingQuery(kinds), enabled: kinds.length > 0 });
   const actions = hrids.length ? taking.data : all.data;
 
   if (hrids.length && given.isPending) return <Loading label="Loading the entities…" />;
-  const missing = hrids.filter((h) => !(entities ?? []).some((e) => e.hrid === h));
+  const missing = hrids.filter(
+    (h) => !ambiguous.includes(h) && !(entities ?? []).some((e) => e.hrid === h),
+  );
   if (!entities || !actions) return <Loading label="Loading actions…" />;
 
   const runnable = actions.filter((a) => a.available && project.can.run.includes(a.tier));
   const notHere = actions.filter((a) => !a.available);
   const notYours = actions.filter((a) => a.available && !project.can.run.includes(a.tier));
   const action = runnable.find((a) => a.name === chosen);
+  // Opened for one that can't run, from a link: why, before anything is filled in.
+  const blocked = [...notHere, ...notYours].find((a) => a.name === chosen);
+  const why = !blocked
+    ? null
+    : blocked.available
+      ? `${blocked.label || blocked.name} needs the ${blocked.needs} role in ${project.name}.`
+      : `${blocked.label || blocked.name} can’t run here. ${blocked.unavailable_reason ?? "It can’t run on this deployment."}`;
   const about =
     kinds.length === 1
       ? inSentence(
@@ -244,6 +254,20 @@ function Chooser({
             {missing.join(", ")} {missing.length === 1 ? "isn’t" : "aren’t"} an entity you can read,
             so {missing.length === 1 ? "it’s" : "they’re"} left out.
           </p>
+        </div>
+      ) : null}
+      {ambiguous.length ? (
+        <div className="alert alert-warning" role="alert">
+          <p>
+            {listed(ambiguous)} {ambiguous.length === 1 ? "is" : "are"} in more than one of your
+            other projects, so {ambiguous.length === 1 ? "it’s" : "they’re"} left out: add the
+            record you mean to {project.name}, then start the run here.
+          </p>
+        </div>
+      ) : null}
+      {why ? (
+        <div className="alert alert-warning" role="alert">
+          <p>{why}</p>
         </div>
       ) : null}
       {runnable.length === 0 ? (

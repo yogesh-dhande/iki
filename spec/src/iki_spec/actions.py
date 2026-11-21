@@ -144,6 +144,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
         else None,
         network=tuple(body.get("network", ())),
         secrets=tuple(_secret(given) for given in body.get("secrets", ())),
+        requires_settings=tuple(body.get("requires_settings", ())),
         apis=apis.read_uses(body),
         metrics={
             n: Metric(
@@ -846,6 +847,8 @@ class _Rules:
         for index, host in enumerate(action.network):
             if host.startswith("{settings."):
                 self.network_setting(host.removeprefix("{settings.")[:-1], source, index)
+        for index, name in enumerate(action.requires_settings):
+            self.required_setting(name, source, index)
         if action.deterministic and action.network:
             self.add(
                 "deterministic-with-network",
@@ -856,6 +859,32 @@ class _Rules:
                 key=True,
                 severity=Severity.WARNING,
                 hint="Drop `deterministic`, unless what it fetches is pinned by version.",
+            )
+
+    def required_setting(self, name: str, source: Document, index: int) -> None:
+        """A setting the action can't run without: one of the plugin's, which a deployment
+        may leave unset."""
+        at: Path = ("requires_settings", index)
+        setting = self.plugin.settings.get(name)
+        if setting is None:
+            self.add(
+                "requires-unknown-setting",
+                f"The plugin has no setting `{name}`.",
+                source,
+                at,
+                hint=schemas._did_you_mean(name, list(self.plugin.settings))
+                or "Declare it under `settings:` in plugin.yaml.",
+            )
+        elif setting.required or setting.has_default:
+            self.add(
+                "requires-setting-always-set",
+                f"`{name}` is "
+                + ("required" if setting.required else "given a default")
+                + ", so every deployment has it.",
+                source,
+                at,
+                severity=Severity.WARNING,
+                hint="Leave it out of `requires_settings`.",
             )
 
     def network_setting(

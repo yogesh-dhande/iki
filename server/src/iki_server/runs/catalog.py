@@ -18,13 +18,22 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from iki_server.entities import registry
 from iki_server.runs import secrets
 from iki_spec.compute import Compute, Template, compute_from_dict
 from iki_spec.model import Action, Environment
 
-__all__ = ["Availability", "action", "actions", "availability", "compute", "environment"]
+__all__ = [
+    "Availability",
+    "action",
+    "actions",
+    "availability",
+    "compute",
+    "environment",
+    "unset_settings",
+]
 
 COMPUTE_FILE = "compute.json"
 
@@ -41,6 +50,18 @@ def action(name: str) -> Action | None:
 
 def environment(of: Action) -> Environment:
     return registry.plugins()[of.plugin].environments[of.environment]
+
+
+def unset_settings(of: Action) -> list[str]:
+    """Of the plugin settings `of` can't run without (ADR 0169), those this deployment left
+    unset, or set blank. A self-hosted run gets them too, so it needs them as much."""
+    if not of.requires_settings:
+        return []
+    try:
+        values = registry.settings(of.plugin)
+    except ImproperlyConfigured:
+        values = {}
+    return [name for name in of.requires_settings if values.get(name) in (None, "", [])]
 
 
 def labels(of: Action) -> list[str]:
@@ -84,6 +105,16 @@ class Availability:
 def availability(of: Action) -> Availability:
     if of.plugin in registry.detached():
         return Availability(False, detached(of.plugin))
+    unset = unset_settings(of)
+    if unset:
+        names = _list(unset)
+        return Availability(
+            False,
+            f"It needs the {of.plugin} plugin's {names} setting{'s' if len(unset) > 1 else ''}, "
+            "which this deployment hasn't set. An Iki administrator can set "
+            f"{'it' if len(unset) == 1 else 'them'} in the plugin's settings, in the "
+            "deployment's config repository.",
+        )
     if of.tier == "self_hosted":
         return Availability(True)
     missing = [s.name for s in of.secrets if s.required and not secrets.is_set(of.plugin, s.name)]

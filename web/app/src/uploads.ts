@@ -112,22 +112,25 @@ function put(
   });
 }
 
-/** Uploads the file to the project. The person waits on it, so they count as active
- * while it runs, however long it takes (ADR 0153). */
+/** Uploads the file to the project, as `mediaType` (by default, what its name says). The
+ * person waits on it, so they count as active while it runs, however long it takes (ADR
+ * 0153). */
 export function upload(
   file: File,
   projectId: string,
   onProgress: (progress: Progress) => void,
   signal?: AbortSignal,
+  mediaType: string = media.of(file),
 ): Promise<UploadedFile> {
-  return whileWorking(() => uploadNow(file, projectId, onProgress, signal));
+  return whileWorking(() => uploadNow(file, projectId, onProgress, signal, mediaType));
 }
 
 async function uploadNow(
   file: File,
   projectId: string,
   onProgress: (progress: Progress) => void,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  mediaType: string,
 ): Promise<UploadedFile> {
   onProgress({ phase: "hashing", done: 0, total: file.size });
   const hash = await sha256Of(
@@ -143,7 +146,7 @@ async function uploadNow(
       body: {
         project: projectId,
         name: file.name,
-        media_type: media.of(file),
+        media_type: mediaType,
         size: file.size,
         sha256: hash,
       },

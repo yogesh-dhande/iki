@@ -1045,6 +1045,8 @@ class Action:
     artifact_retention: int | None = None  # seconds
     network: tuple[str, ...] = ()
     secrets: tuple[Secret, ...] = ()
+    #: The plugin's settings it can't run without, which a deployment may leave unset.
+    requires_settings: tuple[str, ...] = ()
     #: The outside APIs its runs call, through the egress proxy (ADR 0130).
     apis: tuple[ApiUse, ...] = ()
     metrics: dict[str, Metric] = field(default_factory=dict)
@@ -1684,6 +1686,8 @@ def _action(data: dict[str, Any]) -> Action:
             "resources": Resources(**data["resources"]),
             "artifacts": tuple(data["artifacts"]),
             "network": tuple(data["network"]),
+            # Actions built before it need no settings.
+            "requires_settings": tuple(data.get("requires_settings") or ()),
             "secrets": tuple(
                 Secret(**s) if isinstance(s, dict) else Secret(s) for s in data["secrets"]
             ),

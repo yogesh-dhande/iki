@@ -534,6 +534,45 @@
                 "version",
                 "panels"
               ],
+              "default": {
+                "version": 1,
+                "panels": [
+                  {
+                    "id": "records",
+                    "title": "Recently changed",
+                    "width": 8,
+                    "component": "iki.entities",
+                    "props": {
+                      "type": "iki/core.Entity",
+                      "scope": "project",
+                      "sort": "updated_at",
+                      "descending": true,
+                      "limit": 20,
+                      "select": "many",
+                      "columns": [
+                        {
+                          "field": "hrid"
+                        },
+                        {
+                          "field": "title"
+                        },
+                        {
+                          "field": "updated_at"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "about",
+                    "title": "About this page",
+                    "width": 4,
+                    "component": "iki.text",
+                    "props": {
+                      "text": "{{ size(records.selection) }} of the {{ size(records.rows) }} records shown are picked. Change this app's spec to show what your team needs: a grid of one type, with its own columns; a viewer of the record picked in it; or notes like these."
+                    }
+                  }
+                ]
+              },
               "additionalProperties": false,
               "properties": {
                 "version": {

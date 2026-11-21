@@ -4,6 +4,9 @@
 - Date: 2026-11-11
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0039](0039-first-party-plugins-and-the-plugin-template.md)
+- Refined by:
+  [0169](0169-an-action-names-the-settings-it-cant-run-without.md),
+  which adds `requires_settings`
 
 ## Context
 
