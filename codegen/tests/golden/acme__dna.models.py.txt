@@ -251,3 +251,100 @@ class Plasmid_Entry_History(models.Model):
 
     class Meta:
         db_table = 'acme__dna_plasmid__entry__history'
+
+
+class Vector(Entity):
+    """Vector (acme/dna.Vector), schema version 1. A record about a plasmid, as the fixtures have it: its identity is its plasmid, and its file is its plasmid's, under its own name with its own annotation."""
+
+    IKI_TYPE = 'acme/dna.Vector'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=255, null=True)
+    description = models.TextField(null=True)
+    annotated_features = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__dna_vector'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__dna_vector__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__dna_vector__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='acme__dna_vector__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='acme__dna_vector__description__max_length',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_6b594413ad707c3',
+            ),
+        ]
+
+
+class Vector_History(models.Model):
+    """The history of acme__dna_vector: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Vector'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    annotated_features = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__dna_vector__history'
+
+
+class Vector_Entry(Entity):
+    """Registry entries of Vector (acme/dna.Vector), ADR 0115."""
+
+    IKI_TYPE = 'acme/dna.Vector'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    plasmid = models.ForeignKey('Plasmid_Entry', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__dna_vector__entry'
+
+
+class Vector_Entry_History(models.Model):
+    """The history of acme__dna_vector__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Vector_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    plasmid = models.UUIDField(db_column='plasmid_id', null=True)
+
+    class Meta:
+        db_table = 'acme__dna_vector__entry__history'
