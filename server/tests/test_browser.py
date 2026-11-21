@@ -663,6 +663,15 @@ def test_a_fields_description_opens_beside_its_label(open_as: Any, world: World)
     described.wait_for(state="hidden")
 
 
+def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> None:
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/dna.DNASequence")
+    search = page.get_by_role("searchbox", name="Search")
+    search.wait_for()
+    box = search.bounding_box()
+    assert box is not None and box["height"] >= 44, box
+    assert_clean(page)
+
+
 def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
 
