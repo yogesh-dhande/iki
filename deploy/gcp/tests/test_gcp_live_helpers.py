@@ -4,6 +4,7 @@ while test_gcp_live.py's checks don't. The project is shared with other teams, s
 inventory never takes a listing it couldn't make as empty, and tearing down may remove
 nothing that was there before."""
 
+import inspect
 import json
 import time
 from collections.abc import Iterator
@@ -576,6 +577,31 @@ def test_bootstrap_applies_both_live_run_labels(tmp_path: Path) -> None:
     deployment = SimpleNamespace(settings=replace(SETTINGS, workdir=tmp_path), gcp=Bootstrap())
     with pytest.raises(RuntimeError, match="end of offline bootstrap"):
         live.stand_up(deployment)  # type: ignore[arg-type]
+
+
+def test_setup_waits_for_a_backend_worker_to_register_through_the_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    polls = iter(
+        [
+            [],
+            [{"tier": "vm", "status": "online"}, {"tier": "backend", "status": "offline"}],
+            [{"tier": "backend", "status": "online"}],
+        ]
+    )
+    calls: list[str] = []
+
+    class Admin:
+        def api(self, method: str, path: str, body: Any = None) -> Any:
+            calls.append(f"{method} {path}")
+            if method == "GET":
+                return SimpleNamespace(json=lambda: {"items": next(polls)})
+            return SimpleNamespace(status_code=201, json=lambda: [{"state": "queued"}])
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    build = inspect.unwrap(live.setup_build)(deployment=None, compute_admin=Admin())
+    assert build == {"state": "queued"}
+    assert calls == ["GET /compute/workers?limit=100"] * 3 + ["POST /compute/setups"]
 
 
 def test_the_vm_tiers_template_is_a_small_machine_bound_to_the_live_check() -> None:
