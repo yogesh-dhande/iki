@@ -2,6 +2,15 @@
 // Runs under a strict CSP with Trusted Types: no innerHTML, eval or inline handlers.
 "use strict";
 
+// Times on these pages are in the viewer's time zone, as in the web app, which sets this
+// cookie too (iki_server.web.timezones). Without it, a page shows UTC and says so.
+(() => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!zone || !/^[A-Za-z0-9_+\-/]+$/.test(zone)) return;
+  const secure = window.location.protocol === "https:" ? "; secure" : "";
+  document.cookie = `iki_time_zone=${zone}; path=/; max-age=31536000; samesite=lax${secure}`;
+})();
+
 document.addEventListener("DOMContentLoaded", () => {
   // Setup links carry their one-time code in the URL fragment, which browsers
   // never send to servers. Move it into the form, drop it from the address bar

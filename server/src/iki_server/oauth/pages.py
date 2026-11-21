@@ -21,6 +21,7 @@ from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.org.views import _user, page, refusals
+from iki_server.web import timezones
 
 
 def _people_apps() -> QuerySet[Client]:
@@ -241,14 +242,15 @@ def my_grant(request: HttpRequest, grant: UUID) -> HttpResponse:
     shown = list(events.order_by("-occurred_at", "-id")[: GRANT_PAGE + 1])
     older = str(shown[GRANT_PAGE - 1].pk) if len(shown) > GRANT_PAGE else ""
     shown = shown[:GRANT_PAGE]
-    return render(
-        request,
-        "oauth/my_grant.html",
-        {
-            "app": app,
-            "grant": grant,
-            "current": current is not None,
-            "events": [(e, ACTIONS.get(e.action, e.action)) for e in shown],
-            "older": older,
-        },
-    )
+    with timezone.override(timezones.viewer_zone(request)):
+        return render(
+            request,
+            "oauth/my_grant.html",
+            {
+                "app": app,
+                "grant": grant,
+                "current": current is not None,
+                "events": [(e, ACTIONS.get(e.action, e.action)) for e in shown],
+                "older": older,
+            },
+        )

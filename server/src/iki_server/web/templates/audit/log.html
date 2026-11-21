@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block title %}Audit log{% endblock %}
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Audit log</h1></div>
 <p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone. Projects kept whole for a matter are under <a href="{% url 'org:legal_holds' %}">Legal holds</a>.</p>
+<p class="muted">Times are in {{ zone }}, as are the dates you filter by.</p>
 <details class="filters"{% if filtered %} open{% endif %}>
   <summary>Filter</summary>
   <form method="get" class="filter-form">
@@ -15,6 +17,7 @@
     {% include "web/_field.html" with field=form.grant %}
     {% include "web/_field.html" with field=form.since %}
     {% include "web/_field.html" with field=form.until %}
+    {{ form.tz }}
     <div class="actions">
       <button class="button button-primary" type="submit">Apply</button>
       {% if filtered %}<a class="button button-quiet" href="{% url 'audit:audit_log' %}">Clear</a>{% endif %}
@@ -27,7 +30,7 @@
     <div class="row-main">
       <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
       <span class="row-meta">
-        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
+        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s T" }}</time>
         · {{ event.actor_label|default:"System" }}{% if agent %}, through {{ agent.name }}{% endif %}
         · {{ event.get_via_display }}
         {% if event.project %}· {{ event.project.name }}{% endif %}
@@ -37,6 +40,7 @@
         <summary>Details</summary>
         <dl class="summary">
           <dt>Action</dt><dd><code>{{ event.action }}</code></dd>
+          {% if zone != "UTC" %}<dt>In UTC</dt><dd>{{ event.occurred_at|utc|date:"j M Y, H:i:s" }} UTC</dd>{% endif %}
           {% for key, value in event.data.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
           {% if agent %}
           <dt>Agent</dt>

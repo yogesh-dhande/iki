@@ -3,6 +3,7 @@ grant, and what the agent says it is, on every record, in the audit log, and on 
 person's account."""
 
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pytest
 from api_client import Api
@@ -290,6 +291,12 @@ def test_people_see_what_each_of_their_grants_did(world: World) -> None:
     page = browser.get(f"/account/apps/grants/{grant}/")
     assert page.status_code == 200
     assert "Changed a project: Kinase Atlas" in page.content.decode()
+    # When, in the person's time zone as the web app shows times, and named.
+    browser.cookies["iki_time_zone"] = "Asia/Kolkata"
+    changed = AuditEvent.objects.get(action="project.updated", agent__grant=grant)
+    shown = changed.occurred_at.astimezone(ZoneInfo("Asia/Kolkata"))
+    page = browser.get(f"/account/apps/grants/{grant}/")
+    assert f"{shown:%-d %b %Y, %H:%M:%S} IST" in page.content.decode()
 
     # Still there once revoked, and nobody else's to read.
     services.revoke_consent(Consent.objects.get(user=editor, client=client), by=editor)

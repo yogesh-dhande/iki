@@ -5,6 +5,9 @@ import { createRoot } from "react-dom/client";
 
 import { queryClient } from "./api";
 import { router } from "./router";
+import { rememberTimeZone } from "./time-zone";
+
+rememberTimeZone();
 
 const root = document.getElementById("root");
 if (!root) {

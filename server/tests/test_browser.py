@@ -308,8 +308,14 @@ def open_as(
     contexts: list[BrowserContext] = []
     since = len(server.output)
 
-    def open_as(principal: str, path: str, color_scheme: str = "light") -> Page:
-        context = browser.new_context(base_url=server.url, color_scheme=color_scheme)  # type: ignore[arg-type]
+    def open_as(
+        principal: str, path: str, color_scheme: str = "light", timezone_id: str | None = None
+    ) -> Page:
+        context = browser.new_context(
+            base_url=server.url,
+            color_scheme=color_scheme,  # type: ignore[arg-type]
+            timezone_id=timezone_id,
+        )
         contexts.append(context)
         user = world.users[principal]
         # The server runs without HTTPS, so its cookie has no __Host- prefix.
@@ -1919,6 +1925,48 @@ def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, wor
     shown.get_by_role("button", name=f"Select {abl2}").click()
     page.get_by_text("1 picked.").wait_for()
     assert_clean(page, axe_in_firefox=False)
+
+
+def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
+    open_as: Any, world: World
+) -> None:
+    """An auditor in California opens the log from the web app: its header offers what the
+    app's did, its times are in their zone and say so, and the date the app showed a
+    project's creation on finds it."""
+    from datetime import UTC, datetime
+
+    from iki_server.audit.models import AuditEvent
+
+    AuditEvent.objects.create(
+        occurred_at=datetime(2026, 11, 21, 3, 10, tzinfo=UTC),  # 19:10 on the 20th there
+        action="project.created",
+        actor=world.users["admin"],
+        actor_label="admin@example.com",
+        via="web",
+        target_type="project",
+        target_label="Compute Capacity Study",
+    )
+    page = open_as("auditor", "/", timezone_id="America/Los_Angeles")
+
+    def header() -> list[str]:
+        return page.get_by_role("navigation", name="Main").get_by_role("link").all_inner_texts()
+
+    in_the_app = header()
+    assert in_the_app == ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]
+    page.get_by_role("navigation", name="Main").get_by_role("link", name="Audit").click()
+    page.get_by_role("heading", name="Audit log", level=1).wait_for()
+    assert header() == in_the_app
+    page.get_by_text("20 Nov 2026, 19:10:00 PST").wait_for()
+    page.get_by_text("Times are in America/Los_Angeles").wait_for()
+
+    page.get_by_text("Filter", exact=True).click()
+    page.get_by_role("combobox", name="What").select_option(label="Created a project")
+    page.locator("input[name=since]").fill("2026-11-20")
+    page.locator("input[name=until]").fill("2026-11-20")
+    page.get_by_role("button", name="Apply").click()
+    page.wait_for_url("**tz=America%2FLos_Angeles**")
+    page.get_by_text("Created a project: Compute Capacity Study").wait_for()
+    assert_clean(page)
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

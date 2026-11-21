@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from io import StringIO
 
 import pytest
@@ -294,3 +295,66 @@ def test_auditor_link_only_for_auditors(world: World) -> None:
     assert 'href="/audit/"' not in world.browser("org_admin").get("/teams/").content.decode()
     assert Api(world.browser("auditor")).get("/me").json()["can"]["read_audit"] is True
     assert path_of(world.browser("anonymous").get("/audit/")).startswith("/login/")
+
+
+# --- Times: in the viewer's time zone, always named --------------------------------
+
+#: A project created on 20 November at 19:10 in California, which is 21 November in UTC.
+EVENING_IN_CALIFORNIA = datetime(2026, 11, 21, 3, 10, 0, 650000, tzinfo=UTC)
+
+
+def created_in_the_evening(world: World) -> AuditEvent:
+    return AuditEvent.objects.create(
+        occurred_at=EVENING_IN_CALIFORNIA,
+        action="project.created",
+        actor=world.users["admin"],
+        actor_label="admin@example.com",
+        via="web",
+        target_type="project",
+        target_label="Compute Capacity Study",
+        project=world.project,
+    )
+
+
+def found_on(auditor: Browser, day: str, **extra: str) -> bool:
+    query = {"action": "project.created", "since": day, "until": day, **extra}
+    return "Compute Capacity Study" in auditor.get("/audit/", query).content.decode()
+
+
+def test_the_log_shows_and_filters_by_dates_in_the_viewers_time_zone(world: World) -> None:
+    """The web app shows that project created on 20 November, in the viewer's zone: the
+    log does too, and a filter on the 20th finds it."""
+    created_in_the_evening(world)
+    auditor = world.browser("auditor")
+    auditor.cookies["iki_time_zone"] = "America/Los_Angeles"
+    page = auditor.get("/audit/").content.decode()
+    assert "20 Nov 2026, 19:10:00 PST" in page
+    assert '<time datetime="2026-11-20T19:10:00.650000-08:00">' in page
+    assert "Times are in America/Los_Angeles, as are the dates you filter by." in page
+    assert "<dt>In UTC</dt><dd>21 Nov 2026, 03:10:00 UTC</dd>" in page
+    assert found_on(auditor, "2026-11-20")
+    assert not found_on(auditor, "2026-11-21")
+    # The filter's zone is in its link, so whoever opens it sees the same events.
+    form = auditor.get("/audit/", {"action": "project.created"}).content.decode()
+    assert '<input type="hidden" name="tz" value="America/Los_Angeles"' in form
+    elsewhere = world.browser("auditor")
+    elsewhere.cookies["iki_time_zone"] = "Asia/Tokyo"
+    assert found_on(elsewhere, "2026-11-20", tz="America/Los_Angeles")
+    assert not found_on(elsewhere, "2026-11-20")
+    assert found_on(elsewhere, "2026-11-21")
+
+
+@pytest.mark.parametrize("zone", [None, "Mars/Olympus_Mons", "../../etc/passwd", "UTC"])
+def test_without_a_known_time_zone_the_log_is_in_utc_and_says_so(
+    world: World, zone: str | None
+) -> None:
+    created_in_the_evening(world)
+    auditor = world.browser("auditor")
+    if zone is not None:
+        auditor.cookies["iki_time_zone"] = zone
+    page = auditor.get("/audit/").content.decode()
+    assert "21 Nov 2026, 03:10:00 UTC" in page
+    assert "Times are in UTC, as are the dates you filter by." in page
+    assert "<dt>In UTC</dt>" not in page
+    assert found_on(auditor, "2026-11-21")
+    assert auditor.get("/audit/", {"tz": "Nowhere/Special"}).status_code == 200
