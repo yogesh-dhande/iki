@@ -15,12 +15,13 @@ kind: EntityType
 name: Assembly
 label: Assembly
 label_plural: Assemblies
-schema_version: 1
+schema_version: 2
 description: >-
   A cloning plan: a backbone, the inserts going into it, and how they're joined
-  (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO).
-  Iki works out what the plan makes and checks it against the sequence the clone turned
-  out to have.
+  (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO), or
+  a digest that cuts one molecule and keeps a band. Iki works out what the plan makes --
+  a circle where the parts close one, a linear molecule where they don't -- and checks it
+  against the sequence the clone turned out to have.
 hrid: { prefix: ASM }
 fields:
   name: { type: string, max_length: 255, indexed: true }
@@ -29,10 +30,14 @@ fields:
     type: enum
     required: true
     indexed: true
-    values: [restriction_ligation, golden_gate, gibson, gateway_lr, gateway_bp, topo]
+    values: [digest, restriction_ligation, golden_gate, gibson, gateway_lr, gateway_bp, topo]
     description: >-
-      How the parts are joined. Restriction-ligation, Golden Gate and Gibson are worked
-      out from the sequences; Gateway and TOPO are recorded, not simulated.
+      How the parts are joined, or how one is cut. A digest cuts the backbone with the
+      plan's enzymes and keeps a band, which is a linear molecule: a vector linearised by
+      one cut, or a fragment cut out of a plasmid. Restriction-ligation, Golden Gate and
+      Gibson join the parts, and what they make is a circle where the parts close one and
+      a linear molecule where they only join end to end. All four are worked out from the
+      sequences; Gateway and TOPO are recorded, not simulated.
   enzymes:
     type: list
     max_items: 6
@@ -47,7 +52,7 @@ fields:
     required: true
     description: >-
       The vector the inserts go into. For Gateway BP it's the donor vector, and for
-      Gateway LR the destination vector.
+      Gateway LR the destination vector. For a digest it's the molecule being cut.
   inserts:
     type: list
     max_items: 5
@@ -60,27 +65,41 @@ fields:
     type: ref
     to: iki/dna.DNASequence
     description: >-
-      The sequence the clone turned out to have, once it's known: what Iki checks the
-      plan against. Register the plasmid for it from the same sequence.
+      The sequence the clone or the band turned out to have, once it's known: what Iki
+      checks the plan against, its topology included. Register the plasmid for it from
+      the same sequence, where what it makes is a vector.
   simulated_length:
     type: quantity
     unit: "{bp}"
     computed: true
     min: 0
-    description: The base pairs of the circle the plan makes, as Iki works it out.
+    description: The base pairs of the molecule the plan makes, as Iki works it out.
+  simulated_topology:
+    type: enum
+    computed: true
+    indexed: true
+    values: [circular, linear]
+    label: Topology of what the plan makes
+    description: >-
+      Whether what the plan makes is a circle or has two ends. It follows from the method
+      and the parts, and is never stated: a digest leaves a linear molecule; the
+      assemblies make the circle their parts close, and the linear molecule they make
+      when no arrangement closes (ADR 0168).
   matches_product:
     type: bool
     computed: true
     label: Plan matches the product
     description: >-
-      Whether what the plan makes is the same molecule as its product, read from any
-      origin and on either strand (ADR 0138).
+      Whether what the plan makes is the same molecule as its product: the same bases and
+      the same topology, a circle read from any origin and either strand, a linear
+      molecule from either strand (ADR 0138).
   junctions:
     type: json
     computed: true
     description: >-
-      Each junction of the circle the plan makes: where it lies, which part meets which,
-      and the overhang or shared stretch that joins them.
+      Each junction of the molecule the plan makes: where it lies, which part meets
+      which, and the overhang or shared stretch that joins them. A circle has one per
+      part; a linear molecule has one fewer, since its two outer ends join nothing.
     schema:
       type: array
       maxItems: 50
@@ -175,19 +194,25 @@ notifications:
     tell: { creator: true, watchers: true }
 rules:
   enzymes_for_cutting:
-    label: Restriction-ligation and Golden Gate name their enzymes
+    label: A digest, restriction-ligation and Golden Gate name their enzymes
     check: size(record.enzymes) > 0
-    when: record.method in ["restriction_ligation", "golden_gate"]
+    when: record.method in ["digest", "restriction_ligation", "golden_gate"]
     message: >-
-      Cutting and ligating needs the enzymes: name each as REBASE does, such as EcoRI
-      and BamHI, or BsaI for Golden Gate.
+      Cutting needs the enzymes: name each as REBASE does, such as EcoRI and BamHI, or
+      BsaI for Golden Gate.
     fields: [enzymes]
-  a_product_is_circular:
-    label: A plasmid an assembly makes is circular
-    check: record.product.topology == "circular"
+  a_digest_cuts_one_molecule:
+    label: A digest names no inserts
+    description: >-
+      A digest cuts the backbone and keeps a band. Nothing goes into it, so an insert on
+      such a plan would be read by nobody: what joins parts is one of the assembly
+      methods.
+    check: size(record.inserts) == 0
+    when: record.method == "digest"
     message: >-
-      An assembly closes a circle, and {{ record.product }} is linear: give the circular
-      sequence the clone has.
-    fields: [product]
+      A digest cuts {{ record.backbone }} and keeps a band of it, so it takes no inserts:
+      for a plan that puts something into a vector, choose restriction-ligation, Golden
+      Gate or Gibson.
+    fields: [inserts]
 display:
   title: "{{ name or hrid }}"

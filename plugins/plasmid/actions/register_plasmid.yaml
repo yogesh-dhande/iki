@@ -4,9 +4,10 @@ kind: Action
 name: register_plasmid
 label: Register a plasmid
 description: >-
-  Registers a plasmid from its bases: the circular, double-stranded DNA sequence, and the
-  plasmid that is it. The same molecule given again, from another origin or on the other
-  strand, finds the entries it has already (ADR 0138), and this project gets its records.
+  Registers a plasmid from its bases: the double-stranded DNA sequence, circular or
+  linear, and the plasmid that is it. The same molecule given again, from another origin
+  or on the other strand, finds the entries it has already (ADR 0138), and this project
+  gets its records.
 params:
   bases:
     type: string
@@ -15,6 +16,17 @@ params:
     max_length: 1000000
     label: Bases
     description: Its bases, 5′ to 3′, in IUPAC codes, from any origin.
+  topology:
+    type: enum
+    values: [circular, linear]
+    default: circular
+    label: Topology
+    description: >-
+      Whether these bases are a circle or a molecule with two ends. A plasmid is a circle
+      unless it's said to be linear, as GenBank's LOCUS line and SnapGene both record it;
+      the same bases each way are two different molecules, so this is part of what is
+      registered. Choose linear for a linear plasmid (pGKL1, a Borrelia plasmid) or for a
+      linear construct.
   name: { type: string, max_length: 255, label: Name }
   description: { type: text, max_length: 10000, label: Description }
   accession:

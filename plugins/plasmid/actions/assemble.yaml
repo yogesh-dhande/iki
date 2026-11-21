@@ -4,15 +4,17 @@ kind: Action
 name: assemble
 label: Work out what an assembly makes
 description: >-
-  Works out the circle a cloning plan makes from its backbone and inserts, and registers
-  what it makes: the DNA sequence and the plasmid that is it, both made from the plan, so
-  a map and primers can be had before anything is cloned. What the clone turned out to
-  have is stated on the plan afterwards, and checked against this. For
+  Works out the molecule a cloning plan makes from its backbone and inserts, and registers
+  it: the DNA sequence, and the plasmid that is it where the plan closes a circle, both
+  made from the plan, so a map and primers can be had before anything is cloned. What the
+  clone turned out to have is stated on the plan afterwards, and checked against this. For
   restriction-ligation and Golden Gate it digests each part with the plan's enzymes and
-  ligates matching overhangs; for Gibson it joins parts that share their ends. A plan
-  that could make more than one circle makes none, and says which they are.
+  ligates matching overhangs; for Gibson it joins parts that share their ends; for a digest
+  it cuts the backbone and keeps a band. What the parts close into is a circle; where they
+  only join end to end, and for a digest, what the plan makes is linear. A plan that could
+  make more than one molecule makes none, and says which they are.
 inputs:
-  assembly: { type: Assembly, schema: ">=1", include: [backbone, inserts] }
+  assembly: { type: Assembly, schema: ">=2", include: [backbone, inserts] }
 params:
   min_overlap:
     type: int
@@ -36,7 +38,7 @@ effects:
     - { type: Plasmid, derived_from: [assembly] }
   updates:
     - input: assembly
-      fields: [simulated_length, junctions]
+      fields: [simulated_length, simulated_topology, junctions]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: plasmid-tools }

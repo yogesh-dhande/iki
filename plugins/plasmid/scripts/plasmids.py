@@ -22,7 +22,7 @@ HERE = Path(__file__).resolve().parent
 FEATURES = HERE.parent / "data" / "features.json"
 #: The methods Iki works out. Gateway recombines at att sites and TOPO joins through a
 #: topoisomerase: both are recorded, and neither is simulated here.
-SIMULATED = {"restriction_ligation", "golden_gate", "gibson"}
+SIMULATED = {"digest", "restriction_ligation", "golden_gate", "gibson"}
 
 
 class Stop(Exception):  # noqa: N818 - reads as "the run stops here"
@@ -62,12 +62,16 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
     bases = params["bases"].strip().upper()
     if not bases:
         raise Stop("A plasmid needs its bases.")
+    # A plasmid is a circle unless it's said to be linear, as GenBank's LOCUS line and
+    # SnapGene record it. The same bases each way are two molecules, so this is part of
+    # what's registered, and the plasmid's topology is the sequence's (ADR 0168).
+    topology = params.get("topology") or "circular"
     sequence: dict[str, Any] = {
         "bases": bases,
-        "topology": "circular",
+        "topology": topology,
         "strandedness": "double",
     }
-    plasmid: dict[str, Any] = {"sequence": {"$create": "sequence"}}
+    plasmid: dict[str, Any] = {"sequence": {"$create": "sequence"}, "topology": topology}
     for name in ("name",):
         if params.get(name):
             sequence[name] = plasmid[name] = params[name]
@@ -78,7 +82,7 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
     if params.get("addgene_id"):
         plasmid["addgene_id"] = params["addgene_id"]
         plasmid["source"] = "addgene"
-    print(f"{len(bases)} bp, circular and double-stranded: registering its sequence and plasmid")
+    print(f"{len(bases)} bp, {topology} and double-stranded: registering its sequence and plasmid")
     return {
         "creates": [
             {"type": "iki/dna.DNASequence", "key": "sequence", "values": sequence},
@@ -102,7 +106,8 @@ def annotate(run: dict[str, Any]) -> dict[str, Any]:
             messages.append({"level": "error", "text": str(why), "entity": plasmid["id"]})
             continue
         bases = values_of(sequence)["bases"]
-        circular = values_of(sequence).get("topology") == "circular"
+        topology = values_of(sequence).get("topology") or "linear"
+        circular = topology == "circular"
         hits = library.annotate(bases, circular, parts, min_identity=least)
         values: dict[str, Any] = {
             "annotated_features": library.features(hits, parts),
@@ -116,13 +121,16 @@ def annotate(run: dict[str, Any]) -> dict[str, Any]:
             "promoters": [],
         }
         values.update(library.implied(hits))
-        # Its length is its registry entry's, the same for every project: a run fills it
-        # where it's empty, and never writes over what the entry has (ADR 0115).
+        # Its length and its topology are its registry entry's, the same for every
+        # project: a run fills each where it's empty, and never writes over what the
+        # entry has (ADR 0115).
         if values_of(plasmid).get("length") is None:
             values["length"] = len(bases)
+        if values_of(plasmid).get("topology") is None:
+            values["topology"] = topology
         updates.append({"entity": plasmid["id"], "values": values})
         found = ", ".join(f"{hit.part.name} {hit.start}..{hit.end}" for hit in hits) or "nothing"
-        print(f"{plasmid['hrid']}: {len(bases)} bp, {len(hits)} parts found: {found}")
+        print(f"{plasmid['hrid']}: {len(bases)} bp, {topology}, {len(hits)} parts found: {found}")
         progress(done, len(plasmids))
     return {"updates": {"plasmid": updates}, "messages": messages}
 
@@ -139,13 +147,22 @@ def _fragments(
 ) -> list[list[cloning.Fragment]]:
     """Each part of the plan, as the fragments it can give the reaction."""
     backbone = one_included(assembly, "backbone", "backbone")
-    parts = [backbone, *included(assembly, "inserts")]
+    # A digest cuts one molecule and keeps a band: the inserts of an assembly have no
+    # part in it, and the type's rules refuse a plan that names any.
+    parts = [backbone] if method == "digest" else [backbone, *included(assembly, "inserts")]
     out: list[list[cloning.Fragment]] = []
     for part in parts:
         bases = values_of(part)["bases"].upper()
         circular = values_of(part).get("topology") == "circular"
         name = label_of(part)
-        if method in ("restriction_ligation", "golden_gate"):
+        if method == "digest":
+            fragments = cloning.digest(name, bases, circular, enzymes)
+            if not fragments:
+                raise Stop(
+                    f"{part['hrid']} isn't cut by {', '.join(enzymes)}, and it's circular, so "
+                    "the digest leaves no linear molecule: name an enzyme that cuts it."
+                )
+        elif method in ("restriction_ligation", "golden_gate"):
             fragments = cloning.digest(name, bases, circular, enzymes)
             if not fragments:
                 raise Stop(
@@ -183,40 +200,58 @@ def _fragments(
 
 
 def _candidates(assembly: dict[str, Any], params: dict[str, Any]) -> list[cloning.Assembled]:
-    """Every circle the plan makes, or why it makes none. More than one, and the plan
-    alone doesn't say which: `check` settles that against the product, `assemble` can't."""
+    """Every molecule the plan makes, or why it makes none. More than one, and the plan
+    alone doesn't say which: `check` settles that against the product, `assemble` can't.
+
+    A plan makes a circle where its parts close one, and that is what it makes: a ligase
+    or an assembly mix leaves the closed molecule to transform. Where they can't close,
+    what the reaction leaves is linear -- a Golden Gate or Gibson construct whose outer
+    ends don't pair, a cut vector with no insert -- and that is what the plan makes. A
+    digest makes a linear molecule by definition: the band kept from the gel. Whichever
+    it is, the topology follows from the method and the parts, and nobody states it
+    (ADR 0168).
+    """
     method = values_of(assembly)["method"]
     enzymes = list(values_of(assembly).get("enzymes") or [])
     least = int(params.get("min_overlap", cloning.LEAST_OVERLAP))
     if method not in SIMULATED:
         raise Stop(
             f"A {method.replace('_', ' ')} assembly is recorded, not worked out: Iki simulates "
-            "restriction-ligation, Golden Gate and Gibson assemblies."
+            "restriction digests, restriction-ligation, Golden Gate and Gibson assemblies."
         )
     choices = _fragments(
         assembly, method, enzymes, least, str(params.get("backbone_fragment", "longest"))
     )
+    if method == "digest":
+        # The digest's own fragments are what it makes, each a linear molecule.
+        return [
+            cloning.Assembled(bases=fragment.bases, junctions=[], topology="linear")
+            for fragment in choices[0]
+        ]
     if method == "gibson":
         made = cloning.gibson(choices, least=least)
+        in_a_line = cloning.gibson_in_a_line(choices, least=least)
         how = f"sharing at least {least} bases at their ends"
     else:
         made = cloning.ligate(choices)
+        in_a_line = cloning.ligate_in_a_line(choices)
         how = f"ligated after cutting with {', '.join(enzymes)}"
-    if not made:
+    if not made and not in_a_line:
         raise Stop(
-            f"The plan's parts make no circle {how}: no arrangement of one fragment from each "
-            "part joins all the way round."
+            f"The plan's parts make nothing {how}: no arrangement of one fragment from each "
+            "part joins all the way round, nor end to end into a linear molecule."
         )
-    return made
+    return made or in_a_line
 
 
 def _made(assembly: dict[str, Any], params: dict[str, Any]) -> cloning.Assembled:
-    """The one circle the plan makes, or why there isn't one."""
+    """The one molecule the plan makes, or why there isn't one."""
     made = _candidates(assembly, params)
     if len(made) > 1:
         lengths = ", ".join(f"{len(one.bases)} bp" for one in made)
+        what = "circles" if made[0].circular else "linear molecules"
         raise Stop(
-            f"The plan's parts make {len(made)} different circles ({lengths}), so it doesn't say "
+            f"The plan's parts make {len(made)} different {what} ({lengths}), so it doesn't say "
             "which: cut with enzymes that leave different overhangs, or give the product and "
             "check the plan against it."
         )
@@ -232,40 +267,62 @@ def assemble(run: dict[str, Any]) -> dict[str, Any]:
         )
     made = _made(assembly, run["params"])
     name = values_of(assembly).get("name") or assembly["hrid"]
-    how = values_of(assembly)["method"].replace("_", " ")
-    print(f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp circle by {how}")
+    method = values_of(assembly)["method"]
+    how = "digest" if method == "digest" else f"{method.replace('_', ' ')} assembly"
+    what = "circle" if made.circular else "linear molecule"
+    print(f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp {what} by {how}")
     for junction in made.junctions:
         print(f"  junction at {junction['at']}: {junction['from']} to {junction['to']}")
-    return {
-        "creates": [
-            {
-                "type": "iki/dna.DNASequence",
-                "key": "made",
-                "derived_from": [assembly["id"]],
-                "values": {
-                    "bases": made.bases,
-                    "topology": "circular",
-                    "strandedness": "double",
-                    "name": name,
-                    "description": f"Made by {assembly['hrid']}, a {how} assembly.",
-                },
+    creates: list[dict[str, Any]] = [
+        {
+            "type": "iki/dna.DNASequence",
+            "key": "made",
+            "derived_from": [assembly["id"]],
+            "values": {
+                "bases": made.bases,
+                "topology": made.topology,
+                "strandedness": "double",
+                "name": name,
+                "description": f"Made by {assembly['hrid']}, a {how}.",
             },
+        }
+    ]
+    # A plasmid record is registered for a circle the plan closes, which is a vector. A
+    # linear molecule a plan makes is a cut vector or an assembled fragment, on its way
+    # to something else, so it is registered as the DNA sequence it is: a linear plasmid
+    # -- pGKL1, a Borrelia plasmid -- is registered as a plasmid by whoever knows it is
+    # one (Register a plasmid, topology linear).
+    if made.circular:
+        creates.append(
             {
                 "type": "iki/plasmid.Plasmid",
                 "derived_from": [assembly["id"]],
-                "values": {"sequence": {"$create": "made"}, "name": name},
-            },
-        ],
-        # What the plan makes is a prediction, so the plan keeps the circle's length and
-        # junctions, and what it makes is its in the graph (``derived_from``). Its
-        # ``product`` is the sequence the clone turned out to have, which whoever
-        # sequenced it states; ``check_assembly`` then compares the two.
+                "values": {
+                    "sequence": {"$create": "made"},
+                    "name": name,
+                    "topology": made.topology,
+                },
+            }
+        )
+    else:
+        print(
+            f"  it has two ends, so it is registered as a DNA sequence: a {how}'s linear "
+            "product is a fragment or a cut vector, not a vector of its own"
+        )
+    return {
+        "creates": creates,
+        # What the plan makes is a prediction, so the plan keeps the molecule's length,
+        # topology and junctions, and what it makes is its in the graph
+        # (``derived_from``). Its ``product`` is the sequence the clone turned out to
+        # have, which whoever sequenced it states; ``check_assembly`` then compares the
+        # two.
         "updates": {
             "assembly": [
                 {
                     "entity": assembly["id"],
                     "values": {
                         "simulated_length": len(made.bases),
+                        "simulated_topology": made.topology,
                         "junctions": made.junctions,
                     },
                 }
@@ -279,6 +336,7 @@ def assemble(run: dict[str, Any]) -> dict[str, Any]:
 NO_RESULT: dict[str, Any] = {
     "matches_product": None,
     "simulated_length": None,
+    "simulated_topology": None,
     "junctions": None,
 }
 
@@ -298,33 +356,46 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
             continue
         values = values_of(product)
         stated = values["bases"].upper()
-        # A molecule is its bases, its topology and how many strands it has (ADR 0138),
-        # and a plan closes a double-stranded circle. A single-stranded or linear product
-        # is another molecule however its bases read.
+        # A molecule is its bases, its topology and how many strands it has (ADR 0138).
+        # What the plan makes has a topology of its own, from its method and its parts: a
+        # product of another topology, or a single-stranded one, is another molecule
+        # however its bases read, and a linear product is read on either strand but never
+        # from another origin, since it has two ends of its own.
         topology = values.get("topology") or "linear"
         strands = values.get("strandedness") or "double"
-        same_kind = topology == "circular" and strands == "double"
+        makes = candidates[0].topology
+        circles = candidates[0].circular
+        what = "circles" if circles else "linear molecules"
+        same_kind = topology == makes and strands == "double"
         found = [
-            one for one in candidates if same_kind and cloning.same_molecule(one.bases, stated)
+            one
+            for one in candidates
+            if same_kind and cloning.same_molecule(one.bases, stated, circular=circles)
         ]
         lengths = ", ".join(f"{len(one.bases)} bp" for one in candidates)
         if found:
-            # The product says which circle the plan made, even where the plan alone
+            # The product says which molecule the plan made, even where the plan alone
             # didn't: the one it is.
             made = found[0]
             values_out: dict[str, Any] = {
                 "simulated_length": len(made.bases),
+                "simulated_topology": made.topology,
                 "matches_product": True,
                 "junctions": made.junctions,
             }
+            read_as = (
+                "the same molecule from any origin and on either strand"
+                if circles
+                else "the same linear molecule, read from either strand"
+            )
             if len(candidates) == 1:
                 print(
                     f"{assembly['hrid']}: the plan makes {product['hrid']}, {len(made.bases)} bp, "
-                    "the same molecule from any origin and on either strand"
+                    + read_as
                 )
             else:
                 print(
-                    f"{assembly['hrid']}: the plan makes {len(candidates)} different circles "
+                    f"{assembly['hrid']}: the plan makes {len(candidates)} different {what} "
                     f"({lengths}), and {product['hrid']}, {len(made.bases)} bp, is one of them: "
                     "the plan explains the clone, and doesn't predict it on its own"
                 )
@@ -332,35 +403,40 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
                     {
                         "level": "warning",
                         "text": (
-                            f"The plan makes {len(candidates)} different circles, and "
+                            f"The plan makes {len(candidates)} different {what}, and "
                             f"{product['hrid']} is one of them, so the plan explains the clone. "
-                            "The plan on its own doesn't say which circle it makes: cut with "
-                            "enzymes that leave different overhangs to settle that."
+                            f"The plan on its own doesn't say which of the {what} it makes: cut "
+                            "with enzymes that leave different overhangs to settle that."
                         ),
                         "entity": assembly["id"],
                     }
                 )
         else:
-            # It isn't what the plan makes. Where the plan makes several circles, which of
-            # them it meant is still unsettled, so no length or junctions are claimed.
-            one_circle = len(candidates) == 1
+            # It isn't what the plan makes. Where the plan makes several molecules, which
+            # of them it meant is still unsettled, so no length or junctions are claimed.
+            one_molecule = len(candidates) == 1
             values_out = {
                 "matches_product": False,
-                "simulated_length": len(candidates[0].bases) if one_circle else None,
-                "junctions": candidates[0].junctions if one_circle else None,
+                "simulated_length": len(candidates[0].bases) if one_molecule else None,
+                "simulated_topology": makes if one_molecule else None,
+                "junctions": candidates[0].junctions if one_molecule else None,
             }
             if not same_kind:
                 was = f"{topology} and {strands}-stranded"
-                print(
-                    f"{assembly['hrid']}: the plan closes a circular double-stranded molecule, "
-                    f"and {product['hrid']} is {was}, so it isn't what the plan makes however "
-                    "its bases read"
+                leaves = (
+                    "closes a circular double-stranded molecule"
+                    if circles
+                    else "leaves a linear double-stranded molecule"
                 )
-            elif one_circle:
+                print(
+                    f"{assembly['hrid']}: the plan {leaves}, and {product['hrid']} is {was}, so "
+                    "it isn't what the plan makes however its bases read"
+                )
+            elif one_molecule:
                 made = candidates[0]
                 print(
-                    f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp circle, and "
-                    f"{product['hrid']} has {len(stated)} bp"
+                    f"{assembly['hrid']}: the plan makes a {len(made.bases)} bp {makes} molecule, "
+                    f"and {product['hrid']} has {len(stated)} bp"
                     + (
                         ": the same length, so they differ in their bases"
                         if len(made.bases) == len(stated)
@@ -369,7 +445,7 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
                 )
             else:
                 print(
-                    f"{assembly['hrid']}: the plan makes {len(candidates)} different circles "
+                    f"{assembly['hrid']}: the plan makes {len(candidates)} different {what} "
                     f"({lengths}), and {product['hrid']}, {len(stated)} bp, is none of them"
                 )
         updates.append({"entity": assembly["id"], "values": values_out})

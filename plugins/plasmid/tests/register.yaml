@@ -29,3 +29,31 @@ expect:
           description: A circle to test with.
           addgene_id: "52961"
           source: addgene
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_linear_plasmid_is_registered_as_the_linear_molecule_it_is
+description: >-
+  A plasmid is a circle unless it's said to be linear, as GenBank's LOCUS line and
+  SnapGene both record it. Registering one with `topology: linear` makes a linear DNA
+  sequence and the plasmid that is it, whose topology is the sequence's: the same bases
+  each way are two different molecules, and so two different plasmids (ADR 0168).
+action: register_plasmid
+params:
+  bases: "CACGAAGATGACTATGATAGGCGGACCTTGCGCCACTTTCTAGCTCGCGGGACTACGGAACAATTGCCTGAAATCACTCATCTAAGTATACCCGTATTATGGCTAGAAGCAAAATTGGTGGAGACCGAATCCGAATGAGAGCTGCTTCAC"
+  topology: linear
+  name: pLinearTest
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: sequence
+        values:
+          topology: linear
+          strandedness: double
+          name: pLinearTest
+      - type: iki/plasmid.Plasmid
+        values:
+          sequence: { $create: sequence }
+          topology: linear
+          name: pLinearTest

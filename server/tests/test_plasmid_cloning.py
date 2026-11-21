@@ -21,13 +21,19 @@ from typing import Any
 import pytest
 from Bio import Restriction
 from Bio.Seq import Seq
-from test_plasmid_annotation import read, reverse_complement
+from test_plasmid_annotation import RECORDS, read, reverse_complement
 
 from iki_spec import schemas
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "plugins" / "plasmid" / "scripts"
 SCRIPT = SCRIPTS / "plasmids.py"
+
+
+def read_fasta(accession: str) -> str:
+    """A record's bases, from a FASTA file of one record."""
+    text = (RECORDS / f"{accession}.fasta").read_text(encoding="utf-8")
+    return "".join(line.strip() for line in text.splitlines() if not line.startswith(">")).upper()
 
 
 @pytest.fixture(scope="module")
@@ -150,6 +156,54 @@ def test_puc19_is_cut_where_its_polylinker_has_its_sites(cloning: ModuleType) ->
     fragments = cloning.digest("pUC19", bases, True, ["EcoRI", "HindIII"])
     assert sorted(len(f.bases) for f in fragments) == [51, 2635]
     assert sum(len(f.bases) for f in fragments) == 2686
+
+
+#: The fragments of a lambda DNA–EcoRI digest, as it is sold as a size marker (New
+#: England Biolabs' lambda DNA-EcoRI Digest, and Thermo Fisher's): the classic ladder.
+LAMBDA_ECORI = [21226, 7421, 5804, 5643, 4878, 3530]
+
+
+def test_a_linear_molecule_gives_one_more_fragment_than_it_has_cuts(
+    cloning: ModuleType,
+) -> None:
+    """Wild-type lambda (INSDC J02459.1, 48,502 bp, whose LOCUS line says `linear`) has
+    five EcoRI sites, so the digest of the linear genome gives six fragments: the ladder
+    the digest is sold as, 21,226 + 7,421 + 5,804 + 5,643 + 4,878 + 3,530 bases.
+
+    The same bases read as a circle -- which lambda becomes in the cell, its cohesive
+    ends joined -- give five fragments from the same five cuts: the two end fragments of
+    the linear digest are one piece across the join, 21,226 + 3,530 = 24,756 bp. n cuts
+    make n + 1 fragments of a linear molecule and n of a circle, and the two ends are the
+    difference.
+    """
+    bases = read_fasta("J02459.1")
+    assert len(bases) == 48502
+    sites = cloning.cuts(bases, False, ["EcoRI"])
+    assert [at for at, _, _ in sites] == [21226, 26104, 31747, 39168, 44972]
+
+    line = cloning.digest("lambda", bases, False, ["EcoRI"])
+    assert len(line) == len(sites) + 1 == 6
+    assert sorted((len(f.bases) for f in line), reverse=True) == LAMBDA_ECORI
+    assert sum(len(f.bases) for f in line) == 48502
+    # The two ends of a linear molecule are ends: no enzyme made them, so they are blunt
+    # here, and every other end carries EcoRI's AATT.
+    assert (str(line[0].left), str(line[-1].right)) == ("blunt", "blunt")
+    assert {str(f.right) for f in line[:-1]} == {"5' AATT"}
+    assert [f.bases for f in line] == [
+        str(s)
+        for s in Restriction.EcoRI.catalyse(  # type: ignore[attr-defined]
+            Seq(bases), linear=True
+        )
+    ]
+
+    circle = cloning.digest("lambda", bases, True, ["EcoRI"])
+    assert len(circle) == len(sites) == 5
+    assert sorted((len(f.bases) for f in circle), reverse=True) == [
+        21226 + 3530,
+        *sorted(LAMBDA_ECORI[1:-1], reverse=True),
+    ]
+    assert sum(len(f.bases) for f in circle) == 48502
+    assert {str(f.left) for f in circle} == {str(f.right) for f in circle} == {"5' AATT"}
 
 
 def elucidated_overhang(enzyme: object) -> str:
@@ -325,6 +379,27 @@ def test_puc19_is_the_same_molecule_from_any_origin_and_either_strand(
     assert not cloning.same_molecule(bases[:-1], bases)
 
 
+def test_a_linear_molecule_is_the_same_from_either_strand_and_not_from_another_origin(
+    cloning: ModuleType,
+) -> None:
+    """pGKL1 (X01095.1), a real linear plasmid: a linear duplex is the lesser of its two
+    strands, since both are the molecule read from its other end, and a rotation of it is
+    another molecule -- its two ends are somewhere else (ADR 0138). The same bases as a
+    circle are the same molecule from any origin, which is what the two topologies
+    differ in."""
+    bases, _, _ = read("X01095.1")
+    assert cloning.same_molecule(bases, bases, circular=False)
+    assert cloning.same_molecule(reverse_complement(bases), bases, circular=False)
+    for at in (1, 202, 4000, 8673):
+        rotated = bases[at:] + bases[:at]
+        assert not cloning.same_molecule(rotated, bases, circular=False)
+        assert not cloning.same_molecule(reverse_complement(rotated), bases, circular=False)
+        # The same bases read as a circle are one molecule from any origin.
+        assert cloning.same_molecule(rotated, bases)
+    # The canonical form a linear duplex is read by is one of its two strands, as it is.
+    assert cloning.canonical(bases, circular=False) in (bases, reverse_complement(bases))
+
+
 # --- cloning into pUC19 --------------------------------------------------------------
 
 #: The 795 bp neo (NeoR/KanR) coding sequence of pcDNA3.1(+), as its own record gives it
@@ -466,9 +541,11 @@ def test_puc19_cut_once_and_ligated_back_is_puc19(tmp_path: Path) -> None:
 
 def test_a_double_digest_leaves_ends_that_cant_close_on_themselves(tmp_path: Path) -> None:
     """pUC19 cut with EcoRI and HindIII has an AATT overhang at one end and an AGCT one
-    at the other, so neither fragment closes on itself and the plan makes nothing without
-    an insert: the little empty-vector background that directional cloning has. The run
-    says no arrangement joins all the way round rather than guessing."""
+    at the other, so neither fragment closes on itself: no circle comes out of a ligation
+    with no insert, which is the little empty-vector background directional cloning has.
+    What the plan makes is then what lies in the tube, the cut vector, a linear molecule
+    -- the 2,635 bp band, and with `any`, either band, which the plan doesn't choose
+    between."""
     puc, _, _ = read("L09137.2")
     output, log = command(
         tmp_path,
@@ -482,7 +559,28 @@ def test_a_double_digest_leaves_ends_that_cant_close_on_themselves(tmp_path: Pat
         ),
     )
     assert not output
-    assert "make no circle ligated after cutting with EcoRI, HindIII" in log
+    assert "make 2 different linear molecules (51 bp, 2635 bp)" in log
+    # Its longest fragment, which is the band a vector digest is purified down to, is one
+    # linear molecule: the cut vector, registered as a sequence and not as a plasmid.
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI", "HindIII"],
+        ),
+    )
+    assert output, log
+    assert "the plan makes a 2635 bp linear molecule" in log
+    (made,) = output["creates"]
+    assert made["values"]["topology"] == "linear"
+    assert len(made["values"]["bases"]) == 2635
+    values = output["updates"]["assembly"][0]["values"]
+    assert values["simulated_topology"] == "linear"
+    assert values["simulated_length"] == 2635
+    assert values["junctions"] == []
 
 
 def test_gibson_assembly_counts_each_shared_stretch_once(tmp_path: Path) -> None:
@@ -530,7 +628,8 @@ def test_a_gibson_overlap_shorter_than_asked_for_joins_nothing(tmp_path: Path) -
         ),
     )
     assert not output
-    assert "make no circle sharing at least 15 bases at their ends" in log
+    assert "make nothing sharing at least 15 bases at their ends" in log
+    assert "nor end to end into a linear molecule" in log
     # Asking for 12 joins them, and nothing else changes.
     output, log = command(
         tmp_path,
@@ -655,7 +754,7 @@ def test_a_check_settles_a_plan_that_makes_several_circles(
     assert "is one of them" in log
     warning = [m for m in checked["messages"] if m["level"] == "warning"]
     assert len(warning) == 1
-    assert "doesn't say which circle it makes" in warning[0]["text"]
+    assert "doesn't say which of the circles it makes" in warning[0]["text"]
 
     # A product that is none of them doesn't match, and no length is claimed for a plan
     # that still doesn't say which circle it makes.
@@ -693,7 +792,266 @@ def test_a_check_that_cant_reach_a_result_clears_the_old_one(tmp_path: Path) -> 
     assert checked["updates"]["assembly"][0]["values"] == {
         "matches_product": None,
         "simulated_length": None,
+        "simulated_topology": None,
         "junctions": None,
     }
     assert checked["messages"][0]["level"] == "error"
     assert "recorded, not worked out" in checked["messages"][0]["text"]
+
+
+# --- plans whose product is linear ---------------------------------------------------
+
+
+def test_a_digest_makes_the_linear_molecule_it_leaves(tmp_path: Path) -> None:
+    """A digest cuts one molecule and keeps a band, which is a linear molecule: pUC19
+    linearised with ScaI, whose one site lies 2,179 bases in, inside the beta-lactamase
+    gene. One cut in a circle leaves one fragment, as long as the circle, blunt at both
+    ends -- the linearised vector a lab transforms or assembles into.
+
+    What the plan makes is registered as the DNA sequence it is, and no plasmid record is
+    registered for it: a cut vector is on its way to something else, not a vector of its
+    own. The plan keeps its length and its topology, and claims no junctions, since a
+    molecule with two free ends and no joins has none.
+    """
+    puc, _, _ = read("L09137.2")
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan("digest", sequence(1, puc, name="pUC19"), [], enzymes=["ScaI"]),
+    )
+    assert output, log
+    assert "the plan makes a 2686 bp linear molecule by digest" in log
+    assert "registered as a DNA sequence" in log
+    (made,) = output["creates"]
+    assert made["type"] == "iki/dna.DNASequence"
+    assert made["values"]["topology"] == "linear"
+    assert made["values"]["strandedness"] == "double"
+    assert len(made["values"]["bases"]) == 2686
+    # It is pUC19 opened at the cut, so it reads from there round to there.
+    assert made["values"]["bases"] == puc[2179:] + puc[:2179]
+    values = output["updates"]["assembly"][0]["values"]
+    assert values["simulated_topology"] == "linear"
+    assert values["simulated_length"] == 2686
+    assert values["junctions"] == []
+
+
+def test_a_digest_that_cuts_nothing_says_so(tmp_path: Path) -> None:
+    """pUC19 has no NotI site, so a NotI digest of it leaves no linear molecule at all,
+    and the run says which enzyme to name rather than claiming the circle."""
+    puc, _, _ = read("L09137.2")
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan("digest", sequence(1, puc, name="pUC19"), [], enzymes=["NotI"]),
+    )
+    assert not output
+    assert "isn't cut by NotI" in log
+    assert "the digest leaves no linear molecule" in log
+
+
+def test_a_digest_of_a_plasmid_cuts_out_the_band_asked_for(tmp_path: Path) -> None:
+    """Two cuts in a circle leave two bands, and a digest's plan doesn't say which the
+    lab kept, so it makes none and names both: pUC19 cut with EcoRI and HindIII leaves
+    the 2,635 bp vector and the 51 bp piece of its polylinker. Its longest, which is what
+    a vector digest is purified down to, is what the default keeps."""
+    puc, _, _ = read("L09137.2")
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan(
+            "digest",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI", "HindIII"],
+            params={"backbone_fragment": "any"},
+        ),
+    )
+    assert not output
+    assert "make 2 different linear molecules (51 bp, 2635 bp)" in log
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan("digest", sequence(1, puc, name="pUC19"), [], enzymes=["EcoRI", "HindIII"]),
+    )
+    assert output, log
+    assert output["updates"]["assembly"][0]["values"]["simulated_length"] == 2635
+
+
+def test_golden_gate_fragments_that_cant_close_make_a_linear_construct(
+    tmp_path: Path,
+) -> None:
+    """A Golden Gate reaction of two fragments whose inner overhangs pair and whose outer
+    ends don't: BsaI cuts outside its site, so each fragment keeps a four-base overhang
+    of its own. Here the two inner ends are both AGGA and the outer ends are TTCG and
+    GCAC, which pair with nothing, so no arrangement closes and what the reaction leaves
+    is the linear construct -- which is what a lab assembling a linear expression
+    fragment wants.
+
+    The pieces: each part is `GGTCTCN<overhang><body><overhang>NGAGACC` read on the
+    strand BsaI cuts from, so a BsaI digest of each leaves one fragment that runs from
+    the cut at its left to the cut at its right -- its own overhang, then its body. Laid
+    end to end that is 4 + 23 + 4 + 23 = 54 bases, and the overhang at the far end of the
+    construct lies beyond the last cut, in the piece the reaction throws away, so it
+    isn't in the sequence: a linear molecule is read as a fully paired duplex of the top
+    strand from cut to cut, which is the length a gel reports (ADR 0138). Its one junction
+    is the pair of AGGA overhangs: a linear molecule of n parts has n - 1 junctions,
+    where a circle has n.
+    """
+    first = "AAGGTCTCT" + "TTCG" + "ATGGCATGCGGTACCTTAGCCAT" + "AGGA" + "AGAGACCTT"
+    second = "AAGGTCTCT" + "AGGA" + "CCGTTAACGGCTAGCTAACGTTT" + "GCAC" + "AGAGACCTT"
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan(
+            "golden_gate",
+            sequence(1, first, topology="linear", name="part one"),
+            [sequence(2, second, topology="linear", name="part two")],
+            enzymes=["BsaI"],
+        ),
+    )
+    assert output, log
+    (made,) = output["creates"]
+    assert made["values"]["topology"] == "linear"
+    bases = made["values"]["bases"]
+    # Each fragment is its overhang, its body and the next overhang: 4 + 23 + 4 bases.
+    assert len(bases) == 4 + 23 + 4 + 23 == 54
+    assert "ATGGCATGCGGTACCTTAGCCAT" in bases
+    assert "CCGTTAACGGCTAGCTAACGTTT" in bases
+    values = output["updates"]["assembly"][0]["values"]
+    assert values["simulated_topology"] == "linear"
+    assert values["simulated_length"] == 54
+    (junction,) = values["junctions"]
+    assert junction["overhang"] == "5' AGGA"
+    assert (junction["from"], junction["to"]) == (
+        "part one (DNA-000001)",
+        "part two (DNA-000002)",
+    )
+
+
+def test_a_gibson_assembly_that_shares_one_end_makes_a_linear_construct(
+    tmp_path: Path,
+) -> None:
+    """Two linear fragments that share 25 bases at one end only: the neo gene of
+    pcDNA3.1(+) with 25 bases of pUC19 added to its front, beside the 2,635 bp pUC19
+    fragment they come from. They can't close -- nothing joins the far ends -- so what
+    the plan makes is the linear molecule they share one stretch in: 2,635 + 820 - 25
+    bases.
+    """
+    puc, _, _ = read("L09137.2")
+    _, gene = neo_insert()
+    vector = puc[447:] + puc[:396]  # as EcoRI and HindIII leave it, 2,635 bases
+    assert len(vector) == 2635
+    insert = vector[-25:] + gene
+    output, log = command(
+        tmp_path,
+        "assemble",
+        plan(
+            "gibson",
+            sequence(1, vector, topology="linear", name="pUC19 fragment"),
+            [sequence(2, insert, topology="linear", name="neo")],
+        ),
+    )
+    assert output, log
+    (made,) = output["creates"]
+    assert made["values"]["topology"] == "linear"
+    assert len(made["values"]["bases"]) == 2635 + 820 - 25 == 3430
+    assert gene in made["values"]["bases"]
+    values = output["updates"]["assembly"][0]["values"]
+    assert values["simulated_topology"] == "linear"
+    (junction,) = values["junctions"]
+    assert junction["overlap"] == "25 bp"
+
+
+def test_a_linear_product_matches_from_either_strand_and_not_from_another_origin(
+    tmp_path: Path,
+) -> None:
+    """The band a digest leaves, sequenced: read from the other strand it is the same
+    molecule, so the plan matches it; rotated it is another molecule, since a linear
+    molecule's two ends are its own, and the check says so rather than matching on the
+    bases alone (ADR 0138)."""
+    puc, _, _ = read("L09137.2")
+    cut = puc[2179:] + puc[:2179]  # ScaI's one cut, 2,179 bases in
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "digest",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["ScaI"],
+            product=sequence(3, reverse_complement(cut), topology="linear"),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is True
+    assert values["simulated_topology"] == "linear"
+    assert "the same linear molecule, read from either strand" in log
+
+    rotated = cut[700:] + cut[:700]
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "digest",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["ScaI"],
+            product=sequence(3, rotated, topology="linear"),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert values["simulated_length"] == 2686
+    assert "DNA-000003 has 2686 bp: the same length, so they differ in their bases" in log
+
+
+def test_a_circular_product_isnt_what_a_digest_makes(tmp_path: Path) -> None:
+    """A molecule is its bases, its topology and its strand count (ADR 0138). A digest
+    leaves a linear molecule, so the circle it was cut from isn't what it makes, however
+    its bases read -- the mirror of a ligation whose product is said to be linear."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "digest",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["ScaI"],
+            product=sequence(3, puc),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert values["simulated_topology"] == "linear"
+    assert "the plan leaves a linear double-stranded molecule" in log
+    assert "DNA-000003 is circular and double-stranded" in log
+
+
+def test_a_linear_product_isnt_what_a_ligation_closing_a_circle_makes(
+    tmp_path: Path,
+) -> None:
+    """The other way round: a plan whose parts close a circle makes that circle, and the
+    linear molecule of the same bases isn't it. So a clone stated as linear can't pass
+    for a plasmid, and nobody reaches Checked on it."""
+    puc, _, _ = read("L09137.2")
+    checked, log = command(
+        tmp_path,
+        "check",
+        plan(
+            "restriction_ligation",
+            sequence(1, puc, name="pUC19"),
+            [],
+            enzymes=["EcoRI"],
+            product=sequence(3, puc, topology="linear"),
+        ),
+    )
+    assert checked, log
+    values = checked["updates"]["assembly"][0]["values"]
+    assert values["matches_product"] is False
+    assert values["simulated_topology"] == "circular"
+    assert "the plan closes a circular double-stranded molecule" in log
+    assert "DNA-000003 is linear and double-stranded" in log

@@ -26,9 +26,21 @@ A **Gibson assembly** joins fragments that share their ends: the last bases of o
 first bases of the next, which the exonuclease and polymerase make one. Here the shared
 bases are counted once in the product.
 
+What a plan makes is a **circle** where its parts close one, and a **linear molecule**
+where they only join end to end: a Golden Gate or Gibson reaction whose outer ends don't
+pair leaves a linear construct, and a digest leaves the band cut out of the gel. A circle
+is read from any origin and on either strand, so one circle is one product however it is
+written; a linear molecule has its own two ends, so its order matters and only reading it
+from the other strand leaves it the same molecule (ADR 0138). Where the parts can close, the
+circle is what the plan makes: that is what a ligase or an assembly master mix leaves to
+transform.
+
 Nothing here models partly double-stranded molecules beyond an end's overhang, methylation
 or a star activity, and a ligation can't leave a nick: a plan whose ends don't pair
-exactly makes nothing.
+exactly makes nothing. A linear product's sequence is its top strand from the cut at one
+end to the cut at the other, which is the reading that gives a digest band its length on
+a gel; an overhang beyond those cuts lies on one strand only, and isn't kept, since a
+linear duplex is read as fully paired (ADR 0138).
 """
 
 from __future__ import annotations
@@ -89,14 +101,25 @@ def least_rotation(bases: str) -> str:
     return doubled[start : start + len(bases)]
 
 
-def same_molecule(one: str, other: str) -> bool:
-    """Whether two circular double-stranded sequences are the same molecule: the same
-    bases from any origin, on either strand, as an identity reads them (ADR 0138)."""
+def canonical(bases: str, circular: bool) -> str:
+    """A double-stranded molecule as its identity reads it (ADR 0138): a circle from the
+    origin that sorts first, on whichever strand sorts first; a linear molecule from
+    whichever of its two strands sorts first, since both are the molecule read from its
+    other end, and a rotation of it is another molecule."""
+    bases = bases.upper()
+    other = reverse_complement(bases)
+    if not circular:
+        return min(bases, other)
+    return min(least_rotation(bases), least_rotation(other))
+
+
+def same_molecule(one: str, other: str, *, circular: bool = True) -> bool:
+    """Whether two double-stranded sequences of the same topology are the same molecule:
+    a circle from any origin and on either strand, a linear molecule from either strand
+    (ADR 0138)."""
     if len(one) != len(other):
         return False
-    mine = min(least_rotation(one.upper()), least_rotation(reverse_complement(one.upper())))
-    theirs = min(least_rotation(other.upper()), least_rotation(reverse_complement(other.upper())))
-    return mine == theirs
+    return canonical(one, circular) == canonical(other, circular)
 
 
 @dataclass(frozen=True)
@@ -165,10 +188,17 @@ class Fragment:
 
 @dataclass
 class Assembled:
-    """What a plan makes: a circular top strand, and each junction in it."""
+    """What a plan makes: its top strand, whether that molecule is a circle or has two
+    ends, and each junction in it (a circle has one per part, a linear molecule one
+    fewer)."""
 
     bases: str
     junctions: list[dict[str, object]] = field(default_factory=list)
+    topology: str = "circular"
+
+    @property
+    def circular(self) -> bool:
+        return self.topology == "circular"
 
 
 def enzyme(name: str) -> object:
@@ -260,11 +290,9 @@ def digest(part: str, bases: str, circular: bool, names: Sequence[str]) -> list[
     return [fragment for fragment in out if fragment.bases]
 
 
-def _arrangements(
-    choices: Sequence[Sequence[Fragment]],
-) -> Iterator[tuple[Fragment, ...]]:
-    """Each way of taking one fragment from each part and putting them in a circle: the
-    first part first, the right way round, so one circle is offered once."""
+def _within_limits(choices: Sequence[Sequence[Fragment]], total: int) -> None:
+    """That a plan is small enough to be worked out, so an impossible one is answered
+    rather than waited on."""
     if len(choices) > MOST_PARTS:
         raise Impossible(
             f"{len(choices)} parts is more than {MOST_PARTS}, which is as many as "
@@ -276,23 +304,63 @@ def _arrangements(
                 f"A part cuts into {len(part)} fragments, more than the {MOST_FRAGMENTS} an "
                 "assembly is worked out from: digest it with fewer enzymes."
             )
+    if total > MOST_ARRANGEMENTS:
+        raise Impossible(
+            f"The plan's parts and fragments make {total} arrangements, more than "
+            f"{MOST_ARRANGEMENTS}: give fewer enzymes, or fewer parts."
+        )
+
+
+def _arrangements(
+    choices: Sequence[Sequence[Fragment]],
+) -> Iterator[tuple[Fragment, ...]]:
+    """Each way of taking one fragment from each part and putting them in a circle: the
+    first part first, the right way round, so one circle is offered once."""
     first, rest = choices[0], choices[1:]
     orders = list(itertools.permutations(range(len(rest))))
     flips = list(itertools.product((False, True), repeat=len(rest)))
     total = len(first) * len(orders) * len(flips)
     for part in rest:
         total *= max(len(part), 1)
-    if total > MOST_ARRANGEMENTS:
-        raise Impossible(
-            f"The plan's parts and fragments make {total} arrangements, more than "
-            f"{MOST_ARRANGEMENTS}: give fewer enzymes, or fewer parts."
-        )
+    _within_limits(choices, total)
     for head in first:
         for order in orders:
             for picks in itertools.product(*[rest[i] for i in order]):
                 for flip in flips:
                     turned = zip(picks, flip, strict=True)
                     yield (head, *(f.reversed() if turn else f for f, turn in turned))
+
+
+def _chains(
+    choices: Sequence[Sequence[Fragment]],
+) -> Iterator[tuple[Fragment, ...]]:
+    """Each way of taking one fragment from each part and laying them end to end: every
+    order and every orientation.
+
+    A circle has no first part and no front, so ``_arrangements`` fixes both. A linear
+    molecule has two ends of its own, so which part is at which end matters and every
+    part may be turned round. The whole chain turned round is the same molecule read from
+    its other end, so of those two readings only one is offered -- the one whose parts
+    come in the lesser order, unturned where that settles nothing -- since a chain and
+    its reverse would otherwise each be written along its own strand, and the two
+    spellings differ by the overhangs at its ends, which a duplex read as fully paired
+    doesn't keep (ADR 0138).
+    """
+    orders = list(itertools.permutations(range(len(choices))))
+    flips = list(itertools.product((False, True), repeat=len(choices)))
+    total = len(orders) * len(flips)
+    for part in choices:
+        total *= max(len(part), 1)
+    _within_limits(choices, total)
+    for order in orders:
+        for flip in flips:
+            laid = tuple(zip(order, flip, strict=True))
+            turned_round = tuple((i, not turn) for i, turn in reversed(laid))
+            if laid > turned_round:
+                continue
+            for picks in itertools.product(*[choices[i] for i in order]):
+                turned = zip(picks, flip, strict=True)
+                yield tuple(f.reversed() if turn else f for f, turn in turned)
 
 
 def ligate(choices: Sequence[Sequence[Fragment]]) -> list[Assembled]:
@@ -324,6 +392,40 @@ def ligate(choices: Sequence[Sequence[Fragment]]) -> list[Assembled]:
                 }
             )
         made[key] = Assembled(bases=bases, junctions=junctions)
+    return list(made.values())
+
+
+def ligate_in_a_line(choices: Sequence[Sequence[Fragment]]) -> list[Assembled]:
+    """Every linear molecule one fragment of each part makes, laid end to end with each
+    inner pair of ends ligated and the two outer ends left as they are.
+
+    This is what a ligation leaves when its parts can't close: a Golden Gate construct
+    whose outer overhangs don't pair, or a vector and an insert that join at one end
+    only. The same molecule read from its other strand is given once.
+    """
+    made: dict[str, Assembled] = {}
+    for arrangement in _chains(choices):
+        joined = list(arrangement)
+        if not all(one.right == other.left for one, other in itertools.pairwise(joined)):
+            continue
+        bases = "".join(fragment.bases for fragment in joined)
+        key = canonical(bases, circular=False)
+        if key in made or not bases:
+            continue
+        junctions = []
+        offset = 0
+        for one, other in itertools.pairwise(joined):
+            offset += len(one.bases)
+            junctions.append(
+                {
+                    "at": offset + 1,
+                    "from": one.part,
+                    "to": other.part,
+                    "overhang": str(one.right),
+                    "enzymes": sorted({*one.cut_with, *other.cut_with}),
+                }
+            )
+        made[key] = Assembled(bases=bases, junctions=junctions, topology="linear")
     return list(made.values())
 
 
@@ -379,4 +481,46 @@ def gibson(
             )
         ]
         made[key] = Assembled(bases=bases, junctions=junctions)
+    return list(made.values())
+
+
+def gibson_in_a_line(
+    choices: Sequence[Sequence[Fragment]], least: int = LEAST_OVERLAP, most: int = MOST_OVERLAP
+) -> list[Assembled]:
+    """Every linear molecule the parts make by sharing their ends, each shared stretch
+    counted once and the two outer ends sharing nothing with anything: a Gibson or Golden
+    Gate assembly of fragments into a linear construct. One molecule found more than one
+    way is given once."""
+    made: dict[str, Assembled] = {}
+    for arrangement in _chains(choices):
+        joined = list(arrangement)
+        overlaps = [
+            overlap(one.bases, other.bases, least, most)
+            for one, other in itertools.pairwise(joined)
+        ]
+        if not all(overlaps):
+            continue
+        bases = joined[0].bases
+        # Where each shared stretch starts in the molecule being built: the last `shared`
+        # bases of what's written so far, which the next fragment starts with.
+        places: list[int] = []
+        for fragment, shared in zip(joined[1:], overlaps, strict=True):
+            places.append(len(bases) - shared)
+            bases += fragment.bases[shared:]
+        key = canonical(bases, circular=False)
+        if key in made or not bases:
+            continue
+        junctions = [
+            {
+                "at": place + 1,
+                "from": one.part,
+                "to": other.part,
+                "overlap": f"{shared} bp",
+                "bases": other.bases[:shared],
+            }
+            for (one, other), shared, place in zip(
+                itertools.pairwise(joined), overlaps, places, strict=True
+            )
+        ]
+        made[key] = Assembled(bases=bases, junctions=junctions, topology="linear")
     return list(made.values())
