@@ -4,14 +4,15 @@ kind: Action
 name: check_assembly
 label: Check an assembly against its product
 description: >-
-  Works out what a cloning plan makes and checks it against the sequence its clone turned
-  out to have: the same bases from any origin and on either strand are the same molecule
-  (ADR 0138). It says how long the circle is, where its junctions are, and, when they
-  differ, by how much. A plan whose parts make several circles is settled here, since the
-  clone's sequence says which was made; one Iki can't work out leaves no result, and the
-  old one is cleared rather than left to be read as current.
+  Works out what a cloning plan makes and checks it against the sequence its clone or its
+  band turned out to have: the same bases, the same topology, a circle read from any origin
+  and on either strand, a linear molecule from either strand (ADR 0138). It says how long
+  what the plan makes is, whether it is a circle or has two ends, where its junctions are,
+  and, when they differ, by how much. A plan whose parts make several molecules is settled
+  here, since the clone's sequence says which was made; one Iki can't work out leaves no
+  result, and the old one is cleared rather than left to be read as current.
 inputs:
-  assembly: { type: Assembly, schema: ">=1", include: [backbone, inserts, product] }
+  assembly: { type: Assembly, schema: ">=2", include: [backbone, inserts, product] }
 params:
   min_overlap:
     type: int
@@ -32,7 +33,7 @@ params:
 effects:
   updates:
     - input: assembly
-      fields: [simulated_length, matches_product, junctions]
+      fields: [simulated_length, simulated_topology, matches_product, junctions]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: plasmid-tools }

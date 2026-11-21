@@ -1,8 +1,10 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
 # A plasmid is its sequence. Its identity is the DNA sequence's registry entry, so the
-# DNA plugin reads the molecule (circular, from any origin, on either strand: ADR 0138)
-# and this plugin never spells a plasmid's bases again.
+# DNA plugin reads the molecule (a circle from any origin, a duplex from either strand:
+# ADR 0138) and this plugin never spells a plasmid's bases again. Its topology comes with
+# that molecule: the same bases as a circle and as a linear molecule are two entries, so
+# they are two plasmids (ADR 0168).
 #
 # What a plasmid is, for everyone who holds it, is its entry's: its length, which follows
 # from the sequence alone, and the facts a registration team curates (its copy number,
@@ -15,13 +17,13 @@ kind: EntityType
 name: Plasmid
 label: Plasmid
 label_plural: Plasmids
-schema_version: 1
+schema_version: 2
 description: >-
-  A plasmid or vector, by the circular DNA sequence that is it. Two plasmids of the same
-  sequence are the same plasmid, so registering one again finds its registry entry,
-  whatever origin or strand its sequence was read from. Its record says what the sequence
-  alone doesn't: how it's selected, where it replicates and at what copy number, the
-  hosts it works in, its promoters, its biosafety level, and where it came from.
+  A plasmid or vector, by the DNA sequence that is it, circular or linear. Two plasmids of
+  the same sequence are the same plasmid, so registering one again finds its registry
+  entry, whatever origin or strand its sequence was read from. Its record says what the
+  sequence alone doesn't: how it's selected, where it replicates and at what copy number,
+  the hosts it works in, its promoters, its biosafety level, and where it came from.
 hrid: { prefix: PLS }
 identity: [sequence]
 fields:
@@ -31,10 +33,9 @@ fields:
     required: true
     immutable: true
     description: >-
-      The circular, double-stranded DNA sequence that is this plasmid, by its registry
-      entry: its bases, topology, features and accession are the sequence's. A plasmid
-      record here is a circular one; a linear plasmid is held as a DNA sequence, which
-      reads it as it is.
+      The double-stranded DNA sequence that is this plasmid, by its registry entry: its
+      bases, topology, features and accession are the sequence's. The same bases as a
+      circle and as a linear molecule are two sequence entries, so they are two plasmids.
   length:
     type: quantity
     registry: derived
@@ -43,6 +44,21 @@ fields:
     indexed: true
     min: 0
     description: Its base pairs, the sequence's length.
+  topology:
+    type: enum
+    registry: derived
+    indexed: true
+    computed: true
+    values: [circular, linear]
+    description: >-
+      Whether it is a circle or a molecule with two ends, as its sequence says (a
+      GenBank record's LOCUS line, a SnapGene file's flag, or what whoever registered it
+      chose). It follows from the sequence alone, so it is the registry entry's, the same
+      for every project, and nobody states it against the molecule: the same bases are a
+      different molecule read each way. Most plasmids are circles. Linear ones are real
+      -- Kluyveromyces lactis carries pGKL1 and pGKL2, Borrelia burgdorferi a set of
+      them, Streptomyces coelicolor SCP1 -- and their two ends are what a map must draw
+      and an annotation must not read across (ADR 0168).
   name: { type: string, max_length: 255, indexed: true }
   description: { type: text, max_length: 10000 }
   vector_type:
@@ -250,16 +266,18 @@ fields:
 # Kept at every save, however a record is written: by an action, through the API, by a
 # bulk import or in a bundle (ADR 0127).
 rules:
-  a_plasmid_is_circular:
-    label: A plasmid's sequence is circular
-    check: record.sequence.topology == "circular"
+  topology_is_the_sequences:
+    label: A plasmid's topology is its sequence's
+    description: >-
+      Its topology comes with the molecule, so it is never stated against it: a run that
+      wrote another value would say a circle is linear, and the map, the annotation and
+      every cloning plan read it from here.
+    check: record.topology == null || record.topology == record.sequence.topology
     message: >-
-      {{ record.sequence }} is linear, and a plasmid record here is read as a circle: its
-      map is drawn round one, its annotation reads across the origin, and a cloning plan
-      for it has to close. Linear plasmids exist, and a linear molecule is held as a DNA
-      sequence, which reads it as it is -- so register it there, or register the circle
-      this one closes into.
-    fields: [sequence]
+      {{ record.sequence }} says it is {{ record.sequence.topology }}, so the plasmid's
+      topology is that: it follows from the sequence, and the same bases read as a circle
+      and as a linear molecule are two different sequences, each with its own plasmid.
+    fields: [topology]
   a_plasmid_is_double_stranded:
     label: A plasmid's sequence is double-stranded
     description: >-

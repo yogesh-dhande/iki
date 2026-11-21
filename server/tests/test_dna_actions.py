@@ -373,13 +373,13 @@ def test_a_features_parts_say_where_it_lies(
 
 
 @pytest.mark.parametrize(
-    "location", ["5^7", "100^1", "1.5", "join(1..5,200..210)", "join(1..2,order(3..4,5..6))"]
+    "location", ["5^7", "1.5", "join(1..5,200..210)", "join(1..2,order(3..4,5..6))"]
 )
 def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
     tmp_path: Path, location: str
 ) -> None:
-    # 5^7 isn't between neighbours; 100^1 is only on a circle; 1.5 (one base somewhere
-    # in 1 to 5) is too vague to draw; INSDC doesn't let join and order nest.
+    # 5^7 isn't between neighbours; 1.5 (one base somewhere in 1 to 5) is too vague to
+    # draw; INSDC doesn't let join and order nest.
     result, output = imported(tmp_path, with_feature(location, topology="linear"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
@@ -387,6 +387,65 @@ def test_a_location_that_isnt_one_on_the_sequence_is_left_out_saying_so(
     assert output["messages"][0]["text"] == (
         f"Record 1 (pLoc): a misc_feature at {location!r} was left out."
     )
+
+
+@pytest.mark.parametrize(
+    "location", ["join(90..100,1..5)", "complement(join(90..100,1..5))", "100^1"]
+)
+def test_a_location_across_the_origin_is_only_on_a_circular_molecule(
+    tmp_path: Path, location: str
+) -> None:
+    """A join that runs off the end of a record and back to base 1, or a site between its
+    last base and its first, says the molecule is a circle. On a record whose LOCUS line
+    says `linear` the two can't both be right, so the feature is refused, with what is
+    wrong with it: a linear molecule has two ends, and nothing of it reads across them.
+    The same location on a circular record is kept, and crosses its origin."""
+    result, output = imported(tmp_path, with_feature(location, topology="linear"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert "features" not in made(output)[0]["values"]
+    assert output["messages"][0]["text"] == (
+        f"Record 1 (pLoc): a misc_feature at {location!r} reads across the origin, which only "
+        "a circular molecule has, and its LOCUS line says linear. It was left out: say the "
+        "molecule is circular, or give the feature's place on the linear one."
+    )
+    # On a circle it is a feature across the origin, which is kept as it is written.
+    result, output = imported(tmp_path, with_feature(location, topology="circular"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (feature,) = made(output)[0]["values"]["features"]
+    assert (feature["start"], feature["end"]) == (
+        90 if "90" in location else 100,
+        1 if location == "100^1" else 5,
+    )
+    assert output["messages"] == []
+
+
+def test_a_records_topology_is_the_one_its_locus_line_gives(tmp_path: Path) -> None:
+    """INSDC X01095.1 (NCBI nuccore): pGKL1, the linear killer plasmid of Kluyveromyces
+    lactis, whose LOCUS line reads `8874 bp DNA linear PLN` and whose feature table gives
+    the terminal inverted repeats at its two ends. Its topology comes from that line, not
+    from the `topology` param, which only says what a FASTA record can't: a record that
+    says it is linear is imported as linear even when the param asks for circles, since
+    the record knows and the param is a default for files that don't say.
+    """
+    text = (Path(__file__).parent / "data" / "plasmids" / "X01095.1.gb").read_text(encoding="utf-8")
+    result, output = imported(tmp_path, text, topology="circular")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (record,) = made(output)
+    values = record["values"]
+    assert values["topology"] == "linear"
+    # Its LOCUS says `DNA`, not `ds-DNA`, so the record says nothing of its strands and
+    # the field's own default, double, stands.
+    assert "strandedness" not in values
+    assert len(values["bases"]) == 8874
+    assert values["accession"] == "X01095.1"
+    repeats = [f for f in values["features"] if f["type"] == "repeat_region"]
+    assert [(f["start"], f["end"]) for f in repeats] == [(1, 202), (8673, 8874)]
+    # Nothing of it reads across its ends: every feature's end is at or after its start.
+    assert all(f["end"] >= f["start"] for f in values["features"])
+    assert output["messages"] == []
 
 
 def test_an_organism_keeps_ncbis_brackets(tmp_path: Path) -> None:

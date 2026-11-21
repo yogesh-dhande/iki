@@ -361,6 +361,98 @@ def test_a_linear_sequence_is_annotated_without_wrapping_its_origin(tmp_path: Pa
     assert all(f["end"] > f["start"] for f in values["annotated_features"])
 
 
+def test_a_part_across_the_cut_is_read_on_the_circle_and_not_on_the_linear_molecule(
+    tmp_path: Path,
+) -> None:
+    """pUC19 linearised with ScaI, which has one site in it, 2,179 bases in, inside the
+    beta-lactamase gene -- the cut a lab makes to open pUC19 away from its polylinker.
+
+    Read as a circle from that cut, the AmpR gene is annotated across the origin, from
+    2,133 round to 307. Read as the linear molecule ScaI leaves, it is in two pieces and
+    neither is the gene, so it isn't annotated at all: a linear molecule's two ends are
+    ends, and nothing is read across them. The two parts that don't meet the cut -- the
+    origin and the lac promoter -- are found at the same bases either way.
+    """
+    puc, _, _ = read("L09137.2")
+    # ScaI's site AGT^ACT, cut blunt after base 2179, which lies in AmpR (1626..2486).
+    assert puc[2176:2182] == "AGTACT"
+    assert 1626 < 2179 < 2486
+    opened = puc[2179:] + puc[:2179]
+    assert len(opened) == 2686
+
+    circle = found(annotated(tmp_path / "circle", opened, circular=True))
+    assert sorted(circle) == ["AmpR", "lac promoter", "ori"]
+    # Its end comes before its start, which is how a part across the origin is written.
+    (amp,) = circle["AmpR"]
+    assert (amp["start"], amp["end"]) == (2133, 307)
+
+    line = found(annotated(tmp_path / "line", opened, circular=False))
+    assert sorted(line) == ["lac promoter", "ori"]
+    for part in ("lac promoter", "ori"):
+        assert (line[part][0]["start"], line[part][0]["end"]) == (
+            circle[part][0]["start"],
+            circle[part][0]["end"],
+        )
+
+
+def test_a_linear_plasmids_record_is_annotated_as_the_linear_molecule_it_is(
+    tmp_path: Path,
+) -> None:
+    """pGKL1 (INSDC X01095.1), the 8,874 bp linear killer plasmid of Kluyveromyces
+    lactis, whose LOCUS line says `linear` and whose own feature table gives the terminal
+    inverted repeats at each end (1..202 and 8673..8874) that make it a linear molecule
+    rather than a circle (Hishinuma et al., Nucleic Acids Res. 1984).
+
+    None of the library's parts is in it -- it is a yeast killer plasmid, not a cloning
+    vector -- and the run says so, with its length and its topology, which is the entry's
+    and which the run fills where it is empty.
+    """
+    bases, locus, features = read("X01095.1")
+    assert len(bases) == locus == 8874
+    repeats = [location for key, location, _ in features if key == "repeat_region"]
+    assert repeats == ["1..202", "8673..8874"]
+    values = annotate(tmp_path, bases, circular=False)
+    assert values["annotated_features"] == []
+    assert values["length"] == 8874
+    assert values["topology"] == "linear"
+    assert values["replication_origins"] == []
+
+
+def test_a_run_leaves_the_topology_its_entry_has(tmp_path: Path) -> None:
+    """A plasmid's topology is its registry entry's, the same for every project, so a run
+    fills it where it is empty and never writes over it -- as its length is handled."""
+    bases, _, _ = read("L09137.2")
+    plasmid = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "hrid": "PLS-000001",
+        "values": {"length": 2686, "topology": "circular"},
+        "included": {
+            "sequence": [
+                {
+                    "id": "00000000-0000-0000-0000-000000000002",
+                    "hrid": "DNA-000001",
+                    "values": {"bases": bases, "topology": "circular"},
+                }
+            ]
+        },
+    }
+    (tmp_path / "input.json").write_text(
+        json.dumps({"inputs": {"plasmid": [plasmid]}, "params": {}})
+    )
+    result = subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, str(SCRIPT), "annotate"],
+        env={"IKI_INPUT": str(tmp_path / "input.json"), "IKI_OUTPUT": str(tmp_path / "out.json")},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    written = json.loads((tmp_path / "out.json").read_text())["updates"]["plasmid"][0]["values"]
+    assert "topology" not in written
+    assert "length" not in written
+
+
 # --- what a part found says, and what it doesn't -------------------------------------
 
 

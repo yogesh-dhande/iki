@@ -5,11 +5,12 @@ name: annotate_plasmid
 label: Annotate a plasmid from the library
 description: >-
   Finds the common vector parts of the plugin's library along a plasmid's sequence, on
-  both strands and round its origin, and records what they say about it: its origins of
-  replication, the antibiotics it's selected with in bacteria, its markers in the cells
-  it's expressed in, and its promoters.
+  both strands, and round its origin where it's circular, and records what they say about
+  it: its origins of replication, the antibiotics it's selected with in bacteria, its
+  markers in the cells it's expressed in, and its promoters. A linear plasmid's two ends
+  are ends: nothing is annotated across them.
 inputs:
-  plasmid: { type: Plasmid, schema: ">=1", include: [sequence] }
+  plasmid: { type: Plasmid, schema: ">=2", include: [sequence] }
 params:
   min_identity:
     type: float
@@ -25,6 +26,7 @@ effects:
     - input: plasmid
       fields:
         - length
+        - topology
         - annotated_features
         - annotated_with
         - replication_origins

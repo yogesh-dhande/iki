@@ -442,6 +442,150 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
     assert result["submitted"] == [None, {"bases": "CCGATTAAGT"}, {"bases": "AATCGGACTT"}]
 
 
+#: pGKL1 (INSDC X01095.1), the linear killer plasmid of Kluyveromyces lactis, as the
+#: record in ``server/tests/data/plasmids`` gives its bases.
+PGKL1 = ROOT / "server" / "tests" / "data" / "plasmids" / "X01095.1.gb"
+
+
+def genbank_bases(path: Path) -> str:
+    """A GenBank record's bases, from its ORIGIN."""
+    out, reading = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("ORIGIN"):
+            reading = True
+        elif line.startswith("//"):
+            break
+        elif reading:
+            out.append("".join(c for c in line if c.isalpha()))
+    return "".join(out).upper()
+
+
+def test_a_linear_plasmid_is_one_molecule_from_either_strand_and_not_from_another_origin(
+    tmp_path: Path, database: str
+) -> None:
+    """ADR 0168: a plasmid's topology is part of what it is. pGKL1 (X01095.1), a real
+    linear plasmid, registered again as its other strand finds its registry entry, so it
+    is one plasmid; rotated it is another molecule, since a linear molecule's two ends
+    are its own and a rotation puts them elsewhere; and the same bases as a circle are
+    another molecule again, with a plasmid of their own.
+
+    The plasmid's own topology is its entry's, derived from its sequence: a run fills it,
+    which is a revision of the record like any other, and a run that writes a topology
+    its sequence doesn't have is refused by the type's rule.
+    """
+    out = tmp_path / "build"
+    built = iki("plugin", "build", PLUGINS / "dna", PLUGINS / "plasmid", "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    bases = genbank_bases(PGKL1)
+    assert len(bases) == 8874
+    other_strand = bases.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    rotated = bases[202:] + bases[:202]  # past its terminal inverted repeat
+    result = orm(
+        out,
+        database,
+        f"""
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+        alice = User.objects.create_user("alice@example.com")
+        others = [Project.objects.create(team=team, name=f"Plasmids {{n}}") for n in (1, 2, 3)]
+        for p in [project, *others]:
+            ProjectMembership.objects.create(project=p, user=alice, role=ProjectRole.EDITOR)
+
+        def errors(do):
+            try:
+                do()
+            except services.Invalid as invalid:
+                return invalid.errors
+            return None
+
+        def plasmid(where, bases, topology, name):
+            sequence = services.create(
+                alice, "iki/dna.DNASequence", where,
+                {{"bases": bases, "topology": topology, "strandedness": "double"}},
+            )
+            made = services.create(
+                alice, "iki/plasmid.Plasmid", where,
+                {{"sequence": str(sequence.entity.entry_id), "name": name}},
+            )
+            return sequence, made
+
+        first_sequence, first = plasmid(project, {bases!r}, "linear", "pGKL1")
+        # Its other strand, 5' to 3': the same molecule, so the same entry.
+        flipped_sequence, flipped = plasmid(others[0], {other_strand!r}, "linear", "pGKL1")
+        # From its 203rd base: a linear molecule with its ends somewhere else.
+        rotated_sequence, rotated = plasmid(others[1], {rotated!r}, "linear", "pGKL1 rotated")
+        # The same bases as a circle: another molecule, and another plasmid.
+        circle_sequence, circle = plasmid(others[2], {bases!r}, "circular", "pGKL1 as a circle")
+
+        # A run fills the plasmid's topology, which is its registry entry's: that write is
+        # a revision of the entry, audited like any other, and its value is then every
+        # project's. The project's own record doesn't change, since the field isn't its.
+        before = first.entity.revision
+        saved = services.update(
+            alice, first.entity, {{"topology": "linear"}},
+            expected_revision=before, by_run=True,
+        )
+        first.entity.refresh_from_db()
+        filled = saved.entry_revision
+
+        # A run that writes a topology the sequence doesn't have is refused by the rule.
+        wrong = errors(lambda: services.update(
+            alice, circle.entity, {{"topology": "linear"}},
+            expected_revision=circle.entity.revision, by_run=True,
+        ))
+
+        def values(saved):
+            return services.current_values_of([saved.entity])[saved.entity.pk]
+
+        result = {{
+            "sequences": [
+                str(s.entity.entry_id)
+                for s in (first_sequence, flipped_sequence, rotated_sequence, circle_sequence)
+            ],
+            "plasmids": [
+                str(s.entity.entry_id) for s in (first, flipped, rotated, circle)
+            ],
+            "hrids": [s.entity.hrid for s in (first, flipped, rotated, circle)],
+            "registered": [s.registered for s in (first, flipped, rotated, circle)],
+            "topology": values(first)["topology"],
+            "filled": {{
+                "number": filled.number,
+                "via": filled.via,
+                "kind": filled.kind,
+                "changed": filled.changed_fields,
+                "by": filled.user.email,
+            }},
+            "record_revision": [before, first.entity.revision],
+            "wrong": wrong,
+        }}
+        """,
+    )
+    one, flipped, rotated_entry, circle = result["sequences"]
+    assert one == flipped != rotated_entry
+    assert circle not in (one, rotated_entry)
+    # One plasmid for one molecule: the other strand finds it, a rotation and the circle don't.
+    plasmids = result["plasmids"]
+    assert plasmids[0] == plasmids[1]
+    assert len({*plasmids}) == 3
+    assert result["hrids"][0] == result["hrids"][1] == "PLS-000001"
+    assert result["registered"] == [True, False, True, True]
+    # The run's fill is a revision of the registry entry, recorded as a run's and by whom;
+    # the project's record of it is unchanged, since topology isn't the record's.
+    assert result["topology"] == "linear"
+    assert result["filled"]["number"] == 2
+    assert result["filled"]["via"] == "run"
+    assert result["filled"]["changed"] == ["topology"]
+    assert result["filled"]["by"] == "alice@example.com"
+    assert result["record_revision"] == [1, 1]
+    # And a wrong topology is refused, naming the field and saying why.
+    assert list(result["wrong"]) == ["topology"]
+    assert "the plasmid's topology is that" in result["wrong"]["topology"][0]
+
+
 SEQUENCES = ROOT / "spec" / "tests" / "sequences"
 
 

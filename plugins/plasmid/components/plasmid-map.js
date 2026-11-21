@@ -1,12 +1,19 @@
-// The plasmid plugin's Map tab: the plasmid round a circle, with each annotated part an
-// arc pointing the way its strand runs. Iki's own sequence viewer draws a sequence in
-// rows of 60, which is how a gene is read and not how a plasmid is; a plasmid is read as
-// a map, so this draws one. It draws the `annotated_features` the plugin's actions find
-// along the plasmid's sequence (ADR 0084); Iki sets `entity` to the plasmid, as the
-// person viewing it may read it.
+// The plasmid plugin's Map tab: the plasmid drawn as the molecule it is, with each
+// annotated part an arrow pointing the way its strand runs. Iki's own sequence viewer
+// draws a sequence in rows of 60, which is how a gene is read and not how a plasmid is;
+// a plasmid is read as a map, so this draws one. It draws the `annotated_features` the
+// plugin's actions find along the plasmid's sequence (ADR 0084); Iki sets `entity` to the
+// plasmid, as the person viewing it may read it.
+//
+// A circle is drawn round a ring, and a linear plasmid along a line, as SnapGene and
+// Benchling draw each (ADR 0168). A linear molecule opens on the line, and has no ring
+// view: it has no origin to go round. A circle opens on the ring and can be seen as a
+// line too, cut at base 1, which is how a map is read beside a gel or a sequencing read.
 //
 // The drawing is described in words for screen readers, and every part is in the table
-// below it with its coordinates, so nothing is told by colour alone.
+// below it with its coordinates, so nothing is told by colour alone. The two views are
+// buttons in a group, reachable and operable from the keyboard like any button, each
+// saying whether it is the view being shown (`aria-pressed`).
 
 const STYLE = `
   :host { display: block; color: CanvasText; background: Canvas; padding: 1rem; border-radius: 8px;
@@ -28,6 +35,16 @@ const STYLE = `
   td.where { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px;
     margin-right: 0.4rem; vertical-align: -1px; }
+  .views { display: flex; gap: 0.5rem; margin: 0 0 0.75rem; }
+  .views button { font: inherit; color: CanvasText; background: Canvas; cursor: pointer;
+    padding: 0.25rem 0.75rem; border: 1px solid color-mix(in srgb, CanvasText 40%, Canvas);
+    border-radius: 999px; }
+  .views button[aria-pressed="true"] { background: color-mix(in srgb, CanvasText 12%, Canvas);
+    border-color: CanvasText; font-weight: 600; }
+  .views button:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
+  .line { stroke: color-mix(in srgb, CanvasText 18%, Canvas); }
+  .cap { stroke: color-mix(in srgb, CanvasText 55%, Canvas); }
+  .end-label { fill: color-mix(in srgb, CanvasText 70%, Canvas); font-size: 10px; }
   dl { display: grid; grid-template-columns: max-content auto; gap: 0.25rem 1rem; margin: 0.75rem 0 0; }
   dt { font-weight: 600; }
   dd { margin: 0; }
@@ -191,6 +208,155 @@ function drawing(length, features) {
   return parts;
 }
 
+// The linear drawing: the molecule along a line from base 1 on the left, parts on lanes
+// above it where they run forward and below where they run reverse, as SnapGene's linear
+// view has them.
+const WIDE = 680;
+const LEFT = 36;
+const RIGHT = WIDE - 36;
+const LANES = 3;
+const LANE = 18;
+const SPINE = LANES * LANE + 26;
+const TALL = SPINE + LANES * LANE + 30;
+
+/** Where base `at` lies along the line. */
+function along(at, length) {
+  const share = length > 1 ? (at - 1) / (length - 1) : 0;
+  return LEFT + (RIGHT - LEFT) * Math.min(Math.max(share, 0), 1);
+}
+
+/** The stretches a part covers along the molecule: one, or two where it crosses a
+ * circle's origin, which a linear molecule's parts never do. */
+function piecesOf(feature, length) {
+  return feature.end >= feature.start
+    ? [[feature.start, feature.end]]
+    : [
+        [feature.start, length],
+        [1, feature.end],
+      ];
+}
+
+/** A lane for a part: the first one free where it lies, so overlapping parts stay apart. */
+function laneFor(taken, covers) {
+  for (let i = 0; i < taken.length; i++) {
+    if (!taken[i].some(([a, b]) => covers[0] <= b && a <= covers[1])) {
+      taken[i].push(covers);
+      return i;
+    }
+  }
+  taken[taken.length - 1].push(covers);
+  return taken.length - 1;
+}
+
+/** One stretch of a part as a bar along the line, with an arrowhead where the part's 3'
+ * end is: on the right running forward, on the left running reverse. */
+function bar(from, to, length, y, forward, tipped) {
+  const x1 = along(from, length);
+  const x2 = along(to, length);
+  const head = Math.min(7, Math.max(x2 - x1, 1));
+  const body = tipped ? (forward ? [x1, x2 - head] : [x1 + head, x2]) : [x1, x2];
+  const parts = [
+    svg("line", {
+      class: "arc",
+      x1: body[0].toFixed(2),
+      y1: y,
+      x2: Math.max(body[1], body[0]).toFixed(2),
+      y2: y,
+      "stroke-width": 9,
+    }),
+  ];
+  if (tipped) {
+    const tip = forward ? x2 : x1;
+    const back = forward ? x2 - head : x1 + head;
+    parts.push(
+      svg("path", {
+        d: `M ${back.toFixed(2)} ${y - 6} L ${tip.toFixed(2)} ${y} L ${back.toFixed(2)} ${y + 6} Z`,
+      }),
+    );
+  }
+  return parts;
+}
+
+function lineDrawing(length, features, circular) {
+  const parts = svg("svg", {
+    viewBox: `0 0 ${WIDE} ${TALL}`,
+    width: WIDE,
+    height: TALL,
+    // Hidden from screen readers: the paragraph above it says what it draws, in words,
+    // and the table below it gives every part.
+    "aria-hidden": "true",
+  });
+  parts.append(
+    svg("line", {
+      class: "line",
+      x1: LEFT,
+      y1: SPINE,
+      x2: RIGHT,
+      y2: SPINE,
+      "stroke-width": 8,
+    }),
+  );
+  // A linear molecule's two ends are its own, so they are drawn as ends; a circle drawn
+  // as a line is cut at base 1, which the words beneath say.
+  if (!circular) {
+    for (const x of [LEFT, RIGHT]) {
+      parts.append(
+        svg("line", {
+          class: "cap",
+          x1: x,
+          y1: SPINE - 12,
+          x2: x,
+          y2: SPINE + 12,
+          "stroke-width": 3,
+        }),
+      );
+    }
+  }
+  const step = tickEvery(length);
+  for (let at = 1; at < length + step; at += step) {
+    const place = Math.min(at, length);
+    const x = along(place, length);
+    parts.append(
+      svg("line", {
+        class: "tick",
+        x1: x.toFixed(1),
+        y1: SPINE + 8,
+        x2: x.toFixed(1),
+        y2: SPINE + 14,
+        "stroke-width": 1,
+      }),
+    );
+    const label = svg("text", {
+      class: "tick-label",
+      x: x.toFixed(1),
+      y: SPINE + 26,
+      "text-anchor": "middle",
+      "dominant-baseline": "middle",
+    });
+    label.textContent = tickLabel(place, step);
+    parts.append(label);
+  }
+  const above = Array.from({ length: LANES }, () => []);
+  const below = Array.from({ length: LANES }, () => []);
+  for (const feature of features) {
+    const forward = feature.strand !== "reverse";
+    const pieces = piecesOf(feature, length);
+    const covers = [pieces[0][0], pieces[pieces.length - 1][1]];
+    const lane = laneFor(forward ? above : below, covers);
+    const y = forward ? SPINE - 20 - lane * LANE : SPINE + 34 + lane * LANE;
+    const colour = colourOf(feature.qualifiers?.role);
+    // The arrowhead goes on the stretch that holds the part's 3' end.
+    const tipped = forward ? pieces.length - 1 : 0;
+    pieces.forEach(([from, to], i) => {
+      for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
+        drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
+        parts.append(drawn);
+      }
+    });
+  }
+  return parts;
+}
+
 function middle(parts, name, length, count) {
   const found = `${count} ${count === 1 ? "part" : "parts"}`;
   for (const [i, text] of [name, `${length.toLocaleString("en")} bp`, found].entries()) {
@@ -248,18 +414,71 @@ function table(features, length) {
   );
 }
 
+/** What the drawing shows, in words, so a screen reader is told everything the picture
+ * tells: the molecule, which way it is drawn, and every part along it. */
+function describe(length, features, circular, view) {
+  const bp = `${length.toLocaleString("en")} base pairs`;
+  const shape = circular
+    ? view === "line"
+      ? `A circle of ${bp}, drawn as a line cut at base 1, so a part across its origin is drawn in two pieces`
+      : `A circle of ${bp}, drawn as a ring with base 1 at the top, going clockwise`
+    : `A linear molecule of ${bp}, drawn as a line from base 1 at the left to base ${length.toLocaleString("en")} at the right, with an end at each`;
+  if (!features.length) return `${shape}, with none of the library's parts found along it.`;
+  const each = features
+    .map(
+      (f) =>
+        `${f.qualifiers?.label || f.name}, ${f.start.toLocaleString("en")} to ${f.end.toLocaleString("en")} on the ${f.strand === "reverse" ? "reverse" : "forward"} strand`,
+    )
+    .join("; ");
+  const count = `${features.length} ${features.length === 1 ? "part" : "parts"}`;
+  return `${shape}, with ${count} of the library found along it: ${each}.`;
+}
+
+/** The buttons that choose the view, for a circle, which can be read either way. A
+ * linear molecule has no ring view, so it is given none. */
+function views(chosen, choose) {
+  const group = element("div", { className: "views", role: "group", "aria-label": "Map view" });
+  for (const [view, label] of [
+    ["ring", "Circular"],
+    ["line", "Linear"],
+  ]) {
+    const button = element("button", {
+      type: "button",
+      "aria-pressed": String(view === chosen),
+    });
+    button.textContent = label;
+    button.addEventListener("click", () => choose(view));
+    group.append(button);
+  }
+  return group;
+}
+
 class PlasmidMap extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    //: Which drawing is shown: the ring, or the line. A circle opens on its ring.
+    this.view = "ring";
   }
 
   set entity(entity) {
+    this.held = entity;
+    const values = entity?.values ?? {};
+    // A plasmid's topology is its registry entry's, from its sequence (ADR 0168). A
+    // record whose topology hasn't been filled yet is read as a circle, which every
+    // plasmid record was until linear ones were held here.
+    this.view = values.topology === "linear" ? "line" : "ring";
+    this.draw();
+  }
+
+  draw() {
+    const entity = this.held;
     const style = element("style");
     style.textContent = STYLE;
     const values = entity?.values ?? {};
     const features = Array.isArray(values.annotated_features) ? values.annotated_features : [];
     const length = Number(values.length) || 0;
+    const circular = values.topology !== "linear";
     // Whether this project's record has been annotated, which is what the map draws.
     // Its length is its registry entry's and the same for every project (ADR 0115), so
     // a second project has the length as soon as the record exists, before its own
@@ -281,24 +500,23 @@ class PlasmidMap extends HTMLElement {
     const kept = features
       .filter((f) => Number.isInteger(f.start) && Number.isInteger(f.end) && f.start <= length)
       .sort((a, b) => a.start - b.start);
-    const picture = drawing(length, kept);
-    middle(picture, values.name ?? entity?.hrid ?? "", length, kept.length);
-    const described = kept.length
-      ? `${length.toLocaleString("en")} base pairs, with ${kept.length} ${kept.length === 1 ? "part" : "parts"} of the library found along it: ` +
-        kept
-          .map(
-            (f) =>
-              `${f.qualifiers?.label || f.name}, ${f.start.toLocaleString("en")} to ${f.end.toLocaleString("en")} on the ${f.strand === "reverse" ? "reverse" : "forward"} strand`,
-          )
-          .join("; ") +
-        "."
-      : `${length.toLocaleString("en")} base pairs, with none of the library's parts found along it.`;
-    const children = [
-      style,
-      element("h2", {}, "Map"),
-      element("p", {}, described),
+    const name = values.name ?? entity?.hrid ?? "";
+    let picture;
+    if (circular && this.view === "ring") {
+      picture = drawing(length, kept);
+      middle(picture, name, length, kept.length);
+    } else {
+      picture = lineDrawing(length, kept, circular);
+      const heading = svg("text", { class: "middle name", x: LEFT, y: 14 });
+      heading.textContent = [name, `${length.toLocaleString("en")} bp`].filter(Boolean).join(", ");
+      picture.append(heading);
+    }
+    const children = [style, element("h2", {}, "Map")];
+    if (circular) children.push(views(this.view, (view) => this.choose(view)));
+    children.push(
+      element("p", {}, describe(length, kept, circular, this.view)),
       element("div", { className: "map" }, picture, kept.length ? table(kept, length) : ""),
-    ];
+    );
     if (values.annotated_with) {
       children.push(
         element(
@@ -310,6 +528,16 @@ class PlasmidMap extends HTMLElement {
       );
     }
     this.shadowRoot.replaceChildren(...children);
+  }
+
+  /** Shows the other drawing, and leaves the keyboard on the button that was pressed. */
+  choose(view) {
+    if (view === this.view) return;
+    this.view = view;
+    this.draw();
+    const buttons = this.shadowRoot.querySelectorAll(".views button");
+    const chosen = [...buttons].find((b) => b.getAttribute("aria-pressed") === "true");
+    chosen?.focus();
   }
 }
 

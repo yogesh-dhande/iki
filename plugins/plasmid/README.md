@@ -1,8 +1,8 @@
 # plasmid
 
-Iki's plasmid plugin: plasmids and vectors by the circular sequence that is each one,
-the cloning plans that make them, and the common vector parts a plasmid is annotated
-from.
+Iki's plasmid plugin: plasmids and vectors by the sequence that is each one, circular or
+linear, the cloning plans that make them, and the common vector parts a plasmid is
+annotated from.
 
 - **`iki/plasmid.Plasmid`** (`PLS-000001`): a plasmid or vector.
   - **Its identity is its sequence**: a reference to an `iki/dna.DNASequence` registry
@@ -14,6 +14,13 @@ from.
     — so this plugin never spells a plasmid's bases again. Two plasmids of one sequence
     are one entry: pUC19 fetched from GenBank in one project and registered from a
     vendor's file in another is the same PLS in both.
+  - **Its topology is its registry entry's too, and part of what it is**
+    ([ADR 0168](../../docs/adr/0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md)):
+    `circular` or `linear`, derived from its sequence, the same for every project, set
+    once and written only by an action, with a rule that keeps it equal to its
+    sequence's at every save. The same bases closed into a circle and left with two ends
+    are two sequence entries, so they are two plasmids with two IDs — nobody states a
+    plasmid's topology against its molecule, and nobody edits it either.
   - **What a plasmid is, for everyone who holds it, is its registry entry's.** Its
     `length` follows from the sequence alone (`registry: derived`). Its `vector_type`,
     the `hosts` it works in, its `copy_number` (high for a pUC origin, low for pBR322's,
@@ -37,17 +44,22 @@ from.
     ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)): a
     plasmid's sequence is circular; one under a material transfer agreement names the
     agreement; one at BSL-2 or above names its biosafety approval.
-  - A plasmid record here is a **circular** one: the map draws a circle, the annotation
-    reads across the origin, and a cloning plan has to close into one. Linear plasmids
-    are real — _Kluyveromyces lactis_ carries pGKL1 and pGKL2, _Borrelia burgdorferi_ a
-    set of them, _Streptomyces coelicolor_ SCP1 — and GenBank records them, so this is
-    the plugin's boundary rather than biology's
-    ([ADR 0163](../../docs/adr/0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md)).
-    A linear molecule is held as an `iki/dna.DNASequence`, which reads it as it is.
-  - Its **Map** tab draws it round a circle, each annotated part an arc pointing the way
-    its strand runs, with every part also in a table beneath, so nothing is told by
-    colour alone. Its bases, with the features its GenBank record gave, are one click
-    away on its sequence, in Iki's own sequence viewer.
+  - A plasmid here is **circular or linear**. Most are circles; linear plasmids are real
+    — _Kluyveromyces lactis_ carries pGKL1 and pGKL2 (INSDC X01095.1 and X01104.1),
+    _Borrelia burgdorferi_ a set of them, _Streptomyces coelicolor_ SCP1 — and GenBank
+    records them, their LOCUS line reading `linear`, as Benchling and SnapGene both do.
+    A linear molecule's two ends are ends: its map is a line, nothing is annotated across
+    them, and a cloning plan for it doesn't close.
+  - Its **Map** tab draws the molecule it is. A circle is a ring with base 1 at the top
+    going clockwise, each annotated part an arc pointing the way its strand runs, and it
+    can be shown as a line as well, cut at base 1 — the view to read beside a gel or a
+    sequencing read — which is how SnapGene and Benchling offer the two. A linear plasmid
+    opens on the line, with an end drawn at each end, and is offered no ring, since it
+    has no origin to go round. The two views are buttons that say which is shown,
+    reachable and pressable from the keyboard; both are described in words and every part
+    is in the table beneath, so nothing is told by colour or by the drawing alone. Its
+    bases, with the features its GenBank record gave, are one click away on its sequence,
+    in Iki's own sequence viewer.
 - **`iki/plasmid.Assembly`** (`ASM-000001`): a cloning plan — a `backbone`, the
   `inserts` going into it, the `method` and the `enzymes` it cuts with. It has no
   identity: one molecule can be built several ways, and how a lab built its own copy is
@@ -56,6 +68,16 @@ from.
   what the plan makes is `derived_from` it, so a plan, the sequence it makes
   and the plasmid that is it are one chain in the graph
   ([ADR 0123](../../docs/adr/0123-queries-walk-the-graph-of-what-depends-on-what.md)).
+  - **What it makes is a circle or a linear molecule, and the plan doesn't say which**:
+    its `simulated_topology` follows from the method and the parts, computed by the run
+    and never stated
+    ([ADR 0168](../../docs/adr/0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md)).
+    Parts that close a circle make that circle, which is what a ligase or an assembly mix
+    leaves to transform; parts that only join end to end make the linear molecule they
+    make, as a Golden Gate or Gibson construct whose outer ends pair with nothing does,
+    or a cut vector with no insert; and the `digest` method cuts one molecule and keeps a
+    band, which is linear by definition — a vector linearised by one cut, or a fragment
+    cut out of a plasmid. A digest takes no inserts, which a rule keeps.
   - Its `status` goes Planned → Checked → Built → Verified, each state set by the lab
     roles that may, with guards: it's Checked only once the plan matches its product,
     Built only from Checked, and Verified only from Built by someone other than whoever
@@ -83,19 +105,24 @@ Biopython, which the annotation's alignments and the digests' restriction enzyme
 software, so what their runs make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
 
-- **`register_plasmid`**: registers a plasmid from its bases — the circular,
-  double-stranded DNA sequence, and the plasmid that is it. The same molecule given
-  again, from another origin or on the other strand, finds the entries it has already,
-  and the project gets its records of them. An Addgene number given with it sets
-  `source` to Addgene.
+- **`register_plasmid`**: registers a plasmid from its bases — the double-stranded DNA
+  sequence and the plasmid that is it. Its `topology` param is `circular` unless it's set
+  to `linear`, which is the default GenBank's LOCUS line and SnapGene both take, and what
+  a linear plasmid needs changed. The same molecule given again, from another origin or
+  on the other strand, finds the entries it has already, and the project gets its records
+  of them. An Addgene number given with it sets `source` to Addgene.
 - **`annotate_plasmid`**: finds the library's parts along a plasmid's sequence and
   records what they say about it. A trigger runs it when a project gets a plasmid — on
   each project's own record, not once per entry, since the annotation is the record's.
-  Its `length` is its entry's, so a run fills that only where it's still empty.
-- **`assemble`**: works out the circle a plan makes and registers what it makes — the DNA
-  sequence and the plasmid that is it, both `derived_from` the plan — so a map and primers
-  can be had before anything is cloned, and records the circle's length and junctions on
-  the plan. It leaves the plan's `product` alone: that's the sequence the clone turned out
+  Its `length` and its `topology` are its entry's, so a run fills each only where it's
+  still empty.
+- **`assemble`**: works out the molecule a plan makes and registers it — the DNA
+  sequence, and the plasmid that is it where the plan closes a circle, both
+  `derived_from` the plan — so a map and primers can be had before anything is cloned,
+  and records that molecule's length, topology and junctions on the plan. A linear
+  product is registered as the sequence alone: a cut vector or an assembled fragment is
+  on its way to something else, and a linear plasmid is registered as a plasmid by
+  whoever knows it is one. It leaves the plan's `product` alone: that's the sequence the clone turned out
   to have, which whoever sequenced it states, and `check_assembly` then compares the two.
 - **`check_assembly`**: works out what a plan makes and checks it against the sequence
   the clone turned out to have. A trigger runs it as soon as someone states the product,

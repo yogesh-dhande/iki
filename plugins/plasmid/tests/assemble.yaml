@@ -242,3 +242,44 @@ inputs:
               }
 expect:
   error: "make 2 different circles (168 bp, 198 bp)"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_digest_leaves_the_linear_molecule_it_cuts
+description: >-
+  A digest cuts one molecule and keeps a band, which is a linear molecule: the backbone
+  has one EcoRI site, so one cut leaves one fragment as long as the circle, opened at the
+  cut. What the plan makes is registered as the DNA sequence it is, and no plasmid record
+  is registered for it -- a cut vector is on its way to something else -- and the plan
+  keeps the length and the topology of what it makes, with no junctions, since a molecule
+  with two free ends has none.
+action: assemble
+inputs:
+  assembly:
+    - values: { method: digest, enzymes: [EcoRI], name: pBackbone cut }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+                name: pBackbone,
+              }
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: made
+        values:
+          {
+            bases: "AATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTTGAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATG",
+            topology: linear,
+            strandedness: double,
+            name: pBackbone cut,
+          }
+    updates:
+      assembly:
+        - values:
+            simulated_length: 222
+            simulated_topology: linear
+            junctions: []

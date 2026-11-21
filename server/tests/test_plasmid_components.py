@@ -138,6 +138,7 @@ PCDNA = {
     "values": {
         "name": "pcDNA3.1(+)",
         "length": 5428,
+        "topology": "circular",
         "annotated_with": "iki/plasmid features 1.0 (34 parts), at least 90% identity",
         "annotated_features": [
             _feature(
@@ -226,8 +227,28 @@ AROUND = {
     "values": {
         "name": "a construct",
         "length": 4000,
+        "topology": "circular",
         "annotated_features": [
             _feature("CDS", "AmpR", 3900, 120, "forward", "resistance", "99.5%", "AmpR")
+        ],
+    },
+}
+
+#: pGKL1 (INSDC X01095.1), the 8,874 bp linear killer plasmid of Kluyveromyces lactis,
+#: with two parts of a library along it, one on each strand: a linear molecule's map is
+#: drawn as a line, since it has two ends and no origin to go round.
+LINEAR = {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "hrid": "PLS-000005",
+    "type": "iki/plasmid.Plasmid",
+    "values": {
+        "name": "pGKL1",
+        "length": 8874,
+        "topology": "linear",
+        "annotated_with": "iki/plasmid features 1.0 (34 parts), at least 90% identity",
+        "annotated_features": [
+            _feature("CDS", "ORF2", 3230, 6670, "forward", "regulatory", "100.0%", "ORF2"),
+            _feature("CDS", "ORF3", 6641, 7927, "reverse", "regulatory", "100.0%", "ORF3"),
         ],
     },
 }
@@ -250,8 +271,9 @@ def _open(browser: Browser, frame_server: str, entity: object, **options: Any) -
 def test_the_map_says_in_words_what_it_draws(browser: Browser, frame_server: str) -> None:
     page = _open(browser, frame_server, PCDNA)
     assert page.get_by_text(
-        "5,428 base pairs, with 10 parts of the library found along it: CMV promoter and "
-        "enhancer (human cytomegalovirus immediate early), 302 to 818 on the forward strand"
+        "A circle of 5,428 base pairs, drawn as a ring with base 1 at the top, going "
+        "clockwise, with 10 parts of the library found along it: CMV promoter and enhancer "
+        "(human cytomegalovirus immediate early), 302 to 818 on the forward strand"
     ).is_visible()
     # The drawing itself is hidden from screen readers, since the words and the table say it.
     assert page.locator("svg[aria-hidden=true]").count() == 1
@@ -338,7 +360,10 @@ def test_an_annotated_plasmid_with_no_parts_found_says_none_were(
     }
     page.goto(f"{frame_server}/frame/{MODULE}#{urllib.parse.quote(json.dumps(entity))}")
     page.get_by_role("heading", name="Map").wait_for(timeout=30_000)
-    said = page.get_by_text("4,000 base pairs, with none of the library's parts found along it.")
+    said = page.get_by_text(
+        "A circle of 4,000 base pairs, drawn as a ring with base 1 at the top, going "
+        "clockwise, with none of the library's parts found along it."
+    )
     assert said.count() == 1
     context.close()
 
@@ -348,6 +373,127 @@ def test_it_passes_wcag_22_aa(browser: Browser, frame_server: str, scheme: str) 
     # axe is run as a script, which the frame's policy refuses to a page's own: here the
     # context sets the policy aside, which changes nothing axe checks.
     page = _open(browser, frame_server, PCDNA, color_scheme=scheme, bypass_csp=True)
+    page.evaluate(AXE.read_text())
+    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+    page.context.close()
+
+
+# --- the ring and the line (ADR 0168) ------------------------------------------------
+
+
+def test_a_linear_plasmid_opens_on_the_line_and_is_offered_no_ring(
+    browser: Browser, frame_server: str
+) -> None:
+    """A linear molecule has two ends and no origin, so its map is a line, and there is
+    no ring view to switch to. The words say it is linear and where its ends are, and
+    every part is in the table beneath as it is on a circle's map."""
+    page = _open(browser, frame_server, LINEAR)
+    assert page.get_by_text(
+        "A linear molecule of 8,874 base pairs, drawn as a line from base 1 at the left to "
+        "base 8,874 at the right, with an end at each, with 2 parts of the library found "
+        "along it: ORF2, 3,230 to 6,670 on the forward strand; ORF3, 6,641 to 7,927 on the "
+        "reverse strand."
+    ).is_visible()
+    assert page.get_by_role("group", name="Map view").count() == 0
+    assert page.get_by_role("rowheader", name="ORF2").count() == 1
+    assert page.locator("svg[aria-hidden=true]").count() == 1
+    assert ERRORS[page] == []
+    assert page.evaluate("window.refused") == []
+    page.context.close()
+
+
+def test_a_circular_plasmid_opens_on_the_ring_and_switches_to_the_line(
+    browser: Browser, frame_server: str
+) -> None:
+    """A circle opens on its ring, as a plasmid is read, and can be seen as a line too --
+    cut at base 1, which the words say, since that is where a part across the origin is
+    split in two. Each view's button says whether it is the one being shown, and the
+    table is the same under both."""
+    page = _open(browser, frame_server, PCDNA)
+    ring = page.get_by_role("button", name="Circular")
+    line = page.get_by_role("button", name="Linear")
+    assert ring.get_attribute("aria-pressed") == "true"
+    assert line.get_attribute("aria-pressed") == "false"
+    assert page.get_by_text(
+        "A circle of 5,428 base pairs, drawn as a ring with base 1 at the top, going clockwise"
+    ).is_visible()
+    line.click()
+    assert page.get_by_text(
+        "A circle of 5,428 base pairs, drawn as a line cut at base 1, so a part across its "
+        "origin is drawn in two pieces"
+    ).is_visible()
+    assert page.get_by_role("button", name="Linear").get_attribute("aria-pressed") == "true"
+    assert page.get_by_role("button", name="Circular").get_attribute("aria-pressed") == "false"
+    assert page.get_by_role("row").count() == 11
+    # And back to the ring.
+    page.get_by_role("button", name="Circular").click()
+    assert page.get_by_role("button", name="Circular").get_attribute("aria-pressed") == "true"
+    assert ERRORS[page] == []
+    page.context.close()
+
+
+def test_the_views_are_reached_and_chosen_from_the_keyboard(
+    browser: Browser, browser_name: str, frame_server: str
+) -> None:
+    """The two views are buttons, so the keyboard reaches them and presses them as it does
+    any button -- with Enter and with Space -- and after a view is chosen the keyboard is
+    left on the button that was pressed rather than at the top of the page.
+
+    Safari moves the tab key between links and form fields only unless its full keyboard
+    access is on, so where the tab key lands is checked in the browsers whose default it
+    is; pressing the buttons from the keyboard is checked in all three.
+    """
+    page = _open(browser, frame_server, PCDNA)
+    focused = "document.querySelector('plasmid-map').shadowRoot.activeElement"
+    if browser_name != "webkit":
+        page.keyboard.press("Tab")
+        assert page.evaluate(f"{focused}?.textContent") == "Circular"
+        page.keyboard.press("Tab")
+        assert page.evaluate(f"{focused}?.textContent") == "Linear"
+    else:
+        page.get_by_role("button", name="Linear").focus()
+    page.keyboard.press("Enter")
+    assert page.get_by_role("button", name="Linear").get_attribute("aria-pressed") == "true"
+    # The keyboard is on the view that was chosen, so the next key reaches it.
+    assert page.evaluate(f"{focused}?.getAttribute('aria-pressed')") == "true"
+    # Space works too, as it does on any button: back to the ring, and the keyboard with it.
+    page.get_by_role("button", name="Circular").focus()
+    page.keyboard.press(" ")
+    assert page.get_by_role("button", name="Circular").get_attribute("aria-pressed") == "true"
+    assert page.evaluate(f"{focused}?.textContent") == "Circular"
+    assert ERRORS[page] == []
+    page.context.close()
+
+
+def test_the_line_draws_a_part_across_the_origin_in_two_pieces(
+    browser: Browser, frame_server: str
+) -> None:
+    """A circle's part that crosses its origin is one arc on the ring and two pieces on
+    the line, since the line is cut there. Its row in the table gives both stretches
+    either way, so the table says what the drawing can't."""
+    page = _open(browser, frame_server, AROUND)
+    bars = (
+        "document.querySelector('plasmid-map').shadowRoot.querySelectorAll('svg line.arc').length"
+    )
+    page.get_by_role("button", name="Linear").click()
+    assert page.evaluate(bars) == 2
+    assert page.get_by_role("cell", name="3,900–4,000, 1–120").count() == 1
+    page.get_by_role("button", name="Circular").click()
+    assert page.evaluate(bars) == 0  # the ring draws arcs as paths, not lines
+    assert page.get_by_role("cell", name="3,900–4,000, 1–120").count() == 1
+    page.context.close()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_line_passes_wcag_22_aa(browser: Browser, frame_server: str, scheme: str) -> None:
+    """The linear map and its view buttons, in light and dark, on a linear plasmid and on
+    a circle shown as a line."""
+    page = _open(browser, frame_server, LINEAR, color_scheme=scheme, bypass_csp=True)
+    page.evaluate(AXE.read_text())
+    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+    page.context.close()
+    page = _open(browser, frame_server, PCDNA, color_scheme=scheme, bypass_csp=True)
+    page.get_by_role("button", name="Linear").click()
     page.evaluate(AXE.read_text())
     assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     page.context.close()
