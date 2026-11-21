@@ -923,6 +923,66 @@ describe("an entity's page", () => {
     ).toEqual(["FieldBeforeAfter", "Resolution2.4 Å2.1 Å"]);
   });
 
+  it("keeps each hold a revision opened, and who reviewed it, why and when", async () => {
+    onStructure();
+    const hold = {
+      id: "00000000-0000-7000-8000-0000000000h1",
+      rule: "purity_in_specification",
+      label: "Purity in specification",
+      message: "Purity must be at least 95%.",
+      held_by: ALICE,
+      agent: null,
+      held_at: "2026-03-14T09:00:00Z",
+      reason: "Kept: the measurement is valid.",
+      revision: 1,
+      last_revision: 2,
+      reviewer: null,
+      reviewed_at: null,
+      review_reason: "",
+    };
+    answer(
+      "GET /api/v1/entities/PST-000001/revisions",
+      page([
+        revision({ number: 3, kind: "edited", changed_fields: ["resolution"] }),
+        revision({
+          number: 2,
+          kind: "edited",
+          changed_fields: ["resolution"],
+          holds: [
+            {
+              ...hold,
+              id: "00000000-0000-7000-8000-0000000000h2",
+              revision: 2,
+              last_revision: 2,
+              reason: "Retested.",
+            },
+          ],
+        }),
+        revision({
+          number: 1,
+          changed_fields: ["structure", "resolution"],
+          holds: [
+            {
+              ...hold,
+              reviewer: { ...ALICE, name: "Grace Hopper", email: "grace@example.com" },
+              reviewed_at: "2026-03-15T09:00:00Z",
+              review_reason: "SEC rerun within limits.",
+            },
+          ],
+        }),
+      ]),
+    );
+    await renderApp("/entities/PST-000001/history/");
+    await screen.findByText("Revision 1: Created by Rosalind Franklin");
+    const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
+    expect(within(first).getByRole("listitem")).toHaveTextContent(
+      /^Held for review: Purity in specification\. Purity must be at least 95%\. Saved anyway: “Kept: the measurement is valid\.” Revision 2 broke it again\. Reviewed by Grace Hopper .+: “SEC rerun within limits\.”$/,
+    );
+    const second = screen.getByRole("list", { name: "Holds revision 2 opened" });
+    expect(within(second).getByRole("listitem")).toHaveTextContent(/Still held, for review\.$/);
+    expect(screen.queryByRole("list", { name: "Holds revision 3 opened" })).toBeNull();
+  });
+
   it("watches a record, or mutes it", async () => {
     onStructure();
     const watch = "/api/v1/entities/00000000-0000-7000-8000-00000000e002/watch";

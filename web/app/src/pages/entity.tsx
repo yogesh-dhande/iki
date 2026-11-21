@@ -1229,6 +1229,35 @@ function submittedText(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
+/** The holds a revision opened (ADR 0127), kept after they're reviewed: an out-of-
+ * specification result stays visible, with why it was saved and who reviewed it. */
+function HoldsOpened({ revision }: { revision: Revision }) {
+  const holds = revision.holds ?? [];
+  if (!holds.length) return null;
+  return (
+    <ul className="row-holds" aria-label={`Holds revision ${String(revision.number)} opened`}>
+      {holds.map((h) => (
+        <li key={h.id}>
+          Held for review: {h.label}. {h.message}{" "}
+          {h.held_by ? "Saved anyway" : "Held by Iki’s check of its plugins’ rules"}
+          {h.agent ? `, through ${h.agent}` : ""}: “{h.reason}”
+          {h.last_revision !== h.revision
+            ? ` Revision ${String(h.last_revision)} broke it again.`
+            : ""}{" "}
+          {h.reviewer && h.reviewed_at ? (
+            <>
+              Reviewed by {personName(h.reviewer)} <RelativeTime value={h.reviewed_at} />: “
+              {h.review_reason}”
+            </>
+          ) : (
+            "Still held, for review."
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function RevisionRow({ revision, type }: { revision: Revision; type: EntityType | undefined }) {
   const [open, setOpen] = useState(false);
   const who = personName(revision.user);
@@ -1274,6 +1303,7 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
             ))}
           </ul>
         ) : null}
+        <HoldsOpened revision={revision} />
         {open ? <Changes number={revision.number} type={type} /> : null}
       </div>
       {revision.changed_fields.length ? (

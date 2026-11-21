@@ -676,6 +676,25 @@ class HoldOut(Schema):
     why_not: str | None = Field(None, description="Why you may not, when you may not.")
 
 
+class HeldOut(Schema):
+    """A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
+    was kept, and its review, once someone has reviewed it."""
+
+    id: UUID
+    rule: str
+    label: str
+    message: str = Field(description="What the save that held it was told.")
+    held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
+    agent: str | None = Field(None, description="The app or agent that saved it for them.")
+    held_at: datetime
+    reason: str = Field(description="Why it was saved anyway.")
+    revision: int = Field(description="The revision that held it.")
+    last_revision: int = Field(description="The latest revision that broke the rule again.")
+    reviewer: UserOut | None = Field(description="Who reviewed it; null while it's held.")
+    reviewed_at: datetime | None
+    review_reason: str = Field(description="Why the reviewer let it stand.")
+
+
 class BreachOut(Schema):
     """A rule the record breaks, found after it was saved (ADR 0127): its plugin added or
     changed the rule, or a bundle brought it. The next save that checks it clears it."""
@@ -923,6 +942,11 @@ class RevisionOut(Schema):
         description="For a state change (ADR 0125): which state field, and the states it "
         "went from and to. One a plugin's migration made, moving records out of a state it "
         "removed, is by no one, via `system`."
+    )
+    holds: list[HeldOut] = Field(
+        default_factory=list,
+        description="The holds this revision opened (ADR 0127), by breaking a rule that "
+        "holds, each with its review once it's reviewed. Kept after the review.",
     )
     submitted: dict[str, Any] | None = Field(
         None,
@@ -2297,8 +2321,44 @@ def list_revisions(
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
     states = revision_states(result["items"])
-    result["items"] = [_revision(r, made, states=states) for r in result["items"]]
+    held = _holds_opened(entity, result["items"])
+    result["items"] = [
+        {**_revision(r, made, states=states), "holds": held.get(r.number, [])}
+        for r in result["items"]
+    ]
     return result
+
+
+def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
+    """The holds each of a record's revisions opened (ADR 0127), as ``HeldOut``, by
+    revision number: reviewed or not, as its history keeps them."""
+    numbers = [r.number for r in revisions if r.entity_id == entity.pk]
+    if not numbers or entity.registry_id is not None:
+        return {}
+    out: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in (
+        RuleHold.objects.filter(entity_id=entity.pk, revision__in=numbers)
+        .select_related("held_by", "held_agent", "reviewed_by")
+        .order_by("held_at", "pk")
+    ):
+        out[row.revision].append(
+            {
+                "id": row.pk,
+                "rule": row.rule,
+                "label": row.label,
+                "message": row.message,
+                "held_by": row.held_by,
+                "agent": row.held_agent.client_name if row.held_agent is not None else None,
+                "held_at": row.held_at,
+                "reason": row.reason,
+                "revision": row.revision,
+                "last_revision": row.last_revision,
+                "reviewer": row.reviewed_by,
+                "reviewed_at": row.reviewed_at,
+                "review_reason": row.review_reason,
+            }
+        )
+    return out
 
 
 @router.get(
@@ -2334,6 +2394,7 @@ def get_revision(
     refs, files = _lookup(me, wanted)
     return {
         **_revision(revision, _runs_of(me, [revision])),
+        "holds": _holds_opened(entity, [revision]).get(revision.number, []),
         "values": {n: to_json(fields[n], v) for n, v in values.items()},
         "changes": {
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}

@@ -2295,6 +2295,12 @@ a.lineage-node:focus-visible {
   margin: 0.25rem 0 0;
 }
 
+/* The holds a revision opened (ADR 0127), and their reviews. */
+.row-holds {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
 /* A record's identity as it was given (ADR 0138): a sequence may be long. */
 .row-submitted {
   margin: 0.25rem 0 0;
