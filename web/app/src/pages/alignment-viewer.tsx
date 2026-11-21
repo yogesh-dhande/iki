@@ -4,7 +4,8 @@
  * reads the file in a Web Worker. Rows headed by the HRID of a sequence the alignment
  * lists link to it and can be picked to run an action on; others, such as reads, show
  * under their own names. The sequence the others were aligned to is pinned at the top,
- * and the others can show only where they differ from it.
+ * and the others can show only where they differ from it, and be stepped through from one
+ * column where they differ to the next.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -34,7 +35,7 @@ import {
   type Shown,
 } from "../alignment";
 import { formatSize, type EntityType } from "../entities";
-import { compared, possibleOf } from "../alignment-compare";
+import { compared, possibleOf, stepped } from "../alignment-compare";
 import { declaredAlphabet, MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
 import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
@@ -332,6 +333,8 @@ function AlignmentGrid({
   });
   const [colouring, setColouring] = useState<Colouring>("agreeing");
   const [differences, setDifferences] = useState(false);
+  /** The difference last gone to, and whether getting there went round past an end. */
+  const [found, setFound] = useState<{ index: number; round: "start" | "end" | null } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [scroll, setScroll] = useState<Scroll>({ left: 0, top: 0, width: 0, height: 0 });
   const region = useRef<HTMLDivElement | null>(null);
@@ -435,12 +438,39 @@ function AlignmentGrid({
     reveal(at, centre);
   }
 
+  // The columns the summary counts as differing, so stepping goes to just those.
+  const differing = comparison?.columns ?? [];
+
+  /** Goes to the `index`th differing column, on the cursor's row, and says which it is. */
+  function toDifference(index: number, round: "start" | "end" | null = null) {
+    const column = differing[index];
+    if (column === undefined) return;
+    moveTo({ row: cursor.row, column }, true);
+    // With only one, going round to it again isn't news.
+    setFound({ index, round: differing.length > 1 ? round : null });
+  }
+
+  /** Goes to the next differing column after the cursor's, or the last before it, going
+   * round past the end or the start as find on a page does. */
+  function step(direction: 1 | -1) {
+    const next = stepped(differing, cursor.column, direction);
+    if (!next) return;
+    toDifference(next.index, next.wrapped ? (direction === 1 ? "start" : "end") : null);
+  }
+
   function keyed(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (plain && differing.length && event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      step(event.shiftKey ? -1 : 1);
+      return;
+    }
     const page = Math.max(Math.floor((scroll.height - top) / ROW) - 1, 1);
     const next = moved(event.key, cursor, rows.length, length, page);
     if (!next) return;
     event.preventDefault();
+    setFound(null);
     moveTo(next);
   }
 
@@ -454,6 +484,7 @@ function AlignmentGrid({
     const column = Math.floor((x + el.scrollLeft) / CELL);
     const row = y < top ? 0 : Math.floor((y - top + el.scrollTop) / ROW) + pinned;
     if (column >= length || row >= rows.length) return;
+    setFound(null);
     setCursor({ row, column });
     el.focus();
   }
@@ -497,8 +528,27 @@ function AlignmentGrid({
             ? `${number.format(comparison.residues)} residues`
             : `residues ${number.format(reference.row.start)}–${number.format(reference.row.start + reference.row.residues - 1)}`}{" "}
           ({percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
-          differ from it at {number.format(comparison.differing)}{" "}
-          {comparison.differing === 1 ? "column" : "columns"}
+          differ from it at{" "}
+          {comparison.differing ? (
+            <button
+              type="button"
+              className="alignment-jump"
+              aria-label={
+                comparison.differing === 1
+                  ? "Go to the 1 column where they differ"
+                  : `Go to the first of the ${number.format(comparison.differing)} columns where they differ`
+              }
+              onClick={() => {
+                toDifference(0);
+                region.current?.focus();
+              }}
+            >
+              {number.format(comparison.differing)}{" "}
+              {comparison.differing === 1 ? "column" : "columns"}
+            </button>
+          ) : (
+            `${number.format(0)} columns`
+          )}
         </p>
       ) : (
         <p className="muted">
@@ -547,6 +597,33 @@ function AlignmentGrid({
             <span className="choice-text">Only where they differ from {labelOf(reference)}</span>
           </label>
         ) : null}
+        {differing.length ? (
+          <div className="alignment-steps">
+            <button
+              type="button"
+              className={buttonClass()}
+              onClick={() => {
+                step(-1);
+              }}
+            >
+              Previous difference
+            </button>
+            <button
+              type="button"
+              className={buttonClass()}
+              onClick={() => {
+                step(1);
+              }}
+            >
+              Next difference
+            </button>
+            <p role="status">
+              {found
+                ? `Difference ${number.format(found.index + 1)} of ${number.format(differing.length)}: column ${number.format((differing[found.index] ?? 0) + 1)}${found.round ? `, back at the ${found.round}` : ""}.`
+                : null}
+            </p>
+          </div>
+        ) : null}
         <form
           className="alignment-go"
           onSubmit={(event) => {
@@ -556,6 +633,7 @@ function AlignmentGrid({
               (data.get("column") as string | null) ?? "".replaceAll(/[\s,]/g, ""),
             );
             if (!Number.isInteger(column) || column < 1 || column > length) return;
+            setFound(null);
             moveTo({ row: cursor.row, column: column - 1 }, true);
             region.current?.focus();
           }}
@@ -634,6 +712,9 @@ function AlignmentGrid({
       </div>
       <p id={`${ids}-keys`} className="visually-hidden">
         The arrow keys move along the alignment; Home and End go to a row’s first and last column.
+        {reference && differing.length
+          ? ` N and Shift+N go to the next and previous column where they differ from ${labelOf(reference)}.`
+          : null}
       </p>
       <p id={`${ids}-at`} className="alignment-at" aria-live="polite">
         {atRow ? (
