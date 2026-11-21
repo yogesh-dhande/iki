@@ -1419,6 +1419,111 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
     assert_clean(page)
 
 
+#: Stands in for the clipboard, keeping what the page copies: a test can't read the
+#: system's in every browser.
+CLIPBOARD = """() => {
+  window.__copied = [];
+  navigator.clipboard.writeText = (text) => {
+    window.__copied.push(text);
+    return Promise.resolve();
+  };
+}"""
+
+
+def _record(world: World, tmp_path: Path, accession: str, path: Path) -> tuple[str, dict[str, Any]]:
+    """An NCBI record as the DNA plugin's import reads it, registered as a plasmid: its
+    HRID, and the values it was given."""
+    from test_sequence_files import imported
+
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    read = imported(tmp_path, path.read_bytes(), f"{accession}.gb")
+    values = {
+        "name": accession,
+        "bases": read["bases"],
+        "topology": read["topology"],
+        "strandedness": read.get("strandedness", "double"),
+        "features": read.get("features", []),
+    }
+    made = entities.create(world.users["admin"], "acme/dna.Plasmid", world.project, values)
+    return Entity.objects.get(pk=made.entity.pk).hrid, values
+
+
+def _place(page: Page, row: int, after: int) -> tuple[float, float]:
+    """Where to point to put the caret after the `after`th base (0 to 60) of a row, from 0:
+    just short of the boundary, which the viewer rounds to."""
+    line = page.locator(f".sequence-row[data-index='{row}'] .sequence-residues").first
+    group = line.locator(".sequence-group").first
+    box, unit = line.bounding_box(), group.bounding_box()
+    assert box is not None and unit is not None
+    ch = unit["width"] / 10
+    column = after + max(after - 1, 0) // 10
+    return box["x"] + (column - 0.2) * ch, box["y"] + box["height"] / 2
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parents[2] / "plugins" / "dna" / "scripts"))
+    import sequences  # type: ignore[import-not-found]
+
+    hrid, values = _record(
+        world, tmp_path, "L09137.2", Path(__file__).parent / "data" / "plasmids" / "L09137.2.gb"
+    )
+    bases = values["bases"]
+    page = open_as("admin", f"/entities/{hrid}/viewers/sequence/", color_scheme)
+    page.get_by_text("2,686 bp · circular · 0 features").wait_for()
+    rows = page.get_by_role("application", name="Bases of L09137.2")
+    rows.wait_for()
+    # Under each row, the other strand, 3′ to 5′: pUC19c's TCGCGCGTTT pairs with AGCGCGCAAA.
+    other = page.locator(".sequence-row[data-index='0'] .sequence-complement")
+    assert (other.text_content() or "")[:10] == "AGCGCGCAAA"
+    page.evaluate(CLIPBOARD)
+
+    # Its first 24 bases, by pointer: from before the first to after the 24th.
+    page.mouse.click(*_place(page, 0, 0))
+    page.keyboard.down("Shift")
+    page.mouse.click(*_place(page, 0, 24))
+    page.keyboard.up("Shift")
+    first = bases[:24]
+    gc, tm = sequences.gc_content(first), sequences.melting_temperature(first)
+    assert (gc, tm) == (62.5, 64.2)
+    readout = page.get_by_text(re.compile("^Bases 1–24 selected"))
+    readout.wait_for()
+    assert readout.text_content() == f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C"
+    assert_clean(page)
+    page.get_by_role("button", name="Copy", exact=True).click()
+    page.get_by_role("status").filter(has_text="Copied 24 bases.").wait_for()
+    page.get_by_role("button", name="Copy reverse complement").click()
+    page.get_by_role("status").filter(has_text="reverse complement").wait_for()
+    assert page.evaluate("window.__copied") == [first, sequences.reverse_complement(first)]
+
+    # By keyboard: the whole of it, whose GC content is what compute_composition records.
+    rows.focus()
+    page.keyboard.press("Control+a")
+    whole = sequences.composition(bases)["gc_content"]
+    page.get_by_text(
+        f"Bases 1–2,686 selected: 2,686 bp · GC {whole:g}% · no Tm past 200 bases"
+    ).wait_for()
+    page.keyboard.press("Escape")
+    page.keyboard.press("Control+Home")
+    for _ in range(3):
+        page.keyboard.press("Shift+ArrowRight")
+    page.get_by_text("Bases 1–3 selected: 3 bp").wait_for()
+    assert page.locator(".sequence-caret").count() == 1
+    assert_clean(page)
+
+    # What's selected stays in view as the rows scroll under it.
+    page.mouse.wheel(0, 3000)
+    page.wait_for_function("() => window.scrollY > 1000")
+    tools = page.locator(".sequence-tools").bounding_box()
+    assert tools is not None and -1 <= tools["y"] <= 1, tools
+
+
 def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
     """A file in the project, its bytes put straight into the store the server reads."""
     import hashlib

@@ -1,21 +1,44 @@
 /** The sequence viewer's layout: rows, lanes, and features that wrap the origin. */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  AT_START,
+  caretRow,
   columnOf,
+  complement,
   extremes,
   featureLength,
+  gcContent,
   kindOf,
   lanesPerRow,
   lengthText,
   locationText,
+  meltingTemperature,
+  moved,
   piecesIn,
+  placeAt,
   readFeatures,
   readTrack,
+  residuesOf,
+  reverseComplement,
+  selected,
+  stretchLength,
   trackScale,
+  type Caret,
   type Feature,
 } from "./sequence";
+
+/** A file of the repository's, from web/app (as pnpm runs the tests) or from its root. */
+function repositoryFile(path: string): string {
+  const here = join(process.cwd(), "..", "..", path);
+  return readFileSync(existsSync(here) ? here : path, "utf8");
+}
+
+/** pUC19c's 2,686 bases (GenBank L09137.2), as the server's tests read them. */
+const PUC19C = repositoryFile("server/tests/data/L09137.2.fasta").split("\n").slice(1).join("");
 
 const PUC19 = [
   { type: "CDS", name: "bla", start: 1626, end: 2486, strand: "reverse" },
@@ -228,5 +251,107 @@ describe("tracks", () => {
   it("say where their highest and lowest values are", () => {
     expect(extremes([null, 1.5, -2, 1.5])).toEqual({ highest: [1.5, 2], lowest: [-2, 3] });
     expect(extremes([null, null])).toBeNull();
+  });
+});
+
+describe("the two strands", () => {
+  it("pair base by base, each IUPAC code with its complement's", () => {
+    expect(complement("ACGTRYKMBVDHSWN")).toBe("TGCAYRMKVBHDSWN");
+    expect(complement("acgtn")).toBe("tgcan");
+    expect(complement("AUGC", "rna")).toBe("UACG");
+    expect(complement("AC-GT")).toBe("TG-CA");
+  });
+
+  it("read as the other strand 5′ to 3′: what binds them", () => {
+    // pUC19's M13/pUC forward primer site, and the reverse primer (NEB S1224, S1201).
+    expect(reverseComplement("GTAAAACGACGGCCAGT")).toBe("ACTGGCCGTCGTTTTAC");
+    expect(reverseComplement("GAATTC")).toBe("GAATTC"); // EcoRI's site is its own
+    expect(reverseComplement("AUGGCC", "rna")).toBe("GGCCAU");
+  });
+});
+
+describe("what a stretch of bases is", () => {
+  it("has the GC content the DNA plugin's compute_composition records", () => {
+    // plugins/dna/scripts/sequences.py's gc_content of the same bases.
+    expect(PUC19C).toHaveLength(2686);
+    expect(gcContent(PUC19C)).toBe(50.63);
+    expect(gcContent("GTAAAACGACGGCCAGT")).toBe(52.94);
+    // N says nothing of pairing; S is G or C, W is A or T.
+    expect(gcContent("ACGN")).toBe(66.67);
+    expect(gcContent("SSWW")).toBe(50);
+    expect(gcContent("NNRY")).toBeNull();
+  });
+
+  it("melts as the DNA plugin's primers do: SantaLucia 1998, 50 mM Na+, 50 nM strands", () => {
+    // plugins/dna/scripts/sequences.py's melting_temperature, and Biopython's Tm_NN with
+    // DNA_NN3, Na=50, saltcorr=5, dnac1=dnac2=25, of the same bases.
+    expect(meltingTemperature("GTAAAACGACGGCCAGT")).toBe(49.2); // M13/pUC forward
+    expect(meltingTemperature("CAGGAAACAGCTATGAC")).toBe(43.6); // M13/pUC reverse
+    expect(meltingTemperature(PUC19C.slice(0, 24))).toBe(64.2);
+    expect(meltingTemperature("gtaaaacgacggccagt")).toBe(49.2);
+    // A strand that pairs with itself, at CT rather than CT/4, with the symmetry term.
+    expect(meltingTemperature("GAATTC")).toBe(-20.4);
+    expect(meltingTemperature("GTAAAACGNCGGCCAGT")).toBeNull();
+    expect(meltingTemperature("A")).toBeNull();
+  });
+});
+
+describe("the caret and the selection", () => {
+  const plain = { shiftKey: false, ctrlKey: false, metaKey: false, altKey: false };
+  const key = (name: string, more: Partial<typeof plain> = {}) => ({
+    key: name,
+    ...plain,
+    ...more,
+  });
+
+  it("selects from the anchor to the caret, either way, or round a circle's origin", () => {
+    expect(selected(AT_START)).toBeNull();
+    expect(selected({ anchor: 395, caret: 401, across: false })).toEqual([396, 401]);
+    expect(selected({ anchor: 401, caret: 395, across: false })).toEqual([396, 401]);
+    expect(selected({ anchor: 2680, caret: 4, across: true })).toEqual([2681, 4]);
+    expect(stretchLength(2681, 4, 2686)).toBe(10);
+    expect(residuesOf("ABCDEFGH", 7, 2)).toBe("GHAB");
+  });
+
+  it("moves as a text field's caret does, and extends the selection with Shift", () => {
+    let at: Caret = AT_START;
+    const press = (name: string, more: Partial<typeof plain> = {}) => {
+      at = moved(at, key(name, more), 2686, 10) ?? at;
+      return at;
+    };
+    expect(press("ArrowRight").caret).toBe(1);
+    expect(press("ArrowLeft").caret).toBe(0);
+    expect(press("ArrowLeft").caret).toBe(0); // no further than the start
+    expect(press("ArrowDown").caret).toBe(60);
+    // The end of a row is the next one's start: it shows there, unless End put it.
+    expect(caretRow(at, 2686)).toBe(1);
+    expect(press("End")).toMatchObject({ caret: 120, atEnd: true });
+    expect(caretRow(at, 2686)).toBe(1);
+    expect(press("Home").caret).toBe(60);
+    expect(press("ArrowRight", { shiftKey: true })).toMatchObject({ anchor: 60, caret: 61 });
+    expect(press("End", { shiftKey: true })).toMatchObject({ anchor: 60, caret: 120 });
+    expect(selected(at)).toEqual([61, 120]);
+    // Without Shift, Left goes to the selection's start and Right to its end.
+    expect(press("ArrowLeft")).toMatchObject({ anchor: 60, caret: 60 });
+    expect(press("ArrowRight", { ctrlKey: true }).caret).toBe(70);
+    expect(press("ArrowRight", { altKey: true }).caret).toBe(80);
+    expect(press("ArrowLeft", { altKey: true }).caret).toBe(70);
+    expect(press("PageDown").caret).toBe(670);
+    expect(press("End", { ctrlKey: true }).caret).toBe(2686);
+    expect(press("Home", { metaKey: true }).caret).toBe(0);
+    expect(press("ArrowRight", { metaKey: true })).toMatchObject({ caret: 60, atEnd: true });
+    expect(press("a", { ctrlKey: true })).toMatchObject({ anchor: 0, caret: 2686 });
+    expect(moved(at, key("x"), 2686, 10)).toBeNull();
+  });
+
+  it("goes where a pointer is, between the bases nearest it", () => {
+    // Row 61..120: columns 0..9 are 61..70, 10 is the gap after them, 11 is 71's.
+    expect(placeAt(0, 61, 2686)).toBe(60);
+    expect(placeAt(0.6, 61, 2686)).toBe(61);
+    expect(placeAt(10.4, 61, 2686)).toBe(70);
+    expect(placeAt(11.2, 61, 2686)).toBe(70);
+    expect(placeAt(70, 61, 2686)).toBe(120);
+    // The last row is as long as what's left of it.
+    expect(placeAt(50, 2641, 2686)).toBe(2686);
   });
 });

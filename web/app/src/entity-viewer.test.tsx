@@ -1,6 +1,8 @@
 /** Iki's own viewers on an entity's page: the sequence viewer, its features and its tracks. */
 
 import { cleanup, screen, within } from "@testing-library/react";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
@@ -23,6 +25,8 @@ const PLASMID = {
       label: "Sequence",
       sequence: "bases",
       alphabet: "dna" as const,
+      strands: null,
+      topology: null,
       features: "features",
       tracks: [],
     },
@@ -289,5 +293,182 @@ describe("the sequence viewer", () => {
     answer("GET /api/v1/entities/PRT-000001", entity());
     await renderApp("/entities/PRT-000001/viewers/sequence/");
     expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
+  });
+});
+
+/** A file of the repository's, from web/app (as pnpm runs the tests) or from its root. */
+function repositoryFile(path: string): string {
+  const here = join(process.cwd(), "..", "..", path);
+  return readFileSync(existsSync(here) ? here : path, "utf8");
+}
+
+/** pUC19c's 2,686 bases (GenBank L09137.2), as the server's tests read them. */
+const PUC19C = repositoryFile("server/tests/data/L09137.2.fasta").split("\n").slice(1).join("");
+
+/** What copying says, beside the copy buttons. */
+function copyStatus(): HTMLElement {
+  const area = document.querySelector<HTMLElement>(".sequence-copy");
+  if (!area) throw new Error("No copy buttons");
+  return within(area).getByRole("status");
+}
+
+/** iki/dna's DNA sequence as the viewer sees it: its strands and topology named. */
+const DUPLEX = {
+  ...PLASMID,
+  fields: [
+    ...PLASMID.fields,
+    field({ name: "strandedness", label: "Strandedness", type: "string" }),
+    field({ name: "topology", label: "Topology", type: "string" }),
+  ],
+  viewers: [{ ...PLASMID.viewers[0], strands: "strandedness", topology: "topology" }],
+};
+
+/** pUC19c, a circular duplex, with its lacZα and its polylinker (L09137.2's features). */
+function onPuc19(values: Record<string, unknown> = {}) {
+  withTypes();
+  answer("GET /api/v1/entity-types", [PROTEIN, DUPLEX]);
+  answer(
+    "GET /api/v1/entities/DNA-000001",
+    entity({
+      hrid: "DNA-000001",
+      type: "iki/dna.DNASequence",
+      values: {
+        name: "pUC19c",
+        bases: PUC19C,
+        strandedness: "double",
+        topology: "circular",
+        features: [
+          { type: "CDS", name: "lacZα", start: 146, end: 469, strand: "reverse" },
+          { type: "misc_feature", name: "MCS", start: 397, end: 453 },
+        ],
+        ...values,
+      },
+    }),
+  );
+}
+
+describe("the sequence viewer's strands and selection", () => {
+  it("draws a duplex's other strand under it, 3′ to 5′, unless it's switched off", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    expect(await screen.findByText("2,686 bp · circular · 2 features")).toBeInTheDocument();
+    // Each row's bases pair with those under them: pUC19c's TCGCGCGTTT from base 1, say,
+    // with AGCGCGCAAA.
+    const row = document.querySelector<HTMLElement>(".sequence-row");
+    const start = Number(row?.dataset["index"]) * 60 + 1;
+    const other = row?.querySelector(".sequence-complement");
+    const pairs: Record<string, string> = { A: "T", C: "G", G: "C", T: "A" };
+    const expected = PUC19C.slice(start - 1, start + 59).replace(/./g, (b) => pairs[b] ?? b);
+    expect(other?.textContent).toBe(expected);
+    expect(other).toHaveAttribute("aria-hidden", "true");
+    const pairing = screen.getByRole("switch", { name: "Complementary strand, 3′ to 5′" });
+    expect(pairing).toBeChecked();
+    await user.click(pairing);
+    expect(document.querySelector(".sequence-complement")).toBeNull();
+  });
+
+  it("draws no other strand for a single strand", async () => {
+    onPuc19({ strandedness: "single" });
+    await renderApp("/entities/DNA-000001/viewers/sequence/");
+    expect(await screen.findByText("2,686 nt · circular · 2 features")).toBeInTheDocument();
+    expect(document.querySelector(".sequence-complement")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  it("selects by keyboard, as a text field does, and says what's selected", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const bases = await screen.findByRole("application", { name: "Bases of pUC19c" });
+    expect(bases).toHaveAttribute("aria-roledescription", "sequence");
+    const at = document.getElementById(bases.getAttribute("aria-describedby")?.split(" ")[1] ?? "");
+    expect(at).toHaveAttribute("aria-live", "polite");
+    expect(at).toHaveTextContent("Caret before base 1: T, paired with A.");
+    const copy = screen.getByRole("button", { name: "Copy" });
+    expect(copy).toBeDisabled();
+    bases.focus();
+    // pUC19c's first 24 bases: the plugin's gc_content gives 62.5, and its Tm 64.2 °C.
+    for (let i = 0; i < 24; i++) await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
+    expect(at).toHaveTextContent("Bases 1–24 selected: 24 bp · GC 62.5% · Tm 64.2 °C");
+    await user.keyboard("{ArrowRight}");
+    expect(at).toHaveTextContent("Caret before base 25: A, paired with T.");
+    await user.keyboard("{Control>}a{/Control}");
+    // The plugin's compute_composition records 50.63 for pUC19c.
+    expect(at).toHaveTextContent(
+      "Bases 1–2,686 selected: 2,686 bp · GC 50.63% · no Tm past 200 bases",
+    );
+    await user.keyboard("{Escape}");
+    expect(at).toHaveTextContent("Caret after base 2,686, the last.");
+    await user.keyboard("{Control>}{Home}{/Control}{ArrowDown}{End}");
+    expect(at).toHaveTextContent("Caret before base 121");
+  });
+
+  it("copies the selection, or its reverse complement, and says so", async () => {
+    onPuc19();
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const bases = await screen.findByRole("application", { name: "Bases of pUC19c" });
+    bases.focus();
+    for (let i = 0; i < 6; i++) await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(await navigator.clipboard.readText()).toBe("TCGCGC");
+    expect(copyStatus()).toHaveTextContent("Copied 6 bases.");
+    await user.click(screen.getByRole("button", { name: "Copy reverse complement" }));
+    expect(await navigator.clipboard.readText()).toBe("GCGCGA");
+    expect(copyStatus()).toHaveTextContent("Copied the reverse complement of 6 bases.");
+    bases.focus();
+    await user.keyboard("{Shift>}{ArrowRight}{/Shift}{Control>}c{/Control}");
+    expect(await navigator.clipboard.readText()).toBe("TCGCGCG");
+    expect(copyStatus()).toHaveTextContent("Copied 7 bases.");
+  });
+
+  it("selects a feature from its bar, across the origin if it wraps it", async () => {
+    onPuc19({
+      features: [{ type: "promoter", name: "P", start: 2681, end: 4, strand: "forward" }],
+    });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    await screen.findByRole("application", { name: "Bases of pUC19c" });
+    const [bar] = document.querySelectorAll("[data-feature]");
+    expect(bar).toBeDefined();
+    if (!bar) throw new Error("No feature bar");
+    await user.pointer({ keys: "[MouseLeft]", target: bar });
+    const at = document.querySelector(".sequence-at");
+    // The last six of pUC19c and its first four, TTCGTCTCGC: the DNA plugin's gc_content
+    // and melting_temperature give 60.0 and 29.1 °C.
+    expect(at).toHaveTextContent(
+      "Bases 2,681–4, across the origin, selected: 10 bp · GC 60% · Tm 29.1 °C",
+    );
+    expect(screen.getByRole("application", { name: "Bases of pUC19c" })).toHaveFocus();
+  });
+
+  it("selects a protein's residues, with nothing to say of bases", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        viewers: [
+          {
+            viewer: "sequence" as const,
+            label: "Sequence",
+            sequence: "sequence",
+            alphabet: "protein" as const,
+            strands: null,
+            topology: null,
+            features: null,
+            tracks: [],
+          },
+        ],
+      },
+    ]);
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({ hrid: "PRT-000001", values: { name: "HBA", sequence: "MVLSPADKTNVKAAW" } }),
+    );
+    const { user } = await renderApp("/entities/PRT-000001/viewers/sequence/");
+    const residues = await screen.findByRole("application", { name: "Sequence of HBA" });
+    residues.focus();
+    await user.keyboard("{ArrowRight}{Shift>}{ArrowRight}{ArrowRight}{ArrowRight}{/Shift}");
+    expect(document.querySelector(".sequence-at")).toHaveTextContent(
+      "Residues 2–4 selected: 3 residues",
+    );
+    expect(screen.queryByRole("button", { name: "Copy reverse complement" })).toBeNull();
   });
 });

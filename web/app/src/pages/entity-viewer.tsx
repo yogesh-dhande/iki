@@ -7,25 +7,53 @@
 import type { Schemas } from "@ikisci/sdk";
 import { useParams } from "@tanstack/react-router";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
+  AT_START,
+  caretRow,
   columnOf,
+  complement,
   extremes,
   featureName,
+  gcContent,
   GROUP,
   kindOf,
   lanesPerRow,
   lengthText,
   locationText,
+  LONGEST_TM,
+  meltingTemperature,
+  moved,
   piecesIn,
+  placeAt,
+  rangesOf,
   readFeatures,
   readTrack,
+  residuesOf,
+  reverseComplement,
   ROW,
   covered,
+  selected,
+  stretchLength,
   trackScale,
+  type Caret,
   type Feature,
   type Kind,
   type Values,
@@ -159,6 +187,11 @@ function sameFeature(feature: Feature, ref: FeatureRef): boolean {
   );
 }
 
+const tenths = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
 function SequenceViewer({
   source,
   type,
@@ -173,6 +206,7 @@ function SequenceViewer({
   feature?: FeatureRef | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
+  const ids = useId();
   const value = source.values[viewer.sequence];
   const sequence = typeof value === "string" ? value : "";
   const features = useMemo(
@@ -204,6 +238,16 @@ function SequenceViewer({
   const [shown, setShown] = useState<Feature | null>(() =>
     feature ? (features.find((f) => sameFeature(f, feature)) ?? null) : null,
   );
+  const [at, setAt] = useState<Caret>(AT_START);
+  // What copying said, of the selection it copied: once that changes, it's old news.
+  const [copying, setCopying] = useState<{ said: string; of: Caret } | null>(null);
+  const said = copying?.of === at ? copying.said : "";
+  // A duplex's other strand, drawn under it 3′ to 5′, unless it's hidden.
+  const double = !protein && viewer.strands !== null && source.values[viewer.strands] === "double";
+  const [pairing, setPairing] = useState(true);
+  const circular = viewer.topology !== null && source.values[viewer.topology] === "circular";
+  const region = useRef<HTMLDivElement | null>(null);
+  const tools = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!onCapture) return;
     onCapture(() => Promise.resolve({ targets: [shown ? { feature: featureRef(shown) } : {}] }));
@@ -216,11 +260,33 @@ function SequenceViewer({
   if (!sequence) {
     return <p className="muted">It has no {field?.label.toLowerCase() ?? "sequence"} yet.</p>;
   }
+  const span = selected(at);
+
+  /** Copies what's selected, or its reverse complement, and says so. */
+  function copy(reverse: boolean) {
+    if (!span) return;
+    const bases = residuesOf(sequence, span[0], span[1]);
+    const count = number.format(bases.length);
+    const noun = residueNoun(viewer.alphabet, bases.length);
+    const of = at;
+    void copied(reverse ? reverseComplement(bases, viewer.alphabet) : bases).then((ok) => {
+      setCopying({
+        of,
+        said: !ok
+          ? "The browser didn’t allow copying."
+          : reverse
+            ? `Copied the reverse complement of ${count} ${noun}.`
+            : `Copied ${count} ${noun}.`,
+      });
+    });
+  }
+
   const kinds = [...new Set(features.map((f) => kindOf(f.type)))];
   return (
     <>
       <p className="muted">
         {number.format(residues)} {unit}
+        {circular ? " · circular" : ""}
         {viewer.features
           ? ` · ${String(features.length)} feature${features.length === 1 ? "" : "s"}`
           : ""}
@@ -244,13 +310,88 @@ function SequenceViewer({
           ))}
         </ul>
       ) : null}
+      {double ? (
+        <div className="sequence-options">
+          <label className="choice" htmlFor={`${ids}-pairing`}>
+            <input
+              id={`${ids}-pairing`}
+              type="checkbox"
+              role="switch"
+              checked={pairing}
+              onChange={(event) => {
+                setPairing(event.target.checked);
+              }}
+            />
+            <span className="choice-text">Complementary strand, 3′ to 5′</span>
+          </label>
+        </div>
+      ) : null}
+      <div className="sequence-tools" ref={tools}>
+        <div className="sequence-selection">
+          <p id={`${ids}-at`} className="sequence-at" aria-live="polite">
+            {span ? (
+              <Described
+                sequence={sequence}
+                alphabet={viewer.alphabet}
+                unit={unit}
+                start={span[0]}
+                end={span[1]}
+              />
+            ) : (
+              caretText(sequence, viewer.alphabet, at.caret, double)
+            )}
+          </p>
+          <div className="sequence-copy">
+            <button
+              type="button"
+              className={buttonClass()}
+              disabled={!span}
+              onClick={() => {
+                copy(false);
+              }}
+            >
+              Copy
+            </button>
+            {protein ? null : (
+              <button
+                type="button"
+                className={buttonClass()}
+                disabled={!span}
+                onClick={() => {
+                  copy(true);
+                }}
+              >
+                Copy reverse complement
+              </button>
+            )}
+            <span role="status" className={said ? undefined : "visually-hidden"}>
+              {said}
+            </span>
+          </div>
+        </div>
+      </div>
       <Residues
         sequence={sequence}
+        alphabet={viewer.alphabet}
         features={features}
         tracks={drawn}
         shown={shown}
+        paired={double && pairing}
         label={`${field?.label ?? "Sequence"} of ${source.title}`}
+        at={at}
+        onMove={setAt}
+        onCopy={() => {
+          copy(false);
+        }}
+        region={region}
+        tools={tools}
+        describedBy={`${ids}-keys ${ids}-at`}
       />
+      <p id={`${ids}-keys`} className="visually-hidden">
+        The arrow keys move the caret along the {protein ? "residues" : "bases"}, and with Shift
+        select them; Home and End go to a row’s start and end, and with Control to the sequence’s;
+        Control+A selects it all, Control+C copies the selection, and Escape clears it.
+      </p>
       {viewer.features ? (
         <FeatureTable
           features={features}
@@ -263,8 +404,76 @@ function SequenceViewer({
   );
 }
 
-/** The sequence in rows of 60, in groups of 10, with each row's features under it. Rows
- * off screen aren't drawn, so a genome reads as quickly as a primer. */
+/** What a residue is called, and many of them, by what it's a sequence of. */
+function residueNoun(alphabet: Viewer["alphabet"], count = 1): string {
+  const one = alphabet === "protein" ? "residue" : "base";
+  return count === 1 ? one : `${one}s`;
+}
+
+/** Copies `text`, saying whether it could. */
+async function copied(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Where the caret is: before which residue, and what it is. */
+function caretText(
+  sequence: string,
+  alphabet: Viewer["alphabet"],
+  caret: number,
+  double: boolean,
+): string {
+  const noun = residueNoun(alphabet);
+  if (caret >= sequence.length) {
+    return `Caret after ${noun} ${number.format(sequence.length)}, the last.`;
+  }
+  const base = sequence.charAt(caret);
+  const pairs = double ? `, paired with ${complement(base, alphabet)}` : "";
+  return `Caret before ${noun} ${number.format(caret + 1)}: ${base}${pairs}.`;
+}
+
+/** What a selection is: where, how long, and for DNA its GC content and Tm, as the DNA
+ * plugin computes them for a sequence and a primer. */
+function Described({
+  sequence,
+  alphabet,
+  unit,
+  start,
+  end,
+}: {
+  sequence: string;
+  alphabet: Viewer["alphabet"];
+  unit: string;
+  start: number;
+  end: number;
+}) {
+  const bases = residuesOf(sequence, start, end);
+  const count = stretchLength(start, end, sequence.length);
+  const facts = [`${number.format(count)} ${unit}`];
+  if (alphabet !== "protein") {
+    const gc = gcContent(bases);
+    if (gc !== null) facts.push(`GC ${decimal.format(gc)}%`);
+  }
+  if (alphabet === "dna" && count > 1) {
+    const tm = count <= LONGEST_TM ? meltingTemperature(bases) : null;
+    if (tm !== null) facts.push(`Tm ${tenths.format(tm)} °C`);
+    else if (count > LONGEST_TM) facts.push(`no Tm past ${String(LONGEST_TM)} bases`);
+    else facts.push("no Tm with bases other than A, C, G and T");
+  }
+  return (
+    <>
+      <strong>
+        {alphabet === "protein" ? "Residues" : "Bases"} {number.format(start)}–{number.format(end)}
+      </strong>
+      {end < start ? ", across the origin," : ""} selected: {facts.join(" · ")}
+    </>
+  );
+}
+
 /** How a sequence's length is counted, by what it's a sequence of, when its record
  * doesn't say how many strands it has: DNA in base pairs, RNA in nucleotides. */
 const UNITS: Record<Viewer["alphabet"], string> = { dna: "bp", rna: "nt", protein: "residues" };
@@ -280,51 +489,227 @@ function unitOf(viewer: Viewer, values: Record<string, unknown>): string {
   return UNITS[viewer.alphabet];
 }
 
+/** A layer of marks over the residues, as ranges from 1, inclusive, none across the origin:
+ * the feature shown, what's selected. */
+interface Layer {
+  className: string;
+  ranges: [number, number][];
+}
+
+/** The place between residues a pointer is at, and whether it's at the end of its row. */
+function placeOf(
+  event: PointerEvent<HTMLElement>,
+  length: number,
+): { place: number; atEnd: boolean } | null {
+  // While a drag holds the pointer, its events are the rows' own: what's under it says
+  // which row it's over.
+  const target =
+    event.target instanceof Element && event.target !== event.currentTarget
+      ? event.target
+      : document.elementFromPoint(event.clientX, event.clientY);
+  const row = target?.closest<HTMLElement>(".sequence-row");
+  const line = row?.querySelector<HTMLElement>(".sequence-residues");
+  const group = line?.querySelector<HTMLElement>(".sequence-group");
+  if (!row || !line || !group) return null;
+  const ch = group.getBoundingClientRect().width / GROUP;
+  if (!ch) return null;
+  const rowStart = Number(row.dataset["index"]) * ROW + 1;
+  const place = placeAt((event.clientX - line.getBoundingClientRect().left) / ch, rowStart, length);
+  return { place, atEnd: place > rowStart - 1 && place === Math.min(rowStart - 1 + ROW, length) };
+}
+
+/** The sequence in rows of 60, in groups of 10, with each row's features under it. Rows
+ * off screen aren't drawn, so a genome reads as quickly as a primer. */
 function Residues({
   sequence,
+  alphabet,
   features,
   tracks,
   shown,
+  paired,
   label,
+  at,
+  onMove,
+  onCopy,
+  region,
+  tools,
+  describedBy,
 }: {
   sequence: string;
+  alphabet: Viewer["alphabet"];
   features: Feature[];
   tracks: Drawn[];
   shown: Feature | null;
+  /** Whether to draw the complementary strand under each row. */
+  paired: boolean;
   label: string;
+  at: Caret;
+  onMove: Dispatch<SetStateAction<Caret>>;
+  onCopy: () => void;
+  region: RefObject<HTMLDivElement | null>;
+  /** What stays at the top of the window over the rows, which a row brought into view
+   * mustn't be under. */
+  tools: RefObject<HTMLDivElement | null>;
+  describedBy: string;
 }) {
-  // Where the rows begin on the page, which the window's scrolling is measured from.
+  const length = sequence.length;
+  // Where the rows begin on the page, which the window's scrolling is measured from: it
+  // moves as what's above them does.
   const [margin, setMargin] = useState(0);
-  const list = useCallback((node: HTMLDivElement | null) => {
-    if (node) setMargin(node.getBoundingClientRect().top + window.scrollY);
-  }, []);
-  const rows = Math.ceil(sequence.length / ROW);
-  const lanes = useMemo(() => lanesPerRow(features, sequence.length), [features, sequence.length]);
+  const [overlaid, setOverlaid] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const top = (region.current?.getBoundingClientRect().top ?? 0) + window.scrollY;
+      setMargin((was) => (Math.abs(top - was) >= 1 ? top : was));
+      setOverlaid(tools.current?.getBoundingClientRect().height ?? 0);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    // What's above the rows changes height (the readout wraps, a message shows), and the
+    // page's height changes with it.
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => {
+      observer.disconnect();
+    };
+  }, [region, tools]);
+  const rows = Math.ceil(length / ROW);
+  const lanes = useMemo(() => lanesPerRow(features, length), [features, length]);
+  const other = useMemo(
+    () => (paired ? complement(sequence, alphabet) : ""),
+    [paired, sequence, alphabet],
+  );
   const virtualizer = useWindowVirtualizer({
     count: rows,
-    // A line of residues, a lane per feature row under it, its tracks, and the gap between
-    // rows.
-    estimateSize: (row) => 30 + (lanes[row] ?? 0) * 20 + tracks.length * 44,
+    // A line of residues, the other strand's, a lane per feature row under it, its tracks,
+    // and the gap between rows.
+    estimateSize: (row) => 30 + (paired ? 20 : 0) + (lanes[row] ?? 0) * 20 + tracks.length * 44,
     overscan: 8,
     scrollMargin: margin,
+    scrollPaddingStart: overlaid,
   });
   // Showing a feature brings its first row into view.
   useEffect(() => {
     if (shown) virtualizer.scrollToIndex(Math.floor((shown.start - 1) / ROW), { align: "center" });
   }, [shown, virtualizer]);
-  const highlighted = shown ? covered(shown, sequence.length) : [];
-  const digits = String(sequence.length).length;
+  const [focused, setFocused] = useState(false);
+  const dragging = useRef(false);
+  const span = selected(at);
+  const layers: Layer[] = [
+    { className: "residue-shown", ranges: shown ? covered(shown, length) : [] },
+    { className: "residue-selected", ranges: span ? rangesOf(span[0], span[1], length) : [] },
+  ];
+  const caretAt = caretRow(at, length);
+  const digits = String(length).length;
+
+  function keyed(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    const command = event.ctrlKey || event.metaKey;
+    if (command && !event.shiftKey && event.key.toLowerCase() === "c") {
+      if (!span) return;
+      event.preventDefault();
+      onCopy();
+      return;
+    }
+    if (event.key === "Escape" && span) {
+      event.preventDefault();
+      onMove({ anchor: at.caret, caret: at.caret, across: false, atEnd: at.atEnd ?? false });
+      return;
+    }
+    // A page is what the window shows, a row being about three lines.
+    const page = Math.max(Math.floor(window.innerHeight / 60) - 1, 1);
+    const next = moved(at, event, length, page);
+    if (!next) return;
+    event.preventDefault();
+    onMove(next);
+    virtualizer.scrollToIndex(caretRow(next, length), { align: "auto" });
+  }
+
+  function pressed(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    // Not the browser's own selection of the text: the rows' own.
+    event.preventDefault();
+    region.current?.focus({ preventScroll: true });
+    // A feature's bar selects all of it.
+    const bar =
+      event.target instanceof Element ? event.target.closest<HTMLElement>("[data-feature]") : null;
+    const picked = bar ? features.find((f) => String(f.index) === bar.dataset["feature"]) : null;
+    if (picked) {
+      onMove({
+        anchor: picked.start - 1,
+        caret: picked.end,
+        across: picked.end < picked.start,
+        atEnd: picked.end % ROW === 0,
+      });
+      return;
+    }
+    const found = placeOf(event, length);
+    if (!found) return;
+    const { place, atEnd } = found;
+    const extend = event.shiftKey;
+    onMove((now) => ({ anchor: extend ? now.anchor : place, caret: place, across: false, atEnd }));
+    dragging.current = true;
+    // So a drag past the rows' edge goes on selecting (not every DOM has it: jsdom).
+    if ("setPointerCapture" in event.currentTarget) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function dragged(event: PointerEvent<HTMLDivElement>) {
+    if (!dragging.current) return;
+    const found = placeOf(event, length);
+    if (!found) return;
+    onMove((now) => ({
+      anchor: now.anchor,
+      caret: found.place,
+      across: false,
+      atEnd: found.atEnd,
+    }));
+  }
+
+  function released(event: PointerEvent<HTMLDivElement>) {
+    dragging.current = false;
+    if (
+      "hasPointerCapture" in event.currentTarget &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
   return (
     <figure className="sequence" aria-label={label}>
+      {/* A widget of its own: its keys move a caret along the residues and select them, as
+          in a text field, and what's at the caret or selected is read out above it. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
-        ref={list}
+        ref={region}
         className="sequence-rows"
+        role="application"
+        aria-roledescription="sequence"
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        aria-label={label}
+        aria-describedby={describedBy}
         style={{ height: `${String(virtualizer.getTotalSize())}px` }}
+        onKeyDown={keyed}
+        onPointerDown={pressed}
+        onPointerMove={dragged}
+        onPointerUp={released}
+        onPointerCancel={released}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onBlur={() => {
+          setFocused(false);
+        }}
       >
         {virtualizer.getVirtualItems().map((item) => {
           const start = item.index * ROW + 1;
-          const pieces = piecesIn(features, start, sequence.length);
+          const end = Math.min(start + ROW - 1, length);
+          const pieces = piecesIn(features, start, length);
           const lanes = pieces.reduce((most, p) => Math.max(most, p.feature.lane + 1), 0);
+          const offset = at.caret - start + 1;
           return (
             <div
               key={item.key}
@@ -339,7 +724,21 @@ function Residues({
                 {start}
               </span>
               <div className="sequence-line">
-                <span className="sequence-residues">{groups(sequence, start, highlighted)}</span>
+                <span className="sequence-residues">{groups(sequence, start, layers)}</span>
+                {paired ? (
+                  <span className="sequence-residues sequence-complement" aria-hidden="true">
+                    {groups(other, start, layers)}
+                  </span>
+                ) : null}
+                {focused && caretAt === item.index ? (
+                  <span
+                    className={`sequence-caret${paired ? " sequence-caret-paired" : ""}`}
+                    aria-hidden="true"
+                    style={{
+                      left: `calc(${String(offset <= 0 ? 0 : columnOf(offset - 1) + 1)}ch - 1px)`,
+                    }}
+                  />
+                ) : null}
                 {lanes ? (
                   <span
                     className="sequence-track"
@@ -354,6 +753,7 @@ function Residues({
                       return (
                         <span
                           key={`${String(p.feature.index)}-${p.shape}-${String(p.column)}`}
+                          data-feature={p.feature.index}
                           className={`feature feature-${kind}${shape}${arrow}${
                             shown?.index === p.feature.index ? " feature-shown" : ""
                           }`}
@@ -382,12 +782,7 @@ function Residues({
                   </span>
                 ) : null}
                 {tracks.map((track) => (
-                  <TrackStrip
-                    key={track.field}
-                    track={track}
-                    start={start}
-                    end={Math.min(start + ROW - 1, sequence.length)}
-                  />
+                  <TrackStrip key={track.field} track={track} start={start} end={end} />
                 ))}
               </div>
             </div>
@@ -476,29 +871,55 @@ function TrackStrip({ track, start, end }: { track: Drawn; start: number; end: n
   );
 }
 
-/** A row's residues in groups of ten, the shown feature's marked. */
-function groups(sequence: string, start: number, marked: [number, number][]): ReactNode[] {
+/** A row's residues in groups of ten, each stretch marked by the layers it's in: the feature
+ * shown, what's selected. */
+function groups(sequence: string, start: number, layers: Layer[]): ReactNode[] {
   const out: ReactNode[] = [];
   const end = Math.min(start + ROW - 1, sequence.length);
-  for (let from = start; from <= end; from += GROUP) {
-    const to = Math.min(from + GROUP - 1, end);
-    const parts: ReactNode[] = [];
-    let at = from;
-    for (const [a, b] of marked) {
-      const s = Math.max(a, at);
-      const e = Math.min(b, to);
-      if (s > e) continue;
-      if (s > at) parts.push(sequence.slice(at - 1, s - 1));
-      parts.push(<mark key={s}>{sequence.slice(s - 1, e)}</mark>);
-      at = e + 1;
+  // Where a mark starts or ends in the row: the residues between two neighbours are in
+  // the same layers.
+  const cuts = new Set<number>([start, end + 1]);
+  for (const layer of layers) {
+    for (const [a, b] of layer.ranges) {
+      if (b < start || a > end) continue;
+      cuts.add(Math.max(a, start));
+      cuts.add(Math.min(b, end) + 1);
     }
-    if (at <= to) parts.push(sequence.slice(at - 1, to));
+  }
+  for (let from = start; from <= end; from += GROUP) cuts.add(from);
+  const bounds = [...cuts].sort((x, y) => x - y);
+  let group: ReactNode[] = [];
+  let groupStart = start;
+  const flush = () => {
     out.push(
-      <span key={from} className="sequence-group" style={{ width: `${String(GROUP)}ch` }}>
-        {parts}
+      <span key={groupStart} className="sequence-group" style={{ width: `${String(GROUP)}ch` }}>
+        {group}
       </span>,
     );
+    group = [];
+  };
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const a = bounds[i] ?? start;
+    const b = (bounds[i + 1] ?? end + 1) - 1;
+    if (a > groupStart && (a - start) % GROUP === 0) {
+      flush();
+      groupStart = a;
+    }
+    const classes = layers
+      .filter((l) => l.ranges.some(([x, y]) => x <= a && b <= y))
+      .map((l) => l.className);
+    const text = sequence.slice(a - 1, b);
+    group.push(
+      classes.length ? (
+        <span key={a} className={classes.join(" ")}>
+          {text}
+        </span>
+      ) : (
+        text
+      ),
+    );
   }
+  flush();
   return out;
 }
 

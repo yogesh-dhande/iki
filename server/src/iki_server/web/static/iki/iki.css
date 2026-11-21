@@ -643,6 +643,8 @@ input:focus-visible {
   --feature-text: #ffffff;
   --track-above: #b85a00;
   --track-below: #2f6fb5;
+  /* What's selected along the residues, with their text on it at AA contrast. */
+  --selected-bg: #cfe0fb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -656,6 +658,7 @@ input:focus-visible {
     --feature-text: #0f141a;
     --track-above: #f2a65a;
     --track-below: #7fb0ff;
+    --selected-bg: #24456f;
   }
 }
 
@@ -666,9 +669,19 @@ input:focus-visible {
   font-size: 0.875rem;
 }
 
+/* The rows are a widget of their own: a caret and a selection, by keyboard and pointer. */
 .sequence-rows {
   position: relative;
   min-width: max-content;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: text;
+  touch-action: pan-y;
+}
+
+.sequence-rows:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 4px;
 }
 
 .sequence-row {
@@ -688,6 +701,7 @@ input:focus-visible {
 }
 
 .sequence-line {
+  position: relative;
   display: flex;
   flex-direction: column;
 }
@@ -702,10 +716,79 @@ input:focus-visible {
   margin-right: 1ch;
 }
 
-.sequence-residues mark {
+/* The other strand, 3′ to 5′ under the first. */
+.sequence-complement {
+  color: var(--muted);
+}
+
+.residue-shown {
   background: var(--warning-bg);
-  color: inherit;
   outline: 1px solid var(--warning);
+}
+
+.residue-selected {
+  background: var(--selected-bg);
+  color: var(--text);
+}
+
+/* Between two residues, as a text field's caret is; through both strands when both show. */
+.sequence-caret {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 1.55em;
+  background: var(--text);
+  pointer-events: none;
+}
+
+.sequence-caret-paired {
+  height: 3.1em;
+}
+
+.sequence-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0 0 0.75rem;
+}
+
+/* What's at the caret or selected, and the find box: in view while the rows scroll under. */
+.sequence-tools {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sequence-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.sequence-at {
+  flex: 1 1 20rem;
+  min-height: 1.55em;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.sequence-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sequence-copy [role="status"] {
+  font-size: 0.875rem;
 }
 
 .sequence-track {

@@ -373,3 +373,274 @@ export function extremes(
   }
   return highest && lowest ? { highest, lowest } : null;
 }
+
+// --- The two strands, and what a stretch of them is ---------------------------------------
+
+/** Each IUPAC nucleotide code's complement (IUBMB, 1985): A pairs with T (U in RNA), C with
+ * G, and each ambiguity code with the code for its bases' complements, so R (A or G) with Y
+ * (C or T). S (C or G), W (A or T) and N are their own. */
+const COMPLEMENTS: Record<string, string> = {
+  A: "T",
+  C: "G",
+  G: "C",
+  T: "A",
+  U: "A",
+  R: "Y",
+  Y: "R",
+  K: "M",
+  M: "K",
+  B: "V",
+  V: "B",
+  D: "H",
+  H: "D",
+  S: "S",
+  W: "W",
+  N: "N",
+};
+
+export type Alphabet = "dna" | "rna" | "protein";
+
+/** The bases that pair with `bases`, base by base, in the same order and case: the other
+ * strand read 3′ to 5′, as it's drawn under the first. RNA's A pairs with U. Anything that
+ * isn't a nucleotide code (a gap, say) stays as it is. */
+export function complement(bases: string, alphabet: Alphabet = "dna"): string {
+  let out = "";
+  for (const base of bases) {
+    const upper = base.toUpperCase();
+    let paired = COMPLEMENTS[upper] ?? base;
+    if (alphabet === "rna" && paired === "T") paired = "U";
+    out += base === upper ? paired : paired.toLowerCase();
+  }
+  return out;
+}
+
+/** The other strand, 5′ to 3′: what a primer that binds `bases` reads. */
+export function reverseComplement(bases: string, alphabet: Alphabet = "dna"): string {
+  const paired = complement(bases, alphabet);
+  let out = "";
+  for (let i = paired.length - 1; i >= 0; i--) out += paired.charAt(i);
+  return out;
+}
+
+/** The bases GC content counts (G, C, and S, which is G or C), among those whose pairing is
+ * known (A, C, G, T, U, S and W): as the DNA plugin's `compute_composition` counts them, so
+ * the two never disagree. N and the other codes are left out of both. */
+const GC = new Set("GCS");
+const KNOWN = new Set("ACGTUSW");
+
+/** GC content, as a percentage rounded to two places, or null if none of the bases is known
+ * to pair as G or C or not. */
+export function gcContent(bases: string): number | null {
+  let known = 0;
+  let gc = 0;
+  for (const base of bases.toUpperCase()) {
+    if (!KNOWN.has(base)) continue;
+    known++;
+    if (GC.has(base)) gc++;
+  }
+  if (!known) return null;
+  return Math.round((10_000 * gc) / known) / 100;
+}
+
+/** SantaLucia's unified nearest-neighbour ΔH (kcal/mol) and ΔS (cal/K/mol), for each pair
+ * of neighbours 5′→3′ on one strand (PNAS 95, 1460; 1998, table 2). */
+const NEIGHBOURS: Record<string, [number, number]> = {
+  AA: [-7.9, -22.2],
+  AT: [-7.2, -20.4],
+  TA: [-7.2, -21.3],
+  CA: [-8.5, -22.7],
+  GT: [-8.4, -22.4],
+  CT: [-7.8, -21.0],
+  GA: [-8.2, -22.2],
+  CG: [-10.6, -27.2],
+  GC: [-9.8, -24.4],
+  GG: [-8.0, -19.9],
+};
+/** Initiation, by the base pair at each end. */
+const INITIATION: Record<string, [number, number]> = {
+  G: [0.1, -2.8],
+  C: [0.1, -2.8],
+  A: [2.3, 4.1],
+  T: [2.3, 4.1],
+};
+const SYMMETRY: [number, number] = [0, -1.4];
+const GAS_CONSTANT = 1.987; // cal/K/mol
+/** 50 mM Na+, sodium alone: no Mg2+ or dNTPs. */
+const SODIUM = 0.05;
+/** SantaLucia's CT, all the strands together (mol/L): 25 nM each of a strand and its
+ * complement, or 50 nM of one that pairs with itself. */
+const STRANDS = 50e-9;
+
+/** The melting temperature (°C, to one place) of `bases` with their complement, as the DNA
+ * plugin's primers have it: SantaLucia's unified nearest-neighbour parameters (1998) with
+ * his salt correction, at 50 mM Na+ alone and 50 nM of strands in all (his equation 3).
+ * Null for fewer than two bases, or any but A, C, G and T. */
+export function meltingTemperature(bases: string): number | null {
+  const upper = bases.toUpperCase();
+  if (upper.length < 2 || !/^[ACGT]+$/.test(upper)) return null;
+  const first = INITIATION[upper[0] ?? ""] ?? [0, 0];
+  const last = INITIATION[upper.at(-1) ?? ""] ?? [0, 0];
+  let enthalpy = first[0] + last[0];
+  let entropy = first[1] + last[1];
+  for (let i = 0; i < upper.length - 1; i++) {
+    const pair = upper.slice(i, i + 2);
+    const [dh, ds] = NEIGHBOURS[pair] ?? NEIGHBOURS[reverseComplement(pair)] ?? [0, 0];
+    enthalpy += dh;
+    entropy += ds;
+  }
+  let strands = STRANDS / 4;
+  if (upper === reverseComplement(upper)) {
+    enthalpy += SYMMETRY[0];
+    entropy += SYMMETRY[1];
+    strands = STRANDS;
+  }
+  entropy += 0.368 * (upper.length - 1) * Math.log(SODIUM);
+  const kelvin = (1000 * enthalpy) / (entropy + GAS_CONSTANT * Math.log(strands));
+  return Math.round((kelvin - 273.15) * 10) / 10;
+}
+
+/** The longest stretch a selection's Tm is given for: the longest primer the DNA plugin
+ * takes. A nearest-neighbour Tm is a two-state model of an oligo melting from its duplex;
+ * a longer stretch melts in domains, which it doesn't describe. */
+export const LONGEST_TM = 200;
+
+// --- The caret and the selection -----------------------------------------------------------
+
+/**
+ * Where the caret is and what's selected, as a text field has them: places between bases,
+ * from 0 (before the first) to the length (after the last). The selection runs between
+ * `anchor`, where it started, and `caret`, where it's been extended to; it's empty when
+ * they're the same place. On a circle, a selection can run from `anchor` on round the
+ * origin to `caret` (`across`), as a site found across the origin does.
+ *
+ * A place at the end of a row is also the start of the next, so, as a wrapped text field
+ * does, the caret shows at the start of the next row unless it went to the end of its own
+ * (`atEnd`): with End, say.
+ */
+export interface Caret {
+  anchor: number;
+  caret: number;
+  across: boolean;
+  atEnd?: boolean;
+}
+
+export const AT_START: Caret = { anchor: 0, caret: 0, across: false };
+
+/** The bases selected, from 1, inclusive: an end before the start runs across the origin.
+ * Null when nothing is. */
+export function selected(at: Caret): [number, number] | null {
+  if (at.across) return [at.anchor + 1, at.caret];
+  if (at.anchor === at.caret) return null;
+  return [Math.min(at.anchor, at.caret) + 1, Math.max(at.anchor, at.caret)];
+}
+
+/** The row (from 0) the caret shows in. */
+export function caretRow(at: Caret, length: number): number {
+  const last = Math.max(Math.ceil(length / ROW) - 1, 0);
+  const row = at.atEnd && at.caret > 0 ? at.caret / ROW - 1 : Math.floor(at.caret / ROW);
+  return Math.min(Math.max(Math.floor(row), 0), last);
+}
+
+/** How many bases a stretch from `start` to `end` (from 1, inclusive) holds, round the
+ * origin if `end` is before `start`. */
+export function stretchLength(start: number, end: number, length: number): number {
+  return end >= start ? end - start + 1 : length - start + 1 + end;
+}
+
+/** The residues from `start` to `end`, from 1, inclusive, round the origin if `end` is
+ * before `start`. */
+export function residuesOf(sequence: string, start: number, end: number): string {
+  return end >= start
+    ? sequence.slice(start - 1, end)
+    : sequence.slice(start - 1) + sequence.slice(0, end);
+}
+
+/** A stretch's ranges of bases, in order along the sequence: one, or two across the origin.
+ * For drawing, a row at a time. */
+export function rangesOf(start: number, end: number, length: number): [number, number][] {
+  return stretches(start, end, length);
+}
+
+export interface Key {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}
+
+/** What a key does to the caret, as in a text field: the arrows move it a residue, or a row
+ * up or down; Home and End go to its row's start and end (⌘ with the left and right arrows
+ * too, as on a Mac), and with Ctrl (or ⌘) to the sequence's; Page Up and Page Down go
+ * `page` rows; Ctrl (⌥ on a Mac) with the left and right arrows goes to the start of the
+ * group of ten before or after. With Shift, each extends the selection from its anchor
+ * instead of moving both; without it, the left and right arrows put the caret at the
+ * selection's start or end, as a text field does. Ctrl+A (⌘A) selects it all. Null for any
+ * other key. */
+export function moved(at: Caret, key: Key, length: number, page: number): Caret | null {
+  const command = key.ctrlKey || key.metaKey;
+  if (command && !key.shiftKey && !key.altKey && key.key.toLowerCase() === "a") {
+    return { anchor: 0, caret: length, across: false, atEnd: true };
+  }
+  const from = at.caret;
+  const span = selected(at);
+  const row = caretRow(at, length);
+  let name = key.key;
+  if (key.metaKey && name === "ArrowLeft") name = "Home";
+  else if (key.metaKey && name === "ArrowRight") name = "End";
+  const whole = command && (name === "Home" || name === "End") && !key.key.startsWith("Arrow");
+  let to: number;
+  let atEnd = false;
+  switch (name) {
+    case "ArrowLeft":
+      if (key.altKey || key.ctrlKey) to = Math.ceil(from / GROUP) * GROUP - GROUP;
+      else if (span && !key.shiftKey) to = at.across ? at.anchor : span[0] - 1;
+      else to = from - 1;
+      break;
+    case "ArrowRight":
+      if (key.altKey || key.ctrlKey) to = Math.floor(from / GROUP) * GROUP + GROUP;
+      else if (span && !key.shiftKey) to = at.across ? at.caret : span[1];
+      else to = from + 1;
+      break;
+    case "ArrowUp":
+      to = from - ROW;
+      break;
+    case "ArrowDown":
+      to = from + ROW;
+      break;
+    case "PageUp":
+      to = from - page * ROW;
+      break;
+    case "PageDown":
+      to = from + page * ROW;
+      break;
+    case "Home":
+      to = whole ? 0 : row * ROW;
+      break;
+    case "End":
+      to = whole ? length : Math.min((row + 1) * ROW, length);
+      atEnd = true;
+      break;
+    default:
+      return null;
+  }
+  to = Math.min(Math.max(to, 0), length);
+  // At the sequence's end there's no next row to show it at the start of.
+  if (to === length) atEnd = true;
+  // Extending a selection across the origin starts it again from its anchor, along the
+  // sequence.
+  return key.shiftKey
+    ? { anchor: at.anchor, caret: to, across: false, atEnd }
+    : { anchor: to, caret: to, across: false, atEnd };
+}
+
+/** The place between bases nearest `column` of a row starting at `rowStart` (from 1),
+ * columns counting the gap after each group of ten, as `columnOf` lays them out. A place
+ * in a gap is the end of the group before it. */
+export function placeAt(column: number, rowStart: number, length: number): number {
+  const rowEnd = Math.min(rowStart + ROW - 1, length);
+  const group = Math.floor(Math.max(column, 0) / (GROUP + 1));
+  const within = Math.min(Math.max(column, 0) - group * (GROUP + 1), GROUP);
+  const offset = group * GROUP + Math.round(within);
+  return Math.min(rowStart - 1 + offset, rowEnd);
+}
