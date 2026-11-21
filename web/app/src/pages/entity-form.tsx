@@ -142,7 +142,12 @@ function Fields({
   const computed = type.fields.filter((f) => f.computed && !f.detached);
   const kept = type.fields.filter((f) => f.detached);
   // State fields (ADR 0125) start where their type says, and are set on the record's page.
-  const states = type.fields.filter((f) => f.type === "state" && !f.detached);
+  const stateful = type.fields.filter((f) => f.type === "state" && !f.detached);
+  // A new request's service states are the service's, set once it's sent (ADR 0132): not
+  // said to start in their initial state, whose name may say it's been sent.
+  const service = creating ? (type.request?.service_fields ?? []) : [];
+  const states = stateful.filter((f) => !service.includes(f.name));
+  const served = stateful.filter((f) => service.includes(f.name));
   const keptFrom = [...new Set(kept.map((f) => f.plugin))].join(", ");
   return (
     <>
@@ -175,6 +180,12 @@ function Fields({
             : `${states.map((f) => f.label).join(", ")}: `}
           {states.length === 1 ? "it’s" : "they’re"} set on its page, by the lab roles its states
           name.
+        </p>
+      ) : null}
+      {served.length ? (
+        <p className="muted">
+          {served.map((f) => f.label).join(", ")} {served.length === 1 ? "is" : "are"} the
+          service’s: {served.length === 1 ? "it’s" : "they’re"} set once the request is sent.
         </p>
       ) : null}
       {kept.length ? (

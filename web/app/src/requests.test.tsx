@@ -245,6 +245,39 @@ describe("a request's page", () => {
     ).toBeInTheDocument();
   });
 
+  it("says its service's states aren't set until it's sent, and then shows them", async () => {
+    // A service state starts as its type's initial one, such as Submitted, which would
+    // say it was sent: until it is, its page says it's not sent yet.
+    onRequest(request());
+    await renderApp("/entities/ARQ-000001/");
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(/Not sent/);
+    expect(heading).not.toHaveTextContent(/Submitted/);
+    const states = within(region("States")).getByRole("list", { name: "State fields" });
+    expect(within(states).getByRole("listitem")).toHaveTextContent(
+      /^Status: Not sent yetThe service sets it once it’s sent, starting from Submitted\./,
+    );
+    expect(within(region("The service’s values")).queryByText("Submitted")).toBeNull();
+  });
+
+  it("shows its service's states once it's sent", async () => {
+    onRequest(request({}, SENT));
+    answer(`GET /api/v1/entities/${ASK_ID}/request`, {
+      request: request({}, SENT),
+      asking_project: ref(KINASE),
+      service: ref(CORE),
+      submitted_at: SENT.submitted_at,
+      submitted_by: SENT.submitted_by,
+      sent: [lot()],
+      results: [],
+    });
+    await renderApp("/entities/ARQ-000001/");
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(/Submitted/);
+    expect(heading).not.toHaveTextContent(/Not sent/);
+    expect(within(region("States")).getByText(/^Status: Submitted/)).toBeInTheDocument();
+  });
+
   it("sends it to a service, saying it can't be taken back", async () => {
     onRequest(request());
     const { user } = await renderApp("/entities/ARQ-000001/");
@@ -440,6 +473,11 @@ describe("a request's forms", () => {
         "Priority, Technician and Core notes are for the service it’s sent to: it fills them in once it’s sent. Once it’s made, send it to a service from its page.",
       ),
     ).toBeInTheDocument();
+    // Its service's state isn't said to start as Submitted: it isn't sent yet.
+    expect(
+      screen.getByText("Status is the service’s: it’s set once the request is sent."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Submitted/)).toBeNull();
     answer("POST /api/v1/entities", respond(201, request()));
     await user.type(screen.getByRole("textbox", { name: /^Title/ }), "Purity of the kinases");
     await user.click(screen.getByRole("button", { name: "Create assay request" }));
