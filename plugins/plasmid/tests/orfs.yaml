@@ -1,0 +1,92 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: each_orf_says_which_frame_and_strand_it_is_read_in
+description: >-
+  A circle built of one reading frame on each strand, 81 and 86 codons: each ORF says
+  which of the six frames it is read in, where it lies, how long it is, and the protein it
+  codes for -- the start codon read as methionine. The reverse-strand frame runs across the
+  circle's origin, so its end comes before its start, as a feature of a circle may
+  (ADR 0138). The record keeps what they were found with: the fewest codons, the
+  translation table and whether other start codons were allowed.
+action: find_orfs
+params:
+  least_codons: 75
+  genetic_code: bacterial_archaeal_plant_plastid
+inputs:
+  plasmid:
+    - values: {}
+      included:
+        sequence:
+          - values:
+              bases: "CCGGCCGGCATGAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAATAAGGCCGGCCTTATTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTCATCCGG"
+              topology: circular
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            orfs_found_with: >-
+              ORFs of at least 75 codons, translation table 11 (Bacterial, Archaeal, Plant
+              Plastid), starting at ATG only; read across its origin
+            orfs:
+              - start: 10
+                end: 255
+                strand: forward
+                frame: 1
+                length: 246
+                amino_acids: 81
+                start_codon: ATG
+                translation: MKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKE
+              - start: 264
+                end: 11
+                strand: reverse
+                frame: -2
+                length: 261
+                amino_acids: 86
+                start_codon: ATG
+                translation: MPAGRMKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKE
+    metrics:
+      orfs: 2
+      longest: 86
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: nothing_is_read_across_a_linear_molecules_two_ends
+description: >-
+  The same bases written from base 21, as a linear molecule: the frame that crossed the
+  circle's origin is gone, because a line's two ends are ends and nothing says where that
+  protein would finish (ADR 0168). The frame that lies whole within the bases is found as
+  before, and the record says the ORFs weren't read across the ends.
+action: find_orfs
+params:
+  least_codons: 75
+  genetic_code: bacterial_archaeal_plant_plastid
+inputs:
+  plasmid:
+    - values: {}
+      included:
+        sequence:
+          - values:
+              bases: "TGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAAGCTGCTAAAGAAAAAGAATAAGGCCGGCCTTATTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTTTCTTTAGCAGCTTCTTTCATCCGGCCGGCCGGCATGAAAGAAGC"
+              topology: linear
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            orfs_found_with: >-
+              ORFs of at least 75 codons, translation table 11 (Bacterial, Archaeal, Plant
+              Plastid), starting at ATG only; not read across its two ends
+            orfs:
+              - start: 244
+                end: 504
+                strand: reverse
+                frame: -1
+                length: 261
+                amino_acids: 86
+                start_codon: ATG
+                translation: MPAGRMKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKEAAKEKE
+    metrics:
+      orfs: 1
+      longest: 86

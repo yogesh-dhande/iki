@@ -10,13 +10,23 @@ kind: Component
 name: plasmid_map
 label: Map
 description: >-
-  The plasmid drawn as the molecule it is, round a ring for a circle and along a line
-  for a linear one or a circle cut at base 1, each annotated part pointing the way its
-  strand runs, with its coordinates, how much of the library's part matched, and where
-  that part's bases are from.
+  The plasmid drawn as the molecule it is, round a ring for a circle and along a line for
+  a linear one or a circle cut at base 1, with the layers a run has found along it: the
+  library's parts, with how much of each part matched and where its bases are from; its
+  open reading frames; and where the project's primers bind. Each points the way its
+  strand runs, each is in a table of its own beneath with its coordinates, and each is a
+  layer the person turns off.
 module: ./components/plasmid-map.js
 element: plasmid-map
-slots: [{ slot: entity.tab, type: Plasmid }]
+# The project's primers, so a binding site's row is a way to the primer's own record: Iki
+# gives the map only their names and bases, as the person viewing it may read them
+# (ADR 0117), and opening one is Iki's own navigation to Iki's page.
+entities: { type: iki/dna.Primer, fields: [name, bases, length], limit: 500 }
+slots:
+  - slot: entity.tab
+    type: Plasmid
+    label: Map
+    search: { sort: hrid }
 # Until the plasmid is annotated, the map offers the action that annotates it, where the
 # person viewing it may run it (ADR 0170).
 events: { run: { actions: [annotate_plasmid] } }

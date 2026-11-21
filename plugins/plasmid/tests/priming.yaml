@@ -1,0 +1,223 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+#
+# The primers here are NEB's M13/pUC sequencing pair, which every pUC19 polylinker is read
+# with: M13/pUC forward (-20), GTAAAACGACGGCCAGT, and M13/pUC reverse, CAGGAAACAGCTATGAC.
+# The template is pUC19's own polylinker with the stretches those primers sit on either
+# side of it. `server/tests/test_plasmid_pcr.py` runs the same primers on the whole
+# L09137.2 record.
+apiVersion: iki/v1
+kind: ActionTest
+name: a_primer_binds_where_its_3_prime_end_pairs_on_either_strand
+description: >-
+  Two primers on a plasmid, one on each strand: each site says where it lies, the base its
+  3' end pairs with, how much of the primer annealed, its 5' tail, that nothing mismatched
+  and the melting temperature of the site. The record keeps how they were found and how
+  their Tm was computed, so a number can be compared with a vendor's years later.
+action: find_primer_binding_sites
+params:
+  least_three_prime_match: 15
+  most_mismatch_weight: 2
+inputs:
+  plasmid:
+    - values: {}
+      included:
+        sequence:
+          - values:
+              bases: "ACGCCAGGGTTTTCCCAGTCACGACGTTGTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTGCCGGAATTCCGGTTAACGCGT"
+              topology: circular
+  primers:
+    - values: { bases: "GTAAAACGACGGCCAGT", name: "M13/pUC forward (-20)" }
+    - values: { bases: "CAGGAAACAGCTATGAC", name: "M13/pUC reverse" }
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            primer_binding_sites_found_with: >-
+              placed by their 15 3' bases, mismatches weighing at most 2 (3 within the
+              last 5 bases, 1 beyond); Tm by SantaLucia 1998 nearest-neighbour (Biopython
+              Tm_NN, DNA_NN3), 50 mM Na+, no Mg2+ or dNTPs, 25 nM of each strand
+            primer_binding_sites:
+              - primer: PRM-000003
+                name: "M13/pUC forward (-20)"
+                strand: forward
+                start: 31
+                end: 47
+                three_prime: 47
+                annealed: 17
+                tail: 0
+                mismatches: []
+                melting_temperature: 49.2
+              - primer: PRM-000004
+                name: "M13/pUC reverse"
+                strand: reverse
+                start: 105
+                end: 121
+                three_prime: 105
+                annealed: 17
+                tail: 0
+                mismatches: []
+                melting_temperature: 43.6
+    metrics:
+      sites: 2
+      exact: 2
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_mismatch_at_a_primers_3_prime_end_is_no_binding_site
+description: >-
+  A polymerase extends from a primer's 3' end, so a mismatch there weighs 3 against 1 for
+  one further off, and a site is kept only where they weigh no more than the run allows.
+  The M13 forward primer with its last base changed weighs 3 and binds nowhere under the
+  default of 2; the reverse primer, untouched, still binds, and the run says which primer
+  found nothing rather than leaving it out silently.
+action: find_primer_binding_sites
+params:
+  most_mismatch_weight: 2
+inputs:
+  plasmid:
+    - values: {}
+      included:
+        sequence:
+          - values:
+              bases: "ACGCCAGGGTTTTCCCAGTCACGACGTTGTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTGCCGGAATTCCGGTTAACGCGT"
+              topology: circular
+  primers:
+    - values: { bases: "GTAAAACGACGGCCAGA", name: "forward, 3' base changed" }
+    - values: { bases: "CAGGAAACAGCTATGAC", name: "M13/pUC reverse" }
+expect:
+  output:
+    updates:
+      plasmid:
+        - values:
+            primer_binding_sites:
+              - primer: PRM-000004
+                name: "M13/pUC reverse"
+                strand: reverse
+                start: 105
+                end: 121
+                three_prime: 105
+                annealed: 17
+                tail: 0
+                mismatches: []
+                melting_temperature: 43.6
+    messages:
+      - level: warning
+        text: >-
+          PRM-000003 binds nowhere on PLS-000001 under this 3' match and mismatch weight:
+          allow more mismatches, or a shorter 3' match, to see weaker sites.
+    metrics:
+      sites: 1
+      exact: 1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_pcr_product_is_registered_as_the_linear_sequence_it_is
+description: >-
+  The two primers facing each other amplify the polylinker between them: a 91 bp linear
+  molecule, the forward primer whole, the template between the two 3' ends, and the reverse
+  primer's reverse complement whole. It is registered as a DNA sequence derived from the
+  reaction -- a cloning plan can take it as a fragment -- and the reaction keeps the
+  product's length, each primer's melting temperature where it binds, and how those were
+  computed.
+action: simulate_pcr
+inputs:
+  pcr:
+    - values: { name: "the polylinker" }
+      included:
+        template:
+          - values:
+              bases: "ACGCCAGGGTTTTCCCAGTCACGACGTTGTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTGCCGGAATTCCGGTTAACGCGT"
+              topology: circular
+              name: pTest
+        forward_primer:
+          - values: { bases: "GTAAAACGACGGCCAGT", name: "M13/pUC forward (-20)" }
+        reverse_primer:
+          - values: { bases: "CAGGAAACAGCTATGAC", name: "M13/pUC reverse" }
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: product
+        values:
+          bases: "GTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTG"
+          topology: linear
+          strandedness: double
+          name: "the polylinker"
+    updates:
+      pcr:
+        - values:
+            product: { $create: product }
+            product_length: 91
+            forward_melting_temperature: 49.2
+            reverse_melting_temperature: 43.6
+            products_found: 1
+            tm_method: >-
+              SantaLucia 1998 nearest-neighbour (Biopython Tm_NN, DNA_NN3), 50 mM Na+, no
+              Mg2+ or dNTPs, 25 nM of each strand
+    metrics:
+      products: 1
+      length: 91
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: primers_that_point_away_from_each_other_amplify_nothing
+description: >-
+  A PCR's two primers bind opposite strands and point at each other. Given the pair the
+  other way round -- the reverse primer named as the forward one -- the run refuses, says
+  which primer binds which strand, and says to swap them, rather than quietly registering
+  nothing.
+action: simulate_pcr
+inputs:
+  pcr:
+    - values: { name: "the wrong way round" }
+      included:
+        template:
+          - values:
+              bases: "ACGCCAGGGTTTTCCCAGTCACGACGTTGTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTGCCGGAATTCCGGTTAACGCGT"
+              topology: circular
+        forward_primer:
+          - values: { bases: "CAGGAAACAGCTATGAC", name: "M13/pUC reverse" }
+        reverse_primer:
+          - values: { bases: "GTAAAACGACGGCCAGT", name: "M13/pUC forward (-20)" }
+expect:
+  error: "binds DNA-000002 only on the reverse strand"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: several_products_are_listed_and_none_is_registered
+description: >-
+  The same forward primer twice on one template, and one reverse site: two products, so
+  the reaction doesn't say which it means and none is registered. The run says how many
+  and how long each is, and the record keeps the count with no length and no melting
+  temperatures, since those would belong to a product it didn't pick.
+action: simulate_pcr
+inputs:
+  pcr:
+    - values: { name: "two products" }
+      included:
+        template:
+          - values:
+              bases: "GTAAAACGACGGCCAGTCCGGTTAACGCGTAAGCTACGCCAGGGTTTTCCCAGTCACGACGTTGTGTAAAACGACGGCCAGTGAATTCGAGCTCGGTACCCGGGGATCCTCTAGAGTCGACCTGCAGGCATGCAAGCTTGTCATAGCTGTTTCCTGCCGGAATTCCGGTTAACGCGT"
+              topology: circular
+        forward_primer:
+          - values: { bases: "GTAAAACGACGGCCAGT", name: "M13/pUC forward (-20)" }
+        reverse_primer:
+          - values: { bases: "CAGGAAACAGCTATGAC", name: "M13/pUC reverse" }
+expect:
+  output:
+    updates:
+      pcr:
+        - values:
+            products_found: 2
+            product_length: null
+            forward_melting_temperature: null
+            reverse_melting_temperature: null
+    messages:
+      - level: warning
+        text: >-
+          The primers amplify 2 molecules of this template (91 bp, 156 bp), so none is
+          registered: the reaction doesn't say which. Use primers that bind one place each,
+          or raise the 3' match.
+    metrics:
+      products: 2

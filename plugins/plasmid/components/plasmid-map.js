@@ -10,6 +10,12 @@
 // view: it has no origin to go round. A circle opens on the ring and can be seen as a
 // line too, cut at base 1, which is how a map is read beside a gel or a sequencing read.
 //
+// Three layers can lie along it, each what a run of the plugin found and each a layer the
+// person turns off: the library's parts, the open reading frames, and where the project's
+// primers bind (ADR 0169). Each layer has its own ring or lanes and its own table beneath,
+// so they are never read as one another, and each is turned on and off by a button that
+// says whether it is showing.
+//
 // The drawing is described in words for screen readers, and every part is in the table
 // below it with its coordinates, so nothing is told by colour alone. The two views are
 // buttons in a group, reachable and operable from the keyboard like any button, each
@@ -59,6 +65,11 @@ const STYLE = `
   .run { font: inherit; color: Canvas; background: CanvasText; cursor: pointer;
     padding: 0.375rem 0.875rem; border: 1px solid CanvasText; border-radius: 6px; }
   .run:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
+  .link { font: inherit; color: CanvasText; background: none; border: 0; padding: 0;
+    text-decoration: underline; cursor: pointer; text-align: left; }
+  .link:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
+  td.protein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
+    word-break: break-all; max-width: 22rem; }
 `;
 
 // A colour per role, each readable on Canvas in both light and dark, and each part also
@@ -73,6 +84,8 @@ const COLOURS = {
   viral: ["#a40e26", "#ff8095"],
   recombination: ["#6e4b00", "#d4a72c"],
   regulatory: ["#4f4f8f", "#a9a9e6"],
+  orf: ["#3f6212", "#a3e635"],
+  primer: ["#9f1239", "#fda4af"],
 };
 const ROLES = {
   origin: "Origin of replication",
@@ -86,9 +99,13 @@ const ROLES = {
   regulatory: "Regulatory",
 };
 
-const SIZE = 340;
+const SIZE = 420;
 const CENTRE = SIZE / 2;
-const RADIUS = 120;
+const RADIUS = 140;
+//: The rings the ORFs and the primer binding sites are drawn on, inside and outside the
+//: backbone, so a layer is never read as another.
+const ORF_RINGS = [RADIUS - 52, RADIUS - 72];
+const SITE_RING = RADIUS + 52;
 const SVG = "http://www.w3.org/2000/svg";
 
 function element(tag, attributes = {}, ...children) {
@@ -167,7 +184,13 @@ function tickLabel(at, step) {
   return `${thousands.toFixed(step < 1000 ? 1 : 0).replace(/\.0$/, "")}k`;
 }
 
-function drawing(length, features) {
+/** An ORF or a binding site, as a span to draw: they carry the same start, end and
+ * strand a library part does, so one drawing serves all three layers. */
+function spans(items) {
+  return (items ?? []).filter((i) => Number.isInteger(i.start) && Number.isInteger(i.end));
+}
+
+function drawing(length, features, orfs, sites) {
   const parts = svg("svg", {
     viewBox: `0 0 ${SIZE} ${SIZE}`,
     width: SIZE,
@@ -215,6 +238,37 @@ function drawing(length, features) {
     parts.append(svg("path", { class: "arc", d: body, stroke: colour, "stroke-width": 7 }));
     parts.append(svg("path", { d: head, fill: colour }));
   }
+  // The ORFs, on rings of their own inside the backbone, and the binding sites on one
+  // outside it: each layer apart, each pointing the way it is read.
+  const orfLanes = ORF_RINGS.map(() => []);
+  for (const orf of spans(orfs)) {
+    const span = spanOf(orf, length);
+    const covers = [orf.start, orf.start + span];
+    let ring = ORF_RINGS.length - 1;
+    for (let i = 0; i < ORF_RINGS.length; i++) {
+      if (!orfLanes[i].some(([a, b]) => covers[0] < b && a < covers[1])) {
+        ring = i;
+        break;
+      }
+    }
+    orfLanes[ring].push(covers);
+    const [body, head] = arc(orf.start, span, length, ORF_RINGS[ring], orf.strand);
+    parts.append(
+      svg("path", { class: "arc", d: body, stroke: colourOf("orf"), "stroke-width": 5 }),
+    );
+    parts.append(svg("path", { d: head, fill: colourOf("orf") }));
+  }
+  for (const site of spans(sites)) {
+    // A primer is 20 or so bases of a plasmid's thousands, so a bare arc would be a
+    // point: each site is drawn as a mark across the ring with the arrowhead that says
+    // which way its polymerase goes.
+    const span = Math.max(spanOf(site, length), Math.ceil(length / 120));
+    const [body, head] = arc(site.start, span, length, SITE_RING, site.strand);
+    parts.append(
+      svg("path", { class: "arc", d: body, stroke: colourOf("primer"), "stroke-width": 6 }),
+    );
+    parts.append(svg("path", { d: head, fill: colourOf("primer") }));
+  }
   return parts;
 }
 
@@ -226,8 +280,15 @@ const LEFT = 36;
 const RIGHT = WIDE - 36;
 const LANES = 3;
 const LANE = 18;
-const SPINE = LANES * LANE + 26;
-const TALL = SPINE + LANES * LANE + 30;
+//: Each layer drawn takes its own lanes on each side of the line, so the molecule's own
+//: height follows from how many layers are showing.
+function spineAt(layers) {
+  return layers * LANES * LANE + 26;
+}
+
+function tallAt(layers) {
+  return spineAt(layers) + layers * LANES * LANE + 30;
+}
 
 /** Where base `at` lies along the line. */
 function along(at, length) {
@@ -287,24 +348,24 @@ function bar(from, to, length, y, forward, tipped) {
   return parts;
 }
 
-function lineDrawing(length, features, circular) {
+/** The line view: the molecule along a line from base 1 on the left, each layer's parts
+ * on lanes of its own -- above the line where they run forward and below where they run
+ * reverse, as SnapGene's linear view has them. */
+function lineDrawing(length, layers, circular) {
+  const shown = layers.filter((layer) => layer.items.length > 0);
+  const count = Math.max(shown.length, 1);
+  const spine = spineAt(count);
+  const tall = tallAt(count);
   const parts = svg("svg", {
-    viewBox: `0 0 ${WIDE} ${TALL}`,
+    viewBox: `0 0 ${WIDE} ${tall}`,
     width: WIDE,
-    height: TALL,
+    height: tall,
     // Hidden from screen readers: the paragraph above it says what it draws, in words,
-    // and the table below it gives every part.
+    // and the tables below it give every part of every layer.
     "aria-hidden": "true",
   });
   parts.append(
-    svg("line", {
-      class: "line",
-      x1: LEFT,
-      y1: SPINE,
-      x2: RIGHT,
-      y2: SPINE,
-      "stroke-width": 8,
-    }),
+    svg("line", { class: "line", x1: LEFT, y1: spine, x2: RIGHT, y2: spine, "stroke-width": 8 }),
   );
   // A linear molecule's two ends are its own, so they are drawn as ends; a circle drawn
   // as a line is cut at base 1, which the words beneath say.
@@ -314,9 +375,9 @@ function lineDrawing(length, features, circular) {
         svg("line", {
           class: "cap",
           x1: x,
-          y1: SPINE - 12,
+          y1: spine - 12,
           x2: x,
-          y2: SPINE + 12,
+          y2: spine + 12,
           "stroke-width": 3,
         }),
       );
@@ -330,40 +391,42 @@ function lineDrawing(length, features, circular) {
       svg("line", {
         class: "tick",
         x1: x.toFixed(1),
-        y1: SPINE + 8,
+        y1: spine + 8,
         x2: x.toFixed(1),
-        y2: SPINE + 14,
+        y2: spine + 14,
         "stroke-width": 1,
       }),
     );
     const label = svg("text", {
       class: "tick-label",
       x: x.toFixed(1),
-      y: SPINE + 26,
+      y: spine + 26,
       "text-anchor": "middle",
       "dominant-baseline": "middle",
     });
     label.textContent = tickLabel(place, step);
     parts.append(label);
   }
-  const above = Array.from({ length: LANES }, () => []);
-  const below = Array.from({ length: LANES }, () => []);
-  for (const feature of features) {
-    const forward = feature.strand !== "reverse";
-    const pieces = piecesOf(feature, length);
-    const covers = [pieces[0][0], pieces[pieces.length - 1][1]];
-    const lane = laneFor(forward ? above : below, covers);
-    const y = forward ? SPINE - 20 - lane * LANE : SPINE + 34 + lane * LANE;
-    const colour = colourOf(feature.qualifiers?.role);
-    // The arrowhead goes on the stretch that holds the part's 3' end.
-    const tipped = forward ? pieces.length - 1 : 0;
-    pieces.forEach(([from, to], i) => {
-      for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
-        drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
-        parts.append(drawn);
-      }
-    });
-  }
+  shown.forEach((layer, index) => {
+    const above = Array.from({ length: LANES }, () => []);
+    const below = Array.from({ length: LANES }, () => []);
+    for (const item of layer.items) {
+      const forward = item.strand !== "reverse";
+      const pieces = piecesOf(item, length);
+      const covers = [pieces[0][0], pieces[pieces.length - 1][1]];
+      const lane = index * LANES + laneFor(forward ? above : below, covers);
+      const y = forward ? spine - 20 - lane * LANE : spine + 34 + lane * LANE;
+      const colour = layer.colour ? colourOf(layer.colour) : colourOf(item.qualifiers?.role);
+      // The arrowhead goes on the stretch that holds its 3' end.
+      const tipped = forward ? pieces.length - 1 : 0;
+      pieces.forEach(([from, to], i) => {
+        for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
+          drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
+          parts.append(drawn);
+        }
+      });
+    }
+  });
   return parts;
 }
 
@@ -424,24 +487,202 @@ function table(features, length) {
   );
 }
 
+/** Where something lies, as the table writes it: two stretches where it crosses the
+ * origin of a circle, which is where the line's drawing cuts it. */
+function whereOf(item, length) {
+  return item.end >= item.start
+    ? `${item.start.toLocaleString("en")}\u2013${item.end.toLocaleString("en")}`
+    : `${item.start.toLocaleString("en")}\u2013${length.toLocaleString("en")}, 1\u2013${item.end.toLocaleString("en")}`;
+}
+
+/** The frame an ORF is read in, as NCBI's ORFfinder writes it: +1 to +3 on the forward
+ * strand and -1 to -3 on the reverse. */
+function frameOf(orf) {
+  const frame = Number(orf.frame);
+  return Number.isFinite(frame) ? (frame > 0 ? `+${String(frame)}` : String(frame)) : "";
+}
+
+/** The ORFs, each with its frame, where it lies, how long it is and the protein it codes
+ * for: everything the drawing shows and the translation it can't. */
+function orfTable(orfs, length) {
+  const rows = orfs.map((orf) => {
+    const swatch = element("span", { className: "swatch" });
+    swatch.style.background = colourOf("orf");
+    return element(
+      "tr",
+      {},
+      element("th", { scope: "row", className: "where" }, swatch, whereOf(orf, length)),
+      element("td", {}, frameOf(orf)),
+      element("td", {}, orf.strand === "reverse" ? "reverse" : "forward"),
+      element("td", { className: "where" }, `${Number(orf.length).toLocaleString("en")} bp`),
+      element("td", { className: "where" }, `${Number(orf.amino_acids).toLocaleString("en")} aa`),
+      element("td", {}, orf.start_codon ?? ""),
+      element("td", { className: "protein" }, orf.translation ?? ""),
+    );
+  });
+  return element(
+    "table",
+    {},
+    element("caption", {}, "Open reading frames"),
+    element(
+      "thead",
+      {},
+      element(
+        "tr",
+        {},
+        element("th", { scope: "col" }, "Bases"),
+        element("th", { scope: "col" }, "Frame"),
+        element("th", { scope: "col" }, "Strand"),
+        element("th", { scope: "col" }, "Length"),
+        element("th", { scope: "col" }, "Protein"),
+        element("th", { scope: "col" }, "Start"),
+        element("th", { scope: "col" }, "Translation"),
+      ),
+    ),
+    element("tbody", {}, ...rows),
+  );
+}
+
+/** How a site's mismatches read: each with how far it is from the primer's 3' end, since
+ * that is what decides whether a polymerase extends there. */
+function mismatchesOf(site) {
+  const found = Array.isArray(site.mismatches) ? site.mismatches : [];
+  if (!found.length) return "exact";
+  return found
+    .map(
+      (m) =>
+        `${String(m.primer)}\u2192${String(m.template)}, ${String(m.from_three_prime)} from its 3\u2032 end`,
+    )
+    .join("; ");
+}
+
+/** The primer binding sites, each row naming its primer -- a button that opens the
+ * primer's record where Iki gave this map the project's primers, and its ID in plain
+ * words where it didn't. */
+function siteTable(sites, length, primers, open) {
+  const known = new Map((primers ?? []).map((p) => [p.hrid, p]));
+  const rows = sites.map((site) => {
+    const swatch = element("span", { className: "swatch" });
+    swatch.style.background = colourOf("primer");
+    const primer = known.get(site.primer);
+    let named;
+    if (primer) {
+      named = element("button", { type: "button", className: "link" });
+      named.textContent = `${site.name} (${site.primer})`;
+      named.addEventListener("click", () => open(site.primer));
+    } else {
+      named = element("span", {}, `${site.name} (${site.primer})`);
+    }
+    return element(
+      "tr",
+      {},
+      element("th", { scope: "row" }, swatch, named),
+      element("td", { className: "where" }, whereOf(site, length)),
+      element("td", {}, site.strand === "reverse" ? "reverse" : "forward"),
+      element("td", { className: "where" }, Number(site.three_prime).toLocaleString("en")),
+      element("td", { className: "where" }, `${String(site.annealed)} bp`),
+      element("td", { className: "where" }, `${String(site.tail)} bp`),
+      element("td", {}, mismatchesOf(site)),
+      element(
+        "td",
+        { className: "where" },
+        typeof site.melting_temperature === "number"
+          ? `${site.melting_temperature.toFixed(1)} \u00b0C`
+          : "\u2014",
+      ),
+    );
+  });
+  return element(
+    "table",
+    {},
+    element("caption", {}, "Primer binding sites"),
+    element(
+      "thead",
+      {},
+      element(
+        "tr",
+        {},
+        element("th", { scope: "col" }, "Primer"),
+        element("th", { scope: "col" }, "Bases"),
+        element("th", { scope: "col" }, "Strand"),
+        element("th", { scope: "col" }, "3\u2032 end"),
+        element("th", { scope: "col" }, "Annealed"),
+        element("th", { scope: "col" }, "5\u2032 tail"),
+        element("th", { scope: "col" }, "Pairing"),
+        element("th", { scope: "col" }, "Tm"),
+      ),
+    ),
+    element("tbody", {}, ...rows),
+  );
+}
+
+/** The buttons that turn each layer on and off: one for each layer a run has found, each
+ * saying whether it is showing and how many it holds. */
+function layerButtons(layers, toggle) {
+  const group = element("div", { className: "views", role: "group", "aria-label": "Layers" });
+  for (const layer of layers) {
+    const button = element("button", {
+      type: "button",
+      "aria-pressed": String(layer.shown),
+    });
+    button.textContent = `${layer.label} (${layer.found.length.toLocaleString("en")})`;
+    button.addEventListener("click", () => toggle(layer.key));
+    group.append(button);
+  }
+  return group;
+}
+
 /** What the drawing shows, in words, so a screen reader is told everything the picture
- * tells: the molecule, which way it is drawn, and every part along it. */
-function describe(length, features, circular, view) {
+ * tells: the molecule, which way it is drawn, and each layer showing along it. */
+function describe(length, layers, circular, view) {
   const bp = `${length.toLocaleString("en")} base pairs`;
   const shape = circular
     ? view === "line"
       ? `A circle of ${bp}, drawn as a line cut at base 1, so a part across its origin is drawn in two pieces`
       : `A circle of ${bp}, drawn as a ring with base 1 at the top, going clockwise`
     : `A linear molecule of ${bp}, drawn as a line from base 1 at the left to base ${length.toLocaleString("en")} at the right, with an end at each`;
-  if (!features.length) return `${shape}, with none of the library's parts found along it.`;
-  const each = features
+  const said = layers.filter((layer) => layer.shown).map((layer) => layer.describe(layer.items));
+  if (!said.length) {
+    const ran = layers.length
+      ? "with no layer showing."
+      : "with none of the library's parts found along it.";
+    return `${shape}, ${ran}`;
+  }
+  return `${shape}, ${said.join(", and ")}.`;
+}
+
+/** Each of the three layers in words: what it holds and where each of them lies. */
+function eachOf(items, how) {
+  return items
     .map(
-      (f) =>
-        `${f.qualifiers?.label || f.name}, ${f.start.toLocaleString("en")} to ${f.end.toLocaleString("en")} on the ${f.strand === "reverse" ? "reverse" : "forward"} strand`,
+      (i) =>
+        `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand`,
     )
     .join("; ");
-  const count = `${features.length} ${features.length === 1 ? "part" : "parts"}`;
-  return `${shape}, with ${count} of the library found along it: ${each}.`;
+}
+
+function describeParts(items) {
+  if (!items.length) return "with none of the library's parts found along it";
+  const count = `${items.length} ${items.length === 1 ? "part" : "parts"}`;
+  return `with ${count} of the library found along it: ${eachOf(items, (i) => i.qualifiers?.label || i.name)}`;
+}
+
+function describeOrfs(items) {
+  if (!items.length) return "with no open reading frame found in any of its six frames";
+  const count = `${items.length} open reading ${items.length === 1 ? "frame" : "frames"}`;
+  return `with ${count}: ${eachOf(items, (i) => `${String(i.amino_acids)} amino acids in frame ${frameOf(i)}`)}`;
+}
+
+function describeSites(items) {
+  if (!items.length) return "with none of the primers binding it";
+  const count = `${items.length} primer binding ${items.length === 1 ? "site" : "sites"}`;
+  const each = items
+    .map(
+      (i) =>
+        `${String(i.name)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand, its 3\u2032 end at base ${Number(i.three_prime).toLocaleString("en")}`,
+    )
+    .join("; ");
+  return `with ${count}: ${each}`;
 }
 
 /** The buttons that choose the view, for a circle, which can be read either way. A
@@ -471,6 +712,13 @@ class PlasmidMap extends HTMLElement {
     this.view = "ring";
     //: Where it is, as Iki says: which actions the person may run here.
     this.at = null;
+    //: Which layers are showing. Each is on once a run has found it: the person asked for
+    //: those ORFs or those binding sites by running the action, so the map shows them, and
+    //: a button takes any of them away again.
+    this.hidden_layers = new Set();
+    //: The project's primers, as Iki gives them (ADR 0117): what makes each binding site's
+    //: row a way to its primer's record.
+    this.primers = [];
   }
 
   set place(place) {
@@ -488,22 +736,76 @@ class PlasmidMap extends HTMLElement {
     this.draw();
   }
 
+  set entities(entities) {
+    this.primers = entities?.items ?? [];
+    if (this.held) this.draw();
+  }
+
+  /** The three layers, each as what a run found, in the order they are drawn. A layer
+   * whose run hasn't been is not a layer: nothing says whether it would find anything. */
+  layersOf(values, length) {
+    const within = (items) =>
+      items
+        .filter((i) => Number.isInteger(i.start) && Number.isInteger(i.end) && i.start <= length)
+        .sort((a, b) => a.start - b.start);
+    const ran = (field, found) =>
+      found.length > 0 || (typeof values[field] === "string" && values[field] !== "");
+    const made = [];
+    const parts = within(Array.isArray(values.annotated_features) ? values.annotated_features : []);
+    if (ran("annotated_with", parts)) {
+      made.push({
+        key: "parts",
+        label: "Library parts",
+        found: parts,
+        colour: null,
+        describe: describeParts,
+        table: (items) => table(items, length),
+      });
+    }
+    const orfs = within(Array.isArray(values.orfs) ? values.orfs : []);
+    if (ran("orfs_found_with", orfs)) {
+      made.push({
+        key: "orfs",
+        label: "Open reading frames",
+        found: orfs,
+        colour: "orf",
+        describe: describeOrfs,
+        table: (items) => orfTable(items, length),
+      });
+    }
+    const sites = within(
+      Array.isArray(values.primer_binding_sites) ? values.primer_binding_sites : [],
+    );
+    if (ran("primer_binding_sites_found_with", sites)) {
+      made.push({
+        key: "primers",
+        label: "Primer binding sites",
+        found: sites,
+        colour: "primer",
+        describe: describeSites,
+        table: (items) => siteTable(items, length, this.primers, (hrid) => this.open(hrid)),
+      });
+    }
+    for (const layer of made) {
+      layer.shown = !this.hidden_layers.has(layer.key);
+      layer.items = layer.shown ? layer.found : [];
+    }
+    return made;
+  }
+
   draw() {
     const entity = this.held;
     const style = element("style");
     style.textContent = STYLE;
     const values = entity?.values ?? {};
-    const features = Array.isArray(values.annotated_features) ? values.annotated_features : [];
     const length = Number(values.length) || 0;
     const circular = values.topology !== "linear";
-    // Whether this project's record has been annotated, which is what the map draws.
-    // Its length is its registry entry's and the same for every project (ADR 0115), so
-    // a second project has the length as soon as the record exists, before its own
-    // annotation has run: `annotated_with` is written by that run, with the features.
-    const annotated =
-      features.length > 0 ||
-      (typeof values.annotated_with === "string" && values.annotated_with !== "");
-    if (!length || !annotated) {
+    const layers = length ? this.layersOf(values, length) : [];
+    // Nothing of the molecule is drawn until a run has read it: its length is its registry
+    // entry's and the same for every project (ADR 0115), so a second project has the
+    // length as soon as the record exists, before any run of its own has been. Each
+    // layer's own `*_found_with` is what its run writes, with what it found.
+    if (!layers.length) {
       const children = [
         style,
         element(
@@ -523,33 +825,47 @@ class PlasmidMap extends HTMLElement {
       this.shadowRoot.replaceChildren(...children);
       return;
     }
-    const kept = features
-      .filter((f) => Number.isInteger(f.start) && Number.isInteger(f.end) && f.start <= length)
-      .sort((a, b) => a.start - b.start);
+    const of = (key) => layers.find((layer) => layer.key === key)?.items ?? [];
     const name = values.name ?? entity?.hrid ?? "";
     let picture;
     if (circular && this.view === "ring") {
-      picture = drawing(length, kept);
-      middle(picture, name, length, kept.length);
+      picture = drawing(length, of("parts"), of("orfs"), of("primers"));
+      middle(picture, name, length, of("parts").length);
     } else {
-      picture = lineDrawing(length, kept, circular);
+      picture = lineDrawing(length, layers, circular);
       const heading = svg("text", { class: "middle name", x: LEFT, y: 14 });
       heading.textContent = [name, `${length.toLocaleString("en")} bp`].filter(Boolean).join(", ");
       picture.append(heading);
     }
     const children = [style, element("h2", {}, "Map")];
     if (circular) children.push(views(this.view, (view) => this.choose(view)));
+    if (layers.length > 1) {
+      children.push(layerButtons(layers, (key) => this.toggle(key)));
+    }
+    const shown = layers.filter((layer) => layer.shown && layer.items.length);
     children.push(
-      element("p", {}, describe(length, kept, circular, this.view)),
-      element("div", { className: "map" }, picture, kept.length ? table(kept, length) : ""),
+      element("p", {}, describe(length, layers, circular, this.view)),
+      element(
+        "div",
+        { className: "map" },
+        picture,
+        ...shown.map((layer) => layer.table(layer.items)),
+      ),
     );
-    if (values.annotated_with) {
+    const how = [
+      ["Annotated with", values.annotated_with],
+      ["ORFs found with", values.orfs_found_with],
+      ["Binding sites found with", values.primer_binding_sites_found_with],
+    ].filter(([, said]) => typeof said === "string" && said !== "");
+    if (how.length) {
       children.push(
         element(
           "dl",
           {},
-          element("dt", {}, "Annotated with"),
-          element("dd", { className: "note" }, values.annotated_with),
+          ...how.flatMap(([what, said]) => [
+            element("dt", {}, what),
+            element("dd", { className: "note" }, said),
+          ]),
         ),
       );
     }
@@ -565,6 +881,31 @@ class PlasmidMap extends HTMLElement {
     const chosen = [...buttons].find((b) => b.getAttribute("aria-pressed") === "true");
     chosen?.focus();
   }
+
+  /** Turns a layer on or off, and leaves the keyboard on the button that was pressed. */
+  toggle(key) {
+    if (this.hidden_layers.has(key)) this.hidden_layers.delete(key);
+    else this.hidden_layers.add(key);
+    this.draw();
+    const group = this.shadowRoot.querySelector('[aria-label="Layers"]');
+    const buttons = group ? [...group.querySelectorAll("button")] : [];
+    buttons.find((b) => b.textContent?.startsWith(labelFor(key)))?.focus();
+  }
+
+  /** Asks Iki to open an entity it gave this map: a primer whose binding site was clicked.
+   * Iki checks that it is one of them and opens its page (ADR 0117); the map never
+   * navigates itself. */
+  open(hrid) {
+    this.dispatchEvent(new CustomEvent("iki-open", { detail: { entity: hrid }, bubbles: true }));
+  }
+}
+
+/** A layer's name, by its key: what its button reads, so the keyboard can find it again
+ * after a redraw. */
+function labelFor(key) {
+  return { parts: "Library parts", orfs: "Open reading frames", primers: "Primer binding sites" }[
+    key
+  ];
 }
 
 customElements.define("plasmid-map", PlasmidMap);

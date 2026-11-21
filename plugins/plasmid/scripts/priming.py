@@ -60,6 +60,9 @@ THREE_PRIME = 5
 NEAR_THREE_PRIME = 3
 ELSEWHERE = 1
 MOST_PENALTY = 2
+#: A polymerase's reach by default: a pair of sites further apart than this amplifies
+#: nothing in the tube, so no product is worked out for it.
+LONGEST_PRODUCT = 20_000
 #: What a run keeps at most: sites of all the primers, and products of one reaction.
 MOST_SITES = 500
 MOST_PRODUCTS = 20
