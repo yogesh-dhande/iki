@@ -214,6 +214,7 @@ class Plasmid_Entry(Entity):
     )
     bases = models.TextField()
     topology = models.TextField(db_default='circular')
+    strandedness = models.TextField(db_default='double')
 
     class Meta:
         db_table = 'acme__dna_plasmid__entry'
@@ -234,6 +235,10 @@ class Plasmid_Entry(Entity):
                 condition=Q(topology__in=['linear', 'circular']),
                 name='acme__dna_plasmid__entry__topology__values',
             ),
+            models.CheckConstraint(
+                condition=Q(strandedness__in=['double', 'single']),
+                name='acme__dna_plasmid__entry__strandedness__values',
+            ),
         ]
 
 
@@ -248,6 +253,7 @@ class Plasmid_Entry_History(models.Model):
     revision = models.PositiveIntegerField()
     bases = models.TextField(null=True)
     topology = models.TextField(null=True)
+    strandedness = models.TextField(null=True)
 
     class Meta:
         db_table = 'acme__dna_plasmid__entry__history'

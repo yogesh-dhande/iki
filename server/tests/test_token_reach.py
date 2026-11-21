@@ -264,6 +264,10 @@ def test_every_operation_beyond_its_projects_is_refused(
     if path.startswith(LOOKUPS.get((method, template), "\0")):
         pytest.skip("a lookup")
     response = bearer(token, method, path, body, headers[0] if headers else None)
+    if response.status_code == 200 and response["Content-Type"].startswith("text/csv"):
+        # A download of a search, of nothing it may reach: its heading row alone.
+        assert len(response.getvalue().decode().splitlines()) == 1, response.getvalue()
+        return
     if response.status_code == 200:
         # A list or a search, of nothing it may reach.
         found = response.json()

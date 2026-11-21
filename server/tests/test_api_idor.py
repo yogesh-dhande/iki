@@ -119,7 +119,7 @@ def _replace(value: Any, ours: str, theirs: str) -> Any:
 def _problem(response: Any, masks: dict[str, str]) -> tuple[int, Any]:
     """What a response says, with the identifiers it was sent masked: an object out of
     reach must read exactly as one that doesn't exist."""
-    text = response.content.decode()
+    text = (response.getvalue() if response.streaming else response.content).decode()
     for value, mask in masks.items():
         text = text.replace(value, mask)
     try:
@@ -239,8 +239,9 @@ def test_lists_and_searches_never_show_another_projects_objects(
             ):
                 response = client.call(method, sent, body, headers=headers[0] if headers else None)
                 where = f"{principal}: {method} {sent}"
-                assert response.status_code < 500, (where, response.content[:300])
-                text = response.content.decode()
+                body_of = response.getvalue() if response.streaming else response.content
+                assert response.status_code < 500, (where, body_of[:300])
+                text = body_of.decode()
                 leaked = {key for key in secret if key in text and key not in sent}
                 assert not leaked, (where, leaked)
                 if other is not None:

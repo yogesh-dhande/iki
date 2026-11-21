@@ -666,6 +666,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
         related_name='+',
     )
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
+    signal_peptide = models.CharField(max_length=70, null=True, db_index=True)
     lims_id = models.CharField(max_length=64, null=True, db_index=True)
     source = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     encoded_by = models.ForeignKey(
@@ -686,6 +687,20 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
             models.CheckConstraint(
                 condition=Q(molecular_weight__gt=float('-inf'), molecular_weight__lt=float('inf')),
                 name='acme__protein_protein__molecular_weight__finite',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('signal_peptide'), 1),
+                name='acme__protein_protein__signal_peptide__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(signal_peptide__regex='[\\r\\n]'),
+                name='acme__protein_protein__signal_peptide__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    signal_peptide__regex='^[ACDEFGHIKLMNPQRSTVWYBZXUOJacdefghiklmnpqrstvwybzxuoj*]*$',
+                ),
+                name='acme__protein_protein__signal_peptide__format',
             ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('lims_id'), 1),
@@ -733,6 +748,11 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
         ]
         indexes = [
             GinIndex(
+                fields=['signal_peptide'],
+                opclasses=['gin_trgm_ops'],
+                name='signal_pep_trgm_1f6762c2ee235b',
+            ),
+            GinIndex(
                 fields=['lims_id'],
                 opclasses=['gin_trgm_ops'],
                 name='lims_id_trgm_8eb1fa52d218dbeb4',
@@ -759,6 +779,7 @@ class Protein_History(models.Model):
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
     molecular_weight = QuantityField(unit='u', null=True)
+    signal_peptide = models.TextField(null=True)
     lims_id = models.TextField(null=True)
     source = models.UUIDField(db_column='source_id', null=True)
     encoded_by = models.UUIDField(db_column='encoded_by_id', null=True)
