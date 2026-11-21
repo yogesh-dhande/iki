@@ -405,6 +405,73 @@ describe("starting a run", () => {
     expect(screen.queryByRole("combobox", { name: "Action" })).not.toBeInTheDocument();
   });
 
+  it("runs on the project's own record of an entry other projects hold too", async () => {
+    // Registry entries are shared: DNA-000004 here is Kinase Atlas's record of pUC19, and
+    // another project the person is in holds its own record of the same entry.
+    withTypes();
+    const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
+    answer("GET /api/v1/projects", page([atlas]));
+    answer("GET /api/v1/actions", [COMPUTE]);
+    const ours = entity();
+    const theirs = entity({
+      id: SECOND_ID,
+      values: { name: "Their ABL1" },
+      owner_project: { id: "00000000-0000-7000-8000-0000000000f2", name: "Other", slug: "other" },
+    });
+    answer("POST /api/v1/entities/search", (r: { body: { project?: string } }) =>
+      page(r.body.project === KINASE.id ? [ours] : [ours, theirs]),
+    );
+    await renderApp(`/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ACTION.name}`);
+    const protein = await screen.findByRole("group", { name: "Protein" });
+    expect(within(protein).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(protein).getByRole("listitem")).toHaveTextContent("PRT-000001 ABL1 kinase");
+    expect(screen.getByRole("button", { name: "Start run" })).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search").map((c) => c.body)).toEqual([
+      {
+        where: { field: "hrid", op: "in", value: ["PRT-000001"] },
+        project: KINASE.id,
+        exact_type: false,
+        limit: 100,
+      },
+    ]);
+  });
+
+  it("looks in other projects for what this one doesn't hold, and never guesses", async () => {
+    withTypes();
+    const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
+    answer("GET /api/v1/projects", page([atlas]));
+    answer("GET /api/v1/actions", [COMPUTE]);
+    const elsewhere = (id: string, hrid: string, slug: string) =>
+      entity({
+        id,
+        hrid,
+        owner_project: { id: `00000000-0000-7000-8000-0000000000${slug}`, name: slug, slug },
+      });
+    answer("POST /api/v1/entities/search", (r: { body: { project?: string } }) =>
+      page(
+        r.body.project
+          ? []
+          : [
+              elsewhere(PROTEIN_ID, "PRT-000001", "f2"),
+              elsewhere(SECOND_ID, "PRT-000002", "f2"),
+              elsewhere("00000000-0000-7000-8000-00000000e003", "PRT-000002", "f3"),
+            ],
+      ),
+    );
+    await renderApp(
+      `/projects/kinase-atlas/runs/new/?entities=PRT-000001,PRT-000002&action=${ACTION.name}`,
+    );
+    expect(
+      await screen.findByText(
+        "PRT-000002 is in more than one of your other projects, so it’s left out: add the " +
+          "record you mean to Kinase Atlas, then start the run here.",
+      ),
+    ).toBeInTheDocument();
+    const protein = screen.getByRole("group", { name: "Protein" });
+    expect(within(protein).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(protein).getByRole("listitem")).toHaveTextContent("PRT-000001");
+  });
+
   it("says which entities it can't read", async () => {
     onProject();
     await renderApp("/projects/kinase-atlas/runs/new/?entities=PRT-000001,PRT-999999");
