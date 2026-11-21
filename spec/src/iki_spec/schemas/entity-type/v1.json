@@ -201,6 +201,14 @@
       },
       "additionalProperties": false
     },
+    "exports": {
+      "description": "The files Iki writes of its records, offered on their pages and through the API at any revision, each download audited (ADR 0169). Configured by naming the fields each file is written from. Its subtypes have them too, unless they declare their own.",
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/export"
+      }
+    },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
       "type": "object",
@@ -260,6 +268,37 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "export": {
+      "type": "object",
+      "required": ["export", "sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "What it writes. `sequence`: a DNA or RNA sequence, as GenBank (with its features) and as FASTA.",
+          "enum": ["sequence"]
+        },
+        "sequence": {
+          "description": "A string field with format `dna_sequence` or `rna_sequence`, whose `topology` and `strands` say its topology and strandedness; or a reference to a type that exports a sequence, whose file is written under this record's name with this record's features added.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "features": {
+          "description": "A json field of features along it, as the sequence viewer reads them: each with a `type`, a `start` and `end` (from 1), and optionally a `name`, a `strand`, `parts` and `qualifiers`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "description": {
+          "description": "A string or text field describing it: GenBank's DEFINITION, and the FASTA header after its name.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "accession": {
+          "description": "A string field holding the INSDC accession, with its version, of the record it came from, such as L09137.2.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "organism": {
+          "description": "A reference to iki/core.Organism: the taxon it's from, written as GenBank's source feature.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
     "viewer": {
       "type": "object",
       "required": ["viewer"],

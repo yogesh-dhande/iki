@@ -88,6 +88,7 @@ def test_example_plugins_are_valid() -> None:
         "acme/dna.Sequence",
         "acme/dna.DNASequence",
         "acme/dna.Plasmid",
+        "acme/dna.Vector",
     }
 
     protein = load_plugin(PROTEIN, dependencies=[DNA])

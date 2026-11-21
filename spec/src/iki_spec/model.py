@@ -762,6 +762,9 @@ class EntityType:
     fields: dict[str, Field] = field(default_factory=dict)
     display_title: str | None = None
     viewers: tuple[Viewer, ...] = ()
+    #: The files Iki writes of its records, such as GenBank (ADR 0169). Subtypes have their
+    #: nearest ancestor's unless they declare their own.
+    exports: tuple[Export, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -818,6 +821,21 @@ class Viewer:
     rows: str = ""  # a list of refs to the sequences it aligns, rows headed by their HRIDs
     reference: str = ""  # a ref to the sequence the others were aligned to, or ""
     tracks: tuple[Track, ...] = ()  # the sequence viewer's per-residue values
+
+
+@dataclass(frozen=True)
+class Export:
+    """Files Iki writes of a type's records, and the fields they're written from
+    (``exports``, ADR 0169). A ``sequence`` export writes GenBank and FASTA."""
+
+    export: str  # "sequence"
+    #: A string field with a DNA or RNA format, or a reference to a type that exports a
+    #: sequence: its file, under this record's name, with this record's features added.
+    sequence: str
+    features: str = ""  # a json field of features, as the sequence viewer reads them, or ""
+    description: str = ""  # a string or text field, or ""
+    accession: str = ""  # a string field: an INSDC accession with its version, or ""
+    organism: str = ""  # a reference to iki/core.Organism, or ""
 
 
 @dataclass(frozen=True)
@@ -1461,6 +1479,7 @@ _DATACLASSES = (
     RequestSpec,
     ResultSpec,
     EntityType,
+    Export,
     Extension,
     Plugin,
     Action,
@@ -1527,6 +1546,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
+                        # ...or exports.
+                        "exports": tuple(Export(**x) for x in v.get("exports") or ()),
                         # ...or rules.
                         "rules": {n: _rule(r) for n, r in (v.get("rules") or {}).items()},
                         # ...or notifications.
