@@ -128,7 +128,7 @@ def test_puc19s_beta_lactamase_and_lacz_alpha_are_its_two_long_orfs(orfs: Module
     assert lacz.translation.startswith("MTMITPSLHACRST")
     # Each is translated as Biopython translates that stretch of the record.
     for orf in (bla, lacz):
-        stretch = Seq(bases[orf.start - 1 : orf.end]).reverse_complement()
+        stretch = Seq(bases[orf.start - 1 : orf.end]).reverse_complement()  # type: ignore[no-untyped-call]
         assert str(stretch.translate(table=11))[:-1] == orf.translation
         assert str(stretch.translate(table=11)).endswith("*")
     assert length == 2686
@@ -155,8 +155,8 @@ def test_an_annotated_cds_of_a_record_comes_out_as_an_orf(
     orf = found[where]
     stretch = Seq(bases[where[0] - 1 : where[1]])
     if where[2] == "reverse":
-        stretch = stretch.reverse_complement()
-    assert orf.translation == str(stretch.translate(table=11))[:-1]
+        stretch = stretch.reverse_complement()  # type: ignore[no-untyped-call]
+    assert orf.translation == str(stretch.translate(table=11))[:-1]  # type: ignore[no-untyped-call]
     assert orf.codons == (where[1] - where[0] + 1) // 3 - 1
 
 
@@ -232,7 +232,7 @@ def test_a_tables_alternative_starts_find_a_frame_that_doesnt_begin_at_atg(
     assert (frame.start, frame.codons, frame.start_codon) == (1747, 119, "GTG")
     assert frame.translation.startswith("M")
     # The record's own Rop, 63 amino acids from its GTG, is the end of this reading frame.
-    rop = str(Seq(bases[1914:2106]).translate(table=11))[:-1]
+    rop = str(Seq(bases[1914:2106]).translate(table=11))[:-1]  # type: ignore[no-untyped-call]
     assert len(rop) == 63
     assert frame.translation.endswith(rop[1:])
 

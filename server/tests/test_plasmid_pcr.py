@@ -148,9 +148,9 @@ def test_the_m13_primers_bind_puc19_where_its_bases_put_them(priming: ModuleType
         ],
     )
     assert bases.count(M13_FORWARD) == 1
-    assert bases.count(str(Seq(M13_REVERSE).reverse_complement())) == 1
+    assert bases.count(str(Seq(M13_REVERSE).reverse_complement())) == 1  # type: ignore[no-untyped-call]
     at_forward = bases.index(M13_FORWARD) + 1
-    at_reverse = bases.index(str(Seq(M13_REVERSE).reverse_complement())) + 1
+    at_reverse = bases.index(str(Seq(M13_REVERSE).reverse_complement())) + 1  # type: ignore[no-untyped-call]
     assert [(s.hrid, s.strand, s.start, s.end, s.three_prime) for s in sites] == [
         ("PRM-000001", "forward", at_forward, at_forward + 16, at_forward + 16),
         ("PRM-000002", "reverse", at_reverse, at_reverse + 16, at_reverse),
@@ -167,7 +167,7 @@ def test_a_sites_tm_is_biopythons_under_the_conditions_the_plugin_states(
     primer's record and its site on a template agree where it matches exactly."""
     for bases in (M13_FORWARD, M13_REVERSE):
         mine = priming.melting_temperature(bases)
-        theirs = MeltingTemp.Tm_NN(
+        theirs = MeltingTemp.Tm_NN(  # type: ignore[no-untyped-call]
             bases, Na=50, K=0, Tris=0, Mg=0, dNTPs=0, dnac1=25, dnac2=25, saltcorr=5
         )
         assert mine == round(float(theirs), 1)
@@ -293,7 +293,7 @@ def test_the_m13_pair_amplifies_puc19s_polylinker(tmp_path: Path) -> None:
     assert made["values"]["bases"] == expected
     assert len(expected) == 103
     assert expected.startswith(M13_FORWARD)
-    assert expected.endswith(str(Seq(M13_REVERSE).reverse_complement()))
+    assert expected.endswith(str(Seq(M13_REVERSE).reverse_complement()))  # type: ignore[no-untyped-call]
     # The polylinker it spans: pUC19's EcoRI site and its HindIII site are both in it.
     assert "GAATTC" in expected
     assert "AAGCTT" in expected
@@ -321,7 +321,7 @@ def test_both_primers_5_prime_tails_are_in_the_product(tmp_path: Path) -> None:
     product = output["creates"][0]["values"]["bases"]
     assert len(product) == 123
     assert product.startswith("GCGCGAATTC" + M13_FORWARD)
-    assert product.endswith(str(Seq("GCGCGGATCC" + M13_REVERSE).reverse_complement()))
+    assert product.endswith(str(Seq("GCGCGGATCC" + M13_REVERSE).reverse_complement()))  # type: ignore[no-untyped-call]
     assert product[10:-10] == bases[378:481]
     assert "10 bp 5' tail" in log
 
