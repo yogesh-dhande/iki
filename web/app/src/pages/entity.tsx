@@ -545,7 +545,7 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
       </Link>
     ) : null;
   const watch = <EntityWatch entity={entity} />;
-  // Anyone who reads it may download it (ADR 0169).
+  // Anyone who reads it may download it (ADR 0171).
   const exporting = <ExportButton entity={entity} type={type} />;
   if (!entity.can.edit || !type) {
     return (

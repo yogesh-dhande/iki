@@ -117,7 +117,7 @@ def _entity(w: World) -> Any:
 
 
 def plasmid_export(w: World) -> tuple[Any, ...]:
-    """A type that exports a file (ADR 0169): DNASequence's fixture exports none."""
+    """A type that exports a file (ADR 0171): DNASequence's fixture exports none."""
     from iki_server.entities import services as entities
 
     found = entities.create(w.users["editor"], "acme/dna.Plasmid", w.project, {"bases": "ACGT"})

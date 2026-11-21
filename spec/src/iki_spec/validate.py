@@ -2223,7 +2223,7 @@ class _Semantics:
     def exports(self, entity_type: EntityType, source: Document, fields: dict[str, Field]) -> None:
         """Each export names fields the type has, of the kind it writes, once per type. A
         sequence export's sequence is a DNA or RNA field, or a reference to a type that
-        exports a sequence (ADR 0169)."""
+        exports a sequence (ADR 0171)."""
         seen: set[str] = set()
         for index, export in enumerate(entity_type.exports):
             path: Path = ("exports", index)

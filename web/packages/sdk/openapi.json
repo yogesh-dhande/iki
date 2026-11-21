@@ -4695,7 +4695,7 @@
             "title": "Due"
           },
           "exports": {
-            "description": "The files Iki writes of its records (ADR 0169), from `/entities/{ref}/export`: its own, or its nearest parent's.",
+            "description": "The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.",
             "items": {
               "$ref": "#/components/schemas/FileExportOut"
             },
@@ -26383,7 +26383,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0169), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {

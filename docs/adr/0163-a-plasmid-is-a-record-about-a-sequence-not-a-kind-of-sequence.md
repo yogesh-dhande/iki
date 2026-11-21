@@ -9,7 +9,7 @@
   [0168](0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md),
   which widens it to linear plasmids: topology on the entry, a linear map, and
   plans whose products can end linear;
-  [0169](0169-a-types-records-export-as-files-iki-writes-from-its-fields.md),
+  [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
   which exports a plasmid as its sequence's GenBank under its own name
 
 ## Context

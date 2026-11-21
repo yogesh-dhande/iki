@@ -262,7 +262,7 @@ Reverse complements, restriction digests and primer design come later.
 
 A DNA sequence downloads as GenBank (`.gb`) or FASTA from the Export button on
 its page, at its latest revision or, from its history, at an earlier one
-([ADR 0169](../../docs/adr/0169-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
+([ADR 0171](../../docs/adr/0171-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
 Iki writes the file from the record's values at that revision, for anyone who
 can read it, and each download is in the audit log with the file's SHA-256.
 
@@ -286,7 +286,7 @@ can read it, and each download is in the audit log with the file's SHA-256.
 
 Importing either back gives the same sequence, and GenBank its features too.
 Iki reads SnapGene files but doesn't write them, since SnapGene doesn't publish
-its format; SnapGene opens the GenBank file with its features (ADR 0169).
+its format; SnapGene opens the GenBank file with its features (ADR 0171).
 
 ## Developing it
 

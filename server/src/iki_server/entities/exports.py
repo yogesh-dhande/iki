@@ -1,4 +1,4 @@
-"""A record as the files its type exports (ADR 0169), at any of its revisions.
+"""A record as the files its type exports (ADR 0171), at any of its revisions.
 
 A type names the fields each file is written from (``exports`` in its manifest), as it
 names those Iki's viewers show (ADR 0085). The file is written here, from the record's

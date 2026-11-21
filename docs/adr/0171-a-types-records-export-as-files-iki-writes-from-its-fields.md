@@ -1,4 +1,4 @@
-# 0169. A type's records export as files Iki writes from its fields
+# 0171. A type's records export as files Iki writes from its fields
 
 - Status: Accepted
 - Date: 2026-11-20

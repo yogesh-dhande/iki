@@ -489,7 +489,7 @@ class EntityTypeOut(Schema):
     )
     exports: list[FileExportOut] = Field(
         default_factory=list,
-        description="The files Iki writes of its records (ADR 0169), from "
+        description="The files Iki writes of its records (ADR 0171), from "
         "`/entities/{ref}/export`: its own, or its nearest parent's.",
     )
     due: str | None = Field(
@@ -2389,7 +2389,7 @@ class ExportParams(Schema):
     },
 )
 def export_entity(request: HttpRequest, ref: str, params: Query[ExportParams]) -> HttpResponse:
-    """The record as one of the files its type exports (ADR 0169), at its latest revision or
+    """The record as one of the files its type exports (ADR 0171), at its latest revision or
     the one asked for, written from its values then, so a revision is always the same file.
     Anyone who can read it may; each download is in the audit log (``entity.exported``),
     with the file's SHA-256. What the file can't say, such as a feature across a linear

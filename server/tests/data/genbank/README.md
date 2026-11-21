@@ -4,7 +4,7 @@ Two INSDC records, as NCBI's E-utilities give them in GenBank format with their 
 NCBI places no restrictions on the use or distribution of GenBank's data. With pUC19
 (`server/tests/data/plasmids/L09137.2.gb`), they're what
 `server/tests/test_sequence_files.py` imports with the DNA plugin and writes back out as
-GenBank (ADR 0169), checking the file Iki writes against NCBI's, as Biopython reads both,
+GenBank (ADR 0171), checking the file Iki writes against NCBI's, as Biopython reads both,
 and that it imports back into the same record.
 
 | File             | What it is                                                                                                                                                                 | Length    |

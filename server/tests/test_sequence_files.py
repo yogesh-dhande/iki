@@ -1,4 +1,4 @@
-"""GenBank and FASTA as Iki writes a sequence record (ADR 0169), checked two ways: read by
+"""GenBank and FASTA as Iki writes a sequence record (ADR 0171), checked two ways: read by
 Biopython, an independent reader, against NCBI's own record; and read back by the dna
 plugin's import into the same values it first read from NCBI's.
 
@@ -410,7 +410,7 @@ def test_a_snapgene_file_exports_as_genbank_with_what_snapgene_says(
     """SnapGene's own files (made by SnapGene, as Biopython's tests have them), imported and
     written as GenBank, say what Biopython reads in the SnapGene file: its bases, topology,
     and each feature's type, place, strand and qualifiers. Iki doesn't write SnapGene's
-    format (ADR 0169); SnapGene opens GenBank.
+    format (ADR 0171); SnapGene opens GenBank.
 
     What differs is said here: a qualifier SnapGene gives several values is one text in
     Iki, its values joined by "; "; a feature's name is its ``/label``, as SnapGene writes

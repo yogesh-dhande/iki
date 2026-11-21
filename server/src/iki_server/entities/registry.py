@@ -81,7 +81,7 @@ def viewers(entity_type: EntityType) -> tuple[Viewer, ...]:
 
 
 def exports(entity_type: EntityType) -> tuple[Export, ...]:
-    """The files Iki writes of ``entity_type``'s records (ADR 0169): its own or the nearest
+    """The files Iki writes of ``entity_type``'s records (ADR 0171): its own or the nearest
     parent's."""
     return next((t.exports for t in [entity_type, *ancestors(entity_type)] if t.exports), ())
 

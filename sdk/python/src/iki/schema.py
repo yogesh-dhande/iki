@@ -1123,7 +1123,7 @@ class EntityTypeOut(TypedDict):
     detached: bool
     #: The date or datetime field saying when its records are due (ADR 0122), which My work sorts by.
     due: NotRequired[str | None]
-    #: The files Iki writes of its records (ADR 0169), from `/entities/{ref}/export`: its own, or its nearest parent's.
+    #: The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
     exports: NotRequired[list[FileExportOut]]
     extends: str | None
     fields: list[FieldOut]

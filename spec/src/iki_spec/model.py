@@ -762,7 +762,7 @@ class EntityType:
     fields: dict[str, Field] = field(default_factory=dict)
     display_title: str | None = None
     viewers: tuple[Viewer, ...] = ()
-    #: The files Iki writes of its records, such as GenBank (ADR 0169). Subtypes have their
+    #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
     exports: tuple[Export, ...] = ()
     file: str | None = None
@@ -826,7 +826,7 @@ class Viewer:
 @dataclass(frozen=True)
 class Export:
     """Files Iki writes of a type's records, and the fields they're written from
-    (``exports``, ADR 0169). A ``sequence`` export writes GenBank and FASTA."""
+    (``exports``, ADR 0171). A ``sequence`` export writes GenBank and FASTA."""
 
     export: str  # "sequence"
     #: A string field with a DNA or RNA format, or a reference to a type that exports a

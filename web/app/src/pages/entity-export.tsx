@@ -1,5 +1,5 @@
 /**
- * Exporting a record as a file other tools read, such as GenBank (ADR 0169): from its
+ * Exporting a record as a file other tools read, such as GenBank (ADR 0171): from its
  * page's header, or a revision as it was from its history. Iki writes the file from the
  * record's values at that revision, and audits the download. A file that couldn't hold
  * all of the record says so, and the page says so too.

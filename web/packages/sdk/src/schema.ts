@@ -1227,7 +1227,7 @@ export interface paths {
         };
         /**
          * Download it as a file, such as GenBank
-         * @description The record as one of the files its type exports (ADR 0169), at its latest revision or
+         * @description The record as one of the files its type exports (ADR 0171), at its latest revision or
          *     the one asked for, written from its values then, so a revision is always the same file.
          *     Anyone who can read it may; each download is in the audit log (``entity.exported``),
          *     with the file's SHA-256. What the file can't say, such as a feature across a linear
@@ -6536,7 +6536,7 @@ export interface components {
             due?: string | null;
             /**
              * Exports
-             * @description The files Iki writes of its records (ADR 0169), from `/entities/{ref}/export`: its own, or its nearest parent's.
+             * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
             exports?: components["schemas"]["FileExportOut"][];
             /** Extends */

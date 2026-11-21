@@ -62,7 +62,7 @@ annotated from.
     in Iki's own sequence viewer.
   - It **downloads as GenBank or FASTA** from the Export button on its page, at its
     latest revision or, from its history, an earlier one
-    ([ADR 0169](../../docs/adr/0169-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
+    ([ADR 0171](../../docs/adr/0171-a-types-records-export-as-files-iki-writes-from-its-fields.md)).
     The file is its sequence's — the bases, topology and the features the sequence's
     own record has — under the plasmid's name and description, with the parts its
     annotation found after them; a part found where the sequence's file already has

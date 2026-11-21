@@ -308,7 +308,7 @@ rules:
 display:
   title: "{{ name or hrid }}"
 # Downloads as its sequence's GenBank or FASTA under its own name and description, with
-# the parts its annotation found after the sequence's own features (ADR 0169).
+# the parts its annotation found after the sequence's own features (ADR 0171).
 exports:
   - export: sequence
     sequence: sequence

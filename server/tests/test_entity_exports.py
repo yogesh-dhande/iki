@@ -1,4 +1,4 @@
-"""Exports (ADR 0169): a record as the files other tools read, at any revision, for anyone
+"""Exports (ADR 0171): a record as the files other tools read, at any revision, for anyone
 who can read it, each download in the audit log."""
 
 import hashlib

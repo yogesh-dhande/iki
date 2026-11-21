@@ -1,4 +1,4 @@
-/** Exporting a record as a file (ADR 0169): from its page, or a revision from its history. */
+/** Exporting a record as a file (ADR 0171): from its page, or a revision from its history. */
 
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

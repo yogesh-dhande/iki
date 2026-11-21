@@ -1,4 +1,4 @@
-"""A sequence record as the files other tools read: GenBank and FASTA (ADR 0169).
+"""A sequence record as the files other tools read: GenBank and FASTA (ADR 0171).
 
 These are pure functions of what a record held at one revision, gathered by
 :mod:`iki_server.entities.exports`, so the same revision is always the same file.
