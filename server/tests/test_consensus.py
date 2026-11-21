@@ -178,11 +178,7 @@ def test_gaps_and_unobserved_places(tmp_path: Path) -> None:
     """A column more rows have a gap in than a base is left out; `.`, Iki's no
     observation, counts as neither; places no row observes are N inside the consensus, and
     left out at a linear one's ends."""
-    fasta = (
-        ">r1\n..ACG-T...AC..\n"
-        ">r2\n..ACGAT...ACG.\n"
-        ">r3\n..AC--T...A-G.\n"
-    )
+    fasta = ">r1\n..ACG-T...AC..\n>r2\n..ACGAT...ACG.\n>r3\n..AC--T...A-G.\n"
 
     result, output = consensus(tmp_path, fasta)
 
@@ -265,6 +261,17 @@ def test_rna_gives_dna_and_lower_case_is_read(tmp_path: Path) -> None:
         ),
         (">a\n---\n>b\n---\n", {}, "ALN-000001 has no column a consensus has a residue in."),
         ("", {}, "ALN-000001's file has no rows."),
+        (
+            column("A" * 1_000_001, "A" * 1_000_001),
+            {},
+            "ALN-000001 is too long to read here: 1,000,001 columns is more than 1,000,000.",
+        ),
+        (
+            "".join(f">r{i}\n{'A' * 1_000_000}\n" for i in range(101)),
+            {},
+            "ALN-000001 is too big to read here: 101 rows of 1,000,000 columns is more than "
+            "100,000,000 places.",
+        ),
     ],
 )
 def test_what_has_no_consensus_fails_saying_why(

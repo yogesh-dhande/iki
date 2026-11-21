@@ -78,6 +78,8 @@ RESIDUE_CODES = {frozenset(stands): code for code, stands in RESIDUES.items() if
 GAP, UNSEEN = "-", "."
 #: The most columns it reads, as the alignment viewer does.
 MAX_COLUMNS = 1_000_000
+#: The most residues and gaps it reads, rows times columns: a minute or so of counting.
+MAX_CELLS = 100_000_000
 
 
 def fail(why: str) -> NoReturn:
@@ -157,6 +159,11 @@ def consensus(run: dict[str, Any], alphabet: str) -> dict[str, Any]:
         fail(f"{hrid}'s rows aren't all the same length, so it isn't an alignment.")
     if length > MAX_COLUMNS:
         fail(f"{hrid} is too long to read here: {length:,} columns is more than {MAX_COLUMNS:,}.")
+    if length * len(rows) > MAX_CELLS:
+        fail(
+            f"{hrid} is too big to read here: {len(rows):,} rows of {length:,} columns is more "
+            f"than {MAX_CELLS:,} places."
+        )
     reference = (alignment.get("included") or {}).get("reference") or []
     left_out = ""
     if not with_reference and reference:
