@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-11-15
 - Refines: [0085](0085-types-configure-ikis-own-viewers.md)
+- Refined by:
+  [0174](0174-the-sequence-viewer-selects-finds-and-translates.md), which adds
+  the other strand and translation lanes along the residues
 
 ## Context
 

@@ -1,0 +1,68 @@
+LOCUS       MUSC4C3H                1035 bp    DNA     linear   ROD 17-DEC-2025
+DEFINITION  Mus musculus domesticus gene for complement component C4, exon 13
+            and 14, partial cds.
+ACCESSION   D10085
+VERSION     D10085.1
+KEYWORDS    .
+SOURCE      Mus musculus domesticus (western European house mouse)
+  ORGANISM  Mus musculus domesticus
+            Eukaryota; Metazoa; Chordata; Craniata; Vertebrata; Euteleostomi;
+            Mammalia; Eutheria; Euarchontoglires; Glires; Rodentia; Myomorpha;
+            Muroidea; Muridae; Murinae; Mus; Mus.
+REFERENCE   1
+  AUTHORS   Pattanakitsakul,S., Zheng,J.H., Natsuume-Sakai,S., Takahashi,M. and
+            Nonaka,M.
+  TITLE     Aberrant splicing caused by the insertion of the B2 sequence into
+            an intron of the complement C4 gene is the basis for low C4
+            production in H-2k mice
+  JOURNAL   J Biol Chem 267 (11), 7814-7820 (1992)
+   PUBMED   1373139
+COMMENT     Data kindly submitted in computer readable form by: Masaru Nonaka
+            Cancer Research Institute of
+            Kanazawa University
+            13-1 Takaramachi
+            Kanazawa 920
+            Japan.
+FEATURES             Location/Qualifiers
+     source          1..1035
+                     /organism="Mus musculus domesticus"
+                     /mol_type="genomic DNA"
+                     /strain="C3H/HeJ"
+                     /db_xref="taxon:10092"
+                     /chromosome="17"
+                     /clone="c1.8"
+                     /tissue_type="liver"
+                     /note="clone_lib: cosmid(pJB8)"
+     CDS             join(<1..105,972..>1035)
+                     /codon_start=1
+                     /product="complement component C4"
+                     /protein_id="BAA32341.1"
+                     /translation="QLAPSFYFVAYFYHQGHPVANSLLINIQSRDCEGKLQLKVDGAK
+                     EYRNADMMKLRI"
+     exon            1..105
+                     /number=13
+     intron          106..971
+                     /number=13
+     exon            972..1035
+                     /number=14
+ORIGIN      
+        1 cagctggctc cctcgttcta ctttgtggct tacttctatc accaaggaca cccggtggcc
+       61 aactctctgc tcatcaacat ccaatccagg gactgtgagg gcaaggtgac tgggtctgtg
+      121 ggctgtggtg tgtgtgtgtg tgcttgtgtg catgtgtgtg cacatgcctg ttagcgtgca
+      181 tattcatgtg catgtgtgta cacatgtgca gatgtctgta tgtacatgtg tgcttgaatg
+      241 catgtgtact tccctatgca ggtgtgcatg tatgcttgtg tgtgtgcatg ttcaagtgtg
+      301 catgtgcacg caggggttca gaggaggaca gggggctggt gagatgagct cacagataag
+      361 agcacccgac tgatgttctg aaggtcctga gttcaattcc cagcaaccac atggtggctc
+      421 acaaccatcc ctaacaagat ctggcgccct cttctggagt gtctgaagac agctacagtg
+      481 tacttacata taataaataa ataaatcttt taaaaaaaaa aaaaaaaaaa acagaggagg
+      541 acaggatgac tggtttagcc actgagtgtg catggggctg gaggtgagag ttcactcttt
+      601 ttcttttttc ctcttcatgc atgtgaggtg ggcatgtgtg tgtgcacatt ttgcatgctg
+      661 catgggtgca tgtgcttgta gagagctggg ggtcatctgt cttactcttc agccttagtc
+      721 attggggcag tttctttcac tcaagcctat agctcactga taagcctcat cttctaacca
+      781 ccttgttctg gggatcccac ccacccaccc tgtctctgcc tttccaggct ggaatgacag
+      841 gcatgccctc acccccacct ggattctggg gttcagtcct catgcatgga tggcacacct
+      901 cttaattact gacccatgtc cccagcccac tctccatgtg ctgattgtct ttttcctccc
+      961 atttctgcca gctgcaattg aaggtggatg gtgccaagga gtatcgtaat gcggacatga
+     1021 tgaagctccg aattc
+//
+

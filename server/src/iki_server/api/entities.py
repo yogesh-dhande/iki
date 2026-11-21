@@ -357,6 +357,11 @@ class SequenceViewerOut(Schema):
         "single-stranded (`double` or `single`), as its sequence field's `strands` names it, "
         "so its length is counted in bp or nt; null when it has none."
     )
+    topology: str | None = Field(
+        description="The enum field saying whether a record's sequence is circular "
+        "(`circular`), as its sequence field's `topology` names it, so a search for bases "
+        "reads across a circle's origin and not across a line's ends; null when it has none."
+    )
     features: str | None = Field(
         description="A json field of regions along it (type, start, end, name, strand), or null."
     )
@@ -1186,6 +1191,7 @@ def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
         "sequence": viewer.sequence,
         "alphabet": ALPHABETS.get((spec.format or "") if spec is not None else "", "dna"),
         "strands": (spec.strands if spec is not None else None) or None,
+        "topology": (spec.topology if spec is not None else None) or None,
         "features": viewer.features or None,
         "tracks": [_track_out(form, t) for t in viewer.tracks],
     }

@@ -1,0 +1,50 @@
+LOCUS       PZ465884                 451 bp    DNA     linear   MAM 02-JUN-2026
+DEFINITION  Pteropus livingstonii isolate C1-Selene NADH dehydrogenase subunit
+            1 (ND1) gene, partial cds; mitochondrial.
+ACCESSION   PZ465884
+VERSION     PZ465884.1
+KEYWORDS    .
+SOURCE      mitochondrion Pteropus livingstonii (Comoro flying fox)
+  ORGANISM  Pteropus livingstonii
+            Eukaryota; Metazoa; Chordata; Craniata; Vertebrata; Euteleostomi;
+            Mammalia; Eutheria; Laurasiatheria; Chiroptera; Yinpterochiroptera;
+            Pteropodoidea; Pteropodidae; Pteropodinae; Pteropus.
+REFERENCE   1  (bases 1 to 451)
+  AUTHORS   Armstrong,F.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (26-MAY-2026) chXout, Complement genomics, Station road,
+            Durham DH7 0EX, United Kingdom
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..451
+                     /organism="Pteropus livingstonii"
+                     /organelle="mitochondrion"
+                     /mol_type="genomic DNA"
+                     /isolate="C1-Selene"
+                     /db_xref="taxon:589508"
+                     /geo_loc_name="United Kingdom: Northumberland Zoo"
+                     /collection_date="Nov-2025"
+     gene            <1..>451
+                     /gene="ND1"
+     CDS             <1..>451
+                     /gene="ND1"
+                     /codon_start=3
+                     /transl_table=2
+                     /product="NADH dehydrogenase subunit 1"
+                     /protein_id="YEV69427.1"
+                     /translation="DALKLFIKEPLRPLTSSPSMFIIAPILALTLALTMWIPLPMPYP
+                     LINMNLAVLFMLAMSSLAVYSILWSGWASNSKYALIGAMRAVAQTISYEVTLAIILLS
+                     VLLLSGSFSLSTLITTQEHTWLMLSSWPLAMMWFISTLAETNRAPFDL"
+ORIGIN      
+        1 ccgacgcttt aaaactgttt attaaagaac cactacgtcc actcacctcc tccccatcca
+       61 tattcatcat tgcaccaatc ctagccctaa ctctagccct aacaatatga atcccactgc
+      121 caatacccta tccactaatc aacataaatc tagctgtctt atttatacta gccatatcca
+      181 gcttagccgt atattccatc ttatgatctg gctgagcctc aaactcaaaa tacgcactaa
+      241 tcggggcaat acgagcagta gcacagacaa tctcctatga agttacacta gccattattc
+      301 ttctatccgt actgctccta agcgggtcat tctcattatc tacactaatt actacccaag
+      361 aacacacgtg actcatacta tcctcatgac cactagccat aatatggttc atctctacat
+      421 tagccgaaac aaatcgagcc ccatttgacc t
+//
+

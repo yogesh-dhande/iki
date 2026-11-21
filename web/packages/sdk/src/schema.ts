@@ -12277,6 +12277,11 @@ export interface components {
              */
             strands: string | null;
             /**
+             * Topology
+             * @description The enum field saying whether a record's sequence is circular (`circular`), as its sequence field's `topology` names it, so a search for bases reads across a circle's origin and not across a line's ends; null when it has none.
+             */
+            topology: string | null;
+            /**
              * Tracks
              * @description Values along its residues, each a track.
              */

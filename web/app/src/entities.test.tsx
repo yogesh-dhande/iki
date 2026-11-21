@@ -996,6 +996,7 @@ describe("an entity's page", () => {
           sequence: "sequence",
           alphabet: "protein",
           strands: null,
+          topology: null,
           features: null,
           tracks: [],
         },

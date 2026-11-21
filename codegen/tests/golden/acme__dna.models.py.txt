@@ -165,7 +165,7 @@ class DNASequence_Entry_History(models.Model):
 
 
 class Plasmid(Sequence):
-    """Plasmid (acme/dna.Plasmid), schema version 1. A circular sequence with features, as the fixtures have it: registered again from another origin, it's found, and its features are placed along its entry's."""
+    """Plasmid (acme/dna.Plasmid), schema version 1. A circular sequence with features, as the fixtures have it: registered again from another origin, or as its other strand, it's found, and its features are placed along its entry's."""
 
     IKI_TYPE = 'acme/dna.Plasmid'
 
