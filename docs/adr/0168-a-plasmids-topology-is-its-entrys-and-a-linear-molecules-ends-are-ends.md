@@ -4,6 +4,10 @@
 - Date: 2026-11-20
 - Refines: [0163](0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md),
   [0138](0138-an-identity-reads-sequences-and-sets-of-parts-as-what-they-are.md)
+- Refined by:
+  [0169](0169-a-types-records-export-as-files-iki-writes-from-its-fields.md),
+  which writes the topology in GenBank's LOCUS line and leaves out features
+  across a linear molecule's ends, saying so
 
 ## Context
 
