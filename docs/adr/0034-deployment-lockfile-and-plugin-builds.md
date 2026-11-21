@@ -4,6 +4,10 @@
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0033](0033-plugin-codegen-and-migrations.md)
+- Refined by:
+  [0169](0169-an-action-names-the-settings-it-cant-run-without.md),
+  on the settings an action can't run without, which a deployment may leave
+  unset
 
 ## Context
 

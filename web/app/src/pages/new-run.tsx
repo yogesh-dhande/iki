@@ -223,6 +223,13 @@ function Chooser({
   const notHere = actions.filter((a) => !a.available);
   const notYours = actions.filter((a) => a.available && !project.can.run.includes(a.tier));
   const action = runnable.find((a) => a.name === chosen);
+  // Opened for one that can't run, from a link: why, before anything is filled in.
+  const blocked = [...notHere, ...notYours].find((a) => a.name === chosen);
+  const why = !blocked
+    ? null
+    : blocked.available
+      ? `${blocked.label || blocked.name} needs the ${blocked.needs} role in ${project.name}.`
+      : `${blocked.label || blocked.name} can’t run here. ${blocked.unavailable_reason ?? "It can’t run on this deployment."}`;
   const about =
     kinds.length === 1
       ? inSentence(
@@ -256,6 +263,11 @@ function Chooser({
             other projects, so {ambiguous.length === 1 ? "it’s" : "they’re"} left out: add the
             record you mean to {project.name}, then start the run here.
           </p>
+        </div>
+      ) : null}
+      {why ? (
+        <div className="alert alert-warning" role="alert">
+          <p>{why}</p>
         </div>
       ) : null}
       {runnable.length === 0 ? (

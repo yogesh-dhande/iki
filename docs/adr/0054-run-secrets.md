@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-11-11
 - Refines: [0040](0040-action-and-environment-manifests.md), [0046](0046-how-iki-worker-runs-a-command.md)
+- Refined by:
+  [0169](0169-an-action-names-the-settings-it-cant-run-without.md),
+  which does for unset settings what a required secret does
 
 ## Context
 

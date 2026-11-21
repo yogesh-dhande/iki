@@ -472,6 +472,30 @@ describe("starting a run", () => {
     expect(within(protein).getByRole("listitem")).toHaveTextContent("PRT-000001");
   });
 
+  it("says why an action it's opened for can't run here, before anything is filled in", async () => {
+    withTypes();
+    const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
+    answer("GET /api/v1/projects", page([atlas]));
+    const why =
+      "It needs the iki/dna plugin's `ncbi_email` setting, which this deployment hasn't " +
+      "set. An Iki administrator can set it in the plugin's settings, in the deployment's " +
+      "config repository.";
+    const FETCH: Schemas["ActionOut"] = {
+      ...ACTION,
+      name: "iki/dna.fetch_sequences",
+      label: "Fetch DNA sequences from NCBI",
+      inputs: [],
+      available: false,
+      unavailable_reason: why,
+    };
+    answer("GET /api/v1/actions", [COMPUTE, FETCH]);
+    await renderApp("/projects/kinase-atlas/runs/new/?action=iki/dna.fetch_sequences");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(`Fetch DNA sequences from NCBI can’t run here. ${why}`);
+    expect(screen.queryByRole("button", { name: "Start run" })).not.toBeInTheDocument();
+    expect(screen.getByText("1 more action you can’t run here")).toBeInTheDocument();
+  });
+
   it("says which entities it can't read", async () => {
     onProject();
     await renderApp("/projects/kinase-atlas/runs/new/?entities=PRT-000001,PRT-999999");

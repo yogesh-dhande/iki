@@ -3348,6 +3348,22 @@ def _settings_problems(plugin: Plugin, documents: list[Document], name: str) -> 
                 file=name,
                 hint=setting.description,
             )
+    # What its actions can't run without (ADR 0169): a deployment may leave it unset, and
+    # those actions then can't run there, so it's told which.
+    for action in sorted(plugin.actions.values(), key=lambda a: a.name):
+        for key in action.requires_settings:
+            setting = plugin.settings.get(key)
+            if setting is None or setting.required or setting.has_default:
+                continue  # a plugin problem, or one every deployment has
+            if values.get(key) in (None, "", []):
+                checker.add(
+                    "setting-needed",
+                    f"`{key}` isn't set, so {action.label} can't run on this deployment.",
+                    document,
+                    file=name,
+                    severity=Severity.WARNING,
+                    hint=setting.description,
+                )
     return sorted(checker.problems, key=Problem.sort_key)
 
 
