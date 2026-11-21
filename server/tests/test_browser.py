@@ -1484,7 +1484,10 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     assert (other.text_content() or "")[:10] == "AGCGCGCAAA"
     page.evaluate(CLIPBOARD)
 
-    # Its first 24 bases, by pointer: from before the first to after the 24th.
+    # Its first 24 bases, by pointer: from before the first to after the 24th, with the row
+    # in view (not under what stays over the rows).
+    page.set_viewport_size({"width": 1280, "height": 1400})
+    page.locator(".sequence-row[data-index='0']").scroll_into_view_if_needed()
     page.mouse.click(*_place(page, 0, 0))
     page.keyboard.down("Shift")
     page.mouse.click(*_place(page, 0, 24))
@@ -1514,6 +1517,8 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     for _ in range(3):
         page.keyboard.press("Shift+ArrowRight")
     page.get_by_text("Bases 1–3 selected: 3 bp").wait_for()
+    # Drawn once its row is, which the keys bring into view.
+    page.locator(".sequence-caret").wait_for()
     assert page.locator(".sequence-caret").count() == 1
     assert_clean(page)
 
@@ -1562,6 +1567,56 @@ def test_finding_sites_in_a_plasmid_in_its_viewer(
     search.get_by_text("Z isn't an IUPAC nucleotide code.").wait_for()
     assert box.get_attribute("aria-invalid") == "true"
     assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_plasmids_coding_sequences_read_as_genbank_translates_them(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """pBR322 (J01749.1): tet, rop and bla, the last on the reverse strand, by the
+    bacterial code its record names (table 11). Each lane reads what the record's own
+    /translation says."""
+    hrid, values = _record(
+        world, tmp_path, "J01749.1", Path(__file__).parent / "data" / "plasmids" / "J01749.1.gb"
+    )
+    stated = {
+        f["name"]: f["qualifiers"]["translation"]
+        for f in values["features"]
+        if f["type"] == "CDS" and "translation" in f.get("qualifiers", {})
+    }
+    assert len(stated) == 3, stated
+    page = open_as("admin", f"/entities/{hrid}/viewers/sequence/", color_scheme)
+    # Tall enough that every row is drawn, so each lane can be read whole.
+    page.set_viewport_size({"width": 1280, "height": 9000})
+    page.get_by_role("application", name="Bases of J01749.1").wait_for()
+    page.wait_for_function(
+        "() => document.querySelectorAll('.sequence-row').length >= Math.ceil(4361 / 60)"
+    )
+    read = page.evaluate(
+        """() => {
+          const out = {};
+          for (const codon of document.querySelectorAll(".translation-track .codon")) {
+            const [, name, number] = /^(.*), codon (\\d+):/.exec(codon.title);
+            (out[name] ??= []).push([Number(number), codon.textContent]);
+          }
+          return Object.fromEntries(
+            Object.entries(out).map(([name, codons]) => [
+              name,
+              codons.sort((a, b) => a[0] - b[0]).map((c) => c[1]).join("").replace(/\\*$/, ""),
+            ]),
+          );
+        }"""
+    )
+    assert read == stated
+    page.set_viewport_size({"width": 1280, "height": 900})
+    frames = page.get_by_role("group", name="Reading frames")
+    frames.get_by_role("checkbox", name="+1").check()
+    frames.get_by_role("checkbox", name="\N{MINUS SIGN}3").check()
+    assert page.locator(".translation[data-label='+1']").first.is_visible()
+    assert_clean(page)
+    # On a phone, the rows scroll across within their figure; the page never does.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
 
 
 def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:

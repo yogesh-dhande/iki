@@ -36,6 +36,7 @@ import {
   gcContent,
   GROUP,
   kindOf,
+  lanedApart,
   lanesPerRow,
   lengthText,
   locationText,
@@ -62,6 +63,16 @@ import {
   type Match,
   type Values,
 } from "../sequence";
+import {
+  FRAME_CODES,
+  FRAMES,
+  GENETIC_CODES,
+  tableOf,
+  translateFeature,
+  translateFrame,
+  type Codon,
+  type Frame,
+} from "../genetic-code";
 import { buttonClass } from "../ui";
 import type { Camera, Capture, FeatureRef, TargetState } from "../views";
 import { EntityTabs, useEntity } from "./entity";
@@ -272,6 +283,45 @@ function SequenceViewer({
         : { matches: [], more: false },
     [motif, sequence, viewer.alphabet, bothStrands, aroundOrigin],
   );
+  // Translations: each coding sequence's, by the code it names, and reading frames by one
+  // chosen, which is the coding sequences' if they agree on one.
+  const nucleic = !protein;
+  const coding = useMemo(
+    () =>
+      nucleic
+        ? lanedApart(
+            features.filter((f) => f.type.toLowerCase() === "cds"),
+            sequence.length,
+          ).map((f) => ({ feature: f, read: translateFeature(f, sequence) }))
+        : [],
+    [nucleic, features, sequence],
+  );
+  const [translating, setTranslating] = useState(true);
+  const [frames, setFrames] = useState<Frame[]>([]);
+  const [frameTable, setFrameTable] = useState(() => {
+    const named = new Set(coding.map((c) => tableOf(c.feature)));
+    const [only] = named;
+    return named.size === 1 && only !== undefined && FRAME_CODES.includes(only) ? only : 1;
+  });
+  const lanes = useMemo(() => {
+    const out: Lane[] = [];
+    if (translating) {
+      for (const { feature: f, read } of coding) {
+        if ("error" in read) continue;
+        out.push(laneOf(`cds-${String(f.index)}`, featureName(f), read.codons, f));
+      }
+    }
+    for (const frame of frames) {
+      const label = frameLabel(frame);
+      out.push(
+        laneOf(`frame-${label}`, `frame ${label}`, translateFrame(sequence, frame, frameTable)),
+      );
+    }
+    return out;
+  }, [translating, coding, frames, frameTable, sequence]);
+  const untranslated = coding.flatMap(({ feature: f, read }) =>
+    "error" in read ? [`${featureName(f)} (${read.error})`] : [],
+  );
   useEffect(() => {
     if (!onCapture) return;
     onCapture(() => Promise.resolve({ targets: [shown ? { feature: featureRef(shown) } : {}] }));
@@ -364,20 +414,83 @@ function SequenceViewer({
           ))}
         </ul>
       ) : null}
-      {double ? (
+      {nucleic ? (
         <div className="sequence-options">
-          <label className="choice" htmlFor={`${ids}-pairing`}>
-            <input
-              id={`${ids}-pairing`}
-              type="checkbox"
-              role="switch"
-              checked={pairing}
-              onChange={(event) => {
-                setPairing(event.target.checked);
-              }}
-            />
-            <span className="choice-text">Complementary strand, 3′ to 5′</span>
-          </label>
+          {double ? (
+            <label className="choice" htmlFor={`${ids}-pairing`}>
+              <input
+                id={`${ids}-pairing`}
+                type="checkbox"
+                role="switch"
+                checked={pairing}
+                onChange={(event) => {
+                  setPairing(event.target.checked);
+                }}
+              />
+              <span className="choice-text">Complementary strand, 3′ to 5′</span>
+            </label>
+          ) : null}
+          {coding.length ? (
+            <label className="choice" htmlFor={`${ids}-translating`}>
+              <input
+                id={`${ids}-translating`}
+                type="checkbox"
+                role="switch"
+                checked={translating}
+                onChange={(event) => {
+                  setTranslating(event.target.checked);
+                }}
+              />
+              <span className="choice-text">Coding sequences’ translations</span>
+            </label>
+          ) : null}
+          <fieldset className="sequence-frames">
+            <legend>Reading frames</legend>
+            {FRAMES.map((frame) => {
+              const label = frameLabel(frame);
+              return (
+                <label
+                  key={frame}
+                  className="sequence-find-option"
+                  htmlFor={`${ids}-frame${String(frame)}`}
+                >
+                  <input
+                    id={`${ids}-frame${String(frame)}`}
+                    type="checkbox"
+                    checked={frames.includes(frame)}
+                    onChange={(event) => {
+                      const on = event.target.checked;
+                      setFrames((now) =>
+                        FRAMES.filter((f) => (f === frame ? on : now.includes(f))),
+                      );
+                    }}
+                  />
+                  {label}
+                </label>
+              );
+            })}
+            <label className="sequence-find-option" htmlFor={`${ids}-code`}>
+              by
+              <select
+                id={`${ids}-code`}
+                value={frameTable}
+                onChange={(event) => {
+                  setFrameTable(Number(event.target.value));
+                }}
+              >
+                {FRAME_CODES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}. {GENETIC_CODES[n]?.name ?? ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+          {translating && untranslated.length ? (
+            <p className="muted sequence-untranslated">
+              Not translated: {untranslated.join("; ")}.
+            </p>
+          ) : null}
         </div>
       ) : null}
       <div className="sequence-tools" ref={tools}>
@@ -416,7 +529,7 @@ function SequenceViewer({
                 end={span[1]}
               />
             ) : (
-              caretText(sequence, viewer.alphabet, at.caret, double)
+              caretText(sequence, viewer.alphabet, at.caret, double, lanes)
             )}
           </p>
           <div className="sequence-copy">
@@ -455,6 +568,7 @@ function SequenceViewer({
         tracks={drawn}
         shown={shown}
         paired={double && pairing}
+        lanes={lanes}
         label={`${field?.label ?? "Sequence"} of ${source.title}`}
         at={at}
         onMove={(next) => {
@@ -648,6 +762,7 @@ function caretText(
   alphabet: Viewer["alphabet"],
   caret: number,
   double: boolean,
+  lanes: Lane[] = [],
 ): string {
   const noun = residueNoun(alphabet);
   if (caret >= sequence.length) {
@@ -655,7 +770,86 @@ function caretText(
   }
   const base = sequence.charAt(caret);
   const pairs = double ? `, paired with ${complement(base, alphabet)}` : "";
-  return `Caret before ${noun} ${number.format(caret + 1)}: ${base}${pairs}.`;
+  // What the base reads as in each translation shown, so a screen reader hears the lanes.
+  const reads = lanes.flatMap((lane) => {
+    const codon = lane.byBase.get(caret + 1);
+    if (!codon) return [];
+    const what = codon.residue === "*" ? "a stop" : codon.residue;
+    return lane.feature
+      ? [`in ${lane.label}, codon ${number.format(codon.number)}, ${codon.codon}: ${what}`]
+      : [`in ${lane.label}, ${codon.codon}: ${what}`];
+  });
+  return `Caret before ${noun} ${number.format(caret + 1)}: ${base}${pairs}${reads.length ? `; ${reads.join("; ")}` : ""}.`;
+}
+
+/** A translation lane as it's drawn: its codons in order along the sequence (by their
+ * middle base, which a residue is drawn over), and each base's codon. */
+interface Lane {
+  key: string;
+  label: string;
+  codons: Codon[];
+  byBase: Map<number, Codon>;
+  /** The coding sequence it translates, laned among the others; none for a frame. */
+  feature?: Feature;
+}
+
+function laneOf(key: string, label: string, codons: Codon[], feature?: Feature): Lane {
+  const byBase = new Map<number, Codon>();
+  for (const codon of codons) for (const b of codon.bases) byBase.set(b, codon);
+  const sorted = [...codons].sort((a, b) => middleOf(a) - middleOf(b));
+  return { key, label, codons: sorted, byBase, ...(feature ? { feature } : {}) };
+}
+
+/** The base a codon's residue is drawn over: its middle one, or its first if it has fewer. */
+function middleOf(codon: Codon): number {
+  return codon.bases[1] ?? codon.bases[0] ?? 0;
+}
+
+/** +1, +2, +3, −1, −2, −3, with a minus sign. */
+function frameLabel(frame: Frame): string {
+  return frame > 0 ? `+${String(frame)}` : `−${String(-frame)}`;
+}
+
+/** A lane's codons drawn over the row from `start` to `end`. */
+function codonsIn(lane: Lane, start: number, end: number): ReactNode[] {
+  const { codons } = lane;
+  let low = 0;
+  let high = codons.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    const at = codons[mid];
+    if (at && middleOf(at) < start) low = mid + 1;
+    else high = mid;
+  }
+  const out: ReactNode[] = [];
+  for (let i = low; i < codons.length; i++) {
+    const codon = codons[i];
+    if (!codon) break;
+    const middle = middleOf(codon);
+    if (middle > end) break;
+    // Over its bases in this row when they're side by side; over its middle one when a
+    // join's intron or the row's end parts them.
+    const here = codon.bases.filter((b) => b >= start && b <= end);
+    const from = Math.min(...here);
+    const to = Math.max(...here);
+    const together = to - from + 1 === here.length;
+    const a = together ? from : middle;
+    const b = together ? to : middle;
+    const left = columnOf(a - start);
+    const kind =
+      codon.residue === "*" ? " codon-stop" : codon.residue === "M" ? " codon-start" : "";
+    out.push(
+      <span
+        key={`${String(codon.number)}-${String(middle)}`}
+        className={`codon codon-${codon.number % 2 ? "odd" : "even"}${kind}`}
+        title={`${lane.label}${lane.feature ? `, codon ${String(codon.number)}` : ""}: ${codon.codon}, ${codon.residue}`}
+        style={{ left: `${String(left)}ch`, width: `${String(columnOf(b - start) - left + 1)}ch` }}
+      >
+        {codon.residue}
+      </span>,
+    );
+  }
+  return out;
 }
 
 /** What a selection is: where, how long, and for DNA its GC content and Tm, as the DNA
@@ -749,6 +943,7 @@ function Residues({
   tracks,
   shown,
   paired,
+  lanes: translated,
   label,
   at,
   onMove,
@@ -768,6 +963,8 @@ function Residues({
   shown: Feature | null;
   /** Whether to draw the complementary strand under each row. */
   paired: boolean;
+  /** Translation lanes: coding sequences', then reading frames'. */
+  lanes: Lane[];
   label: string;
   at: Caret;
   onMove: Dispatch<SetStateAction<Caret>>;
@@ -806,6 +1003,16 @@ function Residues({
   }, [region, tools]);
   const rows = Math.ceil(length / ROW);
   const lanes = useMemo(() => lanesPerRow(features, length), [features, length]);
+  const coding = translated.filter((lane) => lane.feature);
+  const reading = translated.filter((lane) => !lane.feature);
+  const codingLanes = useMemo(
+    () =>
+      lanesPerRow(
+        translated.flatMap((lane) => (lane.feature ? [lane.feature] : [])),
+        length,
+      ),
+    [translated, length],
+  );
   const other = useMemo(
     () => (paired ? complement(sequence, alphabet) : ""),
     [paired, sequence, alphabet],
@@ -814,7 +1021,11 @@ function Residues({
     count: rows,
     // A line of residues, the other strand's, a lane per feature row under it, its tracks,
     // and the gap between rows.
-    estimateSize: (row) => 30 + (paired ? 20 : 0) + (lanes[row] ?? 0) * 20 + tracks.length * 44,
+    estimateSize: (row) =>
+      30 +
+      (paired ? 20 : 0) +
+      ((lanes[row] ?? 0) + (codingLanes[row] ?? 0) + reading.length) * 20 +
+      tracks.length * 44,
     overscan: 8,
     scrollMargin: margin,
     scrollPaddingStart: overlaid,
@@ -999,6 +1210,16 @@ function Residues({
                     }}
                   />
                 ) : null}
+                {reading.map((lane) => (
+                  <span
+                    key={lane.key}
+                    className="translation"
+                    data-label={lane.label.replace("frame ", "")}
+                    aria-hidden="true"
+                  >
+                    {codonsIn(lane, start, end)}
+                  </span>
+                ))}
                 {lanes ? (
                   <span
                     className="sequence-track"
@@ -1039,6 +1260,23 @@ function Residues({
                         </span>
                       );
                     })}
+                  </span>
+                ) : null}
+                {(codingLanes[item.index] ?? 0) ? (
+                  <span
+                    className="translation-track"
+                    aria-hidden="true"
+                    style={{ height: `${String((codingLanes[item.index] ?? 0) * 1.25)}rem` }}
+                  >
+                    {coding.map((lane) => (
+                      <span
+                        key={lane.key}
+                        className="translation"
+                        style={{ top: `${String((lane.feature?.lane ?? 0) * 1.25)}rem` }}
+                      >
+                        {codonsIn(lane, start, end)}
+                      </span>
+                    ))}
                   </span>
                 ) : null}
                 {tracks.map((track) => (

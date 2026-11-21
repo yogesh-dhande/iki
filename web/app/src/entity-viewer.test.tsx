@@ -372,7 +372,7 @@ describe("the sequence viewer's strands and selection", () => {
     await renderApp("/entities/DNA-000001/viewers/sequence/");
     expect(await screen.findByText("2,686 nt · circular · 2 features")).toBeInTheDocument();
     expect(document.querySelector(".sequence-complement")).toBeNull();
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("switch", { name: /Complementary strand/ })).toBeNull();
   });
 
   it("selects by keyboard, as a text field does, and says what's selected", async () => {
@@ -538,5 +538,74 @@ describe("finding a motif in the sequence viewer", () => {
       "Z and J aren't IUPAC nucleotide codes.",
     );
     expect(within(search).getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+});
+
+describe("translations in the sequence viewer", () => {
+  it("draws each coding sequence's translation under it, and says it at the caret", async () => {
+    // The human insulin gene's coding sequence, as GenBank J00265.1 has it: the first
+    // exon's start, from base 2424. Here at base 4, on a stretch of pUC19c given its bases.
+    const bases = "TCGATGGCCCTGTGGATGCGCTAAGG";
+    onPuc19({
+      bases,
+      topology: "linear",
+      features: [
+        {
+          type: "CDS",
+          name: "INS",
+          start: 4,
+          end: 24,
+          strand: "forward",
+          qualifiers: { codon_start: "1", translation: "MALWMR" },
+        },
+      ],
+    });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    const rows = await screen.findByRole("application", { name: "Bases of pUC19c" });
+    const lane = document.querySelector(".translation-track .translation");
+    expect(lane?.textContent).toBe("MALWMR*");
+    // Each residue over its codon's three bases.
+    const [first] = document.querySelectorAll<HTMLElement>(".translation-track .codon");
+    expect(first?.style.left).toBe("3ch");
+    expect(first?.style.width).toBe("3ch");
+    rows.focus();
+    for (let i = 0; i < 4; i++) await user.keyboard("{ArrowRight}");
+    expect(document.querySelector(".sequence-at")).toHaveTextContent(
+      "Caret before base 5: T, paired with A; in INS, codon 1, ATG: M.",
+    );
+    await user.click(screen.getByRole("switch", { name: "Coding sequences’ translations" }));
+    expect(document.querySelector(".translation-track")).toBeNull();
+  });
+
+  it("reads any of the six frames, by the genetic code chosen", async () => {
+    onPuc19({ bases: "ATGAAATGAGG", topology: "linear", features: [] });
+    const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
+    await screen.findByRole("application", { name: "Bases of pUC19c" });
+    const frames = screen.getByRole("group", { name: "Reading frames" });
+    await user.click(within(frames).getByRole("checkbox", { name: "+1" }));
+    await user.click(within(frames).getByRole("checkbox", { name: "−1" }));
+    const lanes = document.querySelectorAll(".translation[data-label]");
+    // ATG AAA TGA: M K *; the other strand, CCTCATTTCAT, reads CCT CAT TTC: P H F, drawn
+    // along the bases as numbered, so right to left.
+    expect([...lanes].map((l) => [l.getAttribute("data-label"), l.textContent])).toEqual([
+      ["+1", "MK*"],
+      ["−1", "FHP"],
+    ]);
+    // In the vertebrate mitochondrial code (2), TGA is tryptophan.
+    await user.selectOptions(
+      within(frames).getByRole("combobox"),
+      within(frames).getByRole("option", { name: "2. Vertebrate Mitochondrial" }),
+    );
+    expect(document.querySelector(".translation[data-label]")?.textContent).toBe("MKW");
+  });
+
+  it("says which coding sequences it can't translate, and why", async () => {
+    onPuc19({
+      features: [{ type: "CDS", name: "odd", start: 1, end: 9, qualifiers: { transl_table: "7" } }],
+    });
+    await renderApp("/entities/DNA-000001/viewers/sequence/");
+    expect(
+      await screen.findByText("Not translated: odd (NCBI has no genetic code 7)."),
+    ).toBeInTheDocument();
   });
 });

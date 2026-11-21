@@ -41,6 +41,9 @@ export interface Feature {
   /** Its parts are INSDC's `order()`: found in that order, with nothing said of joining
    * them, rather than a `join()`, one molecule. */
   ordered: boolean;
+  /** Its qualifiers, as GenBank gives them (a repeated one's values joined): what it is,
+   * and for a coding sequence how it's translated (/codon_start, /transl_table). */
+  qualifiers: Record<string, string>;
   lane: number;
 }
 
@@ -106,6 +109,16 @@ function readParts(value: unknown, length: number): Part[] | null {
   return out;
 }
 
+/** A feature's qualifiers that are text, as the import keeps them; others are left out. */
+function qualifiersOf(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
 /** The features a field holds, as far as they can be drawn: anything else is left out,
  * so one bad entry doesn't hide the rest. Laned so overlapping ones don't cover each other. */
 export function readFeatures(value: unknown, length: number): Feature[] {
@@ -140,6 +153,7 @@ export function readFeatures(value: unknown, length: number): Feature[] {
         },
       ],
       ordered: f["operator"] === "order",
+      qualifiers: qualifiersOf(f["qualifiers"]),
       lane: 0,
     });
   });
@@ -181,6 +195,15 @@ export function featureLength(feature: Feature, length: number): number {
     reached = Math.max(reached, to);
   }
   return total;
+}
+
+/** Copies of `features` laned among themselves alone: the coding sequences' translations,
+ * say, each in the first lane where it overlaps no other. */
+export function lanedApart(features: Feature[], length: number): Feature[] {
+  return laned(
+    features.map((f) => ({ ...f })),
+    length,
+  );
 }
 
 /** Each feature in the first lane where it overlaps nothing, longest first so the

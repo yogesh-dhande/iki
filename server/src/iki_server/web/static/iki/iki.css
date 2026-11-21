@@ -758,6 +758,91 @@ input:focus-visible {
   height: 3.1em;
 }
 
+/* Translations: a residue over each codon's bases, codons shaded in turn so their
+   boundaries read, stops and starts marked. */
+.translation-track {
+  position: relative;
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.translation-track .translation {
+  position: absolute;
+  left: 0;
+}
+
+.translation {
+  position: relative;
+  display: block;
+  height: 1.25rem;
+}
+
+/* A reading frame's name, in the margin beside its lane. */
+.translation[data-label]::before {
+  content: attr(data-label);
+  position: absolute;
+  right: calc(100% + 1.5ch);
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+.codon {
+  position: absolute;
+  top: 0.1rem;
+  height: 1.05rem;
+  border-radius: 2px;
+  font-size: 0.8rem;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
+.codon-odd {
+  background: var(--surface-2);
+}
+
+.codon-even {
+  background: var(--border);
+}
+
+.codon-stop {
+  background: var(--error-bg);
+  color: var(--error);
+  font-weight: 700;
+}
+
+.codon-start {
+  background: var(--success-bg);
+  color: var(--success);
+  font-weight: 700;
+}
+
+.sequence-frames {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+}
+
+.sequence-frames legend {
+  float: left;
+  margin-right: 0.25rem;
+  padding: 0;
+  font-weight: 600;
+}
+
+.sequence-untranslated {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .sequence-options {
   display: flex;
   flex-wrap: wrap;
@@ -787,12 +872,29 @@ input:focus-visible {
 }
 
 .sequence-find > label:first-child {
+  display: inline;
   margin: 0;
 }
 
-.sequence-find-input {
-  width: min(18rem, 100%);
+.sequence-find input.sequence-find-input {
+  flex: 0 1 18rem;
+  width: auto;
+  min-width: 10rem;
   font-family: var(--mono);
+}
+
+/* A code's long name (table 4's runs to five) mustn't widen the page on a phone. */
+.sequence-frames .sequence-find-option:has(select) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sequence-frames select {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: 0.35rem;
+  text-overflow: ellipsis;
 }
 
 .sequence-find-option {
@@ -1880,6 +1982,9 @@ input[type="date"] {
 
 /* Tables: a type's fields, a revision's changes. They scroll sideways on narrow screens. */
 .table-scroll {
+  /* Its box holds what's positioned in it, a visually hidden header's text among them, so
+     that scrolls with the table rather than widening the page. */
+  position: relative;
   overflow-x: auto;
   margin-bottom: 1.5rem;
   border: 1px solid var(--border);
