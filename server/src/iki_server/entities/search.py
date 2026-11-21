@@ -17,6 +17,10 @@ finds entities with anything that way, or nothing.
 for review by a rule, and records that break a rule they were saved before, by the rule's
 name (``eq``, ``ne``, ``in``), or by any rule (``is_set``).
 
+A sequence (a string with a sequence format) also takes ``motif`` (ADR 0175): bases or
+residues in IUPAC codes, ``GAATTY``, found on a duplex's other strand as its reverse
+complement, and across a circle's origin, as its ``strands`` and ``topology`` fields say.
+
 A date or a time can be compared with ``{{ now }}``: when the search runs (a date with
 today's, in UTC). Fields naming people (ADR 0122) take a person's ID, their email address, or
 ``{{ me }}``, whoever searches (so a saved search shared with a project means each
@@ -61,13 +65,14 @@ from typing import Any, cast
 from django.contrib.postgres.search import SearchQuery, SearchVector, SearchVectorExact
 from django.core import signing
 from django.db import OperationalError, connection, transaction
-from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet, Subquery
-from django.db.models.functions import Lower
+from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet, Subquery, TextField
+from django.db.models.functions import Concat, Left, Length, Lower, Right
+from django.db.models.lookups import GreaterThanOrEqual, IRegex
 
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import FOREIGN_KEYS, Shape, is_list_table, shape, subtypes
-from iki_spec import conditions, naming, titles, units
+from iki_spec import conditions, identity, motifs, naming, titles, units
 from iki_spec.model import Field
 from iki_spec.notifications import now_of
 
@@ -312,7 +317,10 @@ class _Compiler:
             return Q()
         self._named = col
         op = node.get("op")
-        allowed = ("is_set", *OPERATORS[col.kind])
+        allowed = (
+            "is_set",
+            *conditions.operators(col.kind, col.field.format if col.field else None),
+        )
         if op not in allowed:
             return self.fail(
                 f"{pointer}/op",
@@ -361,6 +369,8 @@ class _Compiler:
                     Exists(col.items._default_manager.filter(entity=OuterRef("pk"), item=converted))
                 )
             return Q(**{f"{col.path}__contains": [converted]})
+        if op == "motif":
+            return self.motif(col, value, at)
         if op in ("contains", "starts_with", "matches"):
             if not isinstance(value, str) or not value.strip() or len(value) > MAX_TEXT:
                 return self.fail(at, f"must be some text, up to {MAX_TEXT} characters.")
@@ -385,6 +395,35 @@ class _Compiler:
             )
             return equal if op == "eq" else ~equal
         return Q(**{f"{col.path}__{op}": converted})
+
+    def motif(self, col: Column, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """A sequence's ``motif`` (ADR 0175): its alphabet's IUPAC codes, matching a residue
+        each certainly is; on a duplex's other strand too, and across a circle's origin."""
+        assert col.field is not None and col.field.format is not None  # noqa: S101 - sequences
+        format = col.field.format
+        if not isinstance(value, str):
+            return self.fail(at, "must be bases or residues in IUPAC codes, such as `GAATTC`.")
+        try:
+            wanted = motifs.read(format, value)
+        except motifs.MotifError as error:
+            return self.fail(at, str(error))
+        if len(wanted) > MAX_TEXT:
+            return self.fail(at, f"must be at most {MAX_TEXT} codes long.")
+        return having_motif(
+            col.path,
+            format,
+            wanted,
+            topology=self.beside(col, col.field.topology),
+            strands=self.beside(col, col.field.strands),
+        )
+
+    def beside(self, col: Column, name: str | None) -> str | None:
+        """The path to a field a sequence's identity reads it by (ADR 0138), from where the
+        sequence is: its topology or its strands."""
+        found = column(self.form, name) if name is not None else None
+        if found is None or found.entry is not col.entry:
+            return None
+        return found.path
 
     def graph(self, col: Column, op: str, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
         """``upstream`` and ``downstream`` (ADR 0123): what an entity was derived from, or
@@ -617,6 +656,51 @@ def _any(conditions: Iterable[Q]) -> Q:
 
 #: What a condition on ``made`` may give: each must match the same making.
 _MAKING_KEYS = ("software", "version", "kind", "by")
+
+
+def having_motif(
+    path: str, format: str, wanted: str, *, topology: str | None, strands: str | None
+) -> Q:
+    """Where a sequence at ``path`` has the motif (ADR 0175): as it's written; as its other
+    strand reads it, where ``strands`` says it's a duplex; and across its origin, in the
+    last bases and the first, where ``topology`` says it's a circle.
+
+    A motif without ambiguity is found as text, with ``ILIKE``, and one with it as a
+    regular expression (``~*``): a trigram index on the field serves both (ADR 0037). The
+    origin is read in a window of each circle's ends, which no index holds."""
+    reverse = (
+        motifs.reverse_complement(format, wanted)
+        if strands is not None and format in identity.NUCLEIC_FORMATS
+        else None
+    )
+    if reverse == wanted:
+        # A palindrome, as most restriction sites are: the other strand reads the same.
+        reverse = None
+    double = Q(**{strands: "double"}) if strands is not None else Q()
+
+    def on(sequence: str | Concat, given: str) -> Q:
+        if isinstance(sequence, str):
+            if motifs.plain(format, given):
+                return Q(**{f"{sequence}__containing": given})
+            return Q(**{f"{sequence}__iregex": motifs.pattern(format, given)})
+        return Q(IRegex(sequence, motifs.pattern(format, given)))
+
+    def strands_of(sequence: str | Concat) -> Q:
+        found = on(sequence, wanted)
+        return found | (double & on(sequence, reverse)) if reverse is not None else found
+
+    found = strands_of(path)
+    k = len(wanted)
+    if topology is not None and k > 1:
+        bases = F(path)
+        ends = Concat(Right(bases, k - 1), Left(bases, k - 1), output_field=TextField())
+        found |= (
+            Q(**{topology: "circular"})
+            # A motif longer than the circle would read it round more than once.
+            & Q(GreaterThanOrEqual(Length(bases), k))
+            & strands_of(ends)
+        )
+    return found
 
 
 def _is_set(col: Column) -> Q:

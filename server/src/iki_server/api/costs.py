@@ -3,8 +3,6 @@ each project for anyone who can read it. Budgets limit it (ADR 0071)."""
 
 from __future__ import annotations
 
-import csv
-import io
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -18,6 +16,7 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import field_validator
 
+from iki_server.api import csvs
 from iki_server.api.common import caller, project, require
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import PersonRef
@@ -145,45 +144,29 @@ def org_cost_records(request: HttpRequest, params: Query[PeriodParams]) -> Strea
         "amount",
     ]
 
-    def rows() -> Iterator[str]:
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(columns)
+    def rows() -> Iterator[list[Any]]:
+        yield columns
         for record in records.iterator(chunk_size=1000):
-            writer.writerow(
-                [
-                    record.kind,
-                    record.run.hrid if record.run else "",
-                    record.action,
-                    record.project_id or "",
-                    _safe(record.project.name) if record.project else "",
-                    record.team_id or "",
-                    _safe(record.team.name) if record.team else "",
-                    record.template,
-                    record.api,
-                    record.tier,
-                    record.started_at.isoformat(),
-                    record.ended_at.isoformat(),
-                    record.seconds,
-                    "" if record.price_per_hour is None else record.price_per_hour,
-                    record.currency,
-                    "" if record.amount is None else record.amount,
-                ]
-            )
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate()
-        yield buffer.getvalue()
+            yield [
+                record.kind,
+                record.run.hrid if record.run else "",
+                record.action,
+                record.project_id or "",
+                record.project.name if record.project else "",
+                record.team_id or "",
+                record.team.name if record.team else "",
+                record.template,
+                record.api,
+                record.tier,
+                record.started_at.isoformat(),
+                record.ended_at.isoformat(),
+                record.seconds,
+                "" if record.price_per_hour is None else record.price_per_hour,
+                record.currency,
+                "" if record.amount is None else record.amount,
+            ]
 
-    response = StreamingHttpResponse(rows(), content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="iki-costs-{since}-{until}.csv"'
-    response["Cache-Control"] = "no-store"
-    return response
-
-
-def _safe(text: str) -> str:
-    """A name as a spreadsheet shows it, never as a formula it runs."""
-    return f"'{text}" if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+    return csvs.streamed(request, csvs.chunks(rows()), f"iki-costs-{since}-{until}.csv")
 
 
 class BudgetStatusOut(Schema):

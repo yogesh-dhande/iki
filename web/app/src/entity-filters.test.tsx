@@ -61,6 +61,29 @@ describe("the filter panel", () => {
     expect(within(panel).getByLabelText("Filter 2: field")).toBeInTheDocument();
   });
 
+  it("finds a sequence by a motif, which only a sequence offers", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<Panel applied={[]} onApply={onApply} />);
+    const panel = screen.getByRole("region", { name: "Filters" });
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "Sequence");
+    const condition = within(panel).getByLabelText("Filter 1: condition");
+    // A sequence's motif comes first: it's what a sequence is searched by.
+    expect(condition).toHaveDisplayValue("has the motif");
+    // N, any residue, then S: an N-glycosylation sequon (N-X-S/T), as IUPAC codes write it.
+    await user.type(within(panel).getByLabelText("Filter 1: value"), "NXS");
+    await waitFor(() => {
+      expect(onApply).toHaveBeenLastCalledWith([{ field: "sequence", op: "motif", value: "NXS" }]);
+    });
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "Name");
+    expect(
+      within(within(panel).getByLabelText("Filter 1: condition"))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).not.toContain("has the motif");
+  });
+
   it("filters by how entities were made, all of one making", async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();

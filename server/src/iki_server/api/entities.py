@@ -17,6 +17,8 @@
 - Entities you can't read answer 404, as if they didn't exist.
 """
 
+import json
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -29,11 +31,12 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import F, Q
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
-from pydantic import ConfigDict
+from pydantic import ConfigDict, ValidationError
 
 from iki_server.accounts.models import User
+from iki_server.api import csvs
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
@@ -46,6 +49,7 @@ from iki_server.api.schemas import (
     UserOut,
     agent_out,
 )
+from iki_server.audit import log as audit
 from iki_server.entities import (
     access,
     assignments,
@@ -57,6 +61,7 @@ from iki_server.entities import (
     requests,
     schema,
     search,
+    search_exports,
     services,
     states,
     unique,
@@ -245,6 +250,11 @@ class FieldOut(Schema):
     label: str
     description: str | None
     type: str
+    format: str | None = Field(
+        None,
+        description="A string's format, such as `dna_sequence`: a sequence's takes `motif` "
+        "in a search (ADR 0175).",
+    )
     plugin: str = Field(description="The plugin that defines the field.")
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
@@ -1045,6 +1055,7 @@ OPERATOR = Literal[
     "matches",
     "has",
     "of",
+    "motif",
 ]
 
 
@@ -1101,6 +1112,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "label": f.label,
         "description": f.description,
         "type": f.type,
+        "format": f.format,
         "plugin": plugin,
         "required": f.required,
         "immutable": f.immutable,
@@ -1727,17 +1739,24 @@ def _people_of(
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, list[assignments.Stale]], dict[Any, list[str]]]:
     """The people a page of records names, as ``people`` has them; who of them needs
     reassigning; and the fields ``user`` may take each record in (ADR 0122)."""
+    named = _named(user, entities, values)
+    stale = assignments.stale_of(entities, values)
+    return named, stale, assignments.takeable(user, entities, values, stale)
+
+
+def _named(
+    user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
+) -> dict[Any, dict[str, Any]]:
+    """The people a page of records names, as ``people`` has them."""
     where: dict[Any, set[Any]] = {}
     for entity in entities:
         for person in _ids_in(shape(entity.type).fields(), values[entity.pk])["person"]:
             where.setdefault(person, set()).add(entity.owner_project_id)
     found = people.shown(user, where, where)
-    named = {
+    return {
         pk: {"id": p.id, "name": p.name, "email": p.email, "active": p.active}
         for pk, p in found.items()
     }
-    stale = assignments.stale_of(entities, values)
-    return named, stale, assignments.takeable(user, entities, values, stale)
 
 
 def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any]]:
@@ -1954,7 +1973,12 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
 
     Each kind of field takes its own operators, and every field takes ``is_set``:
 
-    - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)
+    - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence
+      (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)
+      also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each
+      matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found
+      on a duplex's other strand as its reverse complement, and across a circle's origin, as
+      the record's strands and topology say
     - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``"\"active site\""``)
     - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
     - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
@@ -2003,6 +2027,203 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
             search.queryset(me, wanted), wanted, payload.cursor, payload.limit
         )
         return {"items": _out(me, rows), "next_cursor": cursor}
+
+
+#: How many records a search's download reads at a time: one keyset page (ADR 0175).
+EXPORT_PAGE = 500
+
+
+class SearchCsvParams(Schema):
+    type: str | None = Field(None, description="This type and its subtypes.")
+    exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
+    project: UUID | None = Field(None, description="Entities that belong to this project.")
+    archived: bool | None = None
+    q: str | None = Field(
+        None, max_length=200, description="Text in their HRID, or a text field in their title."
+    )
+    collection: str | None = Field(
+        None, max_length=100, description="Members of this collection: its ID or HRID."
+    )
+    where: str | None = Field(
+        None,
+        max_length=20_000,
+        description="Conditions on the type's fields, as JSON: what `POST /entities/search` "
+        "takes as `where`.",
+    )
+    sort: str | None = Field(None, max_length=100, description="A field to sort by.")
+    descending: bool = False
+    columns: list[str] = Field(
+        default_factory=list,
+        max_length=200,
+        description="The columns, in order, by name: the type's fields, and `hrid`, `type`, "
+        "`title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` "
+        "and `sent_to`). The grid's, without them.",
+    )
+
+
+_CSV_OUT = {"responses": {200: {"description": "As CSV", "content": {"text/csv": {}}}}}
+
+
+@router.get("/entities/search.csv", summary="Download a search's results", openapi_extra=_CSV_OUT)
+def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> StreamingHttpResponse:
+    """Every entity you can read that the search finds, as CSV: what ``POST
+    /entities/search`` finds with the same filters, in its order, with the grid's columns
+    (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
+    its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
+    in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
+    last changed, its revision and its UUID.
+
+    It's written a page at a time as it's read, so a large result starts at once. Each
+    page may run for 15 seconds; one that runs out ends the file with a row saying so. No
+    cell starts as a formula would (OWASP's CSV injection guidance): one that would starts
+    with a quote. Each download is in the audit log (``search.exported``) before its
+    first row is sent."""
+    me = caller(request)
+    place = project(me, params.project) if params.project else None
+    where = _where_of(params.where)
+    wanted = search.Search(
+        type=params.type,
+        exact_type=params.exact_type,
+        project=params.project,
+        archived=params.archived,
+        q=params.q,
+        collection=params.collection,
+        where=where,
+        sort=params.sort,
+        descending=params.descending,
+    )
+    entity_type = registry.types().get(params.type) if params.type else None
+    typed = entity_type if entity_type is not None and params.type != "iki/core.Entity" else None
+    with _searching(parameters=True):
+        found = search.queryset(me, wanted)
+        try:
+            table = search_exports.columns(
+                _type_out(typed) if typed is not None else None,
+                params.columns,
+                projects=place is None,
+            )
+        except search_exports.NoColumn as error:
+            raise search.SearchError([(f"#/columns/{error.index}", str(error))]) from error
+        rows, cursor = search.page(found, wanted, None, EXPORT_PAGE)
+        first = _table_rows(me, rows)
+    name = _download_name(place, typed)
+    with transaction.atomic():
+        audit.record(
+            "search.exported",
+            actor=me,
+            project=place,
+            data={
+                "format": "csv",
+                "file": name,
+                "search": {
+                    "type": wanted.type,
+                    "exact_type": wanted.exact_type,
+                    "project": str(wanted.project) if wanted.project else None,
+                    "archived": wanted.archived,
+                    "q": wanted.q,
+                    "collection": wanted.collection,
+                    "where": where,
+                    "sort": wanted.sort,
+                    "descending": wanted.descending,
+                },
+                "columns": [c.key for c in table],
+            },
+        )
+
+    def chunks() -> Iterator[str]:
+        nonlocal cursor
+        yield from csvs.lines([[c.heading for c in table]])
+        yield "".join(csvs.lines([c.cell(r) for c in table] for r in first))
+        while cursor is not None:
+            try:
+                with search.time_limit():
+                    more, cursor = search.page(found, wanted, cursor, EXPORT_PAGE)
+                    got = _table_rows(me, more)
+            except search.TooSlow as error:
+                stopped = error.detail or "a page of it took too long to read."
+                yield from csvs.lines([[f"The download stopped here: {stopped}"]])
+                return
+            yield "".join(csvs.lines([c.cell(r) for c in table] for r in got))
+
+    return csvs.streamed(request, chunks(), name)
+
+
+def _where_of(text: str | None) -> dict[str, Any] | None:
+    """A download's ``where``, as JSON, as a search takes it."""
+    if text is None or not text.strip():
+        return None
+    try:
+        data = json.loads(text)
+        condition = Condition.model_validate(data)
+    except ValueError as error:
+        errors = (
+            [
+                {"parameter": "/".join(["where", *map(str, e["loc"])]), "detail": e["msg"]}
+                for e in error.errors()
+            ]
+            if isinstance(error, ValidationError)
+            else [{"parameter": "where", "detail": "must be a condition, as JSON."}]
+        )
+        raise Problem(
+            422, "Some fields are invalid.", code="validation_failed", errors=errors
+        ) from error
+    dumped: dict[str, Any] = condition.model_dump(by_alias=True, exclude_unset=True)
+    return dumped
+
+
+#: What a download's name may not hold: path separators, and what some systems refuse.
+_NOT_IN_A_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _download_name(place: Any, entity_type: EntityType | None) -> str:  # noqa: ANN401 - a Project
+    """``Kinase Atlas Proteins.csv``: the project's name, then what it lists."""
+    what = (
+        (entity_type.label_plural or f"{entity_type.label or entity_type.name}s")
+        if entity_type is not None
+        else "Entities"
+    )
+    words = f"{place.name} {what}" if place is not None else what
+    return " ".join(_NOT_IN_A_NAME.sub("_", words).split())[:150] + ".csv"
+
+
+def _table_rows(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    """A page of records as a search's download reads them (``search_exports.Row``): their
+    values, what those refer to as the reader can read it, and their own columns."""
+    values = services.current_values_of(entities)
+    refs, files = _referenced(user, entities, values)
+    named = _named(user, entities, values)
+    asked = requests.summaries(user, entities)
+    names = dict(
+        permissions.visible_projects(user)
+        .filter(pk__in={e.owner_project_id for e in entities})
+        .values_list("pk", "name")
+    )
+    types = registry.types()
+    out = []
+    for entity in entities:
+        fields = shape(entity.type).fields()
+        mine = _ids_in(fields, values[entity.pk])
+        shown = {n: to_json(fields[n], v) for n, v in values[entity.pk].items()}
+        kind = types.get(entity.type)
+        out.append(
+            {
+                "id": entity.pk,
+                "hrid": entity.hrid,
+                "type_label": (kind.label or kind.name) if kind is not None else entity.type,
+                "title": _title(entity, shown),
+                "project": names.get(entity.owner_project_id)
+                if entity.owner_project_id is not None
+                else None,
+                "updated_at": entity.updated_at,
+                "revision": entity.revision,
+                "values": shown,
+                "refs": refs_in(refs, mine["ref"], entity.owner_project_id),
+                "files": {str(i): files[i] for i in mine["file"] if i in files},
+                "people": {str(i): named[i] for i in mine["person"] if i in named},
+                "request": asked.get(entity.pk),
+            }
+        )
+    return out
 
 
 @contextmanager

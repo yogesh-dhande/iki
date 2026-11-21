@@ -42,6 +42,7 @@ export type Op =
   | "starts_with"
   | "matches"
   | "has"
+  | "motif"
   | "me"
   | "set"
   | "unset"
@@ -236,6 +237,8 @@ export function filterable(type: EntityType | undefined, extra: FieldDef[] = [])
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
+/** The string formats a search finds by a motif, as the API's operators say. */
+const SEQUENCE_FORMATS = new Set(["dna_sequence", "rna_sequence", "protein_sequence"]);
 const SORTABLE = new Set([
   "string",
   "enum",
@@ -259,6 +262,11 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
     switch (field.type) {
       case "string":
         return [
+          // A sequence's bases or residues in IUPAC codes (ADR 0175): on a duplex's other
+          // strand too, and across a circle's origin.
+          ...(field.format && SEQUENCE_FORMATS.has(field.format)
+            ? ([["motif", "has the motif"]] satisfies [Op, string][])
+            : []),
           ["contains", "contains"],
           ["eq", "is"],
           ["ne", "is not"],

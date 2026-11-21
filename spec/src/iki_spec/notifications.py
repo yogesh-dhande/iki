@@ -407,7 +407,7 @@ class _Notification:
             )
             return
         kind = "enum" if f.type == "state" else f.type
-        allowed = ("is_set", *conditions.OPERATORS[kind])
+        allowed = ("is_set", *conditions.operators(kind, f.format))
         if op not in allowed:
             self.add(
                 "unknown-operator",

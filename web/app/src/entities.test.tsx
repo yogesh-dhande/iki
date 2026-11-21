@@ -179,6 +179,36 @@ describe("a project's entities", () => {
     expect(last).not.toHaveProperty("archived");
   });
 
+  it("downloads everything its search finds as CSV, from a link the keyboard reaches", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein&sort=name&desc=true" +
+        `&filters=${encodeURIComponent(JSON.stringify([{ field: "sequence", op: "motif", value: "NXS" }]))}`,
+    );
+    await screen.findByRole("table", { name: "1 protein match" });
+    const link = screen.getByRole("link", { name: "Download CSV" });
+    // Its description is the grid's count, so a screen reader hears what it downloads.
+    expect(link).toHaveAccessibleDescription("1 protein match");
+    expect(link).toHaveAttribute("download");
+    const address = new URL(link.getAttribute("href") ?? "", "https://iki.example.org");
+    expect(address.pathname).toBe("/api/v1/entities/search.csv");
+    expect(Object.fromEntries(address.searchParams)).toEqual({
+      type: "iki/protein.Protein",
+      project: KINASE.id,
+      archived: "false",
+      where: JSON.stringify({ all: [{ field: "sequence", op: "motif", value: "NXS" }] }),
+      sort: "name",
+      descending: "true",
+    });
+    // Tab reaches it from the grid's filters, before the grid's own rows.
+    screen.getByRole("button", { name: /^Filters/ }).focus();
+    for (let presses = 0; presses < 10 && document.activeElement !== link; presses += 1) {
+      await user.tab();
+    }
+    expect(link).toHaveFocus();
+  });
+
   it("picks rows to run an action on", async () => {
     onProject();
     answer(

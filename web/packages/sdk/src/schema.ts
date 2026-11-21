@@ -943,7 +943,12 @@ export interface paths {
          *
          *     Each kind of field takes its own operators, and every field takes ``is_set``:
          *
-         *     - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)
+         *     - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence
+         *       (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)
+         *       also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each
+         *       matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found
+         *       on a duplex's other strand as its reverse complement, and across a circle's origin, as
+         *       the record's strands and topology say
          *     - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``""active site""``)
          *     - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
          *     - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
@@ -972,6 +977,37 @@ export interface paths {
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/search.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a search's results
+         * @description Every entity you can read that the search finds, as CSV: what ``POST
+         *     /entities/search`` finds with the same filters, in its order, with the grid's columns
+         *     (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
+         *     its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
+         *     in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
+         *     last changed, its revision and its UUID.
+         *
+         *     It's written a page at a time as it's read, so a large result starts at once. Each
+         *     page may run for 15 seconds; one that runs out ends the file with a row saying so. No
+         *     cell starts as a formula would (OWASP's CSV injection guidance): one that would starts
+         *     with a quote. Each download is in the audit log (``search.exported``) before its
+         *     first row is sent.
+         */
+        get: operations["iki_server_api_entities_search_csv"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5709,7 +5745,7 @@ export interface components {
             /** @description Not this. */
             not?: components["schemas"]["Condition"] | null;
             /** Op */
-            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has" | "of") | null;
+            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has" | "of" | "motif") | null;
             /**
              * Value
              * @description What to compare with, as the field takes it.
@@ -6976,6 +7012,11 @@ export interface components {
             display_unit: string | null;
             /** Display Unit Symbol */
             display_unit_symbol: string | null;
+            /**
+             * Format
+             * @description A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+             */
+            format?: string | null;
             /**
              * Immutable
              * @description Can be set once, and can't change after.
@@ -9675,6 +9716,11 @@ export interface components {
             /** Display Unit Symbol */
             display_unit_symbol: string | null;
             /**
+             * Format
+             * @description A string's format, such as `dna_sequence`: a sequence's takes `motif` in a search (ADR 0175).
+             */
+            format?: string | null;
+            /**
              * Immutable
              * @description Can be set once, and can't change after.
              */
@@ -12095,6 +12141,57 @@ export interface components {
              * @description Only projects of these teams, when given.
              */
             team?: string[];
+        };
+        /** SearchCsvParams */
+        SearchCsvParams: {
+            /** Archived */
+            archived?: boolean | null;
+            /**
+             * Collection
+             * @description Members of this collection: its ID or HRID.
+             */
+            collection?: string | null;
+            /**
+             * Columns
+             * @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.
+             */
+            columns?: string[];
+            /**
+             * Descending
+             * @default false
+             */
+            descending: boolean;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /**
+             * Q
+             * @description Text in their HRID, or a text field in their title.
+             */
+            q?: string | null;
+            /**
+             * Sort
+             * @description A field to sort by.
+             */
+            sort?: string | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+            /**
+             * Where
+             * @description Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.
+             */
+            where?: string | null;
         };
         /** SearchIn */
         SearchIn: {
@@ -16271,6 +16368,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EntityOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_search_csv: {
+        parameters: {
+            query?: {
+                /** @description This type and its subtypes. */
+                type?: string | null;
+                /** @description Only the type itself, not its subtypes. */
+                exact_type?: boolean;
+                /** @description Entities that belong to this project. */
+                project?: string | null;
+                archived?: boolean | null;
+                /** @description Text in their HRID, or a text field in their title. */
+                q?: string | null;
+                /** @description Members of this collection: its ID or HRID. */
+                collection?: string | null;
+                /** @description Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`. */
+                where?: string | null;
+                /** @description A field to sort by. */
+                sort?: string | null;
+                descending?: boolean;
+                /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them. */
+                columns?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
         };

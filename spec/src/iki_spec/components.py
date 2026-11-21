@@ -381,7 +381,7 @@ class _Search:
         if kind is None:
             return
         op = node["op"]
-        allowed = ("is_set", *conditions.OPERATORS[kind])
+        allowed = ("is_set", *conditions.operators(kind, found.format if found else None))
         if op not in allowed:
             self.add(
                 "unknown-operator",

@@ -9,6 +9,8 @@ identity: [sequence]
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
+  # Its N-terminal signal peptide, indexed to be found by its residues.
+  signal_peptide: { type: string, format: protein_sequence, max_length: 70, indexed: true }
   lims_id:
     type: string
     max_length: 64

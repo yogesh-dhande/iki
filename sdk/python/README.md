@@ -162,8 +162,27 @@ for record in caught:
 ```
 
 Conditions take `op` as one of `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`,
-`contains`, `starts_with`, `matches`, `has`, `of` and `is_set`, and combine with
+`contains`, `starts_with`, `matches`, `has`, `of`, `motif` and `is_set`, and combine with
 `{"all": [...]}`, `{"any": [...]}` and `{"not": ...}`.
+
+A sequence field takes `motif` (ADR 0175): bases or residues in IUPAC codes, found on a
+duplex's other strand too, and across a circular one's origin:
+
+```python
+# EcoRI's site; the M13/pUC reverse primer's, on either strand of a duplex.
+for site in ("GAATTC", "CAGGAAACAGCTATGAC"):
+    motif = {"field": "bases", "op": "motif", "value": site}
+    iki.entities.search("iki/dna.DNASequence", where=motif)
+# N, any residue, S or T: N-glycosylation sequons, in IUPAC codes for proteins.
+sequon = {"any": [{"field": "sequence", "op": "motif", "value": v} for v in ("NXS", "NXT")]}
+iki.entities.search("iki/protein.Protein", where=sequon)
+```
+
+A search's results also download as CSV, for a spreadsheet:
+`GET /api/v1/entities/search.csv` takes the same search as parameters (`where` as
+JSON), and writes the grid's columns, as you may read them, a page at a time. Each
+download is in the audit log, and no cell is one a spreadsheet would run as a formula
+(ADR 0175). The grid's Download CSV link is this download.
 
 ## Running actions
 

@@ -9,10 +9,12 @@ from collections.abc import Mapping
 __all__ = [
     "ALL_OPERATORS",
     "BUILT_IN",
+    "BY_FORMAT",
     "MAX_CONDITIONS",
     "MAX_DEPTH",
     "OPERATORS",
     "SORTABLE",
+    "operators",
 ]
 
 #: The most a component's search may say: its declared search, and a refinement of it
@@ -52,7 +54,26 @@ OPERATORS: Mapping[str, tuple[str, ...]] = {
     # What plugins' rules caught (ADR 0127): by a rule's name, or by any with `is_set`.
     "rule": EQUALITY,
 }
-ALL_OPERATORS = ("is_set", *dict.fromkeys(op for ops in OPERATORS.values() for op in ops))
+#: What a string field takes besides, by its format: a sequence's ``motif`` (ADR 0175),
+#: its bases or residues in IUPAC codes, found on a duplex's other strand too, and across a
+#: circle's origin.
+BY_FORMAT: Mapping[str, tuple[str, ...]] = {
+    "dna_sequence": ("motif",),
+    "rna_sequence": ("motif",),
+    "protein_sequence": ("motif",),
+}
+ALL_OPERATORS = (
+    "is_set",
+    *dict.fromkeys(op for ops in (*OPERATORS.values(), *BY_FORMAT.values()) for op in ops),
+)
+
+
+def operators(kind: str, format: str | None = None) -> tuple[str, ...]:
+    """The operators a kind of field takes, besides ``is_set``: a string's, with those its
+    format adds."""
+    extra = BY_FORMAT.get(format or "", ()) if kind == "string" else ()
+    return (*OPERATORS[kind], *extra)
+
 
 #: Kinds a search can be sorted by.
 SORTABLE = frozenset({"string", "enum", "int", "float", "quantity", "date", "datetime", "bool"})
