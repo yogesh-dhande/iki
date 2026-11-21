@@ -126,6 +126,8 @@ class Field:
     topology: str | None = None
     strands: str | None = None
     pattern: str | None = None
+    #: What the pattern asks for, in words, finishing "Use …": said instead of it.
+    pattern_help: str | None = None
     min_length: int | None = None
     max_length: int | None = None
     min: float | None = None
@@ -210,6 +212,7 @@ class Field:
             topology=data.get("topology"),
             strands=data.get("strands"),
             pattern=data.get("pattern"),
+            pattern_help=data.get("pattern_help"),
             min_length=data.get("min_length"),
             max_length=data.get("max_length"),
             min=data.get("min"),

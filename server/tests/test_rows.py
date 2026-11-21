@@ -135,14 +135,19 @@ def test_each_row_field_is_checked_where_it_is(world: World) -> None:
     rows = components(chains(world))
     rows[0] = {"role": "heavy", "copies": 0, "colour": "red"}
     rows[1] = {**rows[1], "role": "Heavy chain"}
-    found = errors(
-        create(api_as(world), world.project, {"name": "BS-1", "components": rows}, BISPECIFIC)
-    )
+    api = api_as(world)
+    found = errors(create(api, world.project, {"name": "BS-1", "components": rows}, BISPECIFIC))
+    # A form says the same before it's sent, from the type's schema.
+    schema = api.get(f"/entity-types/{BISPECIFIC}").json()["values_schema"]
+    role = schema["properties"]["components"]["items"]["properties"]["role"]
+    assert role["x-iki-pattern-help"].startswith("lower-case letters, digits and underscores")
     assert found == {
         "#/values/components/0/part": "is required.",
         "#/values/components/0/copies": "must be at least 1.",
         "#/values/components/0/colour": "isn't one of the row's fields: part, copies, role.",
-        "#/values/components/1/role": "doesn't match the pattern `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`.",
+        # What its roles look like, in words, not as a regular expression.
+        "#/values/components/1/role": "must use lower-case letters, digits and underscores, "
+        "starting with a letter, such as heavy or chain_a.",
     }
 
 

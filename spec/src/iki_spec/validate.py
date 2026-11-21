@@ -3087,7 +3087,11 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
         elif f.format and not matches_format(value, f.format):
             problems.append(f"isn't a valid {f.format.replace('_', ' ')}.")
         if f.pattern and not pattern_problems(f.pattern) and re.fullmatch(f.pattern, value) is None:
-            problems.append(f"doesn't match the pattern `{f.pattern}`.")
+            problems.append(
+                f"must use {f.pattern_help}."
+                if f.pattern_help
+                else f"doesn't match the pattern `{f.pattern}`."
+            )
         return problems
     if kind in ("int", "float", "quantity"):
         if isinstance(value, bool) or not isinstance(value, (int, float)):

@@ -185,6 +185,8 @@ interface PropertySchema {
   items?: PropertySchema;
   properties?: Record<string, PropertySchema>;
   "x-iki-format"?: string;
+  /** What its pattern asks for, in words, finishing "Use …". */
+  "x-iki-pattern-help"?: string;
   "x-iki-media-types"?: string[];
   "x-iki-max-size"?: number;
   anyOf?: PropertySchema[];
@@ -207,6 +209,9 @@ const FORMAT_HELP: Record<string, string> = {
   uri: "Enter an address with its scheme, such as https://example.com.",
   hostname: "Enter a host name in lower case, such as lims.example.com.",
 };
+
+/** A string field's: it's one line. */
+const ONE_LINE = "^[^\\r\\n]*$";
 
 function patterns(schema: PropertySchema): string[] {
   return [
@@ -236,11 +241,17 @@ function textProblem(schema: PropertySchema, value: string): string | undefined 
   if (schema.maxLength != null && length > schema.maxLength) {
     return `Use at most ${number.format(schema.maxLength)} characters: this is ${number.format(length)}.`;
   }
-  for (const pattern of patterns(schema)) {
+  const all = patterns(schema);
+  const format = schema["x-iki-format"];
+  const help = schema["x-iki-pattern-help"];
+  // More than one line is the plainest thing wrong, whatever else is.
+  if (all.includes(ONE_LINE) && !matches(ONE_LINE, value)) return "Keep it to one line.";
+  for (const pattern of all) {
     if (!matches(pattern, value)) {
-      const format = schema["x-iki-format"];
-      if (pattern === "^[^\\r\\n]*$") return "Keep it to one line.";
-      return (format && FORMAT_HELP[format]) ?? `It must match the pattern ${pattern}.`;
+      // A format's pattern comes first, then the field's own.
+      const formatHelp = format ? FORMAT_HELP[format] : undefined;
+      if (formatHelp && (pattern === all[0] || !help)) return formatHelp;
+      return help ? `Use ${help}.` : `It must match the pattern ${pattern}.`;
     }
   }
   return undefined;

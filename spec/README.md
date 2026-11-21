@@ -778,23 +778,23 @@ A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
 
-| Type       | Options                                         | Notes                                                                                                         |
-| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600.                                    |
-| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.                                          |
-| `int`      | `min`, `max`                                    | 64-bit.                                                                                                       |
-| `float`    | `min`, `max`                                    | Double precision.                                                                                             |
-| `bool`     |                                                 |                                                                                                               |
-| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                                                                |
-| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                                                            |
-| `datetime` |                                                 | Always with a time zone. No default.                                                                          |
-| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                                                  |
-| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
-| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
-| `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
-| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
-| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.                                        |
-| `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.                                             |
+| Type       | Options                                                         | Notes                                                                                                         |
+| ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `string`   | `format`, `pattern`, `pattern_help`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600.                                    |
+| `text`     | `max_length`                                                    | Long text. Not indexable: searched by its words (full text) instead.                                          |
+| `int`      | `min`, `max`                                                    | 64-bit.                                                                                                       |
+| `float`    | `min`, `max`                                                    | Double precision.                                                                                             |
+| `bool`     |                                                                 |                                                                                                               |
+| `enum`     | `values` (required)                                             | Letters, digits and `_ . + -`.                                                                                |
+| `date`     |                                                                 | Defaults are written `YYYY-MM-DD`.                                                                            |
+| `datetime` |                                                                 | Always with a time zone. No default.                                                                          |
+| `quantity` | `unit` (required), `display_unit`, `min`, `max`                 | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                                                  |
+| `file`     | `media_types`, `max_size`                                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
+| `ref`      | `to` (required)                                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
+| `person`   | `role`, `assignment`                                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
+| `list`     | `items` (required), `min_items`, `max_items`                    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
+| `json`     | `schema`                                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.                                        |
+| `state`    | `initial`, `states` (both required)                             | One of its states, set on its own by their lab roles. See States.                                             |
 
 A reference's `to` may list several types, any one of which it may name,
 each with its subtypes (ADR 0136), such as a complex's part:
@@ -896,7 +896,11 @@ count written out, the members of a list in order, without annotations, the
 polymers in order and numbered from 1, and the connections in order, each
 from its lesser end. HELM 1 is read too, as HELM 2. A `pattern` must work in both Python and PostgreSQL, so it can't use
 lookarounds, named groups, backreferences, inline flags or possessive
-quantifiers.
+quantifiers. Its `pattern_help` says what it asks for in words, finishing
+"Use …" (`lower-case letters, digits and underscores, such as chain_a`), and
+is said instead of the pattern when a value doesn't match, as HTML's `title`
+is for an input's `pattern`: people entering a value read it, and few read a
+regular expression.
 
 Field names are lower case with single underscores. Names every entity
 already has (`id`, `hrid`, `type`, `project`, `created_at`, `revision`,

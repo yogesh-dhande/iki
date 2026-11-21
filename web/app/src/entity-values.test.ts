@@ -17,6 +17,12 @@ const TYPE: EntityType = {
       },
       volume: { anyOf: [{ type: "number", minimum: 0 }, { type: "null" }] },
       tags: { type: "array", items: { type: "string", maxLength: 3 }, maxItems: 2 },
+      role: {
+        type: "string",
+        allOf: [{ pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*$" }, { pattern: "^[^\\r\\n]*$" }],
+        "x-iki-pattern-help": "lower-case letters, digits and underscores, such as chain_a",
+      },
+      code: { type: "string", pattern: "^[A-Z][0-9]{1,2}$" },
     },
   },
 };
@@ -40,6 +46,22 @@ const volume = field({
 });
 
 describe("encoding drafts", () => {
+  it("says what a pattern asks for in words, where its type says them", () => {
+    const role = field({ name: "role", label: "Role", type: "string" });
+    expect(encode(role, "chain_a", TYPE)).toEqual({ ok: true, value: "chain_a" });
+    expect(encode(role, "chain A", TYPE)).toEqual({
+      ok: false,
+      error: "Use lower-case letters, digits and underscores, such as chain_a.",
+    });
+    expect(encode(role, "chain\nA", TYPE)).toEqual({ ok: false, error: "Keep it to one line." });
+    // Without them, the pattern is all there is to say.
+    const code = field({ name: "code", label: "Code", type: "string" });
+    expect(encode(code, "a1", TYPE)).toEqual({
+      ok: false,
+      error: "It must match the pattern ^[A-Z][0-9]{1,2}$.",
+    });
+  });
+
   it("checks whole numbers and their range", () => {
     expect(encode(count, "4", TYPE)).toEqual({ ok: true, value: 4 });
     expect(encode(count, "4.5", TYPE)).toEqual({
