@@ -400,6 +400,31 @@ describe("choosing a reference as it's typed", () => {
 
   const shownText = () => screen.queryAllByRole("option").map((o) => o.textContent);
 
+  it("says whose each record is where two projects' records share an ID", async () => {
+    onLab();
+    // One registry entry's records in two projects, each named as its project names it.
+    const theirs = entity({
+      id: "00000000-0000-7000-8000-0000000b0009",
+      hrid: "PRT-000009",
+      values: { name: "pUC19" },
+      owner_project: { id: "00000000-0000-7000-8000-0000000000p2", name: "Vectors", slug: "v" },
+    });
+    const mine = entity({
+      id: "00000000-0000-7000-8000-0000000b0010",
+      hrid: "PRT-000009",
+      values: { name: "SYNPUC19CV" },
+    });
+    answer("GET /api/v1/entities", page([theirs, mine, EGFR]));
+    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
+    await user.click(screen.getByRole("combobox", { name: /^Source/ }));
+    await screen.findByRole("option", { name: /EGFR kinase/ });
+    expect(shownText()).toEqual([
+      "pUC19 PRT-000009 · Vectors",
+      "SYNPUC19CV PRT-000009 · Kinase Atlas",
+      "EGFR kinase PRT-000003",
+    ]);
+  });
+
   it("says it's searching until what's typed is answered, never listing another search's", async () => {
     const { user, source, release } = await openSource();
     await user.type(source, "abl");

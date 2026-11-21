@@ -33,6 +33,7 @@ import {
   pickerQuery,
   projectFilesQuery,
   typeLabel,
+  type Entity,
   type EntityType,
   type FieldDef,
 } from "./entities";
@@ -580,8 +581,22 @@ function refOption(item: Picked) {
     <Item key={item.id} textValue={pickedLabel(item)}>
       <span>{item.title !== item.hrid ? item.title : item.hrid}</span>
       {item.title !== item.hrid ? <span className="muted"> {item.hrid}</span> : null}
+      {item.project ? <span className="muted"> · {item.project}</span> : null}
     </Item>
   );
+}
+
+/** A picker's answer as its options: each record that shares its ID with another (one
+ * registry entry's records in several projects) says whose it is. */
+function pickable(found: readonly Entity[]): Picked[] {
+  const shared = new Map<string, number>();
+  for (const e of found) shared.set(e.hrid, (shared.get(e.hrid) ?? 0) + 1);
+  return found.map((e) => ({
+    id: e.id,
+    hrid: e.hrid,
+    title: e.title,
+    ...((shared.get(e.hrid) ?? 0) > 1 && e.owner_project ? { project: e.owner_project.name } : {}),
+  }));
 }
 
 /**
@@ -609,14 +624,7 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
     !field.to.length || field.to.includes("iki/core.Entity")
       ? "any entity"
       : orList(field.to.map((t) => inSentenceLabel(typeLabel(types, t))));
-  const items = useMemo(
-    () =>
-      withChosen(
-        (found.data ?? []).map((e) => ({ id: e.id, hrid: e.hrid, title: e.title })),
-        picked,
-      ),
-    [found.data, picked],
-  );
+  const items = useMemo(() => withChosen(pickable(found.data ?? []), picked), [found.data, picked]);
   const help = helpText(field, note) ?? `Type an ID or a name to find ${target}.`;
   const label = itemLabel ?? field.label;
 

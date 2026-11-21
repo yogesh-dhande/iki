@@ -12,6 +12,9 @@ export interface Picked {
   id: string;
   hrid: string;
   title: string;
+  /** In a picker's list, the project whose record it is, where two share its ID: one
+   * registry entry's records in two projects, each named as its project names it. */
+  project?: string;
   /** A file still uploading: the form waits for it. */
   uploading?: boolean;
   /** A file chosen from this computer with others, which its input starts uploading. */

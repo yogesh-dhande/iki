@@ -1486,7 +1486,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "locked": entity.locked,
                 "locked_by": [n for n in fields if n in entity.locked_by],
                 "values": shown,
-                "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
+                "refs": refs_in(refs, mine["ref"], entity.owner_project_id),
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
                 "people": {str(i): named[i] for i in mine["person"] if i in named},
                 "needs_reassigning": [
@@ -1736,28 +1736,44 @@ def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any
 def _referenced(
     user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
-    """What a page of entities refers to that the user can read, in a few queries."""
+    """What a page of entities refers to that the user can read, in a few queries. A
+    reference to a registry entry is also titled in each of their projects: see
+    :func:`refs_in`."""
     wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
     for entity in entities:
         for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
             if kind in wanted:
                 wanted[kind] |= ids
-    return _lookup(user, wanted)
+    return _lookup(user, wanted, projects={e.owner_project_id for e in entities})
+
+
+def refs_in(
+    refs: dict[Any, dict[str, Any]],
+    ids: Iterable[Any],
+    project: Any,  # noqa: ANN401 - a UUID
+) -> dict[str, dict[str, Any]]:
+    """A referring record's ``refs``, for its ``project``: an entry it refers to is titled
+    by that project's record of it, where it has one, as its link opens that record."""
+    return {str(i): refs.get((i, project), refs[i]) for i in ids if i in refs}
 
 
 def _lookup(
-    user: User, wanted: dict[str, set[Any]]
+    user: User, wanted: dict[str, set[Any]], *, projects: Iterable[Any] = ()
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
-    """The entities and files with these IDs that the user can read, as ``refs`` and ``files``."""
+    """The entities and files with these IDs that the user can read, as ``refs`` and
+    ``files``. A reference to an identity names its registry entry (ADR 0115): it's titled
+    by a record of it the user can read, the oldest; and for each of ``projects`` that has
+    a record of it, by that one too, keyed by the entry's ID and the project's, for
+    :func:`refs_in`."""
     found = list(access.visible(user).filter(pk__in=wanted["ref"])) if wanted["ref"] else []
-    # A reference to an identity names its registry entry (ADR 0115): it's titled by a
-    # record of it the user can read, the oldest.
     entries = (
         list(access.visible_entries(user).filter(pk__in=wanted["ref"] - {e.pk for e in found}))
         if wanted["ref"]
         else []
     )
+    preferred = {p for p in projects if p is not None}
     record_of: dict[Any, Entity] = {}
+    record_in: dict[tuple[Any, Any], Entity] = {}
     if entries:
         for record in (
             access.visible(user)
@@ -1765,22 +1781,38 @@ def _lookup(
             .order_by("-created_at", "-pk")
         ):
             record_of[record.entry_id] = record
-    titled = [e for e in [*found, *record_of.values()] if _template(e.type) is not None]
+            if record.owner_project_id in preferred:
+                record_in[(record.entry_id, record.owner_project_id)] = record
+    titled = [
+        e
+        for e in {r.pk: r for r in [*found, *record_of.values(), *record_in.values()]}.values()
+        if _template(e.type) is not None
+    ]
     titled_values = services.current_values_of(titled) if titled else {}
-    refs = {}
-    for e in [*found, *entries]:
-        shown_by = record_of.get(e.pk, e)
+
+    def ref(e: Entity, shown_by: Entity) -> dict[str, Any]:
         fields = shape(e.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in titled_values.get(shown_by.pk, {}).items()}
-        refs[e.pk] = {
+        return {
             "hrid": e.hrid,
             "title": _title(shown_by, shown),
             "type": e.type,
             "archived": shown_by.archived_at is not None and shown_by is not e,
             "purged": False,
         }
-    for pk, hrids in _formerly(set(refs)).items():
-        refs[pk]["formerly"] = hrids
+
+    refs: dict[Any, dict[str, Any]] = {}
+    for e in [*found, *entries]:
+        refs[e.pk] = ref(e, record_of.get(e.pk, e))
+    by_pk = {e.pk: e for e in entries}
+    for (entry, holder), record in record_in.items():
+        if record is not record_of.get(entry):
+            refs[(entry, holder)] = ref(by_pk[entry], record)
+    formerly = _formerly({k for k in refs if not isinstance(k, tuple)})
+    for key, r in refs.items():
+        hrids = formerly.get(key[0] if isinstance(key, tuple) else key)
+        if hrids:
+            r["formerly"] = hrids
     missing = wanted["ref"] - set(refs)
     if missing:
         # What a purge left (ADR 0092): the reference still names it, as purged.
@@ -2391,7 +2423,7 @@ def get_revision(
             wanted[kind] |= ids
         for kind, ids in _ids_in(fields, {name: after}).items():
             wanted[kind] |= ids
-    refs, files = _lookup(me, wanted)
+    refs, files = _lookup(me, wanted, projects={entity.owner_project_id})
     return {
         **_revision(revision, _runs_of(me, [revision])),
         "holds": _holds_opened(entity, [revision]).get(revision.number, []),
@@ -2400,7 +2432,7 @@ def get_revision(
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
             for name, (before, after) in changes.items()
         },
-        "refs": {str(i): r for i, r in refs.items()},
+        "refs": refs_in(refs, wanted["ref"], entity.owner_project_id),
         "files": {str(i): f for i, f in files.items()},
         "people": _people_out(me, wanted["person"], entity),
     }

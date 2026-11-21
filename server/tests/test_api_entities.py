@@ -560,6 +560,33 @@ def test_entities_have_their_types_display_title(world: World) -> None:
     assert variant["refs"][named.json()["entry"]["id"]]["title"] == "Lysozyme"
 
 
+def test_a_reference_to_an_entry_is_titled_by_the_referring_projects_record(
+    world: World, other: Project
+) -> None:
+    # Two projects hold one plasmid, each naming it as it does: a record refers to its own
+    # project's, which its link opens, not to whichever was made first.
+    puc19 = "TCGCGCGTTTCGGTGATGACGG"  # pUC19's first bases (GenBank L09137).
+    editor = api_as(world, "editor")
+    first = create(editor, other, {"bases": puc19, "name": "pUC19"}).json()
+    mine = create(editor, world.project, {"bases": puc19, "name": "SYNPUC19CV"}).json()
+    assert mine["entry"]["id"] == first["entry"]["id"]
+    entry = mine["entry"]["id"]
+    protein = {"sequence": "MSIQHFRVALIPFFAAFCLPVFA", "encoded_by": mine["id"]}
+    made = create(editor, world.project, protein, "acme/protein.Protein").json()
+    assert made["refs"][entry]["title"] == "SYNPUC19CV"
+    assert editor.get(f"/entities/{made['id']}").json()["refs"][entry]["title"] == "SYNPUC19CV"
+    listed = editor.get("/entities", type="acme/protein.Protein").json()["items"]
+    assert [e["refs"][entry]["title"] for e in listed] == ["SYNPUC19CV"]
+    assert editor.get(f"/entities/{made['id']}/revisions/1").json()["refs"][entry]["title"] == (
+        "SYNPUC19CV"
+    )
+    # In the other project, its record's name.
+    theirs = create(
+        editor, other, {**protein, "encoded_by": first["id"]}, "acme/protein.Protein"
+    ).json()
+    assert theirs["refs"][entry]["title"] == "pUC19"
+
+
 def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> None:
     api = api_as(world)
     lysozyme = create(
