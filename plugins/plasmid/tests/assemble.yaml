@@ -241,7 +241,7 @@ inputs:
                 topology: linear,
               }
 expect:
-  error: "make 2 different circles (168 bp, 198 bp)"
+  error: "make 2 different circles (198 bp, 168 bp)"
 ---
 apiVersion: iki/v1
 kind: ActionTest

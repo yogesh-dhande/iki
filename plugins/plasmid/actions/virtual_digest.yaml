@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A virtual digest, as SnapGene's and Benchling's: every fragment the plan's enzymes cut
+# its parts into, as a result on the plan. `assemble` makes one molecule or none, and a
+# digest that leaves several bands makes none, so without this the bands were seen only
+# in a failed run's error.
+apiVersion: iki/v1
+kind: Action
+name: virtual_digest
+label: Digest a plan's parts virtually
+description: >-
+  Cuts each of a plan's parts with its enzymes and lists every fragment on the plan,
+  largest first, as a gel reads them: its length, where it lies on the part, and the
+  enzyme and overhang at each end. A digest's backbone is cut alone; a cloning plan's
+  backbone and inserts each. Nothing is registered: it's a preview of the bands, to
+  choose one by or to check a gel against.
+inputs:
+  assembly: { type: Assembly, schema: ">=3", include: [backbone, inserts] }
+effects:
+  updates:
+    - input: assembly
+      fields: [fragments]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/plasmids.py, digest]
+deterministic: true
+timeout: 30m

@@ -101,8 +101,8 @@ A project's Admins give these to its members, beside their project role:
 
 They run on backend workers, in the `plasmid-tools` environment (Python 3.12 with
 Biopython, which the annotation's alignments and the digests' restriction enzymes use).
-`annotate_plasmid`, `assemble` and `check_assembly` list Biopython 1.88 as their
-software, so what their runs make is recorded as made with it
+`annotate_plasmid`, `assemble`, `check_assembly` and `virtual_digest` list Biopython
+1.88 as their software, so what their runs make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
 
 - **`register_plasmid`**: registers a plasmid from its bases — the double-stranded DNA
@@ -127,6 +127,11 @@ software, so what their runs make is recorded as made with it
 - **`check_assembly`**: works out what a plan makes and checks it against the sequence
   the clone turned out to have. A trigger runs it as soon as someone states the product,
   so whoever sequenced the clone hears at once whether the plan explains it.
+- **`virtual_digest`**: cuts each of a plan's parts with its enzymes and lists every
+  fragment in the plan's `fragments`, largest first, with where it lies and the enzyme
+  and overhang at each end, as SnapGene's and Benchling's virtual digests do. It
+  registers nothing, so a digest that leaves several bands can be seen before one is
+  chosen.
 
 ## Annotating from the library
 

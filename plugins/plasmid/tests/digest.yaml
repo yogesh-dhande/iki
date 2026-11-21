@@ -1,0 +1,65 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: a_virtual_digest_lists_each_parts_fragments_largest_first
+description: >-
+  The backbone and insert of the restriction-ligation plan in assemble.yaml, each cut
+  with EcoRI and HindIII: the circle gives its 126 bp fragment, which runs across its
+  origin, and the 96 bp piece between its sites; the linear insert gives its 72 bp
+  fragment and the two short ends beyond its sites, each with the molecule's own end on
+  one side. The bands of each part are listed largest first, as a gel reads them.
+action: virtual_digest
+inputs:
+  assembly:
+    - values: { method: restriction_ligation, enzymes: [EcoRI, HindIII], name: pTest-insert }
+      included:
+        backbone:
+          - values:
+              {
+                bases: "GAGGTTTCCCTTCTACGCGCCTCTCGGTCATACTTCCGCCAGGATTTCAGTCTTATGGACACTGTTGTACGCTGCTTCCCCCTTCAGGTGGCGGTTCACATAAGGCTCCGTTCTGATGATGAATTCCCCGTCAGCAGCGCGGCGGATCTAATAGTCGTGCTGTGGGTTAAACATATCAGTGAATGTCCACACCAGAGTACCTTGTGTTTGTCCGTCAAGCTT",
+                topology: circular,
+                name: pBackbone,
+              }
+        inserts:
+          - values:
+              {
+                bases: "CCGAATTCATGGGCTCCCTTGTGCCGCTAGCTTTACCCGTCCCCGGGTGCCGCGTGTCACCTGGCCCGTATTAAAAGCTTGG",
+                topology: linear,
+                name: fragment,
+              }
+expect:
+  output:
+    updates:
+      assembly:
+        - values:
+            fragments:
+              - part: pBackbone (DNA-000002)
+                length: 126
+                start: 218
+                end: 121
+                left: "HindIII, 5' AGCT"
+                right: "EcoRI, 5' AATT"
+              - part: pBackbone (DNA-000002)
+                length: 96
+                start: 122
+                end: 217
+                left: "EcoRI, 5' AATT"
+                right: "HindIII, 5' AGCT"
+              - part: fragment (DNA-000003)
+                length: 72
+                start: 4
+                end: 75
+                left: "EcoRI, 5' AATT"
+                right: "HindIII, 5' AGCT"
+              - part: fragment (DNA-000003)
+                length: 7
+                start: 76
+                end: 82
+                left: "HindIII, 5' AGCT"
+                right: End of the molecule
+              - part: fragment (DNA-000003)
+                length: 3
+                start: 1
+                end: 3
+                left: End of the molecule
+                right: "EcoRI, 5' AATT"

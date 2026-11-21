@@ -1,6 +1,7 @@
 """The plasmid plugin's commands: `register` a plasmid from its bases, `annotate` one from
-the library of common vector parts, `assemble` what a cloning plan makes, and `check` a
-plan against the sequence its clone turned out to have.
+the library of common vector parts, `assemble` what a cloning plan makes, `check` a
+plan against the sequence its clone turned out to have, and `digest` a plan's parts
+virtually, listing every fragment.
 
 Each reads the run input from $IKI_INPUT, reports progress with `::progress` lines, says
 why it can't go on with `::error`, and writes its results to $IKI_OUTPUT, as every
@@ -248,14 +249,25 @@ def _made(assembly: dict[str, Any], params: dict[str, Any]) -> cloning.Assembled
     """The one molecule the plan makes, or why there isn't one."""
     made = _candidates(assembly, params)
     if len(made) > 1:
-        lengths = ", ".join(f"{len(one.bases)} bp" for one in made)
+        lengths = _lengths(made)
         what = "circles" if made[0].circular else "linear molecules"
-        raise Stop(
-            f"The plan's parts make {len(made)} different {what} ({lengths}), so it doesn't say "
-            "which: cut with enzymes that leave different overhangs, or give the product and "
+        how = (
+            "see each band with Digest a plan's parts virtually, keep the longest, or give "
+            "the product and check the plan against it."
+            if values_of(assembly)["method"] == "digest"
+            else "cut with enzymes that leave different overhangs, or give the product and "
             "check the plan against it."
         )
+        raise Stop(
+            f"The plan's parts make {len(made)} different {what} ({lengths}), so it doesn't say "
+            f"which: {how}"
+        )
     return made[0]
+
+
+def _lengths(made: list[cloning.Assembled]) -> str:
+    """The molecules' lengths, largest first, as a gel reads them."""
+    return ", ".join(f"{n} bp" for n in sorted((len(one.bases) for one in made), reverse=True))
 
 
 def assemble(run: dict[str, Any]) -> dict[str, Any]:
@@ -372,7 +384,7 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
             for one in candidates
             if same_kind and cloning.same_molecule(one.bases, stated, circular=circles)
         ]
-        lengths = ", ".join(f"{len(one.bases)} bp" for one in candidates)
+        lengths = _lengths(candidates)
         if found:
             # The product says which molecule the plan made, even where the plan alone
             # didn't: the one it is.
@@ -453,9 +465,70 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
     return {"updates": {"assembly": updates}, "messages": messages}
 
 
+# --- the virtual digest --------------------------------------------------------------
+
+#: The most fragments a plan keeps, all its parts' together.
+MOST_BANDS = 500
+
+
+def digest(run: dict[str, Any]) -> dict[str, Any]:
+    """Each part of a plan cut with its enzymes, every fragment listed largest first, as
+    SnapGene's and Benchling's virtual digests list them: a result on the plan, however
+    many bands there are, where `assemble` makes one molecule or none."""
+    assembly = run["inputs"]["assembly"][0]
+    enzymes = list(values_of(assembly).get("enzymes") or [])
+    if not enzymes:
+        raise Stop(f"{assembly['hrid']} names no enzymes, so there's nothing to digest it with.")
+    backbone = one_included(assembly, "backbone", "backbone")
+    method = values_of(assembly)["method"]
+    parts = [backbone] if method == "digest" else [backbone, *included(assembly, "inserts")]
+    rows: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
+    cut_with = ", ".join(enzymes)
+    for done, part in enumerate(parts, start=1):
+        bases = values_of(part)["bases"]
+        circular = values_of(part).get("topology") == "circular"
+        name = label_of(part)
+        found = cloning.bands(bases, circular, enzymes)
+        if len(rows) + len(found) > MOST_BANDS:
+            raise Stop(
+                f"{name} cuts into {len(found)} fragments, more than the {MOST_BANDS} a plan "
+                "keeps: digest it with fewer enzymes, or ones that cut less often."
+            )
+        if not found:
+            text = f"{name} isn't cut by {cut_with}: it stays a circle, which is no fragment."
+            print(text)
+            messages.append({"level": "warning", "text": text, "entity": assembly["id"]})
+        else:
+            sizes = ", ".join(str(b.length) for b in found)
+            print(f"{name}: {len(found)} fragments with {cut_with}: {sizes} bp")
+        rows += [
+            {
+                "part": name,
+                "length": b.length,
+                "start": b.start,
+                "end": b.end,
+                "left": b.left,
+                "right": b.right,
+            }
+            for b in found
+        ]
+        progress(done, len(parts))
+    return {
+        "updates": {"assembly": [{"entity": assembly["id"], "values": {"fragments": rows}}]},
+        "messages": messages,
+    }
+
+
 # --- the command ---------------------------------------------------------------------
 
-COMMANDS = {"register": register, "annotate": annotate, "assemble": assemble, "check": check}
+COMMANDS = {
+    "register": register,
+    "annotate": annotate,
+    "assemble": assemble,
+    "check": check,
+    "digest": digest,
+}
 
 
 def main() -> None:

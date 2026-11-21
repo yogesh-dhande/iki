@@ -15,7 +15,7 @@ kind: EntityType
 name: Assembly
 label: Assembly
 label_plural: Assemblies
-schema_version: 2
+schema_version: 3
 description: >-
   A cloning plan: a backbone, the inserts going into it, and how they're joined
   (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO), or
@@ -115,6 +115,57 @@ fields:
           overlap: { type: string, maxLength: 100 }
           bases: { type: string, maxLength: 200 }
           enzymes: { type: array, maxItems: 6, items: { type: string, maxLength: 20 } }
+  fragments:
+    type: list
+    computed: true
+    label: Virtual digest
+    max_items: 500
+    description: >-
+      Every fragment of each of its parts cut with its enzymes, as Digest a plan's
+      parts virtually lists them, largest first, as a gel reads: for a digest, the
+      bands its backbone gives, every one of them, where Work out what an assembly
+      makes keeps one. Each end names the enzyme that made it and its overhang, so the
+      table says what it was cut with.
+    items:
+      type: row
+      fields:
+        part:
+          type: string
+          max_length: 255
+          required: true
+          description: The part it's a fragment of, by name and ID.
+        length:
+          type: int
+          label: Length (bp)
+          min: 1
+          required: true
+          description: Its base pairs, from the cut at one end to the cut at the other.
+        start:
+          type: int
+          min: 1
+          required: true
+          description: Its first base on the part's top strand, from 1.
+        end:
+          type: int
+          min: 1
+          required: true
+          description: >-
+            Its last base on the part's top strand: before its start for a fragment that
+            runs across a circle's origin.
+        left:
+          type: string
+          max_length: 200
+          label: Left end
+          description: >-
+            The enzyme that made its left end and the overhang it left, or the
+            molecule's own end.
+        right:
+          type: string
+          max_length: 200
+          label: Right end
+          description: >-
+            The enzyme that made its right end and the overhang it left, or the
+            molecule's own end.
   status:
     type: state
     initial: planned

@@ -524,3 +524,48 @@ def gibson_in_a_line(
         ]
         made[key] = Assembled(bases=bases, junctions=junctions, topology="linear")
     return list(made.values())
+
+
+@dataclass(frozen=True)
+class Band:
+    """One fragment of a virtual digest, as a gel and a map read it: its length, where it
+    lies on the molecule's top strand (from 1; on a circle, a band across the origin
+    ends before it starts), and what made each of its ends."""
+
+    length: int
+    start: int
+    end: int
+    left: str
+    right: str
+
+
+#: What a linear molecule's own end is called: no enzyme made it.
+MOLECULE_END = "End of the molecule"
+
+
+def bands(bases: str, circular: bool, names: Sequence[str]) -> list[Band]:
+    """``bases`` cut by ``names``'s enzymes, each fragment as a band, largest first, as a
+    gel reads from its wells and as a marker's sizes are listed; bands of one length in
+    the order they lie along the molecule. An uncut circle gives none: it stays a circle.
+    An uncut linear molecule is one band, itself."""
+    bases = bases.upper()
+    length = len(bases)
+    made = cuts(bases, circular, names)
+    if not made and circular:
+        return []
+
+    def named(at: int, overhang: int, by: tuple[str, ...]) -> str:
+        return f"{', '.join(by)}, {end_at(at, overhang, bases, circular)}"
+
+    ends = [(at, named(at, overhang, by)) for at, overhang, by in made]
+    out: list[Band] = []
+    if circular:
+        for (left, said), (right, then) in zip(ends, [*ends[1:], ends[0]], strict=True):
+            size = right - left if right > left else right + length - left
+            out.append(Band(size, left % length + 1, right if right > 0 else length, said, then))
+    else:
+        edges = [(0, MOLECULE_END), *ends, (length, MOLECULE_END)]
+        for (left, said), (right, then) in itertools.pairwise(edges):
+            if right > left:
+                out.append(Band(right - left, left + 1, right, said, then))
+    return sorted(out, key=lambda b: (-b.length, b.start))
