@@ -65,8 +65,24 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
 const ALIGNED: Extract<Reading, { kind: "alignment" }> = {
   kind: "alignment",
   rows: [
-    { id: "PRT-000001", description: "", aligned: "MK-LV", residues: 4, start: 1, spanned: false },
-    { id: "PRT-000002", description: "", aligned: "MKALV", residues: 5, start: 1, spanned: false },
+    {
+      id: "PRT-000001",
+      description: "",
+      aligned: "MK-LV",
+      residues: 4,
+      start: 1,
+      spanned: false,
+      reverse: false,
+    },
+    {
+      id: "PRT-000002",
+      description: "",
+      aligned: "MKALV",
+      residues: 5,
+      start: 1,
+      spanned: false,
+      reverse: false,
+    },
     {
       id: "read_7",
       description: "a read",
@@ -74,6 +90,7 @@ const ALIGNED: Extract<Reading, { kind: "alignment" }> = {
       residues: 4,
       start: 1,
       spanned: false,
+      reverse: false,
     },
   ],
   length: 5,
@@ -224,6 +241,31 @@ describe("the alignment viewer", () => {
       "PRT-000002, column 1: M, residue 31 of 31–35.",
     );
     expect(screen.getByText(/cover 5 of PRT-000002’s residues 31–35 \(100%\)/)).toBeVisible();
+  });
+
+  it("numbers a row that's its sequence's other strand down from its first", async () => {
+    // A row headed PRT-000002/35-31 is residues 35 down to 31: its other strand, as Rfam
+    // writes a row on the reverse strand, and as the DNA plugin's alignments write one.
+    await onAlignment();
+    read.mockResolvedValue({
+      ...ALIGNED,
+      rows: ALIGNED.rows.map((r) =>
+        r.id === "PRT-000002" ? { ...r, start: 35, spanned: true, reverse: true } : r,
+      ),
+    });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    const grid = await screen.findByRole("application");
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000002, column 1: M, residue 35 of 35–31, its reverse strand.",
+    );
+    expect(
+      screen.getByText(/cover 5 of PRT-000002’s residues 35–31, its reverse strand \(100%\)/),
+    ).toBeVisible();
+    fireEvent.keyDown(grid, { key: "ArrowRight" });
+    fireEvent.keyDown(grid, { key: "ArrowRight" });
+    expect(document.querySelector(".alignment-at")).toHaveTextContent(
+      "PRT-000002, column 3: A, residue 33 of 35–31, its reverse strand.",
+    );
   });
 
   it("calls a row headed name/1-4 part of its sequence, though it starts at its first", async () => {
@@ -444,8 +486,24 @@ describe("the alignment viewer's parts", () => {
   it("links only the rows the alignment lists", () => {
     const rows = shownRows(
       [
-        { id: "PRT-000001", description: "", aligned: "MK", residues: 2, start: 1, spanned: false },
-        { id: "PRT-000009", description: "", aligned: "MK", residues: 2, start: 1, spanned: false },
+        {
+          id: "PRT-000001",
+          description: "",
+          aligned: "MK",
+          residues: 2,
+          start: 1,
+          spanned: false,
+          reverse: false,
+        },
+        {
+          id: "PRT-000009",
+          description: "",
+          aligned: "MK",
+          residues: 2,
+          start: 1,
+          spanned: false,
+          reverse: false,
+        },
       ],
       [ABL1],
       {
@@ -470,7 +528,17 @@ describe("the alignment viewer's parts", () => {
 
   it("links a row named by the HRID an imported entity had where it was made", () => {
     const rows = shownRows(
-      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2, start: 1, spanned: false }],
+      [
+        {
+          id: "PRT-000012",
+          description: "",
+          aligned: "MK",
+          residues: 2,
+          start: 1,
+          spanned: false,
+          reverse: false,
+        },
+      ],
       [ABL1],
       {
         [ABL1]: {
@@ -494,6 +562,9 @@ describe("the alignment viewer's parts", () => {
     // A row that's residues 31 onwards of its sequence; `.` is no residue either.
     expect(residueNumber("M-K.L", 4, 31)).toBe(33);
     expect(residueNumber("M-K.L", 3, 31)).toBeNull();
+    // A row that's its sequence's other strand, from its 2,686th base down.
+    expect(residueNumber("A-C.G", 0, 2686, true)).toBe(2686);
+    expect(residueNumber("A-C.G", 4, 2686, true)).toBe(2684);
   });
 
   it("colours residues by kind where their column agrees", () => {

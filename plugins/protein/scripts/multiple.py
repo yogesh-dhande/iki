@@ -4,7 +4,8 @@ The rows are in the order the proteins were given, the reference first if there 
 each headed by its protein's HRID, so the alignment viewer links each row to its protein
 (ADR 0088). MAFFT's strategy is the run's choice: `auto` lets MAFFT pick by the number and
 length of the sequences (L-INS-i for a few, FFT-NS-2 for thousands); the alignment's
-method records the one it used, with MAFFT's version.
+method records the one it used, with MAFFT's version and the threads it ran on: its
+alignment can differ with their number.
 
 MAFFT may only add gaps: a row whose residues aren't its protein's, in order, fails the
 run. The alignment is kept as an artifact (ADR 0068), `alignment.fasta`, which is also
@@ -109,9 +110,9 @@ def read_fasta(text: str) -> list[tuple[str, str]]:
     return [(name, "".join(parts).upper()) for name, parts in records]
 
 
-def mafft(strategy: str, given: Path, unusual: bool) -> tuple[str, str]:
-    """MAFFT's alignment, and what it says about the strategy it used."""
-    options = [*STRATEGIES[strategy], "--amino", "--thread", str(threads())]
+def mafft(strategy: str, given: Path, unusual: bool, cpus: int) -> tuple[str, str]:
+    """MAFFT's alignment on `cpus` threads, and what it says about the strategy it used."""
+    options = [*STRATEGIES[strategy], "--amino", "--thread", str(cpus)]
     if unusual:
         options.append("--anysymbol")
     done = subprocess.run(  # noqa: S603 - MAFFT from the image, on a file made here
@@ -158,7 +159,10 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             "".join(f">{h}\n{s}\n" for h, s in zip(hrids, residues, strict=True)),
             encoding="ascii",
         )
-        text, used = mafft(strategy, given, unusual)
+        # MAFFT's alignment can differ with the number of threads it runs on, so the
+        # method says how many it had.
+        cpus = threads()
+        text, used = mafft(strategy, given, unusual, cpus)
     rows = read_fasta(text)
     if [name for name, _ in rows] != hrids:
         fail("MAFFT's alignment doesn't have the proteins given, in order.")
@@ -195,6 +199,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         + f", {picked}"
         + (" (chosen by --auto)" if strategy == "auto" and used else "")
         + (", with --anysymbol for unusual residues" if unusual else "")
+        + f", {cpus} thread{'' if cpus == 1 else 's'}"
     )
     values: dict[str, Any] = {
         "name": name[:200],

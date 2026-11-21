@@ -127,12 +127,18 @@ export function isGap(residue: string): boolean {
 }
 
 /** A residue's number in its own sequence at a column (from 0), or null at a gap: counted
- * from `start`, the row's first residue's number (1, or more for part of a sequence). */
-export function residueNumber(aligned: string, column: number, start = 1): number | null {
+ * from `start`, the row's first residue's number (1, or more for part of a sequence), and
+ * counting down when the row is its sequence's other strand (`reverse`). */
+export function residueNumber(
+  aligned: string,
+  column: number,
+  start = 1,
+  reverse = false,
+): number | null {
   if (column < 0 || column >= aligned.length || isGap(aligned.charAt(column))) return null;
-  let n = start - 1;
-  for (let i = 0; i <= column; i++) if (!isGap(aligned.charAt(i))) n++;
-  return n;
+  let before = 0;
+  for (let i = 0; i < column; i++) if (!isGap(aligned.charAt(i))) before++;
+  return reverse ? start - before : start + before;
 }
 
 /** Where the cursor goes for a key, in a grid of `rows` by `columns`, with `page` rows in

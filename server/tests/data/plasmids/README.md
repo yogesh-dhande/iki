@@ -22,6 +22,19 @@ curl "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore\
 &id=L09137.2&rettype=gbwithparts&retmode=text&tool=iki-plasmid&email=<yours>"
 ```
 
+`six-vectors.mafft.fasta` is MAFFT 7.505's alignment of the six circular vectors, in the
+table's order, each headed `DNA-00000n` as the dna plugin names its rows, run in the dna
+plugin's alignment-tools image (Debian's MAFFT) as its `align_multiple` runs it, on one
+thread:
+
+```sh
+mafft --auto --nuc --adjustdirection --thread 1 six.fasta > six-vectors.mafft.fasta
+```
+
+It chose FFT-NS-i, and aligned pLenti6-V5-Puro and the pET-28a derivative as their
+reverse complements (`_R_DNA-000005`, `_R_DNA-000006`). With four threads or eight, MAFFT
+aligns them a little differently. `server/tests/test_dna_alignment.py` replays it.
+
 `server/tests/test_plasmid_annotation.py` reads each record's bases and its own feature
 table, and checks the plugin's annotation against them. The library the plugin annotates
 from is built from four of these records and two more; see

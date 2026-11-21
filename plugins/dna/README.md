@@ -48,9 +48,11 @@ proteins and other plugins' sequences.
 ## Actions
 
 They run on backend workers, in the `sequence-tools` environment (Python 3.12
-with Biopython, which `align_reads` uses; the others need only Python's standard
-library). `align_reads` lists Biopython 1.88 as its software, so each alignment it
-makes is recorded as made with it
+with Biopython, which `align_reads` and `align_pair` use; the others need only Python's standard
+library), except `align_multiple`, which runs MAFFT on the container tier, in the
+`alignment-tools` environment (at least 1 CPU and 2 GiB; MAFFT uses as many CPUs as
+it's given). `align_reads` and `align_pair` list Biopython 1.88 as their software,
+and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
@@ -89,6 +91,56 @@ makes is recorded as made with it
   for both, as they expect. There a `-` can't say whether a read has a deletion
   or no observation, so each read's header says where it lies on the sequence
   (`; on DNA-000001 101–300`), in both files.
+- **`align_pair`**: aligns two DNA sequences, globally as EMBOSS needle does or
+  locally as water does, with their defaults: EDNAFULL (NCBI's NUC.4.4: a match
+  +5, a mismatch -4, IUPAC's ambiguity codes scored by the bases they share), a
+  gap opening penalty of 10 and an extension penalty of 0.5, gaps at the ends
+  free in a global alignment. The query is aligned as given and as its reverse
+  complement, the better kept (either strand, the default), or only one way. It
+  records the score, the length, and the identity, similarity (pairs EDNAFULL
+  scores above zero, such as A with R) and gaps as percentages of the length,
+  unrounded, as needle reports them: pUC19 against pBR322 is 2,238 of 4,806
+  columns identical, scoring 10,916, as needle 6.6.0 finds. It keeps
+  `alignment.txt` in EMBOSS's pair format and `alignment.fasta`, which is also
+  an `iki/core.Alignment` of the two, the target its reference. A row that's
+  part of its sequence is headed `DNA-000002/2072-4353`; one that's the query's
+  other strand runs down, `DNA-000001/2686-1`, as Rfam writes a row on the
+  reverse strand, and the viewer and the EMBOSS file number its bases down.
+  Sequences up to 200 million cells (two of some 14 kb); it asks for 1 GiB.
+- **`align_multiple`**: aligns up to 2,000 DNA sequences with MAFFT 7.505 (from
+  Debian, without its GPL-licensed extensions, `--nuc`) into an
+  `iki/core.Alignment` of them, each row headed by its sequence's HRID, in the
+  order given. A reference, if chosen, is the first row. MAFFT's strategy is the
+  run's, as the protein plugin's `align_multiple` takes it: Auto (the default)
+  lets MAFFT choose, and the method records the one it used. MAFFT adjusts
+  sequences' direction (`--adjustdirection`, or `--adjustdirectionaccurately`),
+  as Benchling's MAFFT alignments do unless told not to: a sequence whose reverse
+  complement fits the first better is aligned as that, and its row is headed
+  `DNA-000005/8835-1`. The first sequence, the reference if there is one, is
+  never turned round. The run fails if MAFFT changes a row's bases rather than
+  only adding gaps (or turning it round, when asked to). It keeps
+  `alignment.fasta`, the alignment's file. Sequences up to 200,000 bases, and 10
+  million in all. MAFFT's alignment can depend on how many threads it runs on
+  (the same with one to three threads, another with four, for the six vectors in
+  `server/tests/data/plasmids/`), so the method says how many it was given.
+- **`consensus`**: registers an alignment's consensus as a DNA sequence, derived
+  from the alignment
+  ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
+  Each column gives one base, as Geneious calls a consensus. Rows count where
+  they have a base or a gap; `.` (no observation) counts as neither. A column
+  where more rows have a gap than a base is left out. Otherwise its base is the
+  one at least the threshold's share (50%, by default) of its rows with a base
+  have, or the IUPAC code of the fewest commonest bases that together do, those
+  tied at the edge taken together or not at all: 6 A, 3 G and 1 T is A at 60%,
+  R above it to 90%, D above that, the example Geneious's manual gives. A row's
+  own ambiguity code is an equal share of each base it stands for (R half an A
+  and half a G). Without ambiguity codes, such a column is N. A column no row
+  observes is N, or left out at the ends of a linear sequence; a circular one
+  keeps them all. The reference counts as a row unless the run leaves it out,
+  as it should for reads, so the consensus is what they read; then reads of a
+  clone that cover all of it give the clone's sequence, found in the registry
+  if it's there. The run says how many bases are ambiguous or unobserved and
+  how many columns it left out.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
@@ -304,8 +356,18 @@ cd plugins && uv run iki plugin makemigrations dna   # after changing a manifest
 Its environment's packages are pinned, with their hashes, in
 `requirements.txt`, compiled from `requirements.in` as it says. Pin the same
 releases in the repository's dev dependencies, where
-`server/tests/test_dna_reads.py` runs `align_reads`: `make check-deps` checks
-they match, and that each is at least 3 days old.
+`server/tests/test_dna_reads.py` runs `align_reads`,
+`server/tests/test_dna_alignment.py` `align_pair` and `align_multiple`, and
+`server/tests/test_consensus.py` `consensus` (whose script the protein plugin
+ships too, the same file, as that test checks): `make check-deps` checks they
+match, and that each is at least 3 days old.
+
+MAFFT's image is built from `images/alignment-tools` (CI builds it and runs its
+`check.py`, which aligns through `scripts/multiple.py`). Until `main` has
+published `iki-dna-alignment-tools`, `environments/alignment-tools.yaml` pins
+the protein plugin's alignment-tools image, the same MAFFT build on the same
+base; once it has, pin the digest the publish workflow's summary gives there,
+and in `deploy/dev/sso.py`.
 
 `server/tests/test_first_party_plugins.py` checks that it's valid, that its
 migrations match its manifests, and that it migrates forwards and back.

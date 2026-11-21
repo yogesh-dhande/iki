@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# MAFFT on the container tier. The image is built from images/alignment-tools, which
+# Iki's publish workflow signs (ADR 0065), pinned by its multi-arch digest; changing
+# the image is a commit to its Dockerfile, then one here.
+#
+# Until main has published iki-dna-alignment-tools, this pins the protein plugin's
+# alignment-tools image, which Iki's publish workflow built and signed from the same
+# base and the same MAFFT build (7.505 from Debian trixie): align_multiple's script
+# needs only MAFFT and Python's standard library (ADR 0173).
+apiVersion: iki/v1
+kind: Environment
+name: alignment-tools
+label: Alignment tools
+description: MAFFT 7.505, and the plugin's Python packages.
+tiers: [container]
+resources: { cpu: 1, memory: 2Gi }
+image: ghcr.io/yogesh-dhande/iki-protein-alignment-tools@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd

@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_multiple
+label: Align many DNA sequences (MAFFT)
+description: >-
+  Aligns DNA sequences with MAFFT, into an alignment of them in Iki for the
+  alignment viewer, each row its sequence, in the order given. A reference, if
+  chosen, is the first row, and the one the viewer shows the others'
+  differences from. Auto lets MAFFT choose its strategy by how many sequences
+  there are and how long; the alignment records the one it used. MAFFT takes
+  a sequence's reverse complement where that fits the first better, as
+  Benchling's alignments do unless told not to; such a row's bases are
+  numbered down from its last.
+inputs:
+  sequences:
+    type: DNASequence
+    schema: ">=1"
+    cardinality: many
+    max: 2000
+    description: The sequences to align, in the order their rows should be.
+  reference:
+    type: DNASequence
+    schema: ">=1"
+    optional: true
+    description: >-
+      The sequence the others are compared with, such as the plasmid as
+      designed. It's aligned too, and never reversed.
+params:
+  strategy:
+    type: enum
+    values: [auto, L-INS-i, G-INS-i, E-INS-i, FFT-NS-2]
+    default: auto
+    description: >-
+      Auto: MAFFT chooses. L-INS-i: most accurate, for up to 200 sequences with
+      one alignable region. G-INS-i: for sequences similar over their whole
+      length. E-INS-i: for sequences with long unalignable regions. FFT-NS-2:
+      fast, for thousands.
+  adjust_direction:
+    type: enum
+    label: Adjust direction
+    values: [fast, accurate, "off"]
+    default: fast
+    description: >-
+      Whether MAFFT may align a sequence as its reverse complement, where that
+      fits the first sequence better: fast, accurate (slow, for many
+      sequences), or off, every sequence as given.
+  name:
+    type: string
+    description: The alignment's name. Without one, it's named after its sequences.
+effects:
+  creates: [{ type: iki/core.Alignment, derived_from: [sequences, reference] }]
+software:
+  - { name: MAFFT, version: "7.505", url: https://mafft.cbrc.jp/alignment/software/ }
+runs_on: { tier: container, environment: alignment-tools }
+command: [python, ./scripts/multiple.py]
+deterministic: true
+artifacts: { keep: ["alignment.fasta"] }
+metrics:
+  rows: { label: Rows, description: The sequences aligned. }
+  length: { label: Length, description: "The alignment's length, gaps included." }
+  identity_percent:
+    {
+      label: Identity (%),
+      description: The share of columns where every sequence has the same base.,
+    }
+  gaps_percent: { label: Gaps (%), description: The share of columns with a gap in any row. }
+  reversed: { label: Reversed, description: The sequences aligned as their reverse complement. }
+timeout: 4h

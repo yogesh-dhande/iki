@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: consensus
+label: Register an alignment's consensus
+description: >-
+  Registers the consensus of an alignment of proteins, such as a family's, as
+  a protein, derived from the alignment. Each column gives the residue at
+  least the threshold's share of its rows have, or, where none does, B (D or
+  N), Z (E or Q) or J (I or L) if two together do, and X otherwise. Rows with
+  a gap or nothing observed there say nothing of its residue; a column mostly
+  gaps is left out, and one no row observes is X, or left out at either end.
+  A protein already in Iki (the same sequence) is found.
+inputs:
+  alignment:
+    type: iki/core.Alignment
+    schema: ">=1"
+    include: [reference]
+    description: An alignment of proteins, such as a multiple alignment of a family.
+params:
+  threshold:
+    type: float
+    label: Threshold (%)
+    min: 1
+    max: 100
+    default: 50
+    description: >-
+      The share of a column's rows with a residue that a residue, or a set of
+      residues, must have. Residues tied at the edge are taken together.
+  ambiguity:
+    type: bool
+    label: Ambiguity codes
+    default: true
+    description: >-
+      Write a column where only D and N together reach the threshold as B, E
+      and Q as Z, and I and L as J. Otherwise, and for any other set, it's X.
+  include_reference:
+    type: bool
+    label: Count the reference
+    default: true
+    description: Count the alignment's reference, such as the wild type, as one of its rows.
+  name:
+    type: string
+    description: The protein's name. Without one, it's the consensus of the alignment's name.
+effects:
+  creates: [{ type: Protein, cardinality: one, derived_from: [alignment] }]
+runs_on: { tier: backend, environment: protein-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/consensus.py, protein]
+deterministic: true
+metrics:
+  rows: { label: Rows, description: The alignment's rows counted. }
+  length: { label: Length, description: The consensus's residues. }
+  ambiguous: { label: Ambiguous, description: "Its residues that are ambiguity codes, X included." }
+  unobserved: { label: Unobserved, description: "Its places no row observes, written X." }
+  columns_left_out:
+    { label: Columns left out, description: Columns where more rows have a gap than a residue. }
+timeout: 30m

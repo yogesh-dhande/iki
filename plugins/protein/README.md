@@ -127,6 +127,14 @@ they list none.
   The run fails if MAFFT changes any row's residues rather than only adding
   gaps. It keeps `alignment.fasta` as an artifact, which is also the
   alignment's file. Proteins up to 40,000 residues, and 5 million in all.
+  MAFFT's alignment can depend on how many threads it runs on, so the method
+  says how many it was given.
+- **`consensus`**: registers an alignment's consensus as a protein, derived
+  from the alignment, as the dna plugin's `consensus` does for DNA (the same
+  script, which reads that README's rule). Where no residue reaches the
+  threshold, D and N together are B, E and Q are Z, I and L are J, and any
+  other set is X; without ambiguity codes, X. A protein already in Iki is
+  found ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
 - **`align_reads`**: aligns sequencing reads to a protein, such as Sanger
   reads of an expression construct to the protein it should make, into a
   `iki/core.Alignment` the alignment viewer shows, the protein its reference. It

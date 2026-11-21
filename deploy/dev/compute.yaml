@@ -124,6 +124,12 @@ kind: EnvironmentBinding
 environment: iki/protein.alignment-tools
 templates: [{ template: container-alignments }]
 ---
+# The dna plugin's MAFFT (alignment-tools), on the same template.
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/dna.alignment-tools
+templates: [{ template: container-alignments }]
+---
 # The antibody plugin's ANARCI (numbering-tools): on one CPU and in 1 GiB, a
 # batch of 500 chains takes about 12 seconds, both passes. The image is 347 MB.
 apiVersion: iki/v1

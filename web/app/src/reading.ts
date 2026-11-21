@@ -20,6 +20,9 @@ export interface AlignmentRow {
   /** Whether its header names the part of its sequence it is, as `name/1-4` does: then its
    * residues may be only part of it, even from 1. */
   spanned: boolean;
+  /** Whether it's its sequence's other strand, headed `name/end-start` (`DNA-000001/2686-1`)
+   * as Rfam writes one: its residues are numbered down from `start`. */
+  reverse: boolean;
 }
 
 export type Alphabet = "nucleotide" | "protein";

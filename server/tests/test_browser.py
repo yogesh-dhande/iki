@@ -1794,6 +1794,56 @@ def test_an_alignment_in_its_viewer(
     assert_clean(page)
 
 
+def test_a_row_on_its_sequences_other_strand_is_numbered_down(
+    open_as: Any, world: World, tmp_path: Path, _s3_endpoint: str, _s3_bucket: str
+) -> None:
+    """The dna plugin's alignments head a sequence turned round DNA-…/end-start, as Rfam
+    writes a reverse-strand row: iki-wasm reads it in the browser as that sequence, linked,
+    and the cursor numbers its bases down from its last."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    # pUC19's EcoRI-to-SacI stretch, and a clone of it registered from its other strand.
+    forward = "GAATTCGAGCTCGGTACCCGGG"
+    clone = "CCCGGGTACCGAGCTCGAATTC"
+    designed = entities.create(
+        admin, "acme/dna.DNASequence", world.project, {"bases": forward, "name": "MCS"}
+    ).entity
+    turned = entities.create(
+        admin, "acme/dna.DNASequence", world.project, {"bases": clone + "A", "name": "MCS+A"}
+    ).entity
+    hrid1, hrid2 = (Entity.objects.get(pk=e.pk).hrid for e in (designed, turned))
+    fasta = tmp_path / "mcs.fasta"
+    # The clone's reverse complement: its 23rd base (T, of the A added) first, down to 1.
+    fasta.write_text(f">{hrid1}\n-{forward}\n>{hrid2}/23-1\nT{forward}\n")
+    file = _stored_file(world, _s3_endpoint, _s3_bucket, fasta, "chemical/seq-na-fasta")
+    made = entities.create(
+        admin,
+        "iki/core.Alignment",
+        world.project,
+        {
+            "name": "MCS clones",
+            "reference": designed.pk,
+            "members": [designed.pk, turned.pk],
+            "aligned": file.pk,
+            "method": "MAFFT --adjustdirection",
+        },
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/viewers/alignment/")
+    grid = page.get_by_role("application", name="Alignment of mcs.fasta")
+    grid.wait_for()
+    assert grid.get_by_role("link", name=hrid2).get_attribute("href") == f"/entities/{hrid2}/"
+    grid.focus()
+    page.keyboard.press("ArrowDown")
+    at = page.locator(".alignment-at")
+    assert at.inner_text().startswith(f"{hrid2}, column 1: T, residue 23 of 23–1, its reverse")
+    page.keyboard.press("End")
+    assert at.inner_text().startswith(f"{hrid2}, column 23: G, residue 1 of 23–1")
+    assert_clean(page)
+
+
 # What a component's code could try, run in its frame, with its frame's origin and policy.
 SANDBOX_PROBES = """
 async () => {

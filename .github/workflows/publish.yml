@@ -62,6 +62,7 @@ jobs:
           - iki-worker
           - iki-protein-structure-tools
           - iki-protein-alignment-tools
+          - iki-dna-alignment-tools
           - iki-antibody-numbering-tools
           - iki-antibody-structure-tools
         arch: [amd64, arm64]
@@ -84,6 +85,9 @@ jobs:
           - image: iki-protein-alignment-tools
             file: plugins/protein/images/alignment-tools/Dockerfile
             context: plugins/protein
+          - image: iki-dna-alignment-tools
+            file: plugins/dna/images/alignment-tools/Dockerfile
+            context: plugins/dna
           - image: iki-antibody-numbering-tools
             file: plugins/antibody/images/numbering-tools/Dockerfile
             context: plugins/antibody
@@ -162,6 +166,7 @@ jobs:
           - iki-worker
           - iki-protein-structure-tools
           - iki-protein-alignment-tools
+          - iki-dna-alignment-tools
           - iki-antibody-numbering-tools
           - iki-antibody-structure-tools
     runs-on: ubuntu-24.04

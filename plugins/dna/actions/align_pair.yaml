@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_pair
+label: Align two DNA sequences
+description: >-
+  Aligns two DNA sequences, as EMBOSS needle (global) or water (local) does
+  with its defaults: EDNAFULL (a match +5, a mismatch -4, and IUPAC's
+  ambiguity codes scored by the bases they share), a gap opening penalty of 10
+  and an extension penalty of 0.5, with gaps at the ends free in a global
+  alignment. The query can be aligned as its reverse complement, or both ways,
+  keeping the better. The run keeps the alignment, in EMBOSS's pair format and
+  as aligned FASTA, and records its score, identity, similarity and gaps. A
+  local alignment with nothing scoring above zero is none, and the run says
+  so. The FASTA is also an alignment of the two in Iki, the target its
+  reference, for the alignment viewer.
+inputs:
+  query: { type: DNASequence, schema: ">=1" }
+  target:
+    type: DNASequence
+    schema: ">=1"
+    description: The sequence the query is compared with, such as the plasmid as designed.
+params:
+  mode:
+    type: enum
+    values: [global, local]
+    default: global
+    description: Global aligns the whole of both (needle); local, their best-matching parts (water).
+  strand:
+    type: enum
+    label: Query strand
+    values: [either, forward, reverse]
+    default: either
+    description: >-
+      Either aligns the query as given and as its reverse complement, and keeps
+      the better (as given, on a tie). Forward aligns it as given, as needle
+      does; reverse, as its reverse complement (needle's -sreverse1).
+  gap_open:
+    type: float
+    label: Gap opening penalty
+    min: 0
+    max: 100
+    default: 10
+  gap_extend:
+    type: float
+    label: Gap extension penalty
+    min: 0
+    max: 10
+    default: 0.5
+effects:
+  creates: [{ type: iki/core.Alignment, derived_from: [query, target] }]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: sequence-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/align.py]
+deterministic: true
+artifacts: { keep: ["alignment.txt", "alignment.fasta"] }
+metrics:
+  score:
+    { label: Score, description: The alignment's score under EDNAFULL and the penalties chosen. }
+  length: { label: Length, description: "The alignment's length, gaps included." }
+  identity_percent:
+    label: Identity (%)
+    description: The share of the alignment's columns that are identical, unrounded.
+  similarity_percent:
+    label: Similarity (%)
+    description: >-
+      The share of columns EDNAFULL scores above zero, unrounded: identical
+      bases, and ambiguity codes that share a base (A with R).
+  gaps_percent: { label: Gaps (%), description: "The share of columns with a gap, unrounded." }
+timeout: 10m
