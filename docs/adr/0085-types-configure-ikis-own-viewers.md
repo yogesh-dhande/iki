@@ -5,7 +5,9 @@
 - Refines: [0084](0084-plugin-components-run-in-sandboxed-frames.md)
 - Refined by:
   [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
-  which configures the files a type's records export the same way
+  which configures the files a type's records export the same way;
+  [0174](0174-the-sequence-viewer-selects-finds-and-translates.md), whose
+  sequence viewer selects, finds motifs and translates coding sequences
 
 ## Context
 
