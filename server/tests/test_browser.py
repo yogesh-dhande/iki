@@ -635,6 +635,34 @@ def test_a_long_value_never_widens_the_page(open_as: Any, world: World) -> None:
     assert_clean(page, axe_in_firefox=False)
 
 
+def test_a_fields_description_opens_beside_its_label(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    made = entities.create(
+        world.users["admin"],
+        "acme/dna.DNASequence",
+        world.project,
+        {"bases": PUC19[:60], "name": "pUC19c start", "topology": "circular"},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/?project=kinase-atlas")
+    about = page.get_by_role("button", name="About Topology")
+    described = page.get_by_text("Whether its ends are joined, as a plasmid's are.")
+    assert about.get_attribute("aria-expanded") == "false"
+    assert not described.is_visible()
+    about.focus()
+    page.keyboard.press("Enter")
+    described.wait_for()
+    assert about.get_attribute("aria-expanded") == "true"
+    assert_clean(page)
+    # Its target is at least 24 pixels square (WCAG 2.5.8).
+    box = about.bounding_box()
+    assert box is not None and box["width"] >= 24 and box["height"] >= 24
+    page.keyboard.press("Enter")
+    described.wait_for(state="hidden")
+
+
 def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
 

@@ -924,6 +924,37 @@ describe("an entity's page", () => {
     ).toEqual(["FieldBeforeAfter", "Resolution2.4 Å2.1 Å"]);
   });
 
+  it("says what a field is, as its type describes it, on pressing beside its label", async () => {
+    signedIn();
+    const described: Schemas["EntityTypeOut"] = {
+      ...PROTEIN,
+      fields: PROTEIN.fields.map((f) =>
+        f.name === "molecular_weight"
+          ? { ...f, description: "Its average molecular weight, as the free acid." }
+          : f,
+      ),
+    };
+    answer("GET /api/v1/entity-types", [described]);
+    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const { user } = await renderApp("/entities/PRT-000001/");
+    const values = await screen.findByRole("region", { name: "Values" });
+    const about = within(values).getByRole("button", { name: "About Molecular weight" });
+    expect(about).toHaveAttribute("aria-expanded", "false");
+    expect(within(values).queryByText(/as the free acid/)).not.toBeVisible();
+    // Fields without a description have none to open.
+    expect(within(values).queryByRole("button", { name: "About Name" })).toBeNull();
+    await user.click(about);
+    expect(about).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(values).getByText("Its average molecular weight, as the free acid."),
+    ).toBeVisible();
+    await user.click(about);
+    expect(within(values).queryByText(/as the free acid/)).not.toBeVisible();
+  });
+
   it("cuts a long value short, with all of it on asking and in its viewer", async () => {
     signedIn();
     const viewed: Schemas["EntityTypeOut"] = {

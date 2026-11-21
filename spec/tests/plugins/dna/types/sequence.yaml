@@ -16,7 +16,11 @@ hrid: { prefix: DNA }
 identity: [bases]
 fields:
   bases: { type: string, format: dna_sequence, required: true, immutable: true }
-  topology: { type: enum, values: [linear, circular], default: linear }
+  topology:
+    type: enum
+    values: [linear, circular]
+    default: linear
+    description: Whether its ends are joined, as a plasmid's are.
   length: { type: quantity, unit: "{bp}", registry: derived, computed: true, indexed: true }
   gc_content: { type: quantity, unit: "%", computed: true, min: 0, max: 100 }
 display:

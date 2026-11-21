@@ -13,7 +13,7 @@ import {
   type UseInfiniteQueryResult,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Through } from "../agent";
 import { iki, problemOf, useApiMutation } from "../api";
@@ -871,6 +871,10 @@ function ValueList({
   /** Say how each is kept in its registry entry: identity, derived or fact. */
   marks: boolean;
 }) {
+  const id = useId();
+  // The fields whose descriptions are open: a toggletip each, opened by a press, so it
+  // stays until it's closed (WCAG 1.4.13), never by hovering alone.
+  const [about, setAbout] = useState<ReadonlySet<string>>(new Set());
   const set = fields.filter((f) => entity.values[f.name] != null);
   const unset = fields.filter((f) => entity.values[f.name] == null);
   return (
@@ -879,16 +883,52 @@ function ValueList({
       <dl className="summary values">
         {set.map((f) => {
           const mark = marks ? registryNote(f) : null;
+          const open = about.has(f.name);
+          const aboutId = `${id}-${f.name}-about`;
           return (
             <div key={f.name} className="value-row">
               <dt>
                 {f.label}
+                {f.description ? (
+                  <button
+                    type="button"
+                    className="about-field"
+                    aria-label={`About ${f.label}`}
+                    aria-expanded={open}
+                    aria-controls={aboutId}
+                    onClick={() => {
+                      const next = new Set(about);
+                      if (open) next.delete(f.name);
+                      else next.add(f.name);
+                      setAbout(next);
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5" />
+                      <path d="M12 7.5v.01" />
+                    </svg>
+                  </button>
+                ) : null}
                 {mark ? <span className="cell-meta">{mark}</span> : null}
                 {f.computed && f.registry !== "derived" ? (
                   <span className="cell-meta">Computed</span>
                 ) : null}
               </dt>
               <dd>
+                {f.description ? (
+                  <p className="field-about" id={aboutId} hidden={!open}>
+                    {f.description}
+                  </p>
+                ) : null}
                 <Value
                   field={f}
                   value={entity.values[f.name]}
