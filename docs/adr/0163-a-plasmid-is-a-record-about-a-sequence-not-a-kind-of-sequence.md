@@ -5,6 +5,10 @@
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0131](0131-a-derived-value-follows-from-the-identity-alone.md),
   [0138](0138-an-identity-reads-sequences-and-sets-of-parts-as-what-they-are.md)
+- Refined by:
+  [0168](0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md),
+  which widens it to linear plasmids: topology on the entry, a linear map, and
+  plans whose products can end linear
 
 ## Context
 
