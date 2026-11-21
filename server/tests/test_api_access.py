@@ -116,6 +116,14 @@ def _entity(w: World) -> Any:
     ).entity
 
 
+def plasmid_export(w: World) -> tuple[Any, ...]:
+    """A type that exports a file (ADR 0169): DNASequence's fixture exports none."""
+    from iki_server.entities import services as entities
+
+    found = entities.create(w.users["editor"], "acme/dna.Plasmid", w.project, {"bases": "ACGT"})
+    return f"/entities/{found.entity.pk}/export?format=genbank", None
+
+
 def project_board(w: World) -> tuple[Any, ...]:
     return "/components/acme/protein.board/entities", {"project": str(w.project.pk)}
 
@@ -1014,6 +1022,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
+    ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),

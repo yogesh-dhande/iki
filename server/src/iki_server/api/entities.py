@@ -20,6 +20,7 @@
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -49,6 +50,7 @@ from iki_server.entities import (
     access,
     assignments,
     checking,
+    exports,
     holds,
     people,
     registry,
@@ -378,6 +380,21 @@ ViewerOut = Annotated[
 ]
 
 
+class FileFormatOut(Schema):
+    format: Literal["genbank", "fasta"] = Field(description="What `/entities/{ref}/export` takes.")
+    label: str = Field(description="Its name, such as GenBank.")
+    extension: str = Field(description="Its file name's, such as gb.")
+    media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
+    description: str = Field(description="What of a record it holds.")
+
+
+class FileExportOut(Schema):
+    export: Literal["sequence"] = Field(
+        description="What it writes. `sequence`: a DNA or RNA sequence, with its features."
+    )
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+
+
 class TypeNotificationOut(Schema):
     """A notification a type declares (ADR 0129), as its page previews it."""
 
@@ -469,6 +486,11 @@ class EntityTypeOut(Schema):
     viewers: list[ViewerOut] = Field(
         description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
         "nearest parent's."
+    )
+    exports: list[FileExportOut] = Field(
+        default_factory=list,
+        description="The files Iki writes of its records (ADR 0169), from "
+        "`/entities/{ref}/export`: its own, or its nearest parent's.",
     )
     due: str | None = Field(
         None,
@@ -1165,6 +1187,10 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "fields": fields,
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
+        "exports": [
+            {"export": e.export, "formats": [asdict(f) for f in exports.FORMATS[e.export]]}
+            for e in registry.exports(entity_type)
+        ],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
         "rule_variables": checking.record_variables(name) if checking.checks_of(name) else None,
@@ -2334,6 +2360,52 @@ def get_revision(
         "files": {str(i): f for i, f in files.items()},
         "people": _people_out(me, wanted["person"], entity),
     }
+
+
+class ExportParams(Schema):
+    format: Literal["genbank", "fasta"] = Field(
+        description="Which file: `genbank` (with its features) or `fasta`, as its type's "
+        "`exports` list them."
+    )
+    revision: int | None = Field(
+        None, ge=1, description="Which revision, as it was then. Its latest if left out."
+    )
+    project: UUID | None = Field(
+        None, description="Whose record of a registry entry, as for reading it (ADR 0115)."
+    )
+
+
+@router.get(
+    "/entities/{ref}/export",
+    response={200: None},
+    summary="Download it as a file, such as GenBank",
+    openapi_extra={
+        "responses": {
+            200: {
+                "description": "The file, as an attachment named for the record.",
+                "content": {"chemical/seq-na-genbank": {}, "chemical/seq-na-fasta": {}},
+            }
+        }
+    },
+)
+def export_entity(request: HttpRequest, ref: str, params: Query[ExportParams]) -> HttpResponse:
+    """The record as one of the files its type exports (ADR 0169), at its latest revision or
+    the one asked for, written from its values then, so a revision is always the same file.
+    Anyone who can read it may; each download is in the audit log (``entity.exported``),
+    with the file's SHA-256. What the file can't say, such as a feature across a linear
+    molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
+    many such notes there are."""
+    me = caller(request)
+    entity = _find(me, ref, params.project)
+    try:
+        made = exports.export(me, entity, params.format, params.revision)
+    except exports.Unexportable as why:
+        raise Problem(404, str(why), code=why.code) from None
+    response = HttpResponse(made.content, content_type=made.media_type)
+    response["Content-Disposition"] = f'attachment; filename="{made.name}"'
+    response["Cache-Control"] = "no-store"
+    response["Iki-Left-Out"] = str(len(made.left_out))
+    return response
 
 
 def _people_out(me: User, ids: set[Any], entity: Entity) -> dict[str, dict[str, Any]]:

@@ -19,6 +19,7 @@ from iki_spec import naming
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
+    Export,
     Extension,
     Plugin,
     Viewer,
@@ -77,6 +78,12 @@ def display_title(entity_type: EntityType) -> str | None:
 def viewers(entity_type: EntityType) -> tuple[Viewer, ...]:
     """Iki's own viewers on ``entity_type``'s pages: its own or the nearest parent's."""
     return next((t.viewers for t in [entity_type, *ancestors(entity_type)] if t.viewers), ())
+
+
+def exports(entity_type: EntityType) -> tuple[Export, ...]:
+    """The files Iki writes of ``entity_type``'s records (ADR 0169): its own or the nearest
+    parent's."""
+    return next((t.exports for t in [entity_type, *ancestors(entity_type)] if t.exports), ())
 
 
 def has_entries(qualified: str) -> bool:

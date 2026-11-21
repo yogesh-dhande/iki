@@ -1218,6 +1218,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download it as a file, such as GenBank
+         * @description The record as one of the files its type exports (ADR 0169), at its latest revision or
+         *     the one asked for, written from its values then, so a revision is always the same file.
+         *     Anyone who can read it may; each download is in the audit log (``entity.exported``),
+         *     with the file's SHA-256. What the file can't say, such as a feature across a linear
+         *     molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
+         *     many such notes there are.
+         */
+        get: operations["iki_server_api_entities_export_entity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/graph": {
         parameters: {
             query?: never;
@@ -6509,6 +6534,11 @@ export interface components {
              * @description The date or datetime field saying when its records are due (ADR 0122), which My work sorts by.
              */
             due?: string | null;
+            /**
+             * Exports
+             * @description The files Iki writes of its records (ADR 0169), from `/entities/{ref}/export`: its own, or its nearest parent's.
+             */
+            exports?: components["schemas"]["FileExportOut"][];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -6882,6 +6912,25 @@ export interface components {
              */
             state: "queued" | "writing" | "ready" | "failed" | "expired";
         };
+        /** ExportParams */
+        ExportParams: {
+            /**
+             * Format
+             * @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.
+             * @enum {string}
+             */
+            format: "genbank" | "fasta";
+            /**
+             * Project
+             * @description Whose record of a registry entry, as for reading it (ADR 0115).
+             */
+            project?: string | null;
+            /**
+             * Revision
+             * @description Which revision, as it was then. Its latest if left out.
+             */
+            revision?: number | null;
+        };
         /** FieldOut */
         FieldOut: {
             /**
@@ -7008,6 +7057,20 @@ export interface components {
              */
             values: string[];
         };
+        /** FileExportOut */
+        FileExportOut: {
+            /**
+             * Export
+             * @description What it writes. `sequence`: a DNA or RNA sequence, with its features.
+             * @constant
+             */
+            export: "sequence";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+        };
         /** FileFilters */
         FileFilters: {
             /**
@@ -7029,6 +7092,35 @@ export interface components {
             newest_first: boolean;
             /** Project */
             project?: string | null;
+        };
+        /** FileFormatOut */
+        FileFormatOut: {
+            /**
+             * Description
+             * @description What of a record it holds.
+             */
+            description: string;
+            /**
+             * Extension
+             * @description Its file name's, such as gb.
+             */
+            extension: string;
+            /**
+             * Format
+             * @description What `/entities/{ref}/export` takes.
+             * @enum {string}
+             */
+            format: "genbank" | "fasta";
+            /**
+             * Label
+             * @description Its name, such as GenBank.
+             */
+            label: string;
+            /**
+             * Media Type
+             * @description Its media type, such as chemical/seq-na-genbank.
+             */
+            media_type: string;
         };
         /** FileOut */
         FileOut: {
@@ -16420,6 +16512,36 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+        };
+    };
+    iki_server_api_entities_export_entity: {
+        parameters: {
+            query: {
+                /** @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them. */
+                format: "genbank" | "fasta";
+                /** @description Which revision, as it was then. Its latest if left out. */
+                revision?: number | null;
+                /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file, as an attachment named for the record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "chemical/seq-na-fasta": unknown;
+                    "chemical/seq-na-genbank": unknown;
                 };
             };
         };

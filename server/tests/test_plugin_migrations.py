@@ -220,6 +220,10 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__dna_plasmid__history",
         "acme__dna_plasmid__entry",
         "acme__dna_plasmid__entry__history",
+        "acme__dna_vector",
+        "acme__dna_vector__history",
+        "acme__dna_vector__entry",
+        "acme__dna_vector__entry__history",
         "acme__protein_protein",
         "acme__protein_protein__history",
         "acme__protein_protein__entry",
@@ -2266,7 +2270,7 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
     assert query(database, "SELECT count(*) FROM acme__dna_dnasequence") == [(1,)]
 
     out = deployed(purged, database)
-    assert "Purged acme/dna: dropped 10 table(s); 2 entities keep their tombstones" in out
+    assert "Purged acme/dna: dropped 14 table(s); 2 entities keep their tombstones" in out
     assert "row(s) their entities had in other plugins' tables" in out
     left = "SELECT tablename FROM pg_tables WHERE tablename LIKE 'acme\\_\\_dna\\_%%'"
     assert query(database, left) == []

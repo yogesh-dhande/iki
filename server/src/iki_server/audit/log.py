@@ -94,6 +94,7 @@ ACTIONS: dict[str, str] = {
     "file.added": "Added a file",
     "file.registered": "Registered a file in place",
     "entity.linked": "Shared an entity into a project",
+    "entity.exported": "Downloaded a record as a file, such as GenBank",
     "run.launched": "Launched an action",
     "run.cancelled": "Cancelled a run",
     "run.cancel_requested": "Asked a running action to stop",
