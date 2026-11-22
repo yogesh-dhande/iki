@@ -238,7 +238,14 @@ def watch(page: Page) -> Page:
         done(request)
         failed.append(f"{request.method} {request.url}: {request.failure}")
 
-    page.on("pageerror", lambda error: errors.append(str(error)))
+    def thrown(error: Any) -> None:
+        # Not an error (the ResizeObserver spec): what a size change made while observers were
+        # called is delivered in the next frame. WebKit reports it when a popover grows as
+        # what it read arrives and react-aria places it again, above its button.
+        if str(error) != "ResizeObserver loop completed with undelivered notifications.":
+            errors.append(str(error))
+
+    page.on("pageerror", thrown)
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("request", lambda r: waiting.__setitem__(r, (time.monotonic(), f"{r.method} {r.url}")))
     page.on("requestfinished", done)

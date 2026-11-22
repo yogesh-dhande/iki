@@ -100,7 +100,10 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     expect(second).to_have_attribute("aria-selected", "true")
     assert box.get_attribute("aria-activedescendant") == second.get_attribute("id")
     page.keyboard.press("Enter")
-    page.get_by_role("heading", level=1, name=f"Lysozyme C {made['c'].hrid}").wait_for()
+    # The second one's page: both are called Lysozyme C, so its ID, beside the title, says.
+    page.wait_for_url(f"**/entities/{made['c'].hrid}/**")
+    page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
+    page.locator(".record-title").get_by_text(made["c"].hrid, exact=True).wait_for()
     assert "/projects/" not in page.url
     assert_clean(page)
 
