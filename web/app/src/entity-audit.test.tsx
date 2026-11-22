@@ -7,8 +7,17 @@ import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ALICE, entity, field, PROTEIN, renderApp, revision, withTypes } from "./entity-fixtures";
-import { answer, calls, page } from "./test-server";
+import {
+  ALICE,
+  entity,
+  field,
+  KINASE,
+  PROTEIN,
+  renderApp,
+  revision,
+  withTypes,
+} from "./entity-fixtures";
+import { answer, calls, page, problem } from "./test-server";
 
 const ADA = { ...ALICE, id: "00000000-0000-7000-8000-0000000000a2", name: "Ada Lovelace" };
 
@@ -233,14 +242,19 @@ describe("a record's header", () => {
     );
     expect(within(lineage).getByText("Derived from")).toBeInTheDocument();
     expect(within(lineage).getByText("Used in")).toBeInTheDocument();
-    // Its features are drawn, in the map and the viewer: its values count them.
+    // Its features are drawn in the map and listed under its values: its values count them.
     const values = screen.getByRole("region", { name: "Values" });
-    const features = within(values).getByText(/^2 features\./);
-    expect(within(features).getByRole("link", { name: "Open in Sequence" })).toHaveAttribute(
+    const features = within(values).getByText(/^2 features, drawn in its map/);
+    expect(within(features).getByRole("link", { name: "Features" })).toHaveAttribute(
+      "href",
+      "#record-features",
+    );
+    expect(values).not.toHaveTextContent("lac promoter");
+    const card = screen.getByRole("region", { name: "Features" });
+    expect(within(card).getByRole("link", { name: "Open in Sequence" })).toHaveAttribute(
       "href",
       "/entities/PLS-000001/viewers/sequence/",
     );
-    expect(values).not.toHaveTextContent("lac promoter");
     // Its features' table: what they are and where they lie.
     const table = screen.getByRole("table", { name: "Features of pUC19c" });
     expect(
@@ -357,8 +371,8 @@ describe("a record's audit trail", () => {
       .map((r) => r.textContent);
     expect(rows[0]).toBe("FieldCurrent valueLast set byHowWhen (UTC)Revision");
     expect(rows).toContain("ResistanceAmpicillinAda Lovelacein the web app19 Nov 2026, 16:40 UTC3");
-    // A list of JSON, by how many.
-    expect(rows.find((r) => r.startsWith("Features"))).toMatch(/^Features2 items/);
+    // A list of objects, by how many and their names, never as JSON.
+    expect(rows.find((r) => r.startsWith("Features"))).toMatch(/^Features2 · lac promoter, AmpR/);
     // A long value is cut short, with its length.
     expect(rows.find((r) => r.startsWith("Bases"))).toMatch(/\(400 bases\)/);
     expect(screen.getByRole("button", { name: "By field" })).toHaveAttribute(
@@ -376,5 +390,202 @@ describe("a record's audit trail", () => {
     expect(download).toHaveAccessibleDescription(
       "The whole trail as CSV, whatever it’s narrowed to here. Each download is in the audit log.",
     );
+  });
+});
+
+describe("a record's overview", () => {
+  it("lists a record and its registry entry once, saying which field links them", async () => {
+    onPlasmid();
+    answer(`GET /api/v1/entities/PLS-000001/graph`, {
+      root: PLS_ID,
+      entities: [
+        { id: PLS_ID, hrid: "PLS-000001", title: "pUC19c", type: "iki/dna.Plasmid", at: 0 },
+        // The entry and Kinase Atlas's record of it: one thing, under one HRID (ADR 0115).
+        {
+          id: "e-entry",
+          hrid: "DNA-000004",
+          title: "pUC19",
+          type: "iki/dna.Sequence",
+          at: -1,
+          entry: true,
+        },
+        {
+          id: "e-record",
+          hrid: "DNA-000004",
+          title: "pUC19",
+          type: "iki/dna.Sequence",
+          at: -1,
+          project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+        },
+      ],
+      runs: [],
+      edges: [
+        {
+          node: PLS_ID,
+          on: "e-entry",
+          kind: "reference",
+          field: "bases",
+          file: null,
+          revision: null,
+          run: null,
+        },
+        {
+          node: "e-entry",
+          on: "e-record",
+          kind: "record",
+          field: "",
+          file: null,
+          revision: null,
+          run: null,
+        },
+      ],
+      hidden: 0,
+      earlier: false,
+      later: false,
+      capped: false,
+    });
+    await renderApp("/entities/PLS-000001/");
+    const lineage = await screen.findByRole("region", { name: "Lineage" });
+    const links = await within(lineage).findAllByRole("link", { name: /DNA-000004/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.closest("li")).toHaveTextContent("DNA-000004 · pUC19 via Bases");
+    const tabs = screen.getByRole("navigation", { name: "Record" });
+    expect(
+      within(tabs).getByRole("link", { name: /^Lineage,\s*1\s*linked records$/ }),
+    ).toBeInTheDocument();
+  });
+
+  /** A vector, as a plasmid of the plasmid plugin is (ADR 0163): its sequence is another
+   * record's, by reference, and its own features lie along it. */
+  const VECTOR: Schemas["EntityTypeOut"] = {
+    ...PROTEIN,
+    name: "iki/dna.Vector",
+    plugin: "iki/dna",
+    label: "Vector",
+    label_plural: "Vectors",
+    hrid_prefix: "VEC",
+    identity: [],
+    fields: [
+      field({ name: "name", label: "Name", type: "string" }),
+      field({ name: "plasmid", label: "Plasmid", type: "ref", to: ["iki/dna.Plasmid"] }),
+      field({ name: "annotated_features", label: "Annotated features", type: "json" }),
+    ],
+    viewers: [],
+    exports: [
+      { export: "sequence", formats: [], sequence: "plasmid", features: "annotated_features" },
+    ],
+  };
+  const VECTOR_MAP: Schemas["ComponentOut"] = {
+    name: "iki/dna.vector_map",
+    plugin: "iki/dna",
+    label: "Map",
+    description: null,
+    element: "vector-map",
+    slots: [{ slot: "entity.tab", type: "iki/dna.Vector", label: "Map", search: null }],
+    entities: null,
+    selects: null,
+    runs: [],
+    sha256: "ef".repeat(32),
+    frame: `/plugin-components/iki/dna.vector_map/${"ef".repeat(32)}/`,
+  };
+
+  function onVector(): void {
+    onPlasmid();
+    answer("GET /api/v1/entity-types", [PROTEIN, PLASMID, VECTOR]);
+    answer("GET /api/v1/components", [VECTOR_MAP]);
+    // Its plasmid, by the ID its reference holds, as Kinase Atlas's record.
+    answer(
+      `GET /api/v1/entities/${PLS_ID}`,
+      entity({
+        id: PLS_ID,
+        hrid: "PLS-000001",
+        type: "iki/dna.Plasmid",
+        values: { name: "pUC19c", bases: "ACGT".repeat(100), topology: "circular" },
+      }),
+    );
+    answer(
+      "GET /api/v1/entities/VEC-000001",
+      entity({
+        id: "00000000-0000-7000-8000-00000000e0b1",
+        hrid: "VEC-000001",
+        type: "iki/dna.Vector",
+        values: {
+          name: "pVec",
+          plasmid: PLS_ID,
+          annotated_features: [
+            {
+              type: "promoter",
+              name: "lac promoter",
+              start: 10,
+              end: 90,
+              strand: "reverse",
+              qualifiers: { source: "INSDC LT009457.1" },
+            },
+            { type: "CDS", name: "AmpR", start: 200, end: 380, strand: "reverse" },
+          ],
+        },
+        refs: {
+          [PLS_ID]: {
+            hrid: "PLS-000001",
+            title: "pUC19c",
+            type: "iki/dna.Plasmid",
+            archived: false,
+            purged: false,
+          },
+        },
+      }),
+    );
+    answer("GET /api/v1/entities/00000000-0000-7000-8000-00000000e0b1/graph", {
+      root: "00000000-0000-7000-8000-00000000e0b1",
+      entities: [],
+      runs: [],
+      edges: [],
+      hidden: 0,
+      earlier: false,
+      later: false,
+      capped: false,
+    });
+  }
+
+  it("draws the map of a record whose sequence is another's, from that record's bases", async () => {
+    onVector();
+    await renderApp("/entities/VEC-000001/");
+    const rail = screen.getByRole("complementary", { name: "About this record" });
+    expect(await within(rail).findByRole("img")).toHaveAccessibleName(
+      "Circular map of pVec, 400 bp: lac promoter, AmpR",
+    );
+    // Its plugin's Map tab draws it in full.
+    expect(within(rail).getByRole("link", { name: "Open the full map" })).toHaveAttribute(
+      "href",
+      "/entities/VEC-000001/components/iki/dna.vector_map/",
+    );
+    expect(calls("GET", `/api/v1/entities/${PLS_ID}`)[0]?.query.get("project")).toBe(KINASE.id);
+    const values = screen.getByRole("region", { name: "Values" });
+    expect(within(values).getByText(/^2 features, drawn in its map/)).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Features of pVec" })).toBeInTheDocument();
+  });
+
+  it("shows a list of objects as a table, never as JSON, when nothing draws it", async () => {
+    onVector();
+    answer(
+      `GET /api/v1/entities/${PLS_ID}`,
+      problem(404, "not_found", "No entity you can read has that ID."),
+    );
+    await renderApp("/entities/VEC-000001/");
+    const values = screen.getByRole("region", { name: "Values" });
+    const table = await within(values).findByRole("table", { name: "Annotated features" });
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .map((r) => r.textContent),
+    ).toEqual([
+      "NameTypePositionStrand",
+      "lac promoterpromoter10–90reverse",
+      "AmpRCDS200–380reverse",
+    ]);
+    expect(values).not.toHaveTextContent("{");
+    // Without its sequence's bases, there's no map.
+    const rail = screen.getByRole("complementary", { name: "About this record" });
+    expect(within(rail).queryByRole("img")).not.toBeInTheDocument();
   });
 });

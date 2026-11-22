@@ -9,6 +9,7 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/
 
 import { iki, projectQuery, queryClient } from "./api";
 import { searchWords, validateFilters, type Filter } from "./filters";
+import { objectList, objectListText } from "./object-lists";
 
 export type EntityType = Schemas["EntityTypeOut"];
 export type FieldDef = Schemas["FieldOut"];
@@ -485,6 +486,9 @@ export function valueText(
       )
       .join("; ");
   }
+  // A list of objects, such as a plasmid's features: how many, and their names, never JSON.
+  const objects = objectList(value);
+  if (objects) return objectListText(objects);
   if (Array.isArray(value)) {
     const item: FieldDef = { ...field, type: field.items ?? "string" };
     return value.map((v) => valueText(item, v, entity)).join(", ");

@@ -2020,20 +2020,40 @@ def test_a_records_page_and_its_audit_trail(
     rail.get_by_role("img", name=re.compile(r"^Circular map of pBR322, 4,361 bp: ")).wait_for()
     rail.get_by_role("region", name="Details").get_by_text("Last changed").wait_for()
     tabs = page.get_by_role("navigation", name="Record")
-    # Its record's revisions, and its entry's.
+    # Its record's revisions, and its entry's, each said.
     record.refresh_from_db()
     assert record.entry is not None
     count = record.revision + record.entry.revision
     tabs.get_by_role(
-        "link", name=re.compile(rf"^Audit trail\s*,\s*{count}\s*revisions$")
+        "link",
+        name=re.compile(
+            rf"^Audit trail\s*,\s*{count}\s*revisions: {record.revision} of this record, "
+            rf"{record.entry.revision} of its entry$"
+        ),
     ).wait_for()
     assert page.get_by_text("Changed by").count() == 0
+    # Its rail is 260 to 300 pixels wide, and a fact's value has room to read on a line.
+    details = rail.get_by_role("region", name="Details")
+    rail_box = rail.bounding_box()
+    assert rail_box is not None and 260 <= rail_box["width"] <= 300, rail_box
+    created = details.locator("dd").filter(has_text="Admin,").first.bounding_box()
+    assert created is not None and created["width"] >= 150, created
     assert_clean(page, axe_in_firefox=False)
 
     page.get_by_role("button", name="History of Name").click()
     history = page.get_by_role("dialog", name="History of Name")
     history.get_by_text("“Its common name”").wait_for()
     history.get_by_text(re.compile(r"\d\d:\d\d UTC$")).wait_for()
+    # Before and After line up with Who, How and When.
+    values_x = {
+        round(box["x"])
+        for box in (
+            history.locator(f".{list_} dd").nth(0).bounding_box()
+            for list_ in ("history-change", "history-facts")
+        )
+        if box is not None
+    }
+    assert len(values_x) == 1, values_x
     assert_clean(page, axe_in_firefox=False)
     page.keyboard.press("Escape")
     history.wait_for(state="hidden")
@@ -2047,6 +2067,30 @@ def test_a_records_page_and_its_audit_trail(
     tabs.get_by_role("link", name=re.compile("^Audit trail")).click()
     page.get_by_text("Revision 2: Edited by Admin").wait_for()
     page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
+    # At a desk its views, its filters, what can't change and its download share one row,
+    # each label on its select's line.
+    toolbar = [
+        page.get_by_role("button", name="Timeline"),
+        page.get_by_role("combobox", name="Person"),
+        page.get_by_role("link", name="Export for inspection"),
+    ]
+    middles = []
+    for control in toolbar:
+        box = control.bounding_box()
+        assert box is not None
+        middles.append(box["y"] + box["height"] / 2)
+    assert max(middles) - min(middles) <= 2, middles
+    label = page.locator(".trail-toolbar label").first.bounding_box()
+    select = page.get_by_role("combobox", name="Person").bounding_box()
+    assert label is not None and select is not None
+    assert abs((label["y"] + label["height"] / 2) - (select["y"] + select["height"] / 2)) <= 2
+    # Each revision exports as it was, the latest too, from its title's row.
+    for number in (1, 2):
+        export = page.get_by_role("button", name=f"Export revision {number}")
+        title = page.locator(".trail-title").filter(has=export)
+        assert title.count() == 1
+        box = export.bounding_box()
+        assert box is not None and box["height"] <= 26, box
     assert_clean(page, axe_in_firefox=False)
     page.get_by_role("combobox", name="Field").select_option("name")
     page.wait_for_url(re.compile(r"[?&]field=name"))
@@ -2078,6 +2122,90 @@ def test_a_records_page_and_its_audit_trail(
     page.get_by_role("heading", level=1, name="pBR322").wait_for()
     rail.get_by_role("img", name=re.compile("^Circular map")).wait_for()
     assert page.evaluate(wide)
+    # Its title comes first, then its actions.
+    heading = page.get_by_role("heading", level=1).bounding_box()
+    edit = page.get_by_role("link", name="Edit", exact=True).bounding_box()
+    assert heading is not None and edit is not None
+    assert heading["y"] + heading["height"] <= edit["y"], (heading, edit)
+    assert_clean(page, axe_in_firefox=False)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """A vector's sequence is its plasmid's, by reference, as a plasmid of the plasmid
+    plugin's is its DNA sequence's (ADR 0163): its rail draws its own features along that
+    sequence, and its features field says how many, with them listed in a Features card.
+    A list of objects nothing draws reads as a table, never as JSON. axe checks it in
+    Chromium and WebKit: Firefox's content process crashes running it here (see
+    assert_clean)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    hrid, _ = _record(
+        world, tmp_path, "J01749.1", Path(__file__).parent / "data" / "plasmids" / "J01749.1.gb"
+    )
+    plasmid = Entity.objects.get(hrid=hrid, owner_project=world.project)
+    features = [
+        {"type": "promoter", "name": "tet promoter", "start": 20, "end": 80, "strand": "reverse"},
+        {"type": "CDS", "name": "TcR", "start": 86, "end": 1276, "strand": "forward"},
+        {"type": "rep_origin", "name": "ori", "start": 2534, "end": 3122, "strand": "reverse"},
+    ]
+    made = entities.create(
+        world.users["admin"],
+        "acme/dna.Vector",
+        world.project,
+        {
+            "name": "pBR322 vector",
+            "plasmid": str(plasmid.entry_id),
+            "annotated_features": [
+                {**f, "qualifiers": {"note": "found by the annotation"}} for f in features
+            ],
+        },
+    ).entity
+    vector = Entity.objects.get(pk=made.pk)
+    page = open_as("admin", f"/entities/{vector.hrid}/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", level=1, name="pBR322 vector").wait_for()
+    rail = page.get_by_role("complementary", name="About this record")
+    rail.get_by_role(
+        "img", name="Circular map of pBR322 vector, 4,361 bp: tet promoter, TcR, ori"
+    ).wait_for()
+    values = page.get_by_role("region", name="Values")
+    values.get_by_text(re.compile(r"^3 features, drawn in its map")).wait_for()
+    page.get_by_role("table", name="Features of pBR322 vector").wait_for()
+    assert "{" not in values.inner_text()
+    assert_clean(page, axe_in_firefox=False)
+
+    # Features that don't lie along its sequence, as pBR322's TcR doesn't along pUC19c's
+    # 2,686 bp, can't be drawn: they're a table of their own, as any list of objects is.
+    puc, _ = _record(
+        world, tmp_path, "L09137.2", Path(__file__).parent / "data" / "plasmids" / "L09137.2.gb"
+    )
+    other = entities.create(
+        world.users["admin"],
+        "acme/dna.Vector",
+        world.project,
+        {
+            "name": "pUC19c misannotated",
+            "plasmid": str(Entity.objects.get(hrid=puc, owner_project=world.project).entry_id),
+            "annotated_features": [
+                {"type": "CDS", "name": "TcR", "start": 3086, "end": 4276, "strand": "forward"}
+            ],
+        },
+    ).entity
+    page.goto(f"/entities/{Entity.objects.get(pk=other.pk).hrid}/")
+    page.locator("h1", has_text="pUC19c misannotated").wait_for()
+    # By CSS alone on this page: Playwright's Firefox crashes its content process when its
+    # role queries and reads of this table's text are mixed.
+    own = page.locator("section[aria-labelledby='values-title']")
+    table = own.locator(".object-list table")
+    assert table.locator("caption").inner_text() == "Annotated features"
+    assert table.locator("th").all_inner_texts() == ["Name", "Type", "Position", "Strand"]
+    assert table.locator("tbody td").all_inner_texts() == ["TcR", "CDS", "3,086–4,276", "forward"]
+    assert "{" not in own.inner_text()
+    assert page.locator(".record-rail svg").count() == 0
     assert_clean(page, axe_in_firefox=False)
 
 

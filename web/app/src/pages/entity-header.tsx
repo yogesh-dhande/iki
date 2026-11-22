@@ -30,7 +30,7 @@ import {
   type EntityType,
 } from "../entities";
 import { entityAppsQuery } from "../apps";
-import { lineageGraphQuery } from "../lineage";
+import { lineageGraphQuery, type LineageEntity, type LineageGraph } from "../lineage";
 import { ExportDialog, exportFormats } from "./entity-export";
 import { signaturesQuery } from "./entity-signatures";
 import { StateBadges } from "./entity-state";
@@ -49,6 +49,54 @@ import {
  * page's rail lists. One step each way, as the graph has them (ADR 0123). */
 export function neighboursQuery(entity: Entity) {
   return lineageGraphQuery(apiRef(entity), 1, 1, []);
+}
+
+/** A record it's directly linked to, as its rail lists it and its Lineage tab counts it. */
+export interface Neighbour {
+  node: LineageEntity;
+  /** The reference fields that link the two, by label: "Sequence". */
+  via: string[];
+}
+
+/**
+ * The records it's directly linked to, each once. A registry entry and a project's record
+ * of it are one thing (ADR 0115), and the graph has both, under one HRID: they're one
+ * here, as the record of its own project where it has one. Each says which of the
+ * reference fields between the two link them.
+ */
+export function neighboursOf(
+  graph: LineageGraph,
+  entity: Pick<Entity, "type" | "owner_project">,
+  types: EntityType[],
+): Neighbour[] {
+  const fieldLabel = (type: string, name: string) =>
+    types.find((t) => t.name === type)?.fields.find((f) => f.name === name)?.label ?? name;
+  const byId = new Map(graph.entities.map((e) => [e.id, e]));
+  const groups = new Map<string, LineageEntity[]>();
+  for (const e of graph.entities) {
+    if (e.at === 0) continue;
+    // Upstream and downstream are told apart: a record can be both.
+    const key = `${e.hrid}|${String(Math.sign(e.at))}`;
+    groups.set(key, [...(groups.get(key) ?? []), e]);
+  }
+  const slug = entity.owner_project?.slug;
+  return [...groups.values()].map((group) => {
+    const rank = (e: LineageEntity) =>
+      (e.entry ? 2 : 0) + (slug && e.project?.slug === slug ? 0 : 1);
+    const node = group.reduce((best, e) => (rank(e) < rank(best) ? e : best));
+    const ids = new Set(group.map((e) => e.id));
+    const via = new Set<string>();
+    for (const edge of graph.edges) {
+      if (edge.kind !== "reference" || !edge.field) continue;
+      const from = byId.get(edge.node);
+      if (edge.node === graph.root && ids.has(edge.on))
+        via.add(fieldLabel(entity.type, edge.field));
+      else if (from && ids.has(edge.node) && edge.on === graph.root) {
+        via.add(fieldLabel(from.type, edge.field));
+      }
+    }
+    return { node, via: [...via] };
+  });
 }
 
 /** How many revisions its audit trail has: its own, and its registry entry's. */
@@ -77,14 +125,16 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
       current.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }, [pathname]);
-  const neighbours = useQuery(neighboursQuery(entity)).data;
-  const related = neighbours?.entities.filter((e) => e.at !== 0).length;
+  const graph = useQuery(neighboursQuery(entity)).data;
+  const related = graph ? neighboursOf(graph, entity, types).length : undefined;
   // The project's record, on every tab: other projects' records have its HRID too.
   const search = recordSearch(entity);
   const trail = trailCount(entity);
   return (
     <>
-      <div className="record-top">
+      {/* Where it is, its title, then what can be done with it: beside where it is on a
+          wide screen, under its title on a phone. */}
+      <div className="record-header">
         <nav aria-label="Breadcrumb" className="crumbs">
           <ol>
             {/* The lists of everything the reader can read, across projects (ADR 0176). */}
@@ -101,33 +151,33 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
             </li>
           </ol>
         </nav>
-        <RecordActions entity={entity} type={type} />
-      </div>
-      <div className="record-heading">
-        <div className="record-title">
-          <PageTitle>{entity.title}</PageTitle>
-          {entity.title !== entity.hrid ? <code className="id-chip">{entity.hrid}</code> : null}
-          <StatusPills entity={entity} type={type} />
-        </div>
-        <p className="record-meta">
-          {type ? (
-            <Link to="/types/$/" params={{ _splat: type.name }}>
-              {type.label}
-            </Link>
-          ) : (
-            <code>{entity.type}</code>
-          )}
-          {entity.owner_project ? (
-            <>
-              {" · "}
-              <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
-                {entity.owner_project.name}
+        <div className="record-heading">
+          <div className="record-title">
+            <PageTitle>{entity.title}</PageTitle>
+            {entity.title !== entity.hrid ? <code className="id-chip">{entity.hrid}</code> : null}
+            <StatusPills entity={entity} type={type} />
+          </div>
+          <p className="record-meta">
+            {type ? (
+              <Link to="/types/$/" params={{ _splat: type.name }}>
+                {type.label}
               </Link>
-            </>
-          ) : null}
-          {" · changed "}
-          <RelativeTime value={entity.updated_at} />
-        </p>
+            ) : (
+              <code>{entity.type}</code>
+            )}
+            {entity.owner_project ? (
+              <>
+                {" · "}
+                <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
+                  {entity.owner_project.name}
+                </Link>
+              </>
+            ) : null}
+            {" · changed "}
+            <RelativeTime value={entity.updated_at} />
+          </p>
+        </div>
+        <RecordActions entity={entity} type={type} />
       </div>
       <nav className="tabs record-tabs" aria-label="Record" ref={nav}>
         <Link
@@ -169,7 +219,14 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
           activeProps={tab}
         >
           Audit trail
-          <TabCount n={trail} what="revisions" />
+          <TabCount
+            n={trail}
+            what={
+              entity.entry
+                ? `revisions: ${String(entity.revision)} of this record, ${String(entity.entry.revision)} of its entry`
+                : "revisions"
+            }
+          />
         </Link>
         {plugins.map(({ component, label }) => (
           <Link
@@ -203,10 +260,11 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
   );
 }
 
-/** A tab's count, said in words to screen readers: “Audit trail, 5 revisions”. */
+/** A tab's count, said in words to screen readers, and on hovering it: “Audit trail, 5
+ * revisions: 3 of this record, 2 of its entry”. */
 function TabCount({ n, what }: { n: number; what: string }) {
   return (
-    <span className="tab-count">
+    <span className="tab-count" title={`${n.toLocaleString()} ${what}`}>
       <span className="visually-hidden">, </span>
       {n.toLocaleString()}
       <span className="visually-hidden"> {what}</span>
