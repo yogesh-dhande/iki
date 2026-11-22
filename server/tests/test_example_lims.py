@@ -181,6 +181,14 @@ def test_qa_cannot_release_an_unreviewed_analysis(analysis_result: EntityType) -
         assert not allows(analysis_result, state, "released", "qa", {})
 
 
+@pytest.mark.parametrize("person", ["creator", "analyst"])
+def test_qa_cannot_release_a_result_they_created_or_submitted(
+    analysis_result: EntityType, person: str
+) -> None:
+    values = {"analysis": "sec_purity", "sample": "sample-id", "result": "pass", "purity": 99.0}
+    assert not allows(analysis_result, "reviewed", "released", person, values)
+
+
 def test_an_older_unsigned_review_needs_fresh_review(analysis_result: EntityType) -> None:
     values = {"analysis": "sec_purity", "sample": "sample-id", "result": "pass", "purity": 99.0}
     assert allows(analysis_result, "reviewed", "draft", "analyst", values, reviewed_from="draft")

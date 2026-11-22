@@ -445,7 +445,8 @@ def provisioning(admin: requests.Session) -> None:
     scim = Scim(token.group(1))
     alice_id = scim.user("alice@iki.test")
     scim.user("bob@iki.test")
-    ok("the Org Admin turned on SCIM; bob's and alice's accounts are now provisioned")
+    scim.user("carol@iki.test")
+    ok("the Org Admin turned on SCIM and provisioned all three dev users")
 
     name = f"E2E Chemistry {int(time.time())}"
     group = scim("POST", "/Groups", {"displayName": name, "members": [{"value": alice_id}]})
@@ -1563,12 +1564,16 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
-    core = analytical_core(alice, bob, project)
-    analysis_result(alice, bob, project, sample, core)
+    carol = sign_in_as("carol")
+    core = analytical_core(alice, bob, carol, project)
+    analysis_result(alice, bob, carol, project, sample, core)
 
 
 def analytical_core(
-    analyst: requests.Session, reviewer: requests.Session, asking: dict[str, Any]
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    qa: requests.Session,
+    asking: dict[str, Any],
 ) -> dict[str, Any]:
     """Set up the team's analytical core and the people who sign its results."""
     team = asking["team"]["id"]
@@ -1587,9 +1592,10 @@ def analytical_core(
             )
         core = made.json()
     path = f"/projects/{core['id']}"
-    for session, role, lab_roles in (
-        (analyst, "admin", ["analyst", "qa"]),
-        (reviewer, "editor", ["reviewer"]),
+    for session, role, lab_role in (
+        (analyst, "admin", "analyst"),
+        (reviewer, "editor", "reviewer"),
+        (qa, "editor", "qa"),
     ):
         user = api_call(session, "GET", "/me").json()["id"]
         grant = api_call(analyst, "PUT", f"{path}/members/users/{user}", {"role": role})
@@ -1599,7 +1605,7 @@ def analytical_core(
             analyst,
             "PUT",
             f"{path}/members/{grant.json()['id']}/lab-roles",
-            {"roles": [f"iki/example_lims.{r}" for r in lab_roles]},
+            {"roles": [f"iki/example_lims.{lab_role}"]},
         )
         if given.status_code != 200:
             fail(f"giving core lab roles answered HTTP {given.status_code}: {given.text[:300]}")
@@ -1617,6 +1623,7 @@ def analytical_core(
 def analysis_result(
     analyst: requests.Session,
     reviewer: requests.Session,
+    qa: requests.Session,
     asking: dict[str, Any],
     sample: dict[str, Any],
     core: dict[str, Any],
@@ -1665,11 +1672,13 @@ def analysis_result(
         fail(
             f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
         )
-    signed = signing(analyst, result, "released", "alice", field="review")
+    signed = signing(qa, result, "released", "carol", field="review")
     if signed["status"] != "signed" or not signed["set"]:
         fail(f"releasing {result['hrid']} gave {signed}")
     released = record(analyst, result["id"])
     signatures = api_call(analyst, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
+    if len({s["signer"]["id"] for s in signatures["items"]}) != 3:
+        fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
     release = next(s for s in signatures["items"] if s["change"]["to"] == "released")
     if (
         release["revision"] != reviewed["revision"]

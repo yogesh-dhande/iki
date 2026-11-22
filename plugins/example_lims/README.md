@@ -116,9 +116,9 @@ It shows the parts of Iki such a plugin needs:
   than the creator and submitting analyst signs to set it Reviewed.
   Before release, an Analyst, Reviewer or QA can return the result to
   Draft with a reason. A correction then needs fresh submission and review.
-  A QA signer other than the reviewer signs the Reviewed revision to
-  release it. The project that asked receives the locked result, and
-  Released is final.
+  To release the Reviewed revision, the QA signer must be a different
+  person from the creator, submitting analyst, and reviewer. The project
+  that asked receives the locked result, and Released is final.
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
   a sample's volume, in µL (shown in mL), and each aliquot's. A sample is

@@ -139,3 +139,6 @@ fields:
           independent_release:
             check: last.review.reviewed.by != actor.person
             message: You reviewed this result, so someone else in QA releases it.
+          independent_of_analyst:
+            check: history.review[0].by != actor.person && last.review.in_review.by != actor.person
+            message: You created or submitted this result, so someone else in QA releases it.

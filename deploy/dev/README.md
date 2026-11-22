@@ -52,7 +52,7 @@ worker pod, so their backend actions run there.
 | Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)                  |
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                               |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                             |
-| Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client         |
+| Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` includes `alice`, `bob` and `carol`, OIDC client `iki-web` and a SAML client  |
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
 | Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS plugin; lists the requests runs made    |
@@ -81,7 +81,7 @@ hand:
 2. Open the printed link and follow the wizard. The issuer is
    `http://keycloak.iki.localhost:8080/realms/iki`, the client ID `iki-web`,
    and the client secret is in `make dev-creds`.
-3. Sign in as `alice` or `bob` with the dev user password from `make dev-creds`.
+3. Sign in as `alice`, `bob` or `carol` with the dev user password from `make dev-creds`.
 
 Keycloak lives at `keycloak.iki.localhost` so that your browser and Iki's pods
 use the same issuer URL. Browsers resolve every `*.localhost` name to your
