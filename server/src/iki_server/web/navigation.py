@@ -135,12 +135,19 @@ class Sidebar:
     #: Who's signed in, as the account menu shows them.
     name: str = ""
     email: str = ""
+    #: Their ID, which picks their mark's color.
+    user_id: str = ""
     labels: dict[str, str] = field(default_factory=dict)
     icons: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def initials(self) -> str:
         return initials(self.name)
+
+    @property
+    def swatch(self) -> int:
+        """Their mark's color, as the app's sidebar picks it: from their ID."""
+        return swatch_of(self.user_id)
 
 
 def _link(item: Item) -> Link:
@@ -221,6 +228,7 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
         account=_mark(account, current),
         name=user.get_full_name() or user.email,
         email=user.email,
+        user_id=str(user.pk),
         labels={
             "entities": raw["entities"]["label"],
             "saved": raw["saved"]["label"],

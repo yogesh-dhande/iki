@@ -756,6 +756,68 @@ main.app-main {
   box-shadow: none;
 }
 
+/* A type's dot (type-color.tsx), and a person's mark on their swatch: one of the eight
+   project colors (--swatch-1 to --swatch-8, below), from the type's name or the person's
+   ID. Named by number, as the server's pages allow no inline styles (CSP). */
+.type-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--swatch-8);
+}
+
+.type-dot-large {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.avatar[data-swatch] {
+  color: var(--swatch-text);
+}
+
+/* A type's name with its dot, as the lists' Type column shows it. */
+.type-name {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6rem / 13);
+  min-width: 0;
+}
+
+:is(.type-dot, .avatar)[data-swatch="1"] {
+  background: var(--swatch-1);
+}
+
+:is(.type-dot, .avatar)[data-swatch="2"] {
+  background: var(--swatch-2);
+}
+
+:is(.type-dot, .avatar)[data-swatch="3"] {
+  background: var(--swatch-3);
+}
+
+:is(.type-dot, .avatar)[data-swatch="4"] {
+  background: var(--swatch-4);
+}
+
+:is(.type-dot, .avatar)[data-swatch="5"] {
+  background: var(--swatch-5);
+}
+
+:is(.type-dot, .avatar)[data-swatch="6"] {
+  background: var(--swatch-6);
+}
+
+:is(.type-dot, .avatar)[data-swatch="7"] {
+  background: var(--swatch-7);
+}
+
+:is(.type-dot, .avatar)[data-swatch="8"] {
+  background: var(--swatch-8);
+}
+
 .account {
   position: relative;
   flex: none;

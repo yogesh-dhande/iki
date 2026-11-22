@@ -58,6 +58,7 @@ import {
   type ListSearch,
 } from "../lists";
 import { MAX_BATCH } from "../runs";
+import { TypeDot, TypeName } from "../type-color";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
 import { CollectionBanner, SaveAsCollection } from "./collections";
 import { FilterBar, SearchBox, SortHeading, type Direction } from "./entity-filters";
@@ -191,7 +192,7 @@ function columnsFor(
     key: "type",
     label: "Type",
     csv: "type",
-    cell: (e) => typeLabel(types, e.type),
+    cell: (e) => <TypeName type={e.type} label={typeLabel(types, e.type)} />,
   };
   const projects: Column = {
     key: "project",
@@ -1055,6 +1056,7 @@ function TypePills({
         onPick(value);
       }}
     >
+      {value ? <TypeDot type={value} /> : null}
       {label}
       {n === null || n === undefined ? null : (
         // Spaces between, as text, so a screen reader's name for it reads as it's seen.

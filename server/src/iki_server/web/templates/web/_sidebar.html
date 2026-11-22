@@ -55,7 +55,7 @@ shows, open.
   </nav>
   <div class="account">
     <button class="account-button" type="button" aria-expanded="false" aria-controls="account-menu" data-account-toggle title="{{ nav.email }}">
-      <span class="avatar" aria-hidden="true">{{ nav.initials }}</span><span class="nav-label">{{ nav.name }}</span>{% include "web/_icon.html" with paths=nav.icons.account %}
+      <span class="avatar" data-swatch="{{ nav.swatch }}" aria-hidden="true">{{ nav.initials }}</span><span class="nav-label">{{ nav.name }}</span>{% include "web/_icon.html" with paths=nav.icons.account %}
     </button>
     <div class="account-menu" id="account-menu" hidden data-account-menu>
       <p class="account-who"><span class="account-who-name">{{ nav.name }}</span><span class="account-who-email">{{ nav.email }}</span></p>

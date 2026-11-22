@@ -408,6 +408,19 @@ def test_a_projects_square_is_its_color_as_the_app_draws_it(world: World) -> Non
     ) in html
 
 
+def test_the_account_is_marked_on_the_swatch_its_id_picks(world: World) -> None:
+    """A person's mark is on one of the eight swatches, from their ID, as the app's sidebar
+    draws it: not the accent, the same for everyone."""
+    from iki_server.web.navigation import swatch_of
+
+    viewer = world.users["viewer"]
+    html = world.browser("viewer").get("/teams/").content.decode()
+    assert (
+        f'<span class="avatar" data-swatch="{swatch_of(str(viewer.pk))}" aria-hidden="true">'
+        in html
+    )
+
+
 def test_the_sidebar_shows_the_project_a_page_is_in_beyond_the_first_few(world: World) -> None:
     from iki_server.org.models import Project, ProjectMembership, ProjectRole
     from iki_server.web.navigation import sidebar, spec

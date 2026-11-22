@@ -141,6 +141,11 @@ async function showEntityTypes(list) {
     const link = document.createElement("a");
     link.className = "nav-item";
     link.href = `/entities/types/${encodeURI(t.type)}/`;
+    const dot = document.createElement("span");
+    dot.className = "type-dot";
+    dot.dataset.swatch = String(swatchOf(t.type));
+    dot.setAttribute("aria-hidden", "true");
+    link.append(dot);
     const label = document.createElement("span");
     label.className = "nav-label";
     label.textContent = t.label;
@@ -152,6 +157,17 @@ async function showEntityTypes(list) {
     }
     list.append(link);
   }
+}
+
+// A type's color, one of the stylesheet's eight swatches from its name, as the app's
+// project-color.ts and the server's navigation.swatch_of work it out (FNV-1a).
+function swatchOf(name) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return ((hash >>> 0) % 8) + 1;
 }
 
 // How many: after a space, which a flex row doesn't draw but a screen reader reads.

@@ -8,6 +8,7 @@ import { Link, useParams } from "@tanstack/react-router";
 
 import { typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
 import { usePageTitle } from "../layout";
+import { TypeDot } from "../type-color";
 import { Badge, PageHeader } from "../ui";
 
 /** Where a field of a type with an identity is kept (ADR 0115). */
@@ -157,6 +158,7 @@ export function TypeDetail() {
     <>
       <PageHeader
         crumbs={[<Link to="/types/">Entity types</Link>, type.label]}
+        marker={<TypeDot type={type.name} large />}
         title={type.label}
         badge={
           <>

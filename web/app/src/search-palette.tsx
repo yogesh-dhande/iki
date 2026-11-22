@@ -37,6 +37,7 @@ import {
   type SearchKind,
   type SearchResult,
 } from "./search";
+import { TypeDot } from "./type-color";
 
 /** One row the arrows move through: a result, or a group's link to its full list. */
 interface Row {
@@ -407,7 +408,14 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
   const [first, ...others] = result.projects;
   return (
     <>
-      <span className={record ? "search-dot" : "search-dot search-dot-round"} aria-hidden="true" />
+      {record && result.type ? (
+        <TypeDot type={result.type} className="search-dot" />
+      ) : (
+        <span
+          className={record ? "search-dot" : "search-dot search-dot-round"}
+          aria-hidden="true"
+        />
+      )}
       {result.hrid ? <span className="search-hrid">{result.hrid}</span> : null}
       <span className="search-title">{result.title}</span>
       <span className="search-meta">

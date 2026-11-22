@@ -17,6 +17,7 @@ import { adminNavigation } from "./admin";
 import { countsQuery } from "./lists";
 import { swatchOf } from "./project-color";
 import { openSearch } from "./search";
+import { TypeDot } from "./type-color";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
 export interface NavItem {
@@ -340,9 +341,10 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
   const allEntities = shown(SPEC.entities.all);
   // Each type with records the reader can read, which only the counts say: if they can't
   // be read, All entities alone.
-  const types: (Shown & { count: number | null })[] =
+  const types: (Shown & { type: string; count: number | null })[] =
     counts.data?.types.map((t) => ({
       ...shown({ label: t.label, href: `${SPEC.entities.type}${t.type}/`, app: allEntities.app }),
+      type: t.type,
       count: t.count,
     })) ?? [];
   const work = SPEC.work.map((item) => shown(item));
@@ -434,6 +436,7 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
         </NavLink>
         {types.map((link) => (
           <NavLink key={link.key} link={link} current={current === link.key}>
+            <TypeDot type={link.type} />
             <span className="nav-label">{link.label}</span>
             {link.count !== null ? <Count n={link.count} /> : null}
           </NavLink>
@@ -592,7 +595,7 @@ function Account({ me, pathname }: { me: Me; pathname: string }) {
           setOpen(!open);
         }}
       >
-        <span className="avatar" aria-hidden="true">
+        <span className="avatar" data-swatch={swatchOf(me.id)} aria-hidden="true">
           {initials(name)}
         </span>
         <span className="nav-label">{name}</span>

@@ -21,6 +21,7 @@ import {
 } from "./entity-fixtures";
 import { ACTION, run } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
+import { typeSwatch } from "./type-color";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -121,6 +122,12 @@ describe("all entities", () => {
       "Kinase Atlas+1, also in Protein Core",
     );
     expect(within(nth(rows, 2)).getAllByRole("cell")[4]).toHaveTextContent("Protein Core");
+    // Each record's type, with its dot.
+    const kind = within(nth(rows, 1)).getAllByRole("cell")[3];
+    expect(kind?.querySelector(".type-dot")).toHaveAttribute(
+      "data-swatch",
+      String(typeSwatch(PROTEIN.name)),
+    );
     // Across projects, the search names none.
     expect(lastSearch()).not.toHaveProperty("project");
     expect(document.title).toBe("All entities · Example Bio");
@@ -135,6 +142,13 @@ describe("all entities", () => {
       "aria-pressed",
       "true",
     );
+    // Each type's pill has its dot; All types has none.
+    expect(
+      within(pills).getByRole("button", { name: "Protein 2 records" }).querySelector(".type-dot"),
+    ).toHaveAttribute("data-swatch", String(typeSwatch(PROTEIN.name)));
+    expect(
+      within(pills).getByRole("button", { name: "All types 3 records" }).querySelector(".type-dot"),
+    ).toBeNull();
     await user.click(within(pills).getByRole("button", { name: "Protein 2 records" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: PROTEIN.name });

@@ -18,6 +18,7 @@ import { swatchOf } from "./project-color";
 import { createAppRouter } from "./router";
 import { adminLink, currentOf, ENTITIES_COOKIE, initials } from "./sidebar";
 import { answer, calls, ME, page, project, respond, signedIn } from "./test-server";
+import { typeSwatch } from "./type-color";
 
 async function renderApp(path: string) {
   const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
@@ -69,6 +70,11 @@ describe("what it lists", () => {
     expect(entities).toHaveAttribute("aria-expanded", "true");
     const plasmid = await within(nav()).findByRole("link", { name: "Plasmid 3" });
     expect(plasmid).toHaveAttribute("href", "/entities/types/iki/dna.Plasmid/");
+    // Each type's dot, its color from its name.
+    expect(plasmid.querySelector(".type-dot")).toHaveAttribute(
+      "data-swatch",
+      String(typeSwatch("iki/dna.Plasmid")),
+    );
     expect(within(nav()).getByRole("link", { name: "Primer 1,200" })).toBeVisible();
     expect(within(nav()).getByRole("link", { name: "All entities 1,203" })).toHaveAttribute(
       "href",
@@ -242,6 +248,15 @@ describe("which item is current", () => {
 });
 
 describe("the account menu", () => {
+  it("marks its person with their initials, on the swatch their ID picks", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const mark = screen.getByRole("button", { name: "Rosalind Franklin" }).querySelector(".avatar");
+    expect(mark).toHaveTextContent("RF");
+    expect(mark).toHaveAttribute("data-swatch", String(swatchOf(ME.id)));
+  });
+
   it("closes on Escape, and the focus goes back to its button", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));

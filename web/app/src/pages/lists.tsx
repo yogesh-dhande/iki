@@ -15,6 +15,7 @@ import { askedByField, sameJson } from "../filters";
 import { usePageTitle } from "../layout";
 import { everySavedSearchQuery, useReadableProjects, type ListSearch } from "../lists";
 import { requestTypes } from "../requests";
+import { TypeDot } from "../type-color";
 import { buttonClass, PageHeader } from "../ui";
 import { EntityGrid } from "./entity-grid";
 import { RemoveSearchDialog, SaveSearchDialog, toAddress } from "./saved-searches";
@@ -115,6 +116,7 @@ export function TypeTable() {
     <>
       <PageHeader
         title={type.label_plural}
+        marker={<TypeDot type={type.name} large />}
         crumbs={[<Link to="/entities/">Entities</Link>, type.label_plural]}
         description={type.description}
         about={
