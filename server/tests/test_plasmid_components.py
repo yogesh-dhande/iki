@@ -48,7 +48,8 @@ POLICY = (
     "form-action 'none'; base-uri 'none'; object-src 'none'; sandbox allow-scripts"
 )
 PAGE = (
-    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
+    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+    '<link rel="icon" href="data:,">\n'
     # As Iki's frame has it (iki_server.components.views), so dark mode is dark.
     '<meta name="color-scheme" content="light dark"><title>Plasmid</title>\n'
     + frames.HARDEN_TAG
