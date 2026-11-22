@@ -358,19 +358,36 @@ def _projects(me: User, q: str, limit: int) -> _Group:
 
 def _saved_views(me: User, q: str, limit: int) -> _Group:
     group = _Group("saved_views")
+    # Your own and those shared, in projects you read; and your own of every project you
+    # read, which have no project and are never shared.
     found = SavedSearch.objects.filter(
-        Q(created_by=me) | Q(shared=True),
-        project__in=access.readable_projects(me).values("pk"),
-        name__icontains=q,
-    ) | SavedSearch.objects.filter(
-        # A search of every project (ADR 0176) is its owner's alone.
-        created_by=me,
-        project__isnull=True,
+        (Q(created_by=me) | Q(shared=True))
+        & Q(project__in=access.readable_projects(me).values("pk"))
+        | Q(created_by=me, project__isnull=True),
         name__icontains=q,
     )
     group.total, group.more = _counted(found)
     shown = found.select_related("project").order_by("name", "pk")[:limit]
-    group.items = [_saved_view(s) for s in shown]
+    group.items = [
+        _result(
+            "saved_view",
+            s.pk,
+            s.name,
+            detail=(
+                "Shared with the project"
+                if s.shared
+                else "Yours"
+                if s.project
+                else "Yours, across your projects"
+            ),
+            projects=[s.project] if s.project else [],
+            # The app opens it in the project's grid, as its saved searches do; one of every
+            # project in All entities.
+            href=f"/projects/{s.project.slug}/entities/" if s.project else "/entities/",
+            query=dict(s.query),
+        )
+        for s in shown
+    ]
     return group
 
 
@@ -505,29 +522,6 @@ def _recent(me: User) -> list[dict[str, Any]]:
             result["kind"] = "request"
         out.append(result)
     return out
-
-
-def _saved_view(saved: SavedSearch) -> dict[str, Any]:
-    """A saved search, opened as the app opens it: in its project's grid, or in All entities
-    for one of every project."""
-    if saved.project is None:
-        return _result(
-            "saved_view",
-            saved.pk,
-            saved.name,
-            detail="Yours, of every project",
-            href="/entities/",
-            query=dict(saved.query),
-        )
-    return _result(
-        "saved_view",
-        saved.pk,
-        saved.name,
-        detail="Shared with the project" if saved.shared else "Yours",
-        projects=[saved.project],
-        href=f"/projects/{saved.project.slug}/entities/",
-        query=dict(saved.query),
-    )
 
 
 def _result(
