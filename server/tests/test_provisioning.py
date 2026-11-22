@@ -620,4 +620,6 @@ def test_settings_page_warns_before_the_saml_certificate_expires(
 
 
 def test_the_nav_shows_sign_in_settings_to_org_admins(admin_browser: Browser) -> None:
-    assert 'href="/settings/sign-in/"' in admin_browser.get("/teams/").content.decode()
+    # The sidebar's Admin opens the admin area (ADR 0176), whose own sidebar lists them.
+    assert 'href="/admin/"' in admin_browser.get("/teams/").content.decode()
+    assert 'href="/settings/sign-in/"' in admin_browser.get("/settings/email/").content.decode()
