@@ -1,7 +1,6 @@
 {% extends "web/admin_base.html" %}
 {% block title %}Plugins{% endblock %}
 {% block content %}
-<div class="page-header"><h1>Plugins</h1></div>
 <p class="muted">What this deployment installs, from its lockfile. Changing them is a reviewed change to the lockfile, and each deploy that changes one is in the audit log. A detached plugin’s data is kept and can be read, but nothing changes it; it can then be purged. A purged plugin’s tables are gone; its entities’ tombstones stay.</p>
 {% if plugins %}
 <ul class="rows">

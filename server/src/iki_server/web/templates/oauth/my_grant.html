@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}What {{ app }} did for you{% endblock %}
 {% block main_class %}page-wide{% endblock %}
+{% block crumbs %}<li><a href="{% url 'oauth:my_apps' %}">Authorized apps</a></li><li><span aria-current="page">{{ app }}</span></li>{% endblock %}
 {% block content %}
-<div class="page-header"><h1>What {{ app }} did for you</h1></div>
 {% include "web/_account_tabs.html" %}
 <p class="muted">Everything this app did with your grant <code>{{ grant }}</code>, newest first.{% if not current %} You’ve since revoked it.{% endif %} <a href="{% url 'oauth:my_apps' %}">Authorized apps</a></p>
 <ol class="rows audit-events" aria-label="What it did">

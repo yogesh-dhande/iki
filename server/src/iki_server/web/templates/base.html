@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static page_header %}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -13,9 +13,16 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   {% block nav %}{% if nav %}{% include "web/_sidebar.html" %}{% else %}{% include "web/_site_header.html" %}{% endif %}{% endblock %}
-  <main id="main" class="{% block main_class %}page-narrow{% endblock %}" tabindex="-1">
-    {% include "web/_messages.html" %}
-    {% block content %}{% endblock %}
+  {# As the web app's layout.tsx: the bar across the top of the column, then the page, which #}
+  {# fills the bar. Signed out, there's no bar: nothing is above the page to lead back to. #}
+  <main id="main" class="app-main" tabindex="-1">
+    {% page_header as page_header %}
+    {% block page_top %}{% if nav %}{% include "web/_page_top.html" %}{% endif %}{% endblock %}
+    <div class="page-body {% block main_class %}page-narrow{% endblock %}">
+      {% include "web/_messages.html" %}
+      {% block page_heading %}{% include "web/_page_heading.html" %}{% endblock %}
+      {% block content %}{% endblock %}
+    </div>
   </main>
   {% if not nav %}<footer class="site-footer">
     <span>Iki</span>

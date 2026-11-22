@@ -1,12 +1,8 @@
 {% extends "web/admin_base.html" %}
 {% block title %}{{ subject.get_full_name }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">{{ subject.get_full_name }}</span></li>{% endblock %}
+{% block heading %}{{ subject.get_full_name }}{% if subject.is_placeholder %} <span class="badge badge-muted">Imported</span>{% elif not subject.is_active %} <span class="badge badge-muted">Deactivated</span>{% endif %}{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'org:people' %}">People</a></p>
-    <h1>{{ subject.get_full_name }}{% if subject.is_placeholder %} <span class="badge badge-muted">Imported</span>{% elif not subject.is_active %} <span class="badge badge-muted">Deactivated</span>{% endif %}</h1>
-  </div>
-</div>
 <dl class="summary">
   <dt>Email</dt><dd>{{ subject.email }}</dd>
   <dt>Joined</dt><dd><time datetime="{{ subject.date_joined|date:'c' }}">{{ subject.date_joined|date:"j M Y" }}</time></dd>

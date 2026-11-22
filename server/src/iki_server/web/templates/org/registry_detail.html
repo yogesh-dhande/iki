@@ -1,13 +1,9 @@
 {% extends "web/admin_base.html" %}
 {% block title %}{{ registry.name }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">{{ registry.name }}</span></li>{% endblock %}
+{% block heading %}{{ registry.name }}{% if registry.is_default %} <span class="badge badge-muted">Default</span>{% endif %}{% endblock %}
+{% block actions %}{% if is_registrar %}<a class="button" href="/registries/{{ registry.pk }}/entries/">Its entries</a>{% endif %}{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'org:registries' %}">Registries</a></p>
-    <h1>{{ registry.name }}{% if registry.is_default %} <span class="badge badge-muted">Default</span>{% endif %}</h1>
-  </div>
-  {% if is_registrar %}<div class="actions"><a class="button" href="/registries/{{ registry.pk }}/entries/">Its entries</a></div>{% endif %}
-</div>
 {% if registry.is_default %}<p class="muted">New projects are in it unless they're given another, so every team may use it.</p>{% endif %}
 <div class="columns">
   <section aria-labelledby="registrars-title">

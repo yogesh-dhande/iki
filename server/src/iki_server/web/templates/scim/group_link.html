@@ -1,12 +1,8 @@
 {% extends "web/admin_base.html" %}
 {% block title %}Link {{ group.display_name }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Link {{ group.display_name }}</span></li>{% endblock %}
+{% block heading %}Link {{ group.display_name }} to {% if team %}{{ team.name }}{% else %}a new team{% endif %}{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'identity:sign_in_settings' %}">Sign-in and provisioning</a></p>
-    <h1>Link {{ group.display_name }} to {% if team %}{{ team.name }}{% else %}a new team{% endif %}</h1>
-  </div>
-</div>
 <p>From now on, {% if other_groups %}{{ group.display_name }} and {% for other in other_groups %}{{ other.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %} decide{% else %}{{ group.display_name }} decides{% endif %} who is on {% if team %}{{ team.name }}{% else %}the new team “{{ group.display_name }}”{% endif %}. Members can’t be added or removed by hand in Iki; change the group at your identity provider.</p>
 <div class="columns">
   <section class="card">

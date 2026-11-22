@@ -142,6 +142,15 @@ and badges) under the same bar.
   fill with their actions the same way.
 - **On a phone the title comes first.** The bar keeps the breadcrumb, and a
   page's actions go under its title: a page with `PageHeader`, and a record.
+- **The server's pages draw the same markup.** A template gives its title,
+  crumbs, actions and description as blocks, and its frame (`base.html`,
+  `web/admin_base.html`) draws them where `PageHeader` would, so one
+  stylesheet serves both. A page drawn once can't move its actions when the
+  screen changes, so it draws them in the bar and under its title, and the
+  stylesheet shows the one for the screen. `iki.js` shows the (i) for a line
+  cut short; without JavaScript the line wraps instead. The pages that are one
+  card, seen signed out (signing in and out, setup), have no header: nothing
+  is above them to lead back to.
 
 **A record shows its values. Who changed them is on demand.** The line under
 each field goes. Each field has a small history button that shows its last
@@ -205,7 +214,9 @@ Each page needs the permission it needs today.
   addresses, under `/settings/`, `/people/`, `/service-accounts/`, `/compute/`,
   `/costs/` and `/audit/`, are gone, without redirects: Iki isn't deployed anywhere
   before M1, so no link or bookmark points at them. The API's paths don't change.
-- **The top bar holds a breadcrumb** of "Admin / page", and the page's own actions.
+- **The top bar holds a breadcrumb** of "Admin / page", and the page's own actions. A
+  server page under an item goes on to itself, as a record's breadcrumb does:
+  "Admin / People / <name>".
 - **The groups hold the pages Iki has:**
   - Organization: sign-in and provisioning, people (with service accounts), apps and
     email.

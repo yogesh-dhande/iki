@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Let an agent act for you{% endblock %}
+{% block crumbs %}<li><a href="{% url 'oauth:my_apps' %}">Authorized apps</a></li><li><span aria-current="page">Let an agent act for you</span></li>{% endblock %}
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
-<div class="page-header"><h1>Let an agent act for you</h1></div>
 <p class="muted">An agent that runs on its own, such as a nightly triage bot or a LIMS sync, can act for you: what it changes is recorded as yours, done through it. It can do only what you allow, only what you and its service account both may, and only until a day you choose.</p>
 {% if credentials %}
 <ul class="rows">

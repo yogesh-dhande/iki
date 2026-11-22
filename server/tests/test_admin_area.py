@@ -220,10 +220,13 @@ def test_a_page_under_an_item_marks_it_and_links_back_to_it(world: World) -> Non
     person = world.users["viewer"]
     html = world.browser("org_admin").get(f"/admin/people/{person.pk}/").content.decode()
     assert current(html) == [("true", "People")]
-    assert crumbs(html) == ["Admin", "People"]
+    # Then the page itself, as an entity's breadcrumb ends with it in the app.
+    assert crumbs(html) == ["Admin", "People", "Viewer"]
     assert '<li><a href="/admin/people/">People</a></li>' in html
+    assert '<li><span aria-current="page">Viewer</span></li>' in html
     service_accounts = world.browser("org_admin").get("/admin/service-accounts/").content.decode()
     assert current(service_accounts) == [("true", "People")]
+    assert crumbs(service_accounts) == ["Admin", "People", "Service accounts"]
 
 
 def test_admin_pages_share_the_main_pages_head_and_its_search(world: World) -> None:

@@ -1,4 +1,4 @@
-{% load static admin_area %}<!doctype html>
+{% load static admin_area page_header %}<!doctype html>
 {# The admin area's frame (ADR 0176), as the web app's AdminLayout draws it: its own sidebar, #}
 {# a way back to Iki, and a breadcrumb with the page's actions. Its head is base.html's. #}
 {# Without JavaScript, on a narrow screen, the sidebar is above the page, every page listed. #}
@@ -48,17 +48,23 @@
   </div>
   <div class="sidebar-backdrop" data-drawer-close hidden></div>
   <div class="admin-column">
+    {# Its breadcrumb starts with the frame's "Admin / item"; the page gives the rest, its #}
+    {# actions and its title (page_header). #}
+    {% page_header as page_header %}
     <header class="admin-top">
       <nav class="admin-crumbs" aria-label="Breadcrumb">
         <ol>
           <li><a href="/admin/">Admin</a></li>
           {% if admin.current %}<li>{% if request.path == admin.current.href %}<span aria-current="page">{{ admin.current.label }}</span>{% else %}<a href="{{ admin.current.href }}">{{ admin.current.label }}</a>{% endif %}</li>{% endif %}
+          {# A page under the item: the pages between, then itself, its title if it gives none. #}
+          {% if page_header.crumbs %}{{ page_header.crumbs }}{% elif admin.current and request.path != admin.current.href %}<li><span aria-current="page">{{ page_header.title }}</span></li>{% endif %}
         </ol>
       </nav>
-      <div class="admin-actions">{% block actions %}{% endblock %}</div>
+      <div class="admin-actions">{% if page_header.actions %}<div class="page-actions" data-twin>{{ page_header.actions }}</div>{% endif %}</div>
     </header>
     <main id="main" class="admin-main" tabindex="-1">
       {% include "web/_messages.html" %}
+      {% include "web/_page_heading.html" %}
       {% block content %}{% endblock %}
     </main>
   </div>
