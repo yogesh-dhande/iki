@@ -9,6 +9,8 @@
   <title>{% block title %}Iki{% endblock %}{% if organization_name %} · {{ organization_name }}{% endif %}</title>
   <link rel="icon" href="{% static 'iki/favicon.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'iki/iki.css' %}">
+  {# Inter's Latin, asked for at once: drawn in the fallback first, the page would shift when it came. #}
+  <link rel="preload" href="{% static 'iki/fonts/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <script src="{% static 'iki/iki.js' %}" defer></script>
 </head>
 {% with nav=sidebar %}

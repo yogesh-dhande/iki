@@ -753,7 +753,11 @@ def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> No
     search = page.get_by_role("searchbox", name="Search")
     search.wait_for()
     box = search.bounding_box()
-    assert box is not None and box["height"] >= 44, box
+    # As tall as the controls beside it (ADR 0176), its text as large as theirs.
+    beside = page.get_by_role("main").get_by_role("button").first.bounding_box()
+    assert box is not None and beside is not None, (box, beside)
+    assert abs(box["height"] - beside["height"]) <= 1, (box, beside)
+    assert box["height"] >= 28, box
     assert_clean(page)
 
 
@@ -1308,7 +1312,7 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert page.get_by_role("button", name="Cancel run").count() == 0
     assert_clean(page)
 
-    page.get_by_role("link", name="Kinase Atlas").click()
+    page.get_by_role("main").get_by_role("link", name="Kinase Atlas").click()
     row = page.get_by_role("listitem").filter(has_text=run.hrid)
     row.get_by_text("Failed", exact=True).wait_for()
     assert_clean(page)
@@ -2444,7 +2448,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
     # that, and nothing else.
     PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
     assert_clean(page)
-    page.get_by_role("link", name="Antigens", exact=True).click()
+    page.get_by_role("main").get_by_role("link", name="Antigens", exact=True).click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/\?project=antigens$"))
     page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
     page.get_by_role("heading", name="Antigens’s values").wait_for()

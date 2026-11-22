@@ -594,11 +594,12 @@ function Group({
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const id = useId();
+  // Named by aria-label, not aria-labelledby: Playwright's Firefox crashes working out the
+  // name a page's element takes from another where a plugin's frame is (see test_browser).
   return (
-    <div className="nav-group" role="group" aria-labelledby={id}>
+    <div className="nav-group" role="group" aria-label={label}>
       <div className="nav-heading">
-        <span id={id}>{label}</span>
+        <span aria-hidden="true">{label}</span>
         {action}
       </div>
       {children}

@@ -871,8 +871,10 @@ input[type="url"],
 input[type="email"],
 input[type="password"] {
   width: 100%;
-  min-height: var(--control-height);
-  padding: calc(4rem / 13) calc(9rem / 13);
+  /* One line, as tall as a button beside it, in every engine: WebKit's search box is
+     taller than its line otherwise. */
+  height: var(--control-height);
+  padding: 0 calc(9rem / 13);
   font: inherit;
   color: var(--text);
   background: var(--surface);
@@ -1866,8 +1868,9 @@ input:focus-visible {
   align-items: baseline;
 }
 
+/* Apart enough for each row's download link to be a 24-pixel target (WCAG 2.5.8). */
 .scene-legend li + li {
-  margin-top: 0.25rem;
+  margin-top: calc(8rem / 13);
 }
 
 .scene-swatch {
@@ -2732,6 +2735,12 @@ input[type="date"] {
   white-space: nowrap;
 }
 
+/* A link in a cell (a record's ID, say) is 24 pixels high, as WCAG 2.5.8 asks of a target,
+   with the row 34: padding grows an inline box without moving its line, or its ellipsis. */
+.data-grid-cell > a {
+  padding: calc(5rem / 13) 0;
+}
+
 /* Picking rows in a grid: a checkbox to each, big enough to hit. */
 .grid-tick {
   width: 1.25rem;
@@ -3067,8 +3076,9 @@ a.lineage-node:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  /* 24 pixels square, as WCAG 2.5.8 asks of a target. */
+  width: calc(24rem / 13);
+  height: calc(24rem / 13);
   margin-left: 0.25rem;
   padding: 0;
   vertical-align: middle;
@@ -3108,6 +3118,11 @@ a.lineage-node:focus-visible {
 .value-list {
   margin: 0;
   padding-left: 1.1rem;
+}
+
+/* A link to each item (a record, say) a 24-pixel target clear of the next (WCAG 2.5.8). */
+.value-list > li + li {
+  margin-top: calc(6rem / 13);
 }
 
 /* A list of rows (ADR 0137): a small table, a column per row field. */

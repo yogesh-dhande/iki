@@ -1,4 +1,7 @@
 {% comment %}
+Its groups are named by aria-label, not aria-labelledby: Playwright's Firefox crashes working
+out the name an element takes from another where a plugin's frame is (see test_browser).
+
 The sidebar (ADR 0176), as the web app's sidebar.tsx draws it, from navigation.json through
 iki_server.web.navigation. iki.js opens and closes its parts, fills in the types of entity
 the reader can read, and makes it a drawer on a narrow screen. Without JavaScript, every part
@@ -32,19 +35,19 @@ shows, open.
     </div>
     {% for link in nav.work %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
     {% endfor %}
-    {% if nav.saved %}<div class="nav-group" role="group" aria-labelledby="nav-saved">
-      <div class="nav-heading" id="nav-saved">{{ nav.labels.saved }}</div>
+    {% if nav.saved %}<div class="nav-group" role="group" aria-label="{{ nav.labels.saved }}">
+      <div class="nav-heading" aria-hidden="true">{{ nav.labels.saved }}</div>
       {% for link in nav.saved %}<a class="nav-item" href="{{ link.href }}">{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
       {% endfor %}
     </div>{% endif %}
-    <div class="nav-group" role="group" aria-labelledby="nav-projects">
-      <div class="nav-heading"><span id="nav-projects">{{ nav.labels.projects }}</span>{% if nav.new_project %}<a class="nav-add" href="{{ nav.new_project.href }}" title="{{ nav.new_project.label }}"{% if nav.new_project.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.icons.plus %}<span class="visually-hidden">{{ nav.new_project.label }}</span></a>{% endif %}</div>
+    <div class="nav-group" role="group" aria-label="{{ nav.labels.projects }}">
+      <div class="nav-heading"><span aria-hidden="true">{{ nav.labels.projects }}</span>{% if nav.new_project %}<a class="nav-add" href="{{ nav.new_project.href }}" title="{{ nav.new_project.label }}"{% if nav.new_project.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.icons.plus %}<span class="visually-hidden">{{ nav.new_project.label }}</span></a>{% endif %}</div>
       {% for link in nav.projects %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="project-mark" aria-hidden="true">{{ link.initial }}</span><span class="nav-label">{{ link.label }}</span></a>
       {% endfor %}
       <a class="nav-item nav-quiet" href="{{ nav.all_projects.href }}"{% if nav.all_projects.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.all_projects.icon %}<span class="nav-label">{{ nav.all_projects.label }}</span></a>
     </div>
-    <div class="nav-group" role="group" aria-labelledby="nav-organization">
-      <div class="nav-heading" id="nav-organization">{{ nav.labels.organization }}</div>
+    <div class="nav-group" role="group" aria-label="{{ nav.labels.organization }}">
+      <div class="nav-heading" aria-hidden="true">{{ nav.labels.organization }}</div>
       {% for link in nav.organization %}<a class="nav-item{% if forloop.last and nav.admin_pages %} nav-section{% endif %}" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
       {% endfor %}
       {% if nav.admin_pages %}<div class="nav-sub">

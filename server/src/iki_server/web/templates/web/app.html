@@ -12,6 +12,8 @@
   <title>Iki{% if organization_name %} · {{ organization_name }}{% endif %}</title>
   <link rel="icon" href="{% static 'iki/favicon.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'iki/iki.css' %}">
+  {# Inter's Latin, asked for at once: drawn in the fallback first, the page would shift when it came. #}
+  <link rel="preload" href="{% static 'iki/fonts/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   {# React Aria adds this rule as an inline style element, which the CSP refuses, unless one #}
   {# with its id is already there: this is it, holding the same rule as a file. #}
   <link rel="stylesheet" id="react-aria-pressable-style" href="{% static 'iki/react-aria.css' %}">
