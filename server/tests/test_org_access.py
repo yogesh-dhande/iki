@@ -1,4 +1,4 @@
-"""The endpoint matrix: every org, audit and sign-in settings page against every principal.
+"""The endpoint matrix: every org, audit and sign-in admin page against every principal.
 
 404 means "you can't know this exists", 403 means "you can see it but not
 do this", 302 to /login/ means "sign in first". A test fails if a new org URL

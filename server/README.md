@@ -46,7 +46,7 @@ SAML signing certificate.
 
 ### SCIM provisioning
 
-Org Admins turn on SCIM on the **Sign-in** settings page (`/admin/sign-in/`).
+Org Admins turn on SCIM on **Admin → Sign-in and provisioning** (`/admin/sign-in/`).
 That shows the base URL (`https://<host>/scim/v2/`) and a bearer token, once,
 to enter in Microsoft Entra ID, Okta or another SCIM client.
 
@@ -444,7 +444,7 @@ lets them watch it, to hear what its type tells watchers, or mute it.
 Email is off until `IKI_EMAIL_URL` is set. Encryption is required:
 STARTTLS (`smtp+tls://`) or TLS from the start (`smtp+ssl://`), with the
 server's certificate verified. Org Admins can send a test email at
-Settings → Email, and can choose to leave the details out of emails, so
+Admin → Email, and can choose to leave the details out of emails, so
 they only say there's something new in Iki. Emails are marked as automatic
 (`Auto-Submitted`), so out-of-office replies stay quiet.
 
@@ -510,7 +510,7 @@ lists them.
 
 Webhooks tell other systems, such as an ELN or LIMS, when something changes
 (ADR 0031). Project Admins add them under a project's Automation tab, and Org
-Admins add organization-wide ones at Settings → Webhooks. The API is under
+Admins add organization-wide ones at Admin → Webhooks. The API is under
 `/api/v1/projects/{id}/webhooks` and `/api/v1/webhooks`; tokens need the
 `webhooks` scope.
 

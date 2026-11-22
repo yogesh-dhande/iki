@@ -617,7 +617,7 @@ def test_someone_else_signing_in_locks_signing_after_three_tries(lab: World, oid
 
 
 def test_org_admins_certify_and_unlock_in_settings(world: World) -> None:
-    """Settings → Signatures: the certification (21 CFR 11.100(c)), who's locked out, and
+    """Admin → Electronic signatures: the certification (21 CFR 11.100(c)), who's locked out, and
     the keys. Org Admins act there; Auditors read it."""
     from org_world import post
 
