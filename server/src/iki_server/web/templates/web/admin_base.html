@@ -17,7 +17,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   {% admin_area as admin %}
   <div class="admin-frame">
-    <nav class="admin-side" aria-label="Admin" data-admin-menu-root>
+    <nav class="admin-side" aria-label="Admin">
       <div class="admin-side-head">
         <a class="admin-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>Back to Iki</a>
         <div class="admin-title">
@@ -25,7 +25,7 @@
           <span>Admin</span>
           {% if organization_name %}<span class="admin-org">{{ organization_name }}</span>{% endif %}
         </div>
-        <button class="admin-menu-button" type="button" aria-expanded="true" aria-controls="admin-menu" data-admin-menu hidden>Menu</button>
+        <button class="button admin-menu-button" type="button" aria-expanded="true" aria-controls="admin-menu" data-admin-menu hidden>Menu</button>
       </div>
       <div class="admin-menu" id="admin-menu">
         {% for section in admin.sections %}

@@ -186,7 +186,7 @@ def test_the_frame_has_the_account_and_the_narrow_screens_menu(world: World) -> 
     assert re.search(r'<form class="admin-account" method="post" action="/logout/">', html)
     # Hidden until iki.js runs, so without it the pages stay listed.
     assert re.search(
-        r'<button class="admin-menu-button" type="button" aria-expanded="true" '
+        r'<button class="button admin-menu-button" type="button" aria-expanded="true" '
         r'aria-controls="admin-menu" data-admin-menu hidden>Menu</button>',
         html,
     )
