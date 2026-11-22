@@ -510,7 +510,7 @@ describe("a project", () => {
       ],
     });
     const { user } = await renderApp("/projects/kinase-atlas/");
-    await user.click(await screen.findByRole("button", { name: "Notifications in Kinase Atlas" }));
+    await user.click(await screen.findByRole("button", { name: "Watch Kinase Atlas" }));
     const dialog = await screen.findByRole("alertdialog", {
       name: "Notifications in Kinase Atlas",
     });
@@ -1468,8 +1468,14 @@ describe("webhooks", () => {
     signedIn();
     onWebhooks();
     await renderApp("/projects/kinase-atlas/webhooks/");
+    // One of Automation's three (ADR 0176): the tab is current, and its row says which.
     const tabs = screen.getByRole("navigation", { name: "Project" });
-    expect(within(tabs).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
+    expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const automation = screen.getByRole("navigation", { name: "Automation" });
+    expect(within(automation).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -1496,7 +1502,7 @@ describe("webhooks", () => {
     });
     await renderApp("/projects/kinase-atlas/webhooks/");
     expect(
-      within(screen.getByRole("navigation", { name: "Project" })).queryByRole("link", {
+      within(screen.getByRole("navigation", { name: "Automation" })).queryByRole("link", {
         name: "Webhooks",
       }),
     ).toBeNull();

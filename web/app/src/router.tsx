@@ -10,6 +10,7 @@ import {
   createRouter,
   lazyRouteComponent,
   Outlet,
+  redirect,
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
@@ -335,6 +336,25 @@ const projectTriggersRoute = createRoute({
   component: ProjectTriggers,
 });
 
+// A project's Automation tab (ADR 0176): its workflows, triggers and webhooks keep their own
+// addresses; this one opens the first of them the reader may see.
+const projectAutomationRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "automation",
+  beforeLoad: async ({ context, params }) => {
+    const project = await context.queryClient.query(projectQuery(params.slug));
+    redirect({
+      throw: true,
+      to:
+        !project.can.read && project.can.manage_webhooks
+          ? "/projects/$slug/webhooks/"
+          : "/projects/$slug/workflows/",
+      params,
+      replace: true,
+    });
+  },
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -575,6 +595,7 @@ const routeTree = rootRoute.addChildren([
       projectWorkflowsRoute,
       projectWorkflowNewRoute,
       projectTriggersRoute,
+      projectAutomationRoute,
       projectSettingsRoute,
       projectImportRoute,
       projectAppDraftRoute,

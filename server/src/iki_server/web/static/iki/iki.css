@@ -3179,3 +3179,459 @@ input[type="file"]::file-selector-button {
   max-height: 24rem;
   overflow: auto;
 }
+
+/* --- A project's page (ADR 0176) ----------------------------------------------------------- */
+
+/* Projects' and people's colors (project-color.ts), one of eight from their ID: each at least
+   3:1 against the page and its surfaces, with --swatch-text on it at 4.5:1, in both themes. */
+:root {
+  --swatch-1: #2a62c9;
+  --swatch-2: #0b7a6b;
+  --swatch-3: #b35c00;
+  --swatch-4: #7048c8;
+  --swatch-5: #b8336e;
+  --swatch-6: #4f6b12;
+  --swatch-7: #a83c32;
+  --swatch-8: #4d5b6a;
+  --swatch-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --swatch-1: #7fb0ff;
+    --swatch-2: #4fc7b4;
+    --swatch-3: #f2a65a;
+    --swatch-4: #b9a0f5;
+    --swatch-5: #f28dbb;
+    --swatch-6: #a8cf5f;
+    --swatch-7: #ff9b85;
+    --swatch-8: #a3b0bd;
+    --swatch-text: #0f141a;
+  }
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.swatch-large {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.swatch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Where it is, and what can be done from anywhere in it. */
+.project-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.breadcrumb li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.breadcrumb li + li::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--muted);
+}
+
+.breadcrumb a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.breadcrumb a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.project-actions .button {
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.project-heading {
+  margin-bottom: 8px;
+}
+
+.project-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-name h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.project-summary {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Its tabs: underlined, each with its count. */
+.tabs.project-tabs {
+  gap: 2px;
+  padding-bottom: 0;
+  margin-bottom: 16px;
+}
+
+.project-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  margin-bottom: -1px;
+  padding: 0 10px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.project-tabs a:hover {
+  background: none;
+  color: var(--text);
+}
+
+.project-tabs a[aria-current="page"] {
+  background: none;
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.tab-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Automation's three, a row below the tabs. */
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -4px 0 16px;
+}
+
+.subtabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.subtabs a:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.subtabs a[aria-current="page"] {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* The New menu. */
+.menu-popover {
+  min-width: 11rem;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.menu {
+  outline: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-item[data-focused] {
+  background: var(--surface-2);
+}
+
+.menu-item[data-focus-visible] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* The Overview: what's in it and what changed, beside what it is. */
+.project-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.project-main {
+  display: flex;
+  flex: 999 1 520px;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.project-aside {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.project-main > *,
+.project-aside > *,
+.project-main > .card + .card {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.box {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.box-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.box-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.box-aside {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.box-body {
+  margin: 0;
+  padding: 10px 14px;
+}
+
+.box-body p,
+.box-body .summary {
+  margin: 0 0 6px;
+}
+
+.box-body > :last-child {
+  margin-bottom: 0;
+}
+
+.box > .alert,
+.box > [role="status"] {
+  margin: 10px 14px;
+}
+
+.type-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  /* Each cell draws its right and bottom lines; the box clips the outer ones. */
+  margin: 0 -1px -1px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.type-counts li {
+  box-shadow:
+    1px 0 0 var(--border),
+    0 1px 0 var(--border);
+}
+
+.type-counts a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.type-counts a:hover {
+  background: var(--surface-2);
+}
+
+.type-count-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.type-count-value {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.changes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.change:last-child {
+  border-bottom: 0;
+}
+
+.change-plain {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.change-what {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.change-when {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hrid {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--swatch-text);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.avatar-system {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.avatars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px;
+  list-style: none;
+}
+
+.avatars .avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 10.5px;
+}
+
+.avatars-more {
+  align-self: center;
+  font-size: 12px;
+}

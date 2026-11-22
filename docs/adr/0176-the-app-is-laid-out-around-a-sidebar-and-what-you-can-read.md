@@ -67,6 +67,25 @@ Workflows, triggers and webhooks go under Automation, so they no longer take
 three tabs. Its Entities, Requests and Runs tabs are the top-level lists,
 filtered to the project.
 
+- **Its heading** says where it is (Projects / its name), its first line of
+  description, how many members it has and the reader's role. **Watch** chooses
+  how the reader is told of what happens in it, as GitHub's does; **New** makes a
+  record, a run or a workflow run there, for those who may.
+- **Automation's three keep their addresses.** Workflows, triggers and webhooks
+  stay at `/projects/<slug>/workflows/`, `triggers/` and `webhooks/`, with
+  their new and detail pages, so every link to them still works; they show as
+  a row of their own under the Automation tab. `/projects/<slug>/automation/`
+  opens the first of them the reader may see.
+- **The Overview** counts its records by type, each opening that type's table
+  held to the project; lists its latest changes (`GET /projects/{id}/changes`:
+  its records' revisions, read by the same rules as its Entities tab); and
+  beside them says what it is, its latest requests, its members and its
+  automation.
+- **Each project has a color,** a small square beside its name. Projects have
+  no color to choose, so each takes one of eight from its ID: the same
+  everywhere and for everyone, at 3:1 or more against the page in both themes.
+  People's initials take theirs the same way.
+
 **A record shows its values. Who changed them is on demand.** The line under
 each field goes. Each field has a small history button that shows its last
 change and links to the trail. The record has an **Audit trail** tab: every
