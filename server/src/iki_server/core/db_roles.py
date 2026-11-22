@@ -28,6 +28,7 @@ READ_ONLY_TABLES = (
     "django_migrations",
     "iki_graph_edge",
     "iki_history_change",
+    "iki_plugin_baseline",
     "iki_plugin_migration",
     "iki_plugin_state",
 )

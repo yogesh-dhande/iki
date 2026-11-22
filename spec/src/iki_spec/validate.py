@@ -69,10 +69,16 @@ from iki_spec.model import (
     refinement,
     split_entry,
 )
-from iki_spec.problems import Path, Problem, Severity
+from iki_spec.problems import Location, Path, Problem, Severity
 from iki_spec.yamlsource import Document, parse_documents, read_documents
 
-__all__ = ["Result", "check_settings_values", "load_plugin", "read_settings"]
+__all__ = [
+    "Result",
+    "check_compiled_rules",
+    "check_settings_values",
+    "load_plugin",
+    "read_settings",
+]
 
 PLUGIN_FILES = ("plugin.yaml", "plugin.yml")
 TYPES_DIR = "types"
@@ -291,6 +297,34 @@ def load_plugin(
         others[other.plugin.name] = other
     _Semantics(loaded, others, core=core).run()
     return loaded.result()
+
+
+def check_compiled_rules(plugin: Plugin, installed: Mapping[str, Plugin]) -> Plugin:
+    """Recheck a compiled manifest's rule expressions and field references, without source files.
+
+    Recompute the fields each rule reads. A compiled manifest may have come from an API
+    caller, so those derived lists are no more authoritative than the expressions themselves.
+    """
+    path = FilePath("manifest.json")
+    source = Document(path.name, 0, {}, Location(1, 1))
+    loaded = _Loaded(
+        path,
+        _Checker(path),
+        plugin,
+        source,
+        type_sources=dict.fromkeys(plugin.types, source),
+        extension_sources=[source] * len(plugin.extensions),
+    )
+    others = {
+        name: _Loaded(path, loaded.checker, other, source)
+        for name, other in installed.items()
+        if name != plugin.name
+    }
+    types, extensions = rules.check(_Semantics(loaded, others, core=plugin.name == naming.CORE))
+    for problem in loaded.checker.problems:
+        if problem.is_error:
+            raise ValueError(f"{'.'.join(map(str, problem.path))}: {problem.message}")
+    return dataclasses.replace(plugin, types=types, extensions=extensions)
 
 
 _NOT_A_PLUGIN = frozenset({"not-a-directory", "missing-plugin-manifest"})

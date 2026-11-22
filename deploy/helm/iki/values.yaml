@@ -328,8 +328,10 @@ tasks:
   podAnnotations: {}
 
 migrate:
-  # Runs `iki-server migrate` as a Helm pre-install/pre-upgrade hook.
+  # Runs `iki-server migrate_deployment` before installation, upgrade or rollback.
   enabled: true
+  # Candidate manifest digests whose blocking findings a reviewer acknowledged (ADR 0181).
+  acknowledgePreflight: []
   activeDeadlineSeconds: 1800
   # How long to wait for Postgres to accept connections before migrating.
   waitForDatabaseSeconds: 300

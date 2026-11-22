@@ -55,6 +55,16 @@
       },
       "additionalProperties": false
     },
+    "migrate": {
+      "type": "object",
+      "properties": {
+        "acknowledgePreflight": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
     "publicUrl": {
       "type": "string",
       "pattern": "^https?://[^/?#]+/?$",

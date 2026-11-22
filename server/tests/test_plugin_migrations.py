@@ -371,6 +371,10 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
     assert result.returncode == 0, result.stdout + result.stderr
     migrate(out, database)
     sync(out, database)
+    lock = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
+    assert query(database, "SELECT revision FROM iki_plugin_baseline") == [
+        (lock["lockfile_sha256"],)
+    ]
     result = orm(
         out,
         database,
@@ -1744,10 +1748,53 @@ def test_applied_migrations_cant_change(two_builds: tuple[Path, Path], database:
     assert "Applied migrations changed since they ran here: acme/lab 0001_initial." in err
 
 
+def test_deploy_requires_review_before_adding_a_rule_existing_records_break(
+    lab: Path, database: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    deployed(v1, database)
+    samples(v1, database)
+    rule = "rules:\n  minimum_count:\n    check: record.count >= 5\n    message: At least five.\n"
+    (lab / "types" / "sample.yaml").write_text(SAMPLE + "  notes: { type: text }\n" + rule)
+    made("lab", "--name", "notes", "--no-input", cwd=lab.parent)
+    v2 = build_to(lab.parent, "v2", "lab")
+
+    message = refused(v2, database)
+    assert "acme/lab.Sample" in message and "minimum_count" in message
+    acknowledgement = re.search(r"--acknowledge-preflight (\S+)", message)
+    assert acknowledgement, message
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    previous = query(database, "SELECT revision FROM iki_plugin_baseline")
+
+    args = ["-m", "django", "migrate_deployment", "--no-grant", "--acknowledge-preflight"]
+    wrong = django(v2, database, *args, "a" * 64)
+    assert wrong.returncode != 0 and "minimum_count" in wrong.stderr
+    reviewed = django(v2, database, *args, acknowledgement[1])
+    assert reviewed.returncode == 0, reviewed.stdout + reviewed.stderr
+    assert applied(database, "acme__lab") == ["0001_initial", "0002_notes"]
+    assert query(database, "SELECT revision FROM iki_plugin_baseline") != previous
+
+
+def test_deploy_needs_the_current_manifest_when_plugin_migrations_are_applied(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    v1, v2 = two_builds
+    migrate(v1, database)
+    # A database created with plain migrate has tables, but hasn't synced any manifests.
+    err = refused(v2, database)
+    assert "sync_plugins from the currently deployed build" in err
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    sync(v1, database)
+    deployed(v2, database)
+    assert "notes" in columns(database, "acme__lab_sample")
+
+
 def test_the_app_can_only_read_the_kept_copies() -> None:
     from iki_server.core import db_roles
 
     assert "iki_plugin_migration" in db_roles.READ_ONLY_TABLES
+    assert "iki_plugin_baseline" in db_roles.READ_ONLY_TABLES
     # Nor what migrations did to kept history (ADR 0148).
     assert "iki_history_change" in db_roles.READ_ONLY_TABLES
 

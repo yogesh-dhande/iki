@@ -71,6 +71,7 @@ from iki_server.entities import (
 )
 from iki_server.entities.values import shape
 from iki_server.graph import edges
+from iki_server.plugins import baseline
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
 from iki_spec.model import EntityType, Extension, Field, split_entry
@@ -149,6 +150,7 @@ def sync(analyst_role: str | None = None) -> Report:
             for statement in _analyst_grants(analyst_role):
                 cursor.execute(statement)
             report.analyst = analyst_role
+        baseline.keep()
     return report
 
 

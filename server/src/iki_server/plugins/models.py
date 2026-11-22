@@ -47,6 +47,27 @@ class PluginMigration(models.Model):
         return f"{self.app}.{self.name}"
 
 
+class PluginBaseline(models.Model):
+    """The configuration and manifests last committed by the migrator (ADR 0181).
+
+    The next migrator runs in the candidate image. This row lets it interpret the live
+    tables as they exist before deploying that image, even for a local plugin build.
+    """
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    revision = models.CharField(max_length=64)
+    manifests = models.JSONField()
+
+    class Meta:
+        db_table = "iki_plugin_baseline"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(id=1), name="iki_plugin_baseline_singleton"),
+        ]
+
+    def __str__(self) -> str:
+        return self.revision
+
+
 class PluginState(models.Model):
     """Each plugin a deploy has installed, as the last deploy left it (ADR 0091).
 
