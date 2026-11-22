@@ -38,6 +38,10 @@
       "description": "Only subtypes have entities; nobody creates one of this type itself.",
       "type": "boolean"
     },
+    "sample": {
+      "description": "Its records are samples, or material taken from them: a project's Files are found by the sample they belong to, the files its records hold and those a run that read one read or made. Its subtypes' records are samples too.",
+      "type": "boolean"
+    },
     "hrid": {
       "description": "Human-readable IDs, such as PRT-000123. Never reused.",
       "type": "object",

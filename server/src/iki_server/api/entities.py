@@ -494,6 +494,9 @@ class EntityTypeOut(Schema):
     description: str | None
     extends: str | None
     abstract: bool = Field(description="Abstract types have no entities of their own.")
+    sample: bool = Field(
+        description="Its records are samples (ADR 0177): a project's files are found by them."
+    )
     detached: bool = Field(
         description="Its plugin is detached (ADR 0091): its entities can be read, not changed, "
         "and no new ones can be made."
@@ -1246,6 +1249,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "description": entity_type.description,
         "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
+        "sample": name in registry.sample_types(),
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,

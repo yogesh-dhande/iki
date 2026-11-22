@@ -16,7 +16,7 @@ SHA-256, then the registration is ``ready``, with its ``file``.
 ``registration.finished`` arrives on ``/events``.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -29,7 +29,11 @@ from iki_server.api.common import caller, project
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
-from iki_server.files import services, storage
+from iki_server.entities import access
+from iki_server.entities import services as entity_services
+from iki_server.entities.models import Entity
+from iki_server.entities.values import shape, to_json
+from iki_server.files import acquired, listing, services, storage
 from iki_server.files.models import (
     File,
     Registration,
@@ -48,6 +52,19 @@ router = Router(tags=["files"])
 # --- Schemas -------------------------------------------------------------------------------------
 
 
+class AcquiredOut(Schema):
+    on: date = Field(description="The day, as its source gave it.")
+    at: str = Field(
+        description="When, in ISO 8601, as precisely as its source gave it: a date, or a date "
+        "and time, with an offset only if the source stated one."
+    )
+    source: str = Field(
+        description="Where that came from: ``given`` by whoever added it, or the format that "
+        "records it in the file, such as ``abif`` or ``fcs``."
+    )
+    source_label: str = Field(description="Where that came from, as people would say it.")
+
+
 class FileOut(Schema):
     id: UUID
     name: str
@@ -61,6 +78,97 @@ class FileOut(Schema):
     )
     created_at: datetime
     external: bool = Field(description="Registered where it already was, rather than uploaded.")
+    acquired: AcquiredOut | None = Field(
+        description="When its data was acquired (ADR 0177): as its format records it, or as "
+        "whoever added it said. Null if neither says: never when it was added."
+    )
+
+
+class UsedByCountOut(Schema):
+    records: int = Field(description="Records you can read that hold it, at any revision.")
+    runs: int = Field(description="Runs you can read that read or made it.")
+
+
+class FileRowOut(FileOut):
+    used_by: UsedByCountOut
+
+
+class FilePageOut(Schema):
+    items: list[FileRowOut]
+    next_cursor: str | None = Field(
+        description="Pass as cursor for the next page; null at the end."
+    )
+
+
+class RunRef(Schema):
+    id: UUID
+    hrid: str
+    action: str = Field(description="Its action, qualified.")
+    label: str = Field(description="Its action's label.")
+
+
+class OriginOut(Schema):
+    kind: Literal["upload", "run", "registration", "import"] = Field(
+        description="How it was added: uploaded, uploaded by a run's worker for its results, "
+        "registered where it already was, or imported with a bundle from another deployment."
+    )
+    run: RunRef | None = Field(description="The run that made it, if you can read the run.")
+    uri: str | None = Field(description="Where a registered file is, such as s3://lab/x.csv.")
+    version: str | None = Field(description="The object version a registered file is pinned to.")
+
+
+class SampleOut(Schema):
+    id: UUID
+    hrid: str
+    title: str
+    type: str
+    via_run: RunRef | None = Field(
+        description="The run it came through: one that read the sample and read or made the "
+        "file. Null when the sample holds the file itself."
+    )
+
+
+class FileDetailOut(FileRowOut):
+    origin: OriginOut
+    samples: list[SampleOut] = Field(description="The samples it belongs to that you can read.")
+
+
+class SpanOut(Schema):
+    first: int = Field(description="The first revision that held it.")
+    last: int | None = Field(description="The last that did; null if the latest still does.")
+    fields: list[str] = Field(description="The fields that held it.")
+
+
+class HoldingRecordOut(Schema):
+    id: UUID
+    hrid: str
+    title: str
+    type: str
+    revision: int = Field(description="The record's latest revision.")
+    spans: list[SpanOut] = Field(description="Its revisions that held the file.")
+
+
+class UsingRunOut(Schema):
+    id: UUID
+    hrid: str
+    action: str
+    label: str
+    status: str
+    project: ProjectRef
+    roles: list[Literal["param", "input", "made"]] = Field(
+        description="How it used the file: a file param, an input's file, or made by it."
+    )
+    created_at: datetime
+
+
+class FormatOut(Schema):
+    media_type: str
+    count: int
+
+
+class FileCountOut(Schema):
+    total: int = Field(description="How many match, up to 1,000.")
+    more_than_total: bool
 
 
 class PartOut(Schema):
@@ -97,6 +205,13 @@ class UploadIn(Schema):
     sha256: str = Field(
         min_length=64, max_length=64, description="Of its bytes, as hex: Iki checks them."
     )
+    acquired_at: str = Field(
+        "",
+        max_length=40,
+        description="When its data was acquired, if you know: a date (2026-03-14) or a date "
+        "and time (2026-03-14T09:21, with an offset if known), in ISO 8601. Iki keeps the "
+        "file's own instead when its format records one (ADR 0177).",
+    )
 
 
 class PartsIn(Schema):
@@ -116,6 +231,11 @@ class RegistrationIn(Schema):
     name: str = Field("", max_length=1000, description="Its name; the key's last part if empty.")
     media_type: str = Field(
         "", max_length=255, description="Such as text/csv; the object's own if empty."
+    )
+    acquired_at: str = Field(
+        "",
+        max_length=40,
+        description="When its data was acquired, if you know, as for an upload (ADR 0177).",
     )
 
 
@@ -138,8 +258,47 @@ class LocationsOut(Schema):
 
 
 class FileFilters(PageParams):
+    project: UUID | None = Field(None, description="Its files; every one you can read if left out.")
+    q: str = Field("", max_length=255, description="Part of its name, in any case.")
+    format: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Media types, such as application/x-abi, or image/* for any image.",
+    )
+    acquired_from: date | None = Field(None, description="Acquired on this day or later.")
+    acquired_to: date | None = Field(None, description="Acquired on this day or earlier.")
+    sample: str | None = Field(
+        None,
+        max_length=64,
+        description="A sample, by ID or HRID: the files it holds, and those a run that read it "
+        "read or made (ADR 0177).",
+    )
+    run: str | None = Field(
+        None, max_length=64, description="A run, by ID or HRID: the files it read or made."
+    )
+    accepts: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Only files a field or param takes: its media types, as `format`.",
+    )
+    max_size: int | None = Field(None, ge=0, description="Only files this many bytes or fewer.")
+    sort: listing.Sort = Field(
+        "newest",
+        description="newest or oldest added, name (A to Z) or name_desc, or by when acquired: "
+        "acquired (latest first) or acquired_oldest, unknown last either way.",
+    )
+
+
+class FacetParams(Schema):
     project: UUID | None = None
-    newest_first: bool = Field(False, description="Newest first, rather than oldest.")
+    q: str = Field("", max_length=255)
+    acquired_from: date | None = None
+    acquired_to: date | None = None
+    sample: str | None = Field(None, max_length=64)
+    run: str | None = Field(None, max_length=64)
+    accepts: list[str] = Field(default_factory=list, max_length=50)
+    max_size: int | None = Field(None, ge=0)
+    format: list[str] = Field(default_factory=list, max_length=50)
 
 
 # --- Helpers -------------------------------------------------------------------------------------
@@ -167,9 +326,26 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
             "agent": agent_out(f.agent),
             "created_at": f.created_at,
             "external": f.blob.registered_external,
+            "acquired": _acquired_out(f),
         }
         for f in files
     ]
+
+
+def _acquired_out(f: File) -> dict[str, Any] | None:
+    if f.acquired_on is None:
+        return None
+    how = (
+        "as given when it was added"
+        if f.acquired_from == services.GIVEN
+        else f"from {acquired.SOURCES.get(f.acquired_from, f.acquired_from)}"
+    )
+    return {
+        "on": f.acquired_on,
+        "at": f.acquired_at,
+        "source": f.acquired_from,
+        "source_label": how,
+    }
 
 
 def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
@@ -265,6 +441,7 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
             media_type=payload.media_type,
             size=payload.size,
             sha256=payload.sha256,
+            acquired_at=payload.acquired_at,
         )
     except Refused as error:
         raise _invalid(error) from None
@@ -354,6 +531,7 @@ def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[
             version=payload.version,
             name=payload.name,
             media_type=payload.media_type,
+            acquired_at=payload.acquired_at,
         )
     except Refused as error:
         raise _invalid(error) from None
@@ -387,23 +565,253 @@ def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, A
 # --- Files ---------------------------------------------------------------------------------------
 
 
-@router.get("/files", response=Page[FileOut], summary="Files you can read")
+def _filters(me: User, params: FileFilters | FacetParams) -> listing.Filters:
+    from iki_server.runs.models import ActionRun
+    from iki_server.runs.services import visible_runs
+
+    sample = None
+    if params.sample:
+        sample = _readable_entity(me, params.sample)
+        if sample is None:
+            raise _unknown("sample", "No such sample, or you can’t read it.")
+    run: ActionRun | None = None
+    if params.run:
+        runs = visible_runs(me)
+        try:
+            run = runs.filter(pk=UUID(params.run)).first()
+        except ValueError:
+            run = runs.filter(hrid=params.run.upper()).first()
+        if run is None:
+            raise _unknown("run", "No such run, or you can’t read it.")
+    return listing.Filters(
+        q=params.q,
+        formats=tuple(_media_types(params.format, "format")),
+        acquired_from=params.acquired_from,
+        acquired_to=params.acquired_to,
+        sample=sample,
+        run=run,
+        accepts=tuple(_media_types(params.accepts, "accepts")),
+        max_size=params.max_size,
+    )
+
+
+def _media_types(given: list[str], parameter: str) -> list[str]:
+    out = []
+    for each in given:
+        text = each.strip().lower()
+        if text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2]):
+            out.append(text)
+            continue
+        try:
+            out.append(services.clean_media_type(text))
+        except Refused:
+            raise _unknown(
+                parameter, f"{each!r} isn't a media type, nor a family such as image/*."
+            ) from None
+    return out
+
+
+def _unknown(parameter: str, detail: str) -> Problem:
+    return Problem(
+        422, "Some fields are invalid.", errors=[{"parameter": parameter, "detail": detail}]
+    )
+
+
+def _readable_entity(me: User, ref: str) -> Entity | None:
+    readable = access.visible(me)
+    try:
+        return readable.filter(pk=UUID(ref)).first()
+    except ValueError:
+        return readable.filter(hrid=ref.strip().upper()).order_by("created_at", "pk").first()
+
+
+def _scope(me: User, project_id: UUID | None) -> Any:  # noqa: ANN401 - a Project or None
+    return project(me, project_id, Action.PROJECT_READ) if project_id else None
+
+
+def _rows_out(me: User, files: list[File]) -> list[dict[str, Any]]:
+    counts = listing.used_by_counts(me, files)
+    return [
+        {**out, "used_by": {"records": counts[f.pk][0], "runs": counts[f.pk][1]}}
+        for f, out in zip(files, _file_out(me, files), strict=True)
+    ]
+
+
+@router.get("/files", response=FilePageOut, summary="Files you can read")
 def list_files(request: HttpRequest, filters: Query[FileFilters]) -> dict[str, Any]:
-    """Oldest first, unless ``newest_first``. Files are read through the projects they
-    were added to."""
+    """A project's files, or every file you can read: those added to the projects, and
+    those their records hold (ADR 0177). Found by part of the name, format, when acquired,
+    sample and run; newest first unless ``sort`` says otherwise. Each says how many records
+    and runs you can read use it."""
     me = caller(request)
-    files = services.readable(me).select_related("blob", "created_by", "agent")
-    if filters.project:
-        files = files.filter(project=project(me, filters.project))
-    result = page(files, filters, newest_first=filters.newest_first)
-    result["items"] = _file_out(me, result["items"])
+    scope = _scope(me, filters.project)
+    try:
+        files, next_cursor = listing.page(
+            me,
+            scope,
+            _filters(me, filters),
+            sort=filters.sort,
+            cursor=filters.cursor,
+            limit=filters.limit,
+        )
+    except listing.CursorError:
+        raise _unknown("cursor", "Not a cursor from this list, sorted so.") from None
+    return {"items": _rows_out(me, files), "next_cursor": next_cursor}
+
+
+@router.get("/files/count", response=FileCountOut, summary="How many files match")
+def count_files(request: HttpRequest, params: Query[FacetParams]) -> dict[str, Any]:
+    """As ``GET /files`` would list them, up to 1,000."""
+    me = caller(request)
+    filters = _filters(me, params)
+    total, more = listing.count(me, _scope(me, params.project), filters)
+    return {"total": total, "more_than_total": more}
+
+
+@router.get("/files/formats", response=list[FormatOut], summary="The formats of files")
+def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[str, Any]]:
+    """The media types of the files ``GET /files`` would list, whatever its ``format``,
+    with how many of each: what its Format filter offers."""
+    me = caller(request)
+    found = listing.formats(me, _scope(me, params.project), _filters(me, params))
+    return [{"media_type": m, "count": n} for m, n in found]
+
+
+def _run_ref(run: Any) -> dict[str, Any]:  # noqa: ANN401 - an ActionRun
+    from iki_server.runs import catalog
+
+    action = catalog.action(run.action)
+    return {
+        "id": run.pk,
+        "hrid": run.hrid,
+        "action": run.action,
+        "label": (action.label or action.name) if action is not None else run.action,
+    }
+
+
+def _origin(me: User, f: File) -> dict[str, Any]:
+    from iki_server.runs.models import RunUpload
+    from iki_server.runs.services import visible_runs
+
+    out: dict[str, Any] = {"kind": "import", "run": None, "uri": None, "version": None}
+    upload = Upload.objects.filter(file=f).first()
+    if upload is not None:
+        made = RunUpload.objects.filter(upload=upload).values_list("run_id", flat=True).first()
+        if made is None:
+            return {**out, "kind": "upload"}
+        run = visible_runs(me).filter(pk=made).first()
+        return {**out, "kind": "run", "run": _run_ref(run) if run is not None else None}
+    if Registration.objects.filter(file=f).exists():
+        return {
+            **out,
+            "kind": "registration",
+            "uri": f.blob.storage_uri,
+            "version": f.blob.object_version,
+        }
+    return out
+
+
+def _titles(entities: list[Entity]) -> dict[Any, str]:
+    from iki_server.entities import registry
+    from iki_spec import titles
+
+    values = entity_services.current_values_of(entities)
+    types = registry.types()
+    out = {}
+    for e in entities:
+        fields = shape(e.type).fields()
+        shown = {n: to_json(fields[n], v) for n, v in values.get(e.pk, {}).items() if n in fields}
+        entity_type = types.get(e.type)
+        template = registry.display_title(entity_type) if entity_type is not None else None
+        out[e.pk] = titles.render(template, shown, e.hrid, fields)
+    return out
+
+
+@router.get("/files/{file_id}", response=FileDetailOut, summary="A file")
+def get_file(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
+    """With where it came from, the samples it belongs to, and how many records and runs
+    use it, of those you can read."""
+    me = caller(request)
+    found = _file(me, file_id)
+    samples = listing.samples_of(me, found)
+    titles = _titles([e for e, _ in samples])
+    return {
+        **_rows_out(me, [found])[0],
+        "origin": _origin(me, found),
+        "samples": [
+            {
+                "id": e.pk,
+                "hrid": e.hrid,
+                "title": titles[e.pk],
+                "type": e.type,
+                "via_run": _run_ref(run) if run is not None else None,
+            }
+            for e, run in samples
+        ],
+    }
+
+
+@router.get(
+    "/files/{file_id}/records",
+    response=Page[HoldingRecordOut],
+    summary="The records that hold a file",
+)
+def file_records(request: HttpRequest, file_id: UUID, params: Query[PageParams]) -> dict[str, Any]:
+    """Every record you can read that holds the file in a file field, at any revision,
+    with the revisions that hold it (ADR 0177). Oldest first."""
+    me = caller(request)
+    found = _file(me, file_id)
+    result = page(listing.holding_records(me, found), params)
+    records: list[Entity] = result["items"]
+    titles = _titles(records)
+    result["items"] = [
+        {
+            "id": e.pk,
+            "hrid": e.hrid,
+            "title": titles[e.pk],
+            "type": e.type,
+            "revision": e.revision,
+            "spans": [
+                {"first": s.first, "last": s.last, "fields": list(s.fields)}
+                for s in listing.held_spans(e, found.pk)
+            ],
+        }
+        for e in records
+    ]
     return result
 
 
-@router.get("/files/{file_id}", response=FileOut, summary="A file")
-def get_file(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
+@router.get(
+    "/files/{file_id}/runs", response=Page[UsingRunOut], summary="The runs that used a file"
+)
+def file_runs(request: HttpRequest, file_id: UUID, params: Query[PageParams]) -> dict[str, Any]:
+    """Every run you can read that read the file (as a param, or an input's) or made it,
+    newest first."""
+    from iki_server.runs.models import RunFile
+
     me = caller(request)
-    return _file_out(me, [_file(me, file_id)])[0]
+    found = _file(me, file_id)
+    result = page(
+        listing.using_runs(me, found).select_related("project"), params, newest_first=True
+    )
+    runs = result["items"]
+    roles: dict[Any, list[str]] = {}
+    for run_id, role in RunFile.objects.filter(
+        file=found, run__in=[r.pk for r in runs]
+    ).values_list("run_id", "role"):
+        roles.setdefault(run_id, []).append(role)
+    order = {"param": 0, "input": 1, "made": 2}
+    result["items"] = [
+        {
+            **_run_ref(r),
+            "status": r.status,
+            "project": r.project,
+            "roles": sorted(roles.get(r.pk, []), key=order.__getitem__),
+            "created_at": r.created_at,
+        }
+        for r in runs
+    ]
+    return result
 
 
 @router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")

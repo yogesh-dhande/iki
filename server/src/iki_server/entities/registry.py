@@ -63,6 +63,17 @@ def ancestors(entity_type: EntityType) -> list[EntityType]:
     return out
 
 
+def sample_types() -> set[str]:
+    """The types whose records are samples (ADR 0177): those that say so, and their
+    subtypes."""
+    every = types()
+    return {
+        name
+        for name, t in every.items()
+        if any(a.sample for a in [t, *ancestors(t)])
+    }
+
+
 def identity_owner(entity_type: EntityType) -> EntityType | None:
     """The type whose identity ``entity_type``'s entities have: its own or the nearest parent's."""
     return next((t for t in [entity_type, *ancestors(entity_type)] if t.identity), None)

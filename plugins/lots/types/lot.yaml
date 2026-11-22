@@ -9,6 +9,8 @@ name: Lot
 label: Lot
 label_plural: Lots
 abstract: true
+# Its records are samples (ADR 0177): a project's Files finds files by them.
+sample: true
 schema_version: 1
 description: >-
   A lot of a registered entity: what was made or bought of it at one time, which a

@@ -784,6 +784,9 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: Its records are samples (ADR 0177): the files they hold, and those a run that read
+    #: one of them read or made, are its files in a project's Files. Its subtypes' are too.
+    sample: bool = False
     #: What each list of rows it inherits takes, by the list's name (ADR 0164): every role
     #: its rows may have, each with how many and what its references may refer to, within
     #: what its ancestor's say. Its subtypes have these unless they name their own.

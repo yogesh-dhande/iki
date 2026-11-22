@@ -1,6 +1,39 @@
 {
   "components": {
     "schemas": {
+      "AcquiredOut": {
+        "properties": {
+          "at": {
+            "description": "When, in ISO 8601, as precisely as its source gave it: a date, or a date and time, with an offset only if the source stated one.",
+            "title": "At",
+            "type": "string"
+          },
+          "on": {
+            "description": "The day, as its source gave it.",
+            "format": "date",
+            "title": "On",
+            "type": "string"
+          },
+          "source": {
+            "description": "Where that came from: ``given`` by whoever added it, or the format that records it in the file, such as ``abif`` or ``fcs``.",
+            "title": "Source",
+            "type": "string"
+          },
+          "source_label": {
+            "description": "Where that came from, as people would say it.",
+            "title": "Source Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on",
+          "at",
+          "source",
+          "source_label"
+        ],
+        "title": "AcquiredOut",
+        "type": "object"
+      },
       "ActionApiOut": {
         "properties": {
           "api": {
@@ -4912,6 +4945,11 @@
             "title": "Rules",
             "type": "array"
           },
+          "sample": {
+            "description": "Its records are samples (ADR 0177): a project's files are found by them.",
+            "title": "Sample",
+            "type": "boolean"
+          },
           "subtypes": {
             "description": "The types that extend it, at any depth.",
             "items": {
@@ -4961,6 +4999,7 @@
           "description",
           "extends",
           "abstract",
+          "sample",
           "detached",
           "subtypes",
           "hrid_prefix",
@@ -5620,6 +5659,106 @@
         "title": "ExportParams",
         "type": "object"
       },
+      "FacetParams": {
+        "properties": {
+          "accepts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Accepts",
+            "type": "array"
+          },
+          "acquired_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquired From"
+          },
+          "acquired_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquired To"
+          },
+          "format": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Format",
+            "type": "array"
+          },
+          "max_size": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Size"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "q": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "sample": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample"
+          }
+        },
+        "title": "FacetParams",
+        "type": "object"
+      },
       "FieldOut": {
         "properties": {
           "assignment": {
@@ -5934,6 +6073,136 @@
         "title": "FieldOut",
         "type": "object"
       },
+      "FileCountOut": {
+        "properties": {
+          "more_than_total": {
+            "title": "More Than Total",
+            "type": "boolean"
+          },
+          "total": {
+            "description": "How many match, up to 1,000.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "more_than_total"
+        ],
+        "title": "FileCountOut",
+        "type": "object"
+      },
+      "FileDetailOut": {
+        "properties": {
+          "acquired": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcquiredOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added."
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it, acting for created_by, if one did (ADR 0072)."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "external": {
+            "description": "Registered where it already was, rather than uploaded.",
+            "title": "External",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/OriginOut"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it."
+          },
+          "samples": {
+            "description": "The samples it belongs to that you can read.",
+            "items": {
+              "$ref": "#/components/schemas/SampleOut"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "used_by": {
+            "$ref": "#/components/schemas/UsedByCountOut"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "media_type",
+          "size",
+          "sha256",
+          "project",
+          "created_by",
+          "agent",
+          "created_at",
+          "external",
+          "acquired",
+          "used_by",
+          "origin",
+          "samples"
+        ],
+        "title": "FileDetailOut",
+        "type": "object"
+      },
       "FileExportOut": {
         "properties": {
           "export": {
@@ -5979,6 +6248,41 @@
       },
       "FileFilters": {
         "properties": {
+          "accepts": {
+            "description": "Only files a field or param takes: its media types, as `format`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Accepts",
+            "type": "array"
+          },
+          "acquired_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Acquired on this day or later.",
+            "title": "Acquired From"
+          },
+          "acquired_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Acquired on this day or earlier.",
+            "title": "Acquired To"
+          },
           "cursor": {
             "anyOf": [
               {
@@ -5991,6 +6295,15 @@
             "description": "From the previous page's next_cursor.",
             "title": "Cursor"
           },
+          "format": {
+            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Format",
+            "type": "array"
+          },
           "limit": {
             "default": 50,
             "description": "Items per page.",
@@ -5999,11 +6312,18 @@
             "title": "Limit",
             "type": "integer"
           },
-          "newest_first": {
-            "default": false,
-            "description": "Newest first, rather than oldest.",
-            "title": "Newest First",
-            "type": "boolean"
+          "max_size": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only files this many bytes or fewer.",
+            "title": "Max Size"
           },
           "project": {
             "anyOf": [
@@ -6015,7 +6335,55 @@
                 "type": "null"
               }
             ],
+            "description": "Its files; every one you can read if left out.",
             "title": "Project"
+          },
+          "q": {
+            "default": "",
+            "description": "Part of its name, in any case.",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A run, by ID or HRID: the files it read or made.",
+            "title": "Run"
+          },
+          "sample": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A sample, by ID or HRID: the files it holds, and those a run that read it read or made (ADR 0177).",
+            "title": "Sample"
+          },
+          "sort": {
+            "default": "newest",
+            "description": "newest or oldest added, name (A to Z) or name_desc, or by when acquired: acquired (latest first) or acquired_oldest, unknown last either way.",
+            "enum": [
+              "newest",
+              "oldest",
+              "name",
+              "name_desc",
+              "acquired",
+              "acquired_oldest"
+            ],
+            "title": "Sort",
+            "type": "string"
           }
         },
         "title": "FileFilters",
@@ -6065,6 +6433,17 @@
       },
       "FileOut": {
         "properties": {
+          "acquired": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcquiredOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added."
+          },
           "agent": {
             "anyOf": [
               {
@@ -6140,9 +6519,39 @@
           "created_by",
           "agent",
           "created_at",
-          "external"
+          "external",
+          "acquired"
         ],
         "title": "FileOut",
+        "type": "object"
+      },
+      "FilePageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FileRowOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "FilePageOut",
         "type": "object"
       },
       "FileRef": {
@@ -6167,6 +6576,104 @@
           "size"
         ],
         "title": "FileRef",
+        "type": "object"
+      },
+      "FileRowOut": {
+        "properties": {
+          "acquired": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcquiredOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added."
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it, acting for created_by, if one did (ADR 0072)."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "external": {
+            "description": "Registered where it already was, rather than uploaded.",
+            "title": "External",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it."
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "used_by": {
+            "$ref": "#/components/schemas/UsedByCountOut"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "media_type",
+          "size",
+          "sha256",
+          "project",
+          "created_by",
+          "agent",
+          "created_at",
+          "external",
+          "acquired",
+          "used_by"
+        ],
+        "title": "FileRowOut",
         "type": "object"
       },
       "FiredEntityOut": {
@@ -6392,6 +6899,24 @@
           "fired_at"
         ],
         "title": "FiringOut",
+        "type": "object"
+      },
+      "FormatOut": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "media_type",
+          "count"
+        ],
+        "title": "FormatOut",
         "type": "object"
       },
       "FreezeIn": {
@@ -7390,6 +7915,50 @@
           "reviewed_by"
         ],
         "title": "HoldRuleOut",
+        "type": "object"
+      },
+      "HoldingRecordOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The record's latest revision.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "spans": {
+            "description": "Its revisions that held the file.",
+            "items": {
+              "$ref": "#/components/schemas/SpanOut"
+            },
+            "title": "Spans",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "revision",
+          "spans"
+        ],
+        "title": "HoldingRecordOut",
         "type": "object"
       },
       "ImportCounts": {
@@ -10132,107 +10701,58 @@
       },
       "OriginOut": {
         "properties": {
-          "file": {
+          "kind": {
+            "description": "How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.",
+            "enum": [
+              "upload",
+              "run",
+              "registration",
+              "import"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "run": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/OriginFileOut"
+                "$ref": "#/components/schemas/RunRef"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The file it was read from, if you can read it."
+            "description": "The run that made it, if you can read the run."
           },
-          "id": {
-            "description": "Its identifier there: an accession, or a record's name.",
-            "title": "Id",
-            "type": "string"
-          },
-          "made": {
+          "uri": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/MadeOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "How the record says its source made it (ADR 0106): its source's word."
-          },
-          "recorded_at": {
-            "format": "date-time",
-            "title": "Recorded At",
-            "type": "string"
-          },
-          "retrieved_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "When the run fetched it.",
-            "title": "Retrieved At"
-          },
-          "revision": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The revision the run made; none if the entity was already there.",
-            "title": "Revision"
-          },
-          "run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunRefOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The run that imported it, if you can read it."
-          },
-          "sha256": {
-            "description": "The SHA-256 of the record as the run read it.",
-            "title": "Sha256",
-            "type": "string"
-          },
-          "source": {
-            "description": "The database or format, such as NCBI Nucleotide.",
-            "title": "Source",
-            "type": "string"
-          },
-          "url": {
-            "description": "Where people can see the record (https), if the run said.",
-            "title": "Url",
-            "type": "string"
+            "description": "Where a registered file is, such as s3://lab/x.csv.",
+            "title": "Uri"
           },
           "version": {
-            "description": "The record's version or the database's release.",
-            "title": "Version",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The object version a registered file is pinned to.",
+            "title": "Version"
           }
         },
         "required": [
-          "source",
-          "id",
-          "version",
-          "url",
-          "retrieved_at",
-          "sha256",
-          "file",
+          "kind",
           "run",
-          "revision",
-          "made",
-          "recorded_at"
+          "uri",
+          "version"
         ],
         "title": "OriginOut",
         "type": "object"
@@ -10668,35 +11188,6 @@
         "title": "Page[ExportOut]",
         "type": "object"
       },
-      "Page_FileOut_": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/FileOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pass as cursor for the next page; null at the end.",
-            "title": "Next Cursor"
-          }
-        },
-        "required": [
-          "items",
-          "next_cursor"
-        ],
-        "title": "Page[FileOut]",
-        "type": "object"
-      },
       "Page_FiringOut_": {
         "properties": {
           "items": {
@@ -10724,6 +11215,35 @@
           "next_cursor"
         ],
         "title": "Page[FiringOut]",
+        "type": "object"
+      },
+      "Page_HoldingRecordOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HoldingRecordOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[HoldingRecordOut]",
         "type": "object"
       },
       "Page_ImportEntityOut_": {
@@ -11304,6 +11824,35 @@
           "next_cursor"
         ],
         "title": "Page[UserOut]",
+        "type": "object"
+      },
+      "Page_UsingRunOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsingRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[UsingRunOut]",
         "type": "object"
       },
       "Page_WebhookOut_": {
@@ -13826,6 +14375,13 @@
       },
       "RegistrationIn": {
         "properties": {
+          "acquired_at": {
+            "default": "",
+            "description": "When its data was acquired, if you know, as for an upload (ADR 0177).",
+            "maxLength": 40,
+            "title": "Acquired At",
+            "type": "string"
+          },
           "media_type": {
             "default": "",
             "description": "Such as text/csv; the object's own if empty.",
@@ -16781,6 +17337,37 @@
         "title": "RunOut",
         "type": "object"
       },
+      "RunRef": {
+        "properties": {
+          "action": {
+            "description": "Its action, qualified.",
+            "title": "Action",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Its action's label.",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action",
+          "label"
+        ],
+        "title": "RunRef",
+        "type": "object"
+      },
       "RunRefOut": {
         "properties": {
           "action": {
@@ -16847,6 +17434,47 @@
           "project"
         ],
         "title": "RunningOut",
+        "type": "object"
+      },
+      "SampleOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "via_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run it came through: one that read the sample and read or made the file. Null when the sample holds the file itself."
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "via_run"
+        ],
+        "title": "SampleOut",
         "type": "object"
       },
       "SavedSearchCan": {
@@ -17248,7 +17876,7 @@
             "type": "array"
           },
           "searched_records": {
-            "description": "Whether records, requests and runs were searched: text needs three characters, or the start of an HRID.",
+            "description": "Whether records, requests, runs and files were searched: text needs three characters, or the start of an HRID.",
             "title": "Searched Records",
             "type": "boolean"
           }
@@ -17272,6 +17900,7 @@
                   "entities",
                   "requests",
                   "runs",
+                  "files",
                   "projects",
                   "saved_views",
                   "people"
@@ -17336,6 +17965,7 @@
               "entities",
               "requests",
               "runs",
+              "files",
               "projects",
               "saved_views",
               "people"
@@ -17524,6 +18154,7 @@
               "entity",
               "request",
               "run",
+              "file",
               "project",
               "saved_view",
               "person"
@@ -19616,6 +20247,42 @@
         "title": "SortIn",
         "type": "object"
       },
+      "SpanOut": {
+        "properties": {
+          "fields": {
+            "description": "The fields that held it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "first": {
+            "description": "The first revision that held it.",
+            "title": "First",
+            "type": "integer"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last that did; null if the latest still does.",
+            "title": "Last"
+          }
+        },
+        "required": [
+          "first",
+          "last",
+          "fields"
+        ],
+        "title": "SpanOut",
+        "type": "object"
+      },
       "SplitIn": {
         "properties": {
           "count": {
@@ -20998,6 +21665,13 @@
       },
       "UploadIn": {
         "properties": {
+          "acquired_at": {
+            "default": "",
+            "description": "When its data was acquired, if you know: a date (2026-03-14) or a date and time (2026-03-14T09:21, with an offset if known), in ISO 8601. Iki keeps the file's own instead when its format records one (ADR 0177).",
+            "maxLength": 40,
+            "title": "Acquired At",
+            "type": "string"
+          },
           "media_type": {
             "description": "Such as chemical/x-pdb.",
             "maxLength": 255,
@@ -21134,6 +21808,26 @@
         "title": "UploadOut",
         "type": "object"
       },
+      "UsedByCountOut": {
+        "properties": {
+          "records": {
+            "description": "Records you can read that hold it, at any revision.",
+            "title": "Records",
+            "type": "integer"
+          },
+          "runs": {
+            "description": "Runs you can read that read or made it.",
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "records",
+          "runs"
+        ],
+        "title": "UsedByCountOut",
+        "type": "object"
+      },
       "UserFilters": {
         "properties": {
           "active": {
@@ -21258,6 +21952,64 @@
           }
         },
         "title": "UserPatch",
+        "type": "object"
+      },
+      "UsingRunOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "roles": {
+            "description": "How it used the file: a file param, an input's file, or made by it.",
+            "items": {
+              "enum": [
+                "param",
+                "input",
+                "made"
+              ],
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action",
+          "label",
+          "status",
+          "project",
+          "roles",
+          "created_at"
+        ],
+        "title": "UsingRunOut",
         "type": "object"
       },
       "VersionOut": {
@@ -29792,7 +30544,7 @@
     },
     "/api/v1/files": {
       "get": {
-        "description": "Oldest first, unless ``newest_first``. Files are read through the projects they\nwere added to.",
+        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name, format, when acquired,\nsample and run; newest first unless ``sort`` says otherwise. Each says how many records\nand runs you can read use it.",
         "operationId": "iki_server_api_files_list_files",
         "parameters": [
           {
@@ -29828,6 +30580,7 @@
             }
           },
           {
+            "description": "Its files; every one you can read if left out.",
             "in": "query",
             "name": "project",
             "required": false,
@@ -29841,19 +30594,166 @@
                   "type": "null"
                 }
               ],
+              "description": "Its files; every one you can read if left out.",
               "title": "Project"
             }
           },
           {
-            "description": "Newest first, rather than oldest.",
+            "description": "Part of its name, in any case.",
             "in": "query",
-            "name": "newest_first",
+            "name": "q",
             "required": false,
             "schema": {
-              "default": false,
-              "description": "Newest first, rather than oldest.",
-              "title": "Newest First",
-              "type": "boolean"
+              "default": "",
+              "description": "Part of its name, in any case.",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "description": "Media types, such as application/x-abi, or image/* for any image.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Format",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Acquired on this day or later.",
+            "in": "query",
+            "name": "acquired_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Acquired on this day or later.",
+              "title": "Acquired From"
+            }
+          },
+          {
+            "description": "Acquired on this day or earlier.",
+            "in": "query",
+            "name": "acquired_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Acquired on this day or earlier.",
+              "title": "Acquired To"
+            }
+          },
+          {
+            "description": "A sample, by ID or HRID: the files it holds, and those a run that read it read or made (ADR 0177).",
+            "in": "query",
+            "name": "sample",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A sample, by ID or HRID: the files it holds, and those a run that read it read or made (ADR 0177).",
+              "title": "Sample"
+            }
+          },
+          {
+            "description": "A run, by ID or HRID: the files it read or made.",
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A run, by ID or HRID: the files it read or made.",
+              "title": "Run"
+            }
+          },
+          {
+            "description": "Only files a field or param takes: its media types, as `format`.",
+            "in": "query",
+            "name": "accepts",
+            "required": false,
+            "schema": {
+              "description": "Only files a field or param takes: its media types, as `format`.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Accepts",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only files this many bytes or fewer.",
+            "in": "query",
+            "name": "max_size",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only files this many bytes or fewer.",
+              "title": "Max Size"
+            }
+          },
+          {
+            "description": "newest or oldest added, name (A to Z) or name_desc, or by when acquired: acquired (latest first) or acquired_oldest, unknown last either way.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "newest",
+              "description": "newest or oldest added, name (A to Z) or name_desc, or by when acquired: acquired (latest first) or acquired_oldest, unknown last either way.",
+              "enum": [
+                "newest",
+                "oldest",
+                "name",
+                "name_desc",
+                "acquired",
+                "acquired_oldest"
+              ],
+              "title": "Sort",
+              "type": "string"
             }
           }
         ],
@@ -29862,7 +30762,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_FileOut_"
+                  "$ref": "#/components/schemas/FilePageOut"
                 }
               }
             },
@@ -29883,8 +30783,355 @@
         ]
       }
     },
+    "/api/v1/files/count": {
+      "get": {
+        "description": "As ``GET /files`` would list them, up to 1,000.",
+        "operationId": "iki_server_api_files_count_files",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acquired_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acquired From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acquired_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acquired To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sample",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sample"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run"
+            }
+          },
+          {
+            "in": "query",
+            "name": "accepts",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Accepts",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_size",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Size"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Format",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileCountOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How many files match",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/formats": {
+      "get": {
+        "description": "The media types of the files ``GET /files`` would list, whatever its ``format``,\nwith how many of each: what its Format filter offers.",
+        "operationId": "iki_server_api_files_file_formats",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acquired_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acquired From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acquired_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acquired To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sample",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sample"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run"
+            }
+          },
+          {
+            "in": "query",
+            "name": "accepts",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Accepts",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_size",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Size"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Format",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FormatOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The formats of files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/files/{file_id}": {
       "get": {
+        "description": "With where it came from, the samples it belongs to, and how many records and runs\nuse it, of those you can read.",
         "operationId": "iki_server_api_files_get_file",
         "parameters": [
           {
@@ -29903,7 +31150,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FileOut"
+                  "$ref": "#/components/schemas/FileDetailOut"
                 }
               }
             },
@@ -29996,6 +31243,154 @@
           }
         ],
         "summary": "A link to read a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/records": {
+      "get": {
+        "description": "Every record you can read that holds the file in a file field, at any revision,\nwith the revisions that hold it (ADR 0177). Oldest first.",
+        "operationId": "iki_server_api_files_file_records",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_HoldingRecordOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The records that hold a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/runs": {
+      "get": {
+        "description": "Every run you can read that read the file (as a param, or an input's) or made it,\nnewest first.",
+        "operationId": "iki_server_api_files_file_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_UsingRunOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The runs that used a file",
         "tags": [
           "files"
         ]
@@ -35103,6 +36498,7 @@
                     "entities",
                     "requests",
                     "runs",
+                    "files",
                     "projects",
                     "saved_views",
                     "people"

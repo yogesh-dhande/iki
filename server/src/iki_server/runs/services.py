@@ -44,6 +44,7 @@ from iki_server.runs import (
     catalog,
     endings,
     included,
+    input_files,
     live,
     queue,
     quotas,
@@ -528,6 +529,7 @@ def _queue(
             for index, entity in enumerate(chosen)
         )
         included.record(run, made.pins)
+    input_files.record_given(run)
     Job.objects.create(
         run=run,
         project=project,

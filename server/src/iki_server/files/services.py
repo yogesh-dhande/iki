@@ -15,6 +15,7 @@ about its hash.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import unicodedata
 from datetime import timedelta
@@ -30,8 +31,9 @@ from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.core.sizes import human_size
 from iki_server.entities import access
-from iki_server.files import storage
+from iki_server.files import acquired, storage
 from iki_server.files.models import (
+    ACQUIRED,
     MEDIA_TYPE,
     Blob,
     File,
@@ -51,6 +53,11 @@ logger = structlog.get_logger("iki.files")
 UPLOAD_LIFETIME = timedelta(hours=24)
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 _MEDIA_TYPE = re.compile(MEDIA_TYPE)
+#: A media type's top-level kind, such as image: ``image/*`` is any of its types.
+MEDIA_KIND = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
+_ACQUIRED = re.compile(ACQUIRED)
+#: How a file's acquisition is known when whoever added it said, rather than its format.
+GIVEN = "given"
 
 
 def clean_name(name: str) -> str:
@@ -79,6 +86,62 @@ def clean_media_type(media_type: str) -> str:
     return base
 
 
+def clean_acquired(text: str) -> str:
+    """When a file's data was acquired, as someone gives it: ``2026-03-14``, or with a time
+    (``2026-03-14T09:21``, seconds and an offset if they know them), in ISO 8601. A real
+    day, not after today. "" for none."""
+    text = text.strip().replace(" ", "T", 1)
+    if not text:
+        return ""
+    problem = Refused(
+        "Give when it was acquired as a date, such as 2026-03-14, or a date and time, such "
+        "as 2026-03-14T09:21.",
+        field="acquired_at",
+    )
+    if not _ACQUIRED.fullmatch(text):
+        raise problem
+    try:
+        moment = dt.datetime.fromisoformat(text)
+    except ValueError:
+        raise problem from None
+    if moment.year < 1900 or moment.date() > timezone.now().date() + timedelta(days=1):
+        raise Refused(
+            "That's not a day its data could have been acquired: check the date.",
+            field="acquired_at",
+        )
+    return text
+
+
+class _Stored:
+    """A stored object, read a range at a time: what :func:`acquired.read` reads from."""
+
+    def __init__(self, uri: str, version: str, size: int) -> None:
+        self.uri, self.version, self._size = uri, version, size
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def read(self, offset: int, length: int) -> bytes:
+        if offset >= self._size or length <= 0:
+            return b""
+        return storage.read_range(self.uri, self.version, offset, min(length, self._size - offset))
+
+
+def acquisition(
+    name: str, media_type: str, source: acquired.Readable, given: str
+) -> tuple[dt.date | None, str, str]:
+    """When a file's data was acquired, and how that's known (ADR 0177): as its format
+    records it, if it does; else as whoever added it said; else unknown. Never when it was
+    added: that's another fact, kept apart."""
+    found = acquired.read(name, media_type, source) if source.size else None
+    if found is not None:
+        return found.on, found.at, found.source
+    if given:
+        return dt.date.fromisoformat(given[:10]), given, GIVEN
+    return None, "", ""
+
+
 # --- Uploading -----------------------------------------------------------------------------------
 
 
@@ -91,9 +154,11 @@ def start(
     size: int,
     sha256: str,
     kind: UploadKind = UploadKind.FILE,
+    acquired_at: str = "",
 ) -> Upload:
     """A new upload. Callers check the user may add files to the project."""
     name, media_type, sha256 = clean_name(name), clean_media_type(media_type), sha256.lower()
+    acquired_at = clean_acquired(acquired_at)
     if not re.fullmatch(r"[0-9a-f]{64}", sha256):
         raise Refused("The SHA-256 must be 64 hexadecimal digits.", field="sha256")
     if kind == UploadKind.BUNDLE:
@@ -110,6 +175,7 @@ def start(
         agent=log.current_agent(),
         name=name,
         media_type=media_type,
+        acquired_at=acquired_at,
         size=size,
         sha256=sha256,
         kind=kind,
@@ -216,13 +282,23 @@ def check(upload_id: str) -> str:
             _end(locked, UploadState.FAILED)
         logger.warning("upload_mismatch", upload=upload_id, expected=upload.sha256, got=sha256)
         return "mismatch"
-    _finish(upload, sha256, size)
+    when = None
+    if upload.kind == UploadKind.FILE:
+        # Read from the checked bytes, before they move: what the format says of them.
+        staged = _Stored(storage.uri(upload.staging_key), "", size)
+        when = acquisition(upload.name, upload.media_type, staged, upload.acquired_at)
+    _finish(upload, sha256, size, when)
     return "ready"
 
 
-def _finish(upload: Upload, sha256: str, size: int) -> None:
-    """Moves checked bytes to their content's key, and makes the upload a file; or, for an
-    artifact or a checkpoint, to its own key."""
+def _finish(
+    upload: Upload,
+    sha256: str,
+    size: int,
+    when: tuple[dt.date | None, str, str] | None = None,
+) -> None:
+    """Moves checked bytes to their content's key, and makes the upload a file, acquired
+    `when` its bytes say; or, for an artifact or a checkpoint, to its own key."""
     if upload.kind != UploadKind.FILE:
         kept = storage.kept_key(upload.kind, upload.pk)
         storage.copy(upload.staging_key, kept)
@@ -248,6 +324,10 @@ def _finish(upload: Upload, sha256: str, size: int) -> None:
         if locked.state not in (UploadState.PENDING, UploadState.CHECKING):
             return
         blob = _blob(sha256, size, storage.uri(key))
+        # An empty file says nothing of itself: only what its uploader gave.
+        acquired_on, acquired_at, acquired_from = when or acquisition(
+            locked.name, locked.media_type, _Stored("", "", 0), locked.acquired_at
+        )
         file = File.objects.create(
             blob=blob,
             name=locked.name,
@@ -255,9 +335,18 @@ def _finish(upload: Upload, sha256: str, size: int) -> None:
             project_id=locked.project_id,
             created_by_id=locked.created_by_id,
             agent_id=locked.agent_id,
+            acquired_on=acquired_on,
+            acquired_at=acquired_at,
+            acquired_from=acquired_from,
         )
         locked.file = file
         _end(locked, UploadState.READY)
+        # A run's worker uploaded it: the run made it (ADR 0177).
+        from iki_server.runs.models import RunFile, RunFileRole, RunUpload
+
+        made = RunUpload.objects.filter(upload=locked).values_list("run_id", flat=True).first()
+        if made is not None:
+            RunFile.objects.create(run_id=made, file=file, role=RunFileRole.MADE)
         log.record(
             "file.added",
             actor=locked.created_by,
@@ -338,12 +427,14 @@ def register(
     version: str = "",
     name: str = "",
     media_type: str = "",
+    acquired_at: str = "",
 ) -> Registration:
     """Registers one version of an object. Callers check the user may add files to the project.
 
     Without a ``version``, the object's current version is pinned.
     """
     uri = uri.strip()
+    acquired_at = clean_acquired(acquired_at)
     bucket_name, key = storage.split_uri(uri)
     scheme = storage.scheme()
     if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
@@ -387,6 +478,7 @@ def register(
             agent=log.current_agent(),
             name=name,
             media_type=media_type,
+            acquired_at=acquired_at,
             storage_uri=uri,
             object_version=pinned,
             size=found["size"],
@@ -440,6 +532,10 @@ def check_registration(registration_id: str) -> str:
 
 
 def _registered(registration: Registration, blob: Blob) -> None:
+    source = _Stored(blob.storage_uri, blob.object_version, blob.size)
+    acquired_on, acquired_at, acquired_from = acquisition(
+        registration.name, registration.media_type, source, registration.acquired_at
+    )
     file = File.objects.create(
         blob=blob,
         name=registration.name,
@@ -447,6 +543,9 @@ def _registered(registration: Registration, blob: Blob) -> None:
         project_id=registration.project_id,
         created_by_id=registration.created_by_id,
         agent_id=registration.agent_id,
+        acquired_on=acquired_on,
+        acquired_at=acquired_at,
+        acquired_from=acquired_from,
     )
     registration.file = file
     _end_registration(registration, RegistrationState.READY)

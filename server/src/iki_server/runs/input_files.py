@@ -19,11 +19,19 @@ from django.db import transaction
 
 from iki_server.files import storage
 from iki_server.files.models import File
-from iki_server.runs.models import ActionRun, Worker
+from iki_server.runs.models import ActionRun, RunFile, RunFileRole, RunInput, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
 
-__all__ = ["describe", "download", "file_ids", "files_in", "is_file_list", "of_params"]
+__all__ = [
+    "describe",
+    "download",
+    "file_ids",
+    "files_in",
+    "is_file_list",
+    "of_params",
+    "record_given",
+]
 
 
 def is_file_list(f: Field) -> bool:
@@ -78,6 +86,32 @@ def of_params(run: ActionRun) -> set[uuid.UUID]:
         elif spec.get("type") == "list" and (spec.get("items") or {}).get("type") == "file":
             found |= {uuid.UUID(str(v)) for v in value}
     return found
+
+
+def record_given(run: ActionRun) -> None:
+    """Records the files a run is given (ADR 0177): its file params', and those its inputs,
+    and the references they include, hold at the revisions it reads. So each file lists the
+    runs that read it, from when they're launched. Call once its inputs are recorded."""
+    from iki_server.entities.services import values_at
+    from iki_server.entities.values import shape
+    from iki_server.runs import included
+
+    held: set[uuid.UUID] = set()
+    for given in RunInput.objects.filter(run=run).select_related("entity"):
+        fields = shape(given.entity.type).fields()
+        values = values_at(given.entity, given.revision, given.entry_revision)
+        for name, value in values.items():
+            if name in fields:
+                held |= file_ids(fields[name], value)
+    held |= included.documents([run])[1]
+    params = of_params(run)
+    RunFile.objects.bulk_create(
+        [
+            *(RunFile(run=run, file_id=f, role=RunFileRole.PARAM) for f in sorted(params)),
+            *(RunFile(run=run, file_id=f, role=RunFileRole.INPUT) for f in sorted(held)),
+        ],
+        ignore_conflicts=True,
+    )
 
 
 def describe(ids: set[uuid.UUID]) -> dict[str, dict[str, Any]]:

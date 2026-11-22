@@ -186,7 +186,7 @@ export function projectFilesQuery(projectId: string) {
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/files", {
-          params: { query: { project: projectId, limit: 100, newest_first: true } },
+          params: { query: { project: projectId, limit: 100 } },
         }),
       ).items,
   });

@@ -333,6 +333,9 @@ class _Writer:
         new = [f for f in lines if uuid.UUID(f["id"]) not in here]
         self._store(new)
         for f in new:
+            # When its data was acquired, and how that was known, as the deployment it came
+            # from had it (ADR 0177).
+            when = f.get("acquired") or {}
             File.objects.create(
                 id=f["id"],
                 blob=self._blob(f),
@@ -342,6 +345,9 @@ class _Writer:
                 created_by=self._user(f["created_by"]),
                 agent=self._agent(f["agent"]),
                 created_at=f["created_at"],
+                acquired_on=when.get("on"),
+                acquired_at=when.get("at", ""),
+                acquired_from=when.get("source", ""),
             )
             self.counts["files"] += 1
 
