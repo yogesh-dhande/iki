@@ -309,10 +309,10 @@ def test_people_are_those_whose_members_pages_the_caller_sees(world: World, fore
 def test_those_who_manage_people_find_everyone(world: World, foreign: World) -> None:
     body = searched(Api(world.browser("org_admin")), q="outsider", kind="people")
     found = body["groups"][0]
-    assert found["href"] == "/people/"
+    assert found["href"] == "/admin/people/"
     assert {(r["title"], r["href"]) for r in found["items"]} == {
-        ("foreign-Outsider", f"/people/{foreign.users['outsider'].pk}/"),
-        ("Outsider", f"/people/{world.users['outsider'].pk}/"),
+        ("foreign-Outsider", f"/admin/people/{foreign.users['outsider'].pk}/"),
+        ("Outsider", f"/admin/people/{world.users['outsider'].pk}/"),
     }
     body = searched(Api(world.browser("org_admin")), q="inactive", kind="people")
     assert "Deactivated" in body["groups"][0]["items"][-1]["detail"]

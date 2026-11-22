@@ -247,5 +247,5 @@ def _tell(checked: list[Checked]) -> None:
         title=f"{total:,} records break plugins' rules",
         body=f"A deploy checked records saved before their plugins' rules changed: {names}. "
         "Each says which rule on its page.",
-        path="/settings/plugins/",
+        path="/admin/plugins/",
     )

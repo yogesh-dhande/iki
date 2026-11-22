@@ -46,39 +46,39 @@ describe("the admin area", () => {
   it("offers someone who may open everything each page, in the ADR's four groups", async () => {
     signedIn({ can: EVERYTHING });
     onCompute();
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     expect(sidebar()).toEqual([
       [
         "Organization",
         [
-          ["Sign-in and provisioning", "/settings/sign-in/"],
-          ["People", "/people/"],
-          ["Apps", "/settings/apps/"],
-          ["Email", "/settings/email/"],
+          ["Sign-in and provisioning", "/admin/sign-in/"],
+          ["People", "/admin/people/"],
+          ["Apps", "/admin/apps/"],
+          ["Email", "/admin/email/"],
         ],
       ],
       [
         "Data",
         [
-          ["Registries", "/settings/registries/"],
-          ["Plugins", "/settings/plugins/"],
-          ["Outside APIs", "/settings/outside-apis/"],
-          ["Webhooks", "/settings/webhooks/"],
+          ["Registries", "/admin/registries/"],
+          ["Plugins", "/admin/plugins/"],
+          ["Outside APIs", "/admin/outside-apis/"],
+          ["Webhooks", "/admin/webhooks/"],
         ],
       ],
       [
         "Compute and cost",
         [
-          ["Compute", "/compute/"],
-          ["Costs and budgets", "/costs/"],
+          ["Compute", "/admin/compute/"],
+          ["Costs and budgets", "/admin/costs/"],
         ],
       ],
       [
         "Compliance",
         [
-          ["Audit log", "/audit/"],
-          ["Electronic signatures", "/settings/signatures/"],
-          ["Legal holds", "/settings/legal-holds/"],
+          ["Audit log", "/admin/audit/"],
+          ["Electronic signatures", "/admin/signatures/"],
+          ["Legal holds", "/admin/legal-holds/"],
         ],
       ],
     ]);
@@ -86,15 +86,15 @@ describe("the admin area", () => {
 
   it("shows an auditor only what they may open, and no group left empty", async () => {
     signedIn({ can: { ...NONE, read_audit: true, read_costs: true } });
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     expect(sidebar()).toEqual([
-      ["Compute and cost", [["Costs and budgets", "/costs/"]]],
+      ["Compute and cost", [["Costs and budgets", "/admin/costs/"]]],
       [
         "Compliance",
         [
-          ["Audit log", "/audit/"],
-          ["Electronic signatures", "/settings/signatures/"],
-          ["Legal holds", "/settings/legal-holds/"],
+          ["Audit log", "/admin/audit/"],
+          ["Electronic signatures", "/admin/signatures/"],
+          ["Legal holds", "/admin/legal-holds/"],
         ],
       ],
     ]);
@@ -104,7 +104,7 @@ describe("the admin area", () => {
 
   it("leads back to Iki, says where you are, and has your account at its foot", async () => {
     signedIn({ can: { ...NONE, manage_org: true } });
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     const nav = screen.getByRole("navigation", { name: "Admin" });
     expect(within(nav).getByRole("link", { name: "Back to Iki" })).toHaveAttribute("href", "/");
     const account = within(nav).getByRole("link", { name: /Rosalind Franklin/ });
@@ -121,7 +121,7 @@ describe("the admin area", () => {
   it("folds its pages under a menu button, for narrow screens", async () => {
     signedIn({ can: EVERYTHING });
     onCompute();
-    const { user } = await renderApp("/compute/");
+    const { user } = await renderApp("/admin/compute/");
     const menu = screen.getByRole("button", { name: "Menu" });
     expect(menu).toHaveAttribute("aria-expanded", "false");
     expect(menu).toHaveAttribute("aria-controls", "admin-menu");

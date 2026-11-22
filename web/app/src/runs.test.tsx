@@ -875,7 +875,7 @@ describe("a run's page", () => {
     await renderApp("/runs/RUN-000001/");
     expect(
       screen.getByRole("link", { name: "Make a self-hosted registration token" }),
-    ).toHaveAttribute("href", "/compute/workers/");
+    ).toHaveAttribute("href", "/admin/compute/workers/");
   });
 
   it("says when its machines are offline", async () => {

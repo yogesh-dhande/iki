@@ -46,7 +46,7 @@ SAML signing certificate.
 
 ### SCIM provisioning
 
-Org Admins turn on SCIM on the **Sign-in** settings page (`/settings/sign-in/`).
+Org Admins turn on SCIM on the **Sign-in** settings page (`/admin/sign-in/`).
 That shows the base URL (`https://<host>/scim/v2/`) and a bearer token, once,
 to enter in Microsoft Entra ID, Okta or another SCIM client.
 
@@ -559,7 +559,7 @@ Both return JSON naming each check and `ok`/`fail`, never error details.
 ## Audit log
 
 Every change, sign-in and setup step is recorded as an audit event in the same
-transaction as the change (ADR 0025). Auditors read them at `/audit/`. Each
+transaction as the change (ADR 0025). Auditors read them at `/admin/audit/`. Each
 event is also written to the `iki.audit` log stream once it commits, so a
 SIEM fed from the logs keeps its own copy. Nobody, the table's owner
 included, can update or delete events.

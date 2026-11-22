@@ -252,7 +252,7 @@ describe("Settings → Outside APIs", () => {
       project: other.id,
       project_name: "Assays",
     }));
-    const { user } = await renderApp("/settings/outside-apis/");
+    const { user } = await renderApp("/admin/outside-apis/");
     const card = await screen.findByRole("region", { name: /FoldCloud/ });
     expect(card).toHaveTextContent("Set, as iki__example_models.FOLDCLOUD_API_KEY");
     expect(card).toHaveTextContent("$0.01 a call");

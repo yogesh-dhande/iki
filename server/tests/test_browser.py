@@ -392,17 +392,17 @@ PAGES = [
     ("admin", "/work/?open=true"),
     ("admin", "/account/apps/"),
     ("admin", "/account/notifications/"),
-    ("org_admin", "/settings/email/"),
+    ("org_admin", "/admin/email/"),
     ("admin", "/projects/kinase-atlas/webhooks/"),
-    ("org_admin", "/settings/webhooks/"),
-    ("compute_admin", "/compute/"),
-    ("compute_admin", "/compute/workers/"),
-    ("compute_admin", "/compute/slurm/"),
-    ("compute_admin", "/compute/quotas/"),
-    ("org_admin", "/settings/registries/"),
-    ("org_admin", "/settings/signatures/"),
-    ("org_admin", "/people/"),
-    ("auditor", "/audit/"),
+    ("org_admin", "/admin/webhooks/"),
+    ("compute_admin", "/admin/compute/"),
+    ("compute_admin", "/admin/compute/workers/"),
+    ("compute_admin", "/admin/compute/slurm/"),
+    ("compute_admin", "/admin/compute/quotas/"),
+    ("org_admin", "/admin/registries/"),
+    ("org_admin", "/admin/signatures/"),
+    ("org_admin", "/admin/people/"),
+    ("auditor", "/admin/audit/"),
     ("admin", "/entities/"),
     ("admin", "/entities/types/acme/protein.Protein/"),
     ("admin", "/requests/"),
@@ -437,7 +437,7 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
         labels=["chromeleon"],
     )
     workers.register(registration, name="hplc-pc-1", version="0.1.0", capacity=ROOMY, plugins=LOCAL)
-    page = open_as("compute_admin", "/compute/workers/")
+    page = open_as("compute_admin", "/admin/compute/workers/")
     listed = page.locator(
         "section", has=page.get_by_role("heading", level=2, name="Workers", exact=True)
     )
@@ -485,7 +485,7 @@ def test_the_admin_area_has_a_frame_of_its_own(
     from iki_server.web import admin_area
 
     OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
-    page = open_as("org_admin", "/compute/", color_scheme)
+    page = open_as("org_admin", "/admin/compute/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("heading", name="Compute", level=1).wait_for()
     admin = page.get_by_role("navigation", name="Admin")
@@ -528,7 +528,7 @@ def test_the_admin_area_has_a_frame_of_its_own(
 
     # On a phone: no sideways scrolling, and the pages under a menu, on either kind of page.
     page.set_viewport_size({"width": 390, "height": 844})
-    for path, heading in (("/compute/workers/", "Compute"), ("/settings/sign-in/", None)):
+    for path, heading in (("/admin/compute/workers/", "Compute"), ("/admin/sign-in/", None)):
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
@@ -556,7 +556,7 @@ def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
     """The button that opens the dialog doesn't move when the list above it is answered.
     It did, a line down, and a press begun while the list loaded ended on the card instead:
     in Firefox and WebKit, Playwright's own click did, and no dialog opened."""
-    page = open_as("compute_admin", "/compute/quotas/")
+    page = open_as("compute_admin", "/admin/compute/quotas/")
     held: list[Any] = []
 
     def listing(url: str) -> bool:
@@ -593,7 +593,7 @@ def test_a_quota_goes_on_the_team_chosen_whatever_is_searched_next(
     so the quota saved is on the team the dialog shows ticked."""
     from iki_server.runs.models import RunQuota
 
-    page = open_as("compute_admin", "/compute/quotas/")
+    page = open_as("compute_admin", "/admin/compute/quotas/")
     page.get_by_role("button", name="Set a quota").click()
     dialog = page.get_by_role("dialog", name="Set a quota")
     dialog.get_by_role("radio", name="A team").check()
@@ -672,7 +672,7 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
     page.context.close()
 
     # Org Admins see where it sends, not the address (which may carry a token).
-    page = open_as("org_admin", "/settings/webhooks/")
+    page = open_as("org_admin", "/admin/webhooks/")
     page.get_by_text("eln.example.com").wait_for()
     assert "s3cret" not in page.content()
     assert_clean(page)
@@ -2751,7 +2751,7 @@ def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(
     open_as: Any, world: World
 ) -> None:
     """A registry of a client's own, its registrar, and a project made in it (ADR 0115)."""
-    page = open_as("org_admin", "/settings/registries/")
+    page = open_as("org_admin", "/admin/registries/")
     page.get_by_role("textbox", name="Name").fill("Client A")
     page.get_by_role("checkbox", name="Every team's projects may be in it").check()
     page.get_by_role("button", name="Add registry").click()

@@ -32,19 +32,19 @@ export function ComputeHeader() {
         <p>Where runs execute, and how much each project may use</p>
       </div>
       <nav className="admin-tabs" aria-label="Compute">
-        <Link to="/compute/" activeOptions={{ exact: true }} {...tab}>
+        <Link to="/admin/compute/" activeOptions={{ exact: true }} {...tab}>
           Overview
         </Link>
-        <Link to="/compute/workers/" {...tab}>
+        <Link to="/admin/compute/workers/" {...tab}>
           Workers
         </Link>
-        <Link to="/compute/slurm/" {...tab}>
+        <Link to="/admin/compute/slurm/" {...tab}>
           Slurm clusters
         </Link>
-        <Link to="/compute/quotas/" {...tab}>
+        <Link to="/admin/compute/quotas/" {...tab}>
           Quotas
         </Link>
-        <Link to="/compute/volumes/" {...tab}>
+        <Link to="/admin/compute/volumes/" {...tab}>
           Volumes
         </Link>
       </nav>
@@ -60,7 +60,11 @@ export function ComputeOverviewPage() {
   return (
     <>
       <AdminActions>
-        <Link className={buttonClass("primary")} to="/compute/workers/" hash="registration-tokens">
+        <Link
+          className={buttonClass("primary")}
+          to="/admin/compute/workers/"
+          hash="registration-tokens"
+        >
           Register a worker
         </Link>
       </AdminActions>
@@ -164,7 +168,7 @@ function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
                   <td className="num">{w.offline}</td>
                   <td className="num">
                     <Link
-                      to="/compute/workers/"
+                      to="/admin/compute/workers/"
                       search={{ tier: w.tier as Tier }}
                       aria-label={`Manage ${name} workers`}
                     >

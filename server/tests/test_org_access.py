@@ -54,7 +54,7 @@ def group_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
         from iki_server.scim.models import ScimGroup
 
         group, _ = ScimGroup.objects.get_or_create(display_name="Chemistry")
-        return f"/settings/sign-in/groups/{group.pk}/?team={w.other_team.pk}", {
+        return f"/admin/sign-in/groups/{group.pk}/?team={w.other_team.pk}", {
             "team": str(w.other_team.pk),
             **data,
         }
@@ -63,7 +63,7 @@ def group_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
 
 
 def person_url(w: World) -> tuple[str, dict[str, str]]:
-    return f"/people/{w.users['viewer'].pk}/", {}
+    return f"/admin/people/{w.users['viewer'].pk}/", {}
 
 
 def service_account_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
@@ -71,7 +71,7 @@ def service_account_url(**data: str) -> Callable[[World], tuple[str, dict[str, s
         from iki_server.accounts import service_accounts
 
         account = service_accounts.create("Robot", "", by=w.users["org_admin"])
-        return f"/service-accounts/{account.pk}/", data
+        return f"/admin/service-accounts/{account.pk}/", data
 
     return build
 
@@ -213,27 +213,27 @@ CASES: list[Case] = [
         lambda w: (f"/teams/{w.team.slug}/settings/", {"action": "archive"}),
         row(HIDDEN, org_admin=DONE, team_member=FORBIDDEN),
     ),
-    ("people", "GET", lambda w: ("/people/", {}), row(FORBIDDEN, org_admin=OK)),
-    ("audit_log", "GET", lambda w: ("/audit/", {}), row(FORBIDDEN, auditor=OK)),
-    ("plugins", "GET", lambda w: ("/settings/plugins/", {}), row(FORBIDDEN, org_admin=OK)),
-    ("plugin", "GET", lambda w: ("/settings/plugins/acme/dna/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("people", "GET", lambda w: ("/admin/people/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("audit_log", "GET", lambda w: ("/admin/audit/", {}), row(FORBIDDEN, auditor=OK)),
+    ("plugins", "GET", lambda w: ("/admin/plugins/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("plugin", "GET", lambda w: ("/admin/plugins/acme/dna/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "plugin",
         "POST",
-        lambda w: ("/settings/plugins/acme/dna/", {"action": "cancel"}),
+        lambda w: ("/admin/plugins/acme/dna/", {"action": "cancel"}),
         row(FORBIDDEN, org_admin=OK),
     ),
     (
         "legal_holds",
         "GET",
-        lambda w: ("/settings/legal-holds/", {}),
+        lambda w: ("/admin/legal-holds/", {}),
         row(FORBIDDEN, org_admin=OK, auditor=OK),
     ),
     (
         "legal_holds",
         "POST",
         lambda w: (
-            "/settings/legal-holds/",
+            "/admin/legal-holds/",
             {"action": "place", "project": str(w.project.pk), "matter": "Case 24-117"},
         ),
         row(FORBIDDEN, org_admin=DONE),
@@ -241,45 +241,45 @@ CASES: list[Case] = [
     (
         "signatures",
         "GET",
-        lambda w: ("/settings/signatures/", {}),
+        lambda w: ("/admin/signatures/", {}),
         row(FORBIDDEN, org_admin=OK, auditor=OK),
     ),
     (
         "signatures",
         "POST",
         lambda w: (
-            "/settings/signatures/",
+            "/admin/signatures/",
             {"action": "certify", "submitted_on": "2026-11-01", "reference": "QA-DOC-0042"},
         ),
         row(FORBIDDEN, org_admin=DONE),
     ),
-    ("registries", "GET", lambda w: ("/settings/registries/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("registries", "GET", lambda w: ("/admin/registries/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "registries",
         "POST",
-        lambda w: ("/settings/registries/", {"name": "Client A", "all_teams": "on"}),
+        lambda w: ("/admin/registries/", {"name": "Client A", "all_teams": "on"}),
         row(FORBIDDEN, org_admin=DONE),
     ),
     (
         "registry",
         "GET",
-        lambda w: (f"/settings/registries/{Registry.default().pk}/", {}),
+        lambda w: (f"/admin/registries/{Registry.default().pk}/", {}),
         row(FORBIDDEN, org_admin=OK),
     ),
     (
         "registry",
         "POST",
         lambda w: (
-            f"/settings/registries/{Registry.default().pk}/",
+            f"/admin/registries/{Registry.default().pk}/",
             {"action": "appoint", "person": w.users["viewer"].email},
         ),
         row(FORBIDDEN, org_admin=DONE),
     ),
-    ("sign_in_settings", "GET", lambda w: ("/settings/sign-in/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("sign_in_settings", "GET", lambda w: ("/admin/sign-in/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "sign_in_settings",
         "POST",
-        lambda w: ("/settings/sign-in/", {"action": "create_token"}),
+        lambda w: ("/admin/sign-in/", {"action": "create_token"}),
         row(FORBIDDEN, org_admin=OK),
     ),
     ("group_link", "GET", group_url(), row(FORBIDDEN, org_admin=OK)),
@@ -288,35 +288,35 @@ CASES: list[Case] = [
     (
         "person",
         "POST",
-        lambda w: (f"/people/{w.users['viewer'].pk}/", {"roles": "auditor"}),
+        lambda w: (f"/admin/people/{w.users['viewer'].pk}/", {"roles": "auditor"}),
         row(FORBIDDEN, org_admin=DONE),
     ),
     (
         "service_accounts",
         "GET",
-        lambda w: ("/service-accounts/", {}),
+        lambda w: ("/admin/service-accounts/", {}),
         row(FORBIDDEN, org_admin=OK),
     ),
     (
         "service_accounts",
         "POST",
-        lambda w: ("/service-accounts/", {"name": "LIMS sync"}),
+        lambda w: ("/admin/service-accounts/", {"name": "LIMS sync"}),
         row(FORBIDDEN, org_admin=DONE),
     ),
     ("service_account", "GET", service_account_url(), row(FORBIDDEN, org_admin=OK)),
     # OAuth: apps people sign in to, and the device flow.
-    ("org_apps", "GET", lambda w: ("/settings/apps/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("org_apps", "GET", lambda w: ("/admin/apps/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "org_apps",
         "POST",
-        lambda w: ("/settings/apps/", {"action": "policy", "require_approval": "on"}),
+        lambda w: ("/admin/apps/", {"action": "policy", "require_approval": "on"}),
         row(FORBIDDEN, org_admin=DONE),
     ),
-    ("org_app", "GET", app_url("/settings/apps/{pk}/"), row(FORBIDDEN, org_admin=OK)),
+    ("org_app", "GET", app_url("/admin/apps/{pk}/"), row(FORBIDDEN, org_admin=OK)),
     (
         "org_app",
         "POST",
-        app_url("/settings/apps/{pk}/", action="approve"),
+        app_url("/admin/apps/{pk}/", action="approve"),
         row(FORBIDDEN, org_admin=DONE),
     ),
     # Anyone may ask; the answer is the "not approved yet" page.

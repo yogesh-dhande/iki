@@ -133,7 +133,7 @@ function onScopes() {
 describe("Compute → Workers", () => {
   it("lists workers with their state and what they can run", async () => {
     onWorkers([worker(), worker({ id: "w2", name: "old-box", status: "offline", jobs: 0 })], []);
-    await renderApp("/compute/workers/");
+    await renderApp("/admin/compute/workers/");
     const workers = section("Workers");
     const pool = (await workers.findByRole("rowheader", { name: /gpu-pool-7f9c/ })).closest("tr");
     if (!pool) throw new Error("no row");
@@ -160,7 +160,7 @@ describe("Compute → Workers", () => {
 
   it("filters by tier, and shows revoked ones when asked", async () => {
     onWorkers([worker()], []);
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     await section("Workers").findByRole("rowheader", { name: /gpu-pool/ });
     await user.selectOptions(section("Workers").getByRole("combobox", { name: "Tier" }), "vm");
     await user.click(section("Workers").getByRole("checkbox", { name: "Show revoked ones" }));
@@ -173,7 +173,7 @@ describe("Compute → Workers", () => {
 
   it("opens filtered to the tier its address names, as the overview links it", async () => {
     onWorkers([worker()], []);
-    const { router, user } = await renderApp("/compute/workers/?tier=backend");
+    const { router, user } = await renderApp("/admin/compute/workers/?tier=backend");
     const tier = section("Workers").getByRole("combobox", { name: "Tier" });
     expect(tier).toHaveValue("backend");
     await waitFor(() => {
@@ -191,7 +191,7 @@ describe("Compute → Workers", () => {
     answer("POST /api/v1/compute/workers/00000000-0000-7000-8000-0000000000w1/revoke", () =>
       worker({ status: "revoked", revoked_at: NOW }),
     );
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     await user.click(
       await section("Workers").findByRole("button", { name: "Revoke gpu-pool-7f9c" }),
     );
@@ -206,7 +206,7 @@ describe("Compute → Workers", () => {
 
   it("shows a self-hosted worker's teams, labels and what it's running", async () => {
     onWorkers([selfHosted()], []);
-    await renderApp("/compute/workers/");
+    await renderApp("/admin/compute/workers/");
     const workers = section("Workers");
     const row = (await workers.findByRole("rowheader", { name: /hplc-pc-1/ })).closest("tr");
     if (!row) throw new Error("no row");
@@ -226,7 +226,7 @@ describe("Compute → Workers", () => {
     onScopes();
     const path = "/api/v1/compute/workers/00000000-0000-7000-8000-0000000000w2";
     answer(`PATCH ${path}`, () => selfHosted({ teams: [CHEM], projects: [], labels: ["empower"] }));
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     await user.click(await section("Workers").findByRole("button", { name: "Change hplc-pc-1" }));
     const dialog = within(screen.getByRole("dialog", { name: "Change hplc-pc-1" }));
     const teams = within(dialog.getByRole("group", { name: /Teams/ }));
@@ -250,7 +250,7 @@ describe("Compute → Workers", () => {
 
   it("says how to get workers when there are none", async () => {
     onWorkers([], []);
-    await renderApp("/compute/workers/");
+    await renderApp("/admin/compute/workers/");
     expect(await screen.findByText(/No workers have registered yet/)).toBeVisible();
     expect(section("Registration tokens").getByText("None yet.")).toBeVisible();
   });
@@ -262,7 +262,7 @@ describe("Compute → Workers", () => {
       tokens.push(token({ workers: 0 }));
       return { ...token({ workers: 0 }), token: "iki_reg_secret-value" };
     });
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     const tokensCard = section("Registration tokens");
     await user.click(await tokensCard.findByRole("button", { name: "Make token" }));
     expect(tokensCard.getByRole("textbox", { name: /What it’s for/ })).toHaveAccessibleDescription(
@@ -296,7 +296,7 @@ describe("Compute → Workers", () => {
       workers: 0,
       token: "iki_wreg_secret-value",
     }));
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     const card = section("Registration tokens");
     await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "Lab 3");
     await user.selectOptions(card.getByRole("combobox", { name: /Tier/ }), "self_hosted");
@@ -340,7 +340,7 @@ describe("Compute → Workers", () => {
       tokens.push(made);
       return { ...made, token: "iki_wreg_slurm-value" };
     });
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     const card = section("Registration tokens");
     await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "HPC login node");
     // Only the container tier has Slurm clusters.
@@ -369,14 +369,14 @@ describe("Compute → Workers", () => {
     );
     expect(within(row).getByRole("link", { name: "hpc" })).toHaveAttribute(
       "href",
-      "/compute/slurm/",
+      "/admin/compute/slurm/",
     );
   });
 
   it("sends no Slurm cluster for other tiers", async () => {
     onWorkers([], []);
     answer("POST /api/v1/compute/registration-tokens", () => ({ ...token(), token: "x" }));
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     const card = section("Registration tokens");
     await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "GPU pool");
     await user.click(card.getByRole("button", { name: "Make token" }));
@@ -393,7 +393,7 @@ describe("Compute → Workers", () => {
       [worker({ name: "hpc-login-1", tier: "container", slurm_cluster: "hpc", jobs: 14 })],
       [],
     );
-    await renderApp("/compute/workers/");
+    await renderApp("/admin/compute/workers/");
     const row = (await section("Workers").findByRole("rowheader", { name: /hpc-login-1/ })).closest(
       "tr",
     );
@@ -409,7 +409,7 @@ describe("Compute → Workers", () => {
       "POST /api/v1/compute/registration-tokens/00000000-0000-7000-8000-0000000000t1/revoke",
       () => token({ revoked_at: NOW }),
     );
-    const { user } = await renderApp("/compute/workers/");
+    const { user } = await renderApp("/admin/compute/workers/");
     await user.click(
       await section("Registration tokens").findByRole("button", {
         name: "Revoke GPU pool (us-east-1)",
@@ -432,7 +432,7 @@ describe("Compute → Workers", () => {
 
   it("isn't anyone else's", async () => {
     signedIn();
-    await renderApp("/compute/workers/");
+    await renderApp("/admin/compute/workers/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/workers")).toEqual([]);
   });

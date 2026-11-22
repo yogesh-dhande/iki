@@ -79,7 +79,7 @@ def request_approval(client: Client, *, by: User) -> None:
             notification_kinds.APP_AWAITING_APPROVAL,
             title=f"{by.get_full_name()} asks you to approve {client.display_name()}",
             body="Until an Org Admin approves it, nobody can use it with Iki.",
-            path=f"/settings/apps/{client.pk}/",
+            path=f"/admin/apps/{client.pk}/",
             actor=by,
         )
 

@@ -414,7 +414,7 @@ def _disable(webhook: Webhook, reason: DisabledReason, why: str, data: dict[str,
     path = (
         f"/projects/{webhook.project.slug}/webhooks/{webhook.pk}/"
         if webhook.project
-        else f"/settings/webhooks/{webhook.pk}/"
+        else f"/admin/webhooks/{webhook.pk}/"
     )
     notify(
         _managers(webhook),

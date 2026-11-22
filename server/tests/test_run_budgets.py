@@ -283,7 +283,7 @@ def test_an_enforced_organization_budget_says_runs_stop(priced: World) -> None:
     )
     assert told.title.startswith("The budget for the organization is spent")
     assert "No more runs on the container and VM tiers start" in told.body
-    assert told.path == "/costs/"
+    assert told.path == "/admin/costs/"
 
 
 # --- Stopping spending -----------------------------------------------------------------------

@@ -625,20 +625,20 @@ def test_org_admins_certify_and_unlock_in_settings(world: World) -> None:
 
     ready(world, certify=False)
     admin = world.browser("org_admin")
-    page = admin.get("/settings/signatures/").content.decode()
+    page = admin.get("/admin/signatures/").content.decode()
     assert "Nobody can sign until an Org Admin records" in page
     # A date to come is refused, as the service refuses it.
     later = (timezone.localdate() + dt.timedelta(days=2)).isoformat()
     refused = post(
         admin,
-        "/settings/signatures/",
+        "/admin/signatures/",
         {"action": "certify", "submitted_on": later, "reference": "QA-DOC-9"},
     )
     assert "It was sent on or before today." in refused.content.decode()
     assert services.certified() is None
     done = post(
         admin,
-        "/settings/signatures/",
+        "/admin/signatures/",
         {"action": "certify", "submitted_on": "2026-11-01", "reference": "QA-DOC-9"},
     )
     assert done.status_code == 302
@@ -647,12 +647,12 @@ def test_org_admins_certify_and_unlock_in_settings(world: World) -> None:
     editor = world.users["editor"]
     alerts.lock(editor, 3)
     alert = Notification.objects.get(recipient=world.users["org_admin"], kind="signature.locked")
-    assert alert.path == "/settings/signatures/"
-    page = admin.get("/settings/signatures/").content.decode()
+    assert alert.path == "/admin/signatures/"
+    page = admin.get("/admin/signatures/").content.decode()
     assert "Unlock Editor’s signing" in page
-    reader = world.browser("auditor").get("/settings/signatures/").content.decode()
+    reader = world.browser("auditor").get("/admin/signatures/").content.decode()
     assert "QA-DOC-9" in reader and "Unlock Editor" not in reader
-    post(admin, "/settings/signatures/", {"action": "unlock", "user": str(editor.pk)})
+    post(admin, "/admin/signatures/", {"action": "unlock", "user": str(editor.pk)})
     assert not services.locked_out(editor)
     assert AuditEvent.objects.filter(action="signature.unlocked", target_id=str(editor.pk)).exists()
 
