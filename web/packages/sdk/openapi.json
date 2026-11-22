@@ -3612,7 +3612,7 @@
             "type": "string"
           },
           "locked": {
-            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
+            "description": "A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).",
             "title": "Locked",
             "type": "boolean"
           },
@@ -4404,6 +4404,12 @@
       },
       "EntityCan": {
         "properties": {
+          "correct": {
+            "default": false,
+            "description": "You may attempt a reasoned correction. Each locking field declares an `on_edit` destination you have permission to enter, and the first return's guards allow it. Later guards see each preceding return in the same save (ADR 0179).",
+            "title": "Correct",
+            "type": "boolean"
+          },
           "draw_purposes": {
             "description": "The purposes you may draw for. State holds and draw guards still apply.",
             "items": {
@@ -4742,7 +4748,7 @@
             "type": "string"
           },
           "locked": {
-            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
+            "description": "A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).",
             "title": "Locked",
             "type": "boolean"
           },
@@ -4885,7 +4891,7 @@
           },
           "reason": {
             "default": "",
-            "description": "Why, for the record.",
+            "description": "Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
@@ -6138,7 +6144,7 @@
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
           },
           "states": {
-            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
+            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
             "items": {
               "$ref": "#/components/schemas/StateOut"
             },
@@ -10328,7 +10334,7 @@
             "type": "string"
           },
           "locked": {
-            "description": "A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.",
+            "description": "A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).",
             "title": "Locked",
             "type": "boolean"
           },
@@ -12773,7 +12779,7 @@
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
           },
           "states": {
-            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
+            "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
             "items": {
               "$ref": "#/components/schemas/StateOut"
             },
@@ -15576,6 +15582,14 @@
           "request": {
             "$ref": "#/components/schemas/EntityOut"
           },
+          "result_releases": {
+            "description": "The revisions delivered to this request.",
+            "items": {
+              "$ref": "#/components/schemas/ResultReleaseOut"
+            },
+            "title": "Result Releases",
+            "type": "array"
+          },
           "results": {
             "description": "Its results that you can read: for the asking project, those the service released back; for the service, all of them.",
             "items": {
@@ -15633,6 +15647,7 @@
           "submitted_at",
           "submitted_by",
           "sent",
+          "result_releases",
           "results"
         ],
         "title": "RequestOut",
@@ -15797,6 +15812,53 @@
           }
         },
         "title": "RerunIn",
+        "type": "object"
+      },
+      "ResultReleaseOut": {
+        "description": "Receive the exact versions at GET /entities/{entity}/revisions/{number}.",
+        "properties": {
+          "entity": {
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "released_revision": {
+            "description": "The revision that released the result.",
+            "title": "Released Revision",
+            "type": "integer"
+          },
+          "reviewed_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision the reviewer signed, if required.",
+            "title": "Reviewed Revision"
+          },
+          "signed_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision signed for release, if signed.",
+            "title": "Signed Revision"
+          }
+        },
+        "required": [
+          "entity",
+          "reviewed_revision",
+          "signed_revision",
+          "released_revision"
+        ],
+        "title": "ResultReleaseOut",
         "type": "object"
       },
       "ResultTypeOut": {
@@ -20482,7 +20544,8 @@
               "row",
               "content",
               "record",
-              "change"
+              "change",
+              "review"
             ],
             "title": "Name",
             "type": "string"
@@ -22168,13 +22231,25 @@
             "type": "string"
           },
           "locks": {
-            "description": "A record in it is locked: its other fields can't change, and it can't be archived, restored or moved, until its state field is set to a state that doesn't.",
+            "description": "Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.",
             "title": "Locks",
             "type": "boolean"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "on_edit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).",
+            "title": "On Edit"
           },
           "reason": {
             "anyOf": [
@@ -29229,7 +29304,7 @@
         ]
       },
       "patch": {
-        "description": "Send only the values to change. Each change is a revision, with your reason.\nTo restore an archived entity and change it, send both: it's restored first.",
+        "description": "Send only the values to change and the ETag you read. If `can.correct` is true,\nchanging a value requires a reason. Each locking state returns to its declared `on_edit`\ndestination, and the return and edit revisions commit together (ADR 0179).\nTo restore an archived entity and change it, send both: it's restored first.",
         "operationId": "iki_server_api_entities_patch_entity",
         "parameters": [
           {
@@ -31121,7 +31196,7 @@
     },
     "/api/v1/entities/{ref}/states/{field}": {
       "post": {
-        "description": "Sets one of the record's state fields (ADR 0125) to one of its states, from any other,\nas a revision of its own, with your reason. It needs one of the state's lab roles in the\nrecord's project (ADR 0116): `can.states` lists each state with whether you may and why\nnot. A state that locks the record freezes its other fields until the field is set to\none that doesn't; state fields stay settable. A state that needs electronic signatures\n(ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`\nfor it. Send If-Match with the ETag you read.",
+        "description": "Sets one of the record's state fields (ADR 0125) to one of its states, from any other,\nas a revision of its own, with your reason. It needs one of the state's lab roles in the\nrecord's project (ADR 0116): `can.states` lists each state with whether you may and why\nnot. A state that locks the record may declare a return on a reasoned edit (ADR 0179).\nState fields stay settable. A state that needs electronic signatures\n(ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`\nfor it. Send If-Match with the ETag you read.",
         "operationId": "iki_server_api_entities_set_entity_state",
         "parameters": [
           {

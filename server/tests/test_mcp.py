@@ -154,6 +154,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_entity",
         "get_registry_entry",
         "get_entity_history",
+        "get_entity_revision",
         "get_signatures",
         "verify_signature",
         "get_lineage",
@@ -864,6 +865,51 @@ async def test_agents_set_records_states(world: World) -> None:
         )
     )
     assert "(409" in refused and "is locked by its Status (Reviewed)" in refused
+
+
+async def test_an_agent_can_discover_and_make_a_reasoned_correction(world: World) -> None:
+    from test_rules import BATCH, made
+    from test_states import ANALYST, REVIEWER, roles, set_
+
+    def approved() -> str:
+        roles(world, editor=(ANALYST,), admin=(REVIEWER,))
+        ref = str(made(world, {"purity": 98})["id"])
+        set_(world, "editor", ref, "status", "in_review")
+        set_(world, "admin", ref, "status", "approved")
+        return ref
+
+    ref = await sync_to_async(approved)()
+    token = await token_for(world)
+    described = data(await tool(token, "describe_entity_type", name=BATCH))
+    status = next(f for f in described["fields"] if f["name"] == "status")
+    assert next(s for s in status["states"] if s["name"] == "approved")["on_edit"] == "in_testing"
+    entity = data(await tool(token, "get_entity", ref=ref))["entity"]
+    assert entity["can"]["correct"] and not entity["can"]["edit"]
+    reason = "Corrected the transcription of the purity."
+    saved = data(
+        await tool(
+            token,
+            "update_entity",
+            ref=ref,
+            revision=entity["revision"],
+            values={"purity": 97},
+            reason=reason,
+        )
+    )
+    assert saved["values"]["status"] == "in_testing" and saved["values"]["purity"] == 97
+    revisions = data(await tool(token, "get_entity_history", ref=ref))["items"]
+    returned = next(
+        r
+        for r in revisions
+        if r["state"] and r["state"]["to"]["name"] == "in_testing" and r["kind"] == "state_changed"
+    )
+    assert (returned["reason"], returned["via"], returned["user"]["email"]) == (
+        reason,
+        "mcp",
+        world.users["editor"].email,
+    )
+    before = data(await tool(token, "get_entity_revision", ref=ref, number=entity["revision"]))
+    assert before["values"]["purity"] == 98
 
 
 async def test_agents_send_requests_to_services(world: World) -> None:

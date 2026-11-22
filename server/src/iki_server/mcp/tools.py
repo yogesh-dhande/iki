@@ -349,7 +349,7 @@ def build() -> MCPServer:
         name: Annotated[str, Field(description="Its name, such as iki/protein.Protein.")],
     ) -> CallToolResult:
         """A type's fields (with units and rules), what makes two the same, and the JSON
-        Schema its values follow."""
+        Schema its values follow. A state's on_edit names the destination of a correction."""
         return answer(await call("GET", path("/entity-types/{name}", name=name)))
 
     @server.tool(annotations=READ, title="Search entities")
@@ -449,7 +449,8 @@ def build() -> MCPServer:
         it was imported from claims, which Iki can't check. A state field's value is its
         state; `locked` says whether a state locks the record (`locked_by`: which fields),
         and `can.states` lists, per state field, the states it could be set to, whether the
-        person may set each, and why not (set one with set_entity_state)."""
+        person may set each, and why not (set one with set_entity_state). A locked record
+        with can.correct allows a reasoned correction through update_entity."""
         found = await call(
             "GET",
             path("/entities/{ref}", ref=ref),
@@ -483,6 +484,17 @@ def build() -> MCPServer:
                 path("/entities/{ref}/revisions", ref=ref),
                 query={"limit": limit, "cursor": cursor},
             )
+        )
+
+    @server.tool(annotations=READ, title="Get an entity at a revision")
+    async def get_entity_revision(
+        ref: Ref,
+        number: Annotated[int, Field(ge=1, description="The revision number to read.")],
+    ) -> CallToolResult:
+        """The record's values at one numbered revision, with what changed then. Use the
+        record ID and revision from get_request's result_releases to read a released result."""
+        return answer(
+            await call("GET", path("/entities/{ref}/revisions/{number}", ref=ref, number=number))
         )
 
     @server.tool(annotations=READ, title="Get a record's signatures")
@@ -598,11 +610,11 @@ def build() -> MCPServer:
         reason: Reason,
         hold_reason: HoldReason = "",
     ) -> CallToolResult:
-        """Changes some of an entity's values, as one new revision. Its owning project
-        decides who may: the person must be an Editor there. State fields aren't changed
-        here: use set_entity_state. A record a state locks (locked: true) can't change until
-        set_entity_state sets that field to a state that doesn't lock. Values that break
-        its type's rules are refused, as for create_entity."""
+        """Changes the values at the revision you read. For a locked record, get_entity's
+        can.correct says whether the person may correct it. Explain the return before saving:
+        changing a value returns each locking field to the on_edit destination in
+        describe_entity_type. The return and edit commit together with the person's reason.
+        Use set_entity_state to set a state explicitly. Value rules apply as for create_entity."""
         return answer(
             await call(
                 "PATCH",
@@ -649,8 +661,8 @@ def build() -> MCPServer:
         and why not. It takes one of the state's lab roles in the record's project. Some
         states need a reason. A state's guards may refuse it (`guard_refused`, its message
         says why), and a record held for review can't be set to a state that locks it. A
-        state may lock the record: then its other fields can't change until the field is
-        set to a state that doesn't lock. A state that needs electronic signatures (ADR
+        state may lock the record. A declared on_edit allows a reasoned correction when
+        can.correct is true. A state that needs electronic signatures (ADR
         0126, can.states marks it signed) can't be set here: only people signing in again
         in Iki's web app set it, so this is refused."""
         return answer(
@@ -705,7 +717,8 @@ def build() -> MCPServer:
         """A request between projects (ADR 0132): the project that asked and the service it
         went to, what it sent the service, and the results that came of it, each as far as
         the person can read them. The asking project sees only results the service
-        released back."""
+        released back. Each result_releases entry identifies the revisions behind a release.
+        Read their values with get_entity_revision."""
         return answer(await call("GET", path("/entities/{ref}/request", ref=ref)))
 
     @server.tool(annotations=READ, title="Get an amount's ledger")
