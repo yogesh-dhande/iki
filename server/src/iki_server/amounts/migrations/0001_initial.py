@@ -80,6 +80,14 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "purpose",
+                    models.CharField(
+                        choices=[("routine", "Routine use"), ("qa_sampling", "QA sampling")],
+                        max_length=16,
+                        null=True,
+                    ),
+                ),
+                (
                     "change",
                     models.DecimalField(
                         db_comment="Signed: what it took or gave.", decimal_places=12, max_digits=40
@@ -166,6 +174,15 @@ class Migration(migrations.Migration):
                             )
                         ),
                         name="iki_amount_movement_kind",
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            kind="drawn",
+                            purpose__isnull=False,
+                            purpose__in=["routine", "qa_sampling"],
+                        )
+                        | (~models.Q(kind="drawn") & models.Q(purpose__isnull=True)),
+                        name="iki_amount_draw_purpose",
                     ),
                     models.CheckConstraint(
                         condition=models.Q(("balance__gte", 0)),

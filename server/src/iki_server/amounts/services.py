@@ -1,8 +1,8 @@
 """Drawing, transferring, splitting and adjusting a record's amount (ADR 0139).
 
-Each operation locks the amounts it changes (``SELECT … FOR UPDATE``, in ID order, so
-two transfers between the same records can't deadlock), checks there's enough, and
-writes the new balance and a movement for each, in one transaction. Two people drawing
+Each operation locks its records and then their amounts, in ID order, so two transfers
+between the same records can't deadlock. It checks eligibility and the available balance,
+then writes the new balance and a movement for each in one transaction. Two people drawing
 from one tube at once take turns: the second sees what the first left. The database
 refuses a balance below zero whatever writes it.
 
@@ -35,11 +35,13 @@ from django.db import connection, transaction
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
+from iki_server.amounts import eligibility
 from iki_server.amounts.models import (
     DIGITS,
     GIVEN_PLACES,
     PLACES,
     Amount,
+    DrawPurpose,
     Movement,
     MovementKind,
 )
@@ -244,13 +246,30 @@ def record(
         )
 
 
-def draw(user: User, entity: Entity, given: Given, *, reason: str = "") -> Movement:
+def draw(
+    user: User,
+    entity: Entity,
+    given: Given,
+    *,
+    purpose: str = DrawPurpose.ROUTINE,
+    reason: str = "",
+) -> Movement:
     """Takes ``given`` from ``entity``'s amount: used up, in an assay or a reaction."""
+    if purpose not in DrawPurpose.values:
+        raise Wrong({"purpose": ["Choose routine use or QA sampling."]})
     with transaction.atomic():
+        _lock_records([entity])
         (amount,) = _locked([entity])
-        change = _taking(entity, amount, given)
+        change = _taking(entity, amount, given, operation="draw", purpose=purpose)
         return _change(
-            user, entity, amount, MovementKind.DRAWN, change.copy_negate(), given, reason
+            user,
+            entity,
+            amount,
+            MovementKind.DRAWN,
+            change.copy_negate(),
+            given,
+            reason,
+            purpose=purpose,
         )
 
 
@@ -263,12 +282,12 @@ def transfer(
     wanted = spec(target.type)
     if wanted is None:
         raise Wrong({"to": [f"{target.hrid} is a {target.type}, which has no amount."]})
-    _usable(target)
     with transaction.atomic():
+        _lock_records([source, target])
         _ensure(target, wanted.unit)
         locked = dict(zip((source.pk, target.pk), _locked([source, target]), strict=True))
         _what_it_takes(source, target)
-        out = _taking(source, locked[source.pk], given)
+        out = _taking(source, locked[source.pk], given, operation="transfer")
         here = units.parse(locked[source.pk].unit)
         there = units.parse(locked[target.pk].unit)
         if not here.is_commensurable(there):
@@ -327,8 +346,8 @@ def adjust(user: User, entity: Entity, given: Given, *, reason: str) -> Movement
         raise Wrong({"reason": ["is required: say why it's adjusted."]})
     wanted = spec(entity.type)
     assert wanted is not None  # noqa: S101
-    _usable(entity)
     with transaction.atomic():
+        _lock_records([entity])
         fresh = not Amount.objects.filter(entity=entity).exists()
         _ensure(entity, wanted.unit)
         (amount,) = _locked([entity])
@@ -370,11 +389,12 @@ def split(
     assert project is not None  # noqa: S101 - only records have amounts
     kind = wanted.aliquots or source.type
     with transaction.atomic():
+        _lock_records([source])
         (amount,) = _locked([source])
         current = services.current_values_of([source])[source.pk]
         one = in_unit(source, each, current)
         total = _EXACT.multiply(one, count)
-        _taking(source, amount, Given(total, amount.unit), values=current)
+        _taking(source, amount, Given(total, amount.unit), operation="split", values=current)
         base = _copied(source, current) if wanted.aliquots is None else {}
         theirs = spec(kind)
         of = _material_of(source, current)
@@ -519,11 +539,20 @@ def _ensure(entity: Entity, unit: str) -> None:
         )
 
 
+def _lock_records(entities: Sequence[Entity]) -> None:
+    """Keep state and eligibility values stable through a withdrawal and its movement.
+    Lock records before touching amounts, including a transfer's new destination balance."""
+    for record in (
+        Entity.objects.select_for_update(no_key=True)
+        .filter(pk__in=[entity.pk for entity in entities])
+        .order_by("pk")
+    ):
+        _usable(record)
+
+
 def _locked(entities: Sequence[Entity]) -> list[Amount]:
     """Their amounts, locked until the transaction ends, in the order given. Locks are
     taken in ID order, whatever that is, so two requests can't wait on each other."""
-    for entity in entities:
-        _usable(entity)
     found = {
         a.entity_id: a
         for a in Amount.objects.select_for_update()
@@ -539,9 +568,19 @@ def _locked(entities: Sequence[Entity]) -> list[Amount]:
 
 
 def _taking(
-    entity: Entity, amount: Amount, given: Given, *, values: Mapping[str, Any] | None = None
+    entity: Entity,
+    amount: Amount,
+    given: Given,
+    *,
+    operation: str,
+    purpose: str = DrawPurpose.ROUTINE,
+    values: Mapping[str, Any] | None = None,
 ) -> Decimal:
-    """How much of ``amount`` taking ``given`` is: refused if it's held or hasn't enough."""
+    """The withdrawal in the record's unit after checking holds, draw guards and balance."""
+    if values is None and eligibility.draw_guards(entity.type):
+        from iki_server.entities import services
+
+        values = services.current_values_of([entity])[entity.pk]
     name = held(entity, values)
     if name is not None:
         f = states.state_fields(entity.type)[name]
@@ -553,6 +592,9 @@ def _taking(
                 ]
             }
         )
+    refused = eligibility.refusals(entity, [purpose], values, operation=operation)
+    if purpose in refused:
+        raise Wrong({"amount": [refused[purpose]]})
     change = in_unit(entity, given, values)
     if change > amount.value:
         raise Wrong(
@@ -575,6 +617,7 @@ def _change(
     given: Given,
     reason: str,
     *,
+    purpose: str | None = None,
     counterpart: Entity | None = None,
     operation: Any = None,  # noqa: ANN401 - a UUID
 ) -> Movement:
@@ -589,6 +632,7 @@ def _change(
         amount.unit,
         given,
         reason,
+        purpose=purpose,
         counterpart=counterpart,
         operation=operation,
     )
@@ -604,12 +648,14 @@ def _movement(
     given: Given,
     reason: str,
     *,
+    purpose: str | None = None,
     counterpart: Entity | None = None,
     operation: Any = None,  # noqa: ANN401 - a UUID
 ) -> Movement:
     movement = Movement.objects.create(
         entity=entity,
         kind=kind,
+        purpose=purpose,
         change=change,
         balance=balance,
         unit=unit,
@@ -630,6 +676,7 @@ def _movement(
         project=entity.owner_project,
         data={
             "kind": kind,
+            "purpose": purpose,
             "change": shown(change),
             "balance": shown(balance),
             "unit": unit,

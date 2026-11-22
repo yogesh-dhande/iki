@@ -86,7 +86,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     values: { name: "Lot 7", status: "in_testing", analyst: ANA, reviewer: null },
     people: { [ANA]: person(ANA, "Ana Lima", "ana@example.com") },
     needs_reassigning: [],
-    can: { edit: true, take: [], states: {}, sign: [] },
+    can: { edit: true, edit_amount: false, take: [], states: {}, sign: [] },
     ...overrides,
   });
 }
@@ -127,7 +127,7 @@ describe("whom a record names", () => {
     onSample(
       sample({
         values: { name: "Lot 7", status: "in_review", analyst: ANA, reviewer: null },
-        can: { edit: true, take: ["reviewer"], states: {}, sign: [] },
+        can: { edit: true, edit_amount: false, take: ["reviewer"], states: {}, sign: [] },
       }),
     );
     const taken = sample({
@@ -137,7 +137,7 @@ describe("whom a record names", () => {
         [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
         [ME.id]: person(ME.id, ME.name, ME.email),
       },
-      can: { edit: true, take: [], states: {}, sign: [] },
+      can: { edit: true, edit_amount: false, take: [], states: {}, sign: [] },
     });
     answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, taken);
     const { user } = await renderApp("/entities/SMP-000001/");

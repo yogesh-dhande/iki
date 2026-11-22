@@ -184,6 +184,17 @@ fields:
               (record.expires_on != null && record.expires_on <= today) ||
               (record.retest_on != null && record.retest_on <= today)
             message: Its expiry and retest dates haven't come, so it hasn't expired.
+draw_guards:
+  expiry_date:
+    check: record.expires_on == null || record.expires_on > today
+    message: This lot has reached its expiry date. No material can be taken.
+  retest_date:
+    check: record.retest_on == null || record.retest_on > today || purpose == "qa_sampling"
+    message: This lot is due for retesting. Only a QA sampling draw is allowed.
+  sampling_only_in_quarantine:
+    when: operation == "draw"
+    check: record.disposition != "quarantined" || purpose == "qa_sampling"
+    message: This lot is quarantined. Only a QA sampling draw is allowed.
 rules:
   expires_after_it_was_made:
     label: It expires after it was made

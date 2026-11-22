@@ -69,11 +69,21 @@ aren't enough: quarantined material at the same 100 µM is still untested.
 **The disposition is the parent's, and holds each kind's amount.** Quarantined
 (initial: drawn from only to be tested), released (locks, a QA release
 signature, from quarantine or a lifted hold, on a certificate, in Iki rather
-than through an agent), on hold, rejected (locks, signed) and expired (once
-its date has come). On hold,
-rejected and expired hold the amount. The validator now lets an abstract
-type's state hold an amount its concrete subtypes each keep, and refuses a
-concrete type that inherits such a state without one (`holds-without-amount`).
+than through an agent), on hold, rejected (locks, signed) and expired (QA
+may set it once the expiry or retest date has come). On hold, rejected and
+expired hold the whole amount, including samples for testing. The validator
+lets an abstract type's state hold an amount its concrete subtypes each keep,
+and refuses a concrete type that inherits such a state without one
+(`holds-without-amount`).
+
+**A release is subject to the lot's dates.** Every kind inherits the Lot's
+draw guards (ADR 0139). Starting on `expires_on`, all draws, transfers out
+and splits are refused. Starting on `retest_on`, only a draw recorded for
+QA sampling is allowed, so the lab can take the sample it needs to retest.
+Expiry takes precedence when both dates are due. An absent date imposes no
+restriction of its own. Quarantined lots also require the QA sampling purpose
+for a draw. The lot's page shows why routine use is restricted even while
+the disposition still reads Released. QA records any change of disposition.
 
 **QA releases what someone else made and recorded.** GMP keeps the quality
 unit independent of production (21 CFR 211.22; EU GMP Part I, chapter 2),

@@ -742,7 +742,14 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     assert made["amount"]["value"] == "100"
     ref = made["hrid"]
     drawn = data(
-        await tool(token, "draw_amount", ref=ref, amount={"value": 10, "unit": "uL"}, reason="SEC")
+        await tool(
+            token,
+            "draw_amount",
+            ref=ref,
+            amount={"value": 10, "unit": "uL"},
+            purpose="qa_sampling",
+            reason="SEC",
+        )
     )
     assert drawn["amount"]["value"] == "90"
     split = data(
@@ -768,6 +775,7 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
         ("recorded", "100"),
     ]
     assert {m["via"] for m in ledger} == {"mcp"}
+    assert ledger[1]["purpose"] == "qa_sampling"
     assert ledger[1]["user"]["email"] == world.users["editor"].email
     assert ledger[1]["agent"] is not None
 

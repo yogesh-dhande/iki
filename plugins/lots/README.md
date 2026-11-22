@@ -38,7 +38,8 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   protein lot's in mg. Each has a concentration field too, so it's drawn by
   volume: 50 µL of a 100 µM oligonucleotide lot is 5 nmol, 2 µg of a
   420 ng/µL plasmid prep is 4.76 µL. Every draw, transfer and split is a
-  movement of its ledger, with who and why; a transfer into a lot pools its
+  movement of its ledger. A draw records its purpose (routine use or QA
+  sampling), who took the material and why. A transfer into a lot pools its
   concentration (ADR 0157). Its amount is of what it's a lot of
   (`amount.material`), so a transfer into it takes only another lot of the
   same molecule, and an aliquot of it is of that molecule too. A released lot
@@ -56,6 +57,12 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   Whoever made it hears when it's released, and when it's put on hold or
   rejected (which they can't turn off). The states are the abstract type's,
   and hold the amount of every kind, each in its own unit (ADR 0162).
+
+  A lot's page also shows when its dates restrict use. Starting on the
+  retest date, only a QA sampling draw is allowed, even for a released lot.
+  Starting on the expiry date, all draws, transfers out and splits are
+  blocked, including QA samples. The date check applies immediately, even
+  before QA changes the disposition.
 
 ## Actions
 

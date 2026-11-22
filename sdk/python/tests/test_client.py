@@ -320,6 +320,21 @@ def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, clie
     }
 
 
+def test_draws_tell_the_server_their_purpose(fake: FakeIki, client: Client) -> None:
+    ref = "SMP-000001"
+    path = f"/api/v1/entities/{ref}/amount/draw"
+    fake.on("POST", path, {}, {})
+    client.entities.draw(ref, (1, "uL"))
+    client.entities.draw(ref, (1, "uL"), purpose="qa_sampling", reason="Release testing")
+    routine, sample = (json.loads(r.content) for r in fake.sent("POST", path))
+    assert routine["purpose"] == "routine"
+    assert sample == {
+        "amount": {"value": "1", "unit": "uL"},
+        "purpose": "qa_sampling",
+        "reason": "Release testing",
+    }
+
+
 def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
     fake.on("PATCH", "/api/v1/entities/PRT-000001", entity(name="ABL1"))
     client.entities.update("PRT-000001", {"name": "ABL1"}, revision=3, reason="Typo")

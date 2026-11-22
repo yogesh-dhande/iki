@@ -40,7 +40,7 @@ from iki_spec.model import Field, Guard, State
 if TYPE_CHECKING:
     from iki_server.accounts.models import User
 
-__all__ = ["Refusal", "refusals", "variables_of"]
+__all__ = ["Refusal", "evaluate", "refusals", "variables_of"]
 
 log = structlog.get_logger(__name__)
 
@@ -171,49 +171,64 @@ def refusals(
         "signatures": list(signatures),
     }
     current = values.get(field) or ""
+    contexts = {
+        state.name: {**base, "state": {"field": field, "from": current, "to": state.name}}
+        for state in guarded
+    }
+    return evaluate(
+        type_name,
+        variables_of(type_name, field),
+        {state.name: tuple(state.guards.values()) for state in guarded},
+        contexts,
+        missing,
+    )
+
+
+def evaluate(
+    type_name: str,
+    variables: Mapping[str, Any],
+    guards: Mapping[str, Sequence[Guard]],
+    contexts: Mapping[str, Mapping[str, Any]],
+    missing: Mapping[str, int],
+) -> dict[str, Refusal]:
+    """Evaluate the guards for each proposed operation and return its first refusal."""
     expressions: list[tuple[str, str]] = []
-    at: list[tuple[State, Guard, int, int | None, int]] = []
-    for state in guarded:
-        for guard in state.guards.values():
-            check = len(expressions)
-            expressions.append((guard.check, spec_rules.CONDITION))
-            when = None
-            if guard.when is not None:
-                when = len(expressions)
-                expressions.append((guard.when, spec_rules.CONDITION))
-            message = len(expressions)
-            expressions.append((guard.message, spec_rules.MESSAGE))
-            at.append((state, guard, check, when, message))
-    contexts = [
-        {**base, "state": {"field": field, "from": current, "to": state.name}} for state in guarded
-    ]
-    results = spec_rules.evaluate(variables_of(type_name, field), expressions, contexts)
+    at: dict[Guard, tuple[int, int | None, int]] = {}
+    for guard in dict.fromkeys(g for group in guards.values() for g in group):
+        check = len(expressions)
+        expressions.append((guard.check, spec_rules.CONDITION))
+        when = None
+        if guard.when is not None:
+            when = len(expressions)
+            expressions.append((guard.when, spec_rules.CONDITION))
+        message = len(expressions)
+        expressions.append((guard.message, spec_rules.MESSAGE))
+        at[guard] = check, when, message
+
+    results = spec_rules.evaluate(variables, expressions, list(contexts.values()))
     out: dict[str, Refusal] = {}
-    for index, state in enumerate(guarded):
-        outcomes = results[index]
-        for owner, guard, check, when, message in at:
-            if owner is not state or state.name in out:
-                continue
+    for key, outcomes in zip(contexts, results, strict=True):
+        for guard in guards[key]:
+            check, when, message = at[guard]
+            text = outcomes[message].text or guard.message
             if lost := {n: k for n, k in missing.items() if n in guard.reads}:
                 # Worked out on part of a list, it could let the change through wrongly.
                 log.warning(
                     "entities.guard_unworkable", type=type_name, guard=guard.name, unread=lost
                 )
-                text = outcomes[message].text or guard.message
-                out[state.name] = Refusal(
+                out[key] = Refusal(
                     guard, f"{text} (It couldn’t be checked: {checking.unread_text(lost)})"
                 )
-                continue
+                break
+            result = outcomes[check]
             if when is not None:
                 w = outcomes[when]
-                if w.error is None and not w.value:
+                if w.empty or (w.error is None and not w.value):
                     continue
-                if w.error is not None and w.empty:
-                    continue
-            result = outcomes[check]
+                if w.error is not None:
+                    result = w
             if result.error is None and result.value:
                 continue
-            text = outcomes[message].text or guard.message
             if result.error is not None and not result.empty:
                 log.warning(
                     "entities.guard_unworkable",
@@ -222,5 +237,6 @@ def refusals(
                     error=result.error,
                 )
                 text = f"{text} (It couldn’t be checked: {result.error})"
-            out[state.name] = Refusal(guard, text)
+            out[key] = Refusal(guard, text)
+            break
     return out

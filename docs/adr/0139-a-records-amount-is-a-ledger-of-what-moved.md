@@ -57,6 +57,10 @@ sides and a split's movements, and who did it, via what, with which agent
 (ADR 0072), and why. Each is an audit event and a webhook
 event, `entity.amount_moved`.
 
+Each draw also records its `purpose`, either `routine` (the default) or
+`qa_sampling`. The optional reason can name the assay or test. Both purposes
+require the usual permission to draw.
+
 **Concurrency is a row lock, not a retry.** An operation locks the amounts
 it changes, `SELECT … FOR UPDATE` in ID order so that two transfers in
 opposite directions can't deadlock, then checks and writes. A second draw
@@ -93,6 +97,19 @@ a fact, not a use. Locking doesn't hold: the amount is not one of the
 record's values, isn't in its revisions, and changes on a released sample,
 which is what release is for.
 
+**A type can say when material may be taken.** A type declares named
+`draw_guards`, inherited by its subtypes. Like a state guard (ADR 0128),
+each has a CEL `check`, a refusal `message` and an optional `when`.
+It can read the source `record`, `now`, `today` (midnight UTC),
+the `operation` (`draw`, `transfer` or `split`) and the `purpose`.
+References are their stored IDs, so showing a refusal on the source record
+doesn't disclose fields from another project.
+Transfers out and splits count as routine use. The draw dialog shows the
+reason a purpose is blocked. The server checks eligibility again when it
+takes the material. If a state holds the amount, or an applicable check
+is false or cannot be evaluated, the server refuses the operation before
+recording any movement.
+
 **Not on identities.** A type with an identity has no amount
 (`amount-on-identity`). Its project records are one per registry entry
 (ADR 0115), the molecule, not a tube of it. The lab's things are records of
@@ -100,9 +117,9 @@ their own that refer to the entry: a sample, a lot.
 
 **What's left to plugins.** Where something is kept (a freezer, a rack, a
 well) stays a field, as `location` is in `example_lims`. Containers,
-plates and their positions aren't modelled here. A hold set by a plugin
-(`Aliquot.on_hold`, a boolean field) isn't a state, so it doesn't hold the
-amount. A plugin that wants that uses a state field.
+plates and their positions aren't modelled here. A plugin can use a state
+to hold an amount or a draw guard to check a value such as a date at the
+time of use.
 
 ## Consequences
 

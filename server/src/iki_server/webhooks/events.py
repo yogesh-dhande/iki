@@ -137,7 +137,8 @@ _register(
         "entity.amount_moved",
         "Someone draws from a record's amount, transfers some of it, splits it into "
         "aliquots or adjusts it (ADR 0139): `kind`, its `change` and `balance` in `unit`, "
-        "what was asked for (`given`), and the other record (`counterpart`), if any.",
+        "what was asked for (`given`), the draw's `purpose`, and the other record "
+        "(`counterpart`), if any.",
         project=True,
         org=True,
     ),
@@ -475,7 +476,17 @@ def _amount_moved(
 
     if not isinstance(target, Entity) or event.project is None:
         return None
-    keys = ("kind", "change", "balance", "unit", "given", "counterpart", "operation", "reason")
+    keys = (
+        "kind",
+        "purpose",
+        "change",
+        "balance",
+        "unit",
+        "given",
+        "counterpart",
+        "operation",
+        "reason",
+    )
     return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
 
 

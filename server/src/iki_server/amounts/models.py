@@ -53,6 +53,11 @@ class MovementKind(models.TextChoices):
     ADJUSTED = "adjusted", "Adjusted"
 
 
+class DrawPurpose(models.TextChoices):
+    ROUTINE = "routine", "Routine use"
+    QA_SAMPLING = "qa_sampling", "QA sampling"
+
+
 class Movement(models.Model):
     """One change to a record's amount. Append-only: a mistake is corrected by another."""
 
@@ -61,6 +66,7 @@ class Movement(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
     kind = models.CharField(max_length=16, choices=MovementKind.choices)
+    purpose = models.CharField(max_length=16, choices=DrawPurpose.choices, null=True)
     change = models.DecimalField(
         max_digits=DIGITS, decimal_places=PLACES, db_comment="Signed: what it took or gave."
     )
@@ -101,6 +107,13 @@ class Movement(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
                 condition=Q(kind__in=MovementKind.values), name="iki_amount_movement_kind"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    kind=MovementKind.DRAWN, purpose__isnull=False, purpose__in=DrawPurpose.values
+                )
+                | (~Q(kind=MovementKind.DRAWN) & Q(purpose__isnull=True)),
+                name="iki_amount_draw_purpose",
             ),
             models.CheckConstraint(
                 condition=Q(balance__gte=0), name="iki_amount_movement_not_negative"

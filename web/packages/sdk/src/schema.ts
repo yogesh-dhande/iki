@@ -1144,7 +1144,8 @@ export interface paths {
         /**
          * Draw from its amount
          * @description Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
-         *     much, or a state holds it. Two people drawing at once take turns.
+         *     much, a state holds it, or a draw guard refuses its purpose. Two people drawing at
+         *     once take turns.
          */
         post: operations["iki_server_api_amounts_draw"];
         delete?: never;
@@ -6103,6 +6104,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -6372,12 +6380,22 @@ export interface components {
             /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
             amount: components["schemas"]["AmountIn"];
             /**
+             * @description Why material is being drawn.
+             * @default routine
+             */
+            purpose: components["schemas"]["DrawPurpose"];
+            /**
              * Reason
              * @description What it was used for.
              * @default
              */
             reason: string;
         };
+        /**
+         * DrawPurpose
+         * @enum {string}
+         */
+        DrawPurpose: "routine" | "qa_sampling";
         /** EffectCountsOut */
         EffectCountsOut: {
             /** Created */
@@ -6496,6 +6514,11 @@ export interface components {
              */
             edit: boolean;
             /**
+             * Edit Amount
+             * @description Change its amount, including while a state locks the record's values.
+             */
+            edit_amount: boolean;
+            /**
              * Sign
              * @description The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
              */
@@ -6611,6 +6634,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -8994,6 +9024,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -9127,6 +9164,8 @@ export interface components {
              * @description One per request: a transfer's two movements, and a split's and its aliquots', share it.
              */
             operation: string;
+            /** @description The purpose recorded for a draw. */
+            purpose: components["schemas"]["DrawPurpose"] | null;
             /** Reason */
             reason: string;
             /** Unit */

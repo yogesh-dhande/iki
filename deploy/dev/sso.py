@@ -2422,15 +2422,17 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     got = record(alice, lot["id"])["values"]
     if (got.get("expected_mass"), got.get("mass_error")) != (7183.08, -0.88):
         fail(f"{run['hrid']} checked {lot['hrid']}'s mass as {got}, not -0.88 Da from 7183.08")
-    # 50 uL of a 100 uM solution is 5 nmol.
+    # The lot is in quarantine. A 50 uL sample for testing at 100 uM is 5 nmol.
     drawn = api_call(
         alice,
         "POST",
         f"/entities/{lot['id']}/amount/draw",
-        {"amount": {"value": 50, "unit": "uL"}, "reason": "Dosed"},
+        {"amount": {"value": 50, "unit": "uL"}, "purpose": "qa_sampling", "reason": "QC assay"},
     )
     if drawn.status_code != 200:
         fail(f"drawing from {lot['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
+    if drawn.json()["movement"]["purpose"] != "qa_sampling":
+        fail(f"{lot['hrid']}'s ledger did not record the QA sample")
     left = api_call(alice, "GET", f"/entities/{lot['id']}/amount").json()
     if Decimal(left["value"]) != 495:
         fail(f"{lot['hrid']} has {left} left, not 495 nmol")

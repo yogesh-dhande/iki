@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         BudgetOut,
         CostSummaryOut,
         CreatedOut,
+        DrawPurpose,
         EntityOut,
         EntityTypeOut,
         EntryOut,
@@ -664,12 +665,21 @@ class Entities(_Part):
         path = _path("/entities/{ref}/amount/movements", ref=ref)
         return Results(lambda c: client.request("GET", path, params={"cursor": c}))
 
-    def draw(self, ref: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
-        """Draws some of it: ``iki.entities.draw("SMP-000003", (12.5, "uL"))``. In its
-        unit, one that converts to it, or, for a type with a concentration, a mass of a
-        volume (or a volume of a mass). Refused if it hasn't that much, or a state holds
-        it; two drawing at once take turns."""
-        return self._move(ref, "draw", {"amount": _quantity(amount), "reason": reason})
+    def draw(
+        self,
+        ref: str,
+        amount: Quantity,
+        *,
+        purpose: DrawPurpose = "routine",
+        reason: str = "",
+    ) -> AmountMovedOut:
+        """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
+        Give the amount in its own unit or one that converts to it. A recorded
+        concentration also permits a mass to be drawn by volume or vice versa.
+        The server checks the record is eligible for this purpose and has enough left."""
+        return self._move(
+            ref, "draw", {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
+        )
 
     def transfer(self, ref: str, to: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
         """Moves some of it to the record ``to`` (an ID or HRID): pooled, or topped up."""

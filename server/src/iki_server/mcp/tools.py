@@ -18,6 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
+from iki_server.amounts.models import DrawPurpose
 from iki_server.api.entities import Condition, SortIn
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
@@ -731,11 +732,15 @@ def build() -> MCPServer:
             ),
         ],
         reason: Reason,
+        purpose: Annotated[
+            DrawPurpose,
+            Field(description="Use qa_sampling when the material was drawn for quality testing."),
+        ] = DrawPurpose.ROUTINE,
     ) -> CallToolResult:
         """Records that some of a sample, aliquot or other record with an amount was used
-        up. Refused if it hasn't that much, or a state holds it (`amount.held_by`). Only
+        up. Refused if it hasn't that much or is ineligible for that purpose. Only
         when the person says it was drawn: this is what the lab has."""
-        body = {"amount": amount.model_dump(mode="json"), "reason": reason}
+        body = {"amount": amount.model_dump(mode="json"), "reason": reason, "purpose": purpose}
         return answer(await call("POST", path("/entities/{ref}/amount/draw", ref=ref), body=body))
 
     @server.tool(annotations=CHANGE, title="Transfer some of an amount")

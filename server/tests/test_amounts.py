@@ -12,10 +12,12 @@ from org_world import World
 from test_api_entities import api_as, create
 from test_runs import world
 from test_states import roles, set_
+from test_webhooks import deliveries, make
 
 from iki_server.accounts.models import User
 from iki_server.amounts import services
 from iki_server.amounts.models import Amount, Movement
+from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
@@ -46,6 +48,7 @@ def errors(response: Any) -> dict[str, str]:
 
 def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
     api = api_as(world)
+    hook = make(world, "https://hooks.example.com/ledger", ["entity.amount_moved"])
     made = sample(
         world, "S-1", {"value": "0.25", "unit": "mL"}, concentration={"value": 2, "unit": "mg/mL"}
     )
@@ -60,7 +63,7 @@ def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
     }
     drawn = api.post(
         f"/entities/{made['hrid']}/amount/draw",
-        {"amount": {"value": "12.5", "unit": "uL"}, "reason": "SEC"},
+        {"amount": {"value": "12.5", "unit": "uL"}, "purpose": "qa_sampling", "reason": "SEC"},
     )
     assert drawn.status_code == 200, drawn.content
     assert drawn.json()["amount"]["value"] == "237.5"
@@ -89,6 +92,23 @@ def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
         ("recorded", "250", "250"),
     ]
     assert ledger[1]["reason"] == "SEC" and ledger[1]["user"]["email"]
+    assert [m["purpose"] for m in ledger] == ["routine", "qa_sampling", None]
+    assert [d.payload["data"]["purpose"] for d in deliveries(hook)] == [
+        None,
+        "qa_sampling",
+        "routine",
+    ]
+    assert (
+        AuditEvent.objects.get(
+            action="entity.amount_moved", data__operation=ledger[1]["operation"]
+        ).data["purpose"]
+        == "qa_sampling"
+    )
+    unknown = api.post(
+        f"/entities/{made['hrid']}/amount/draw",
+        {"amount": {"value": 1, "unit": "uL"}, "purpose": "other"},
+    )
+    assert unknown.status_code == 422
     # The database holds it too, whatever writes it, and the ledger is append-only.
     with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
         cursor.execute("UPDATE iki_amount SET value = -1 WHERE entity_id = %s", [made["id"]])
@@ -307,6 +327,11 @@ def test_a_state_that_holds_it_stops_it_being_taken(world: World) -> None:
         "#/amount": f"{made['hrid']} is held by its custody: none of it can be taken until that "
         "changes."
     }
+    sampling = api.post(
+        f"/entities/{made['hrid']}/amount/draw",
+        {"amount": {"value": 1, "unit": "uL"}, "purpose": "qa_sampling"},
+    )
+    assert errors(sampling) == errors(held)
     # Back in the lab, it's drawn from again.
     set_(world, "editor", made["hrid"], "custody", "in_lab")
     again = api.post(

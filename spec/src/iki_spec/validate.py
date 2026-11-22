@@ -50,6 +50,7 @@ from iki_spec.model import (
     Export,
     Extension,
     Field,
+    Guard,
     LabRole,
     Plugin,
     RequestSpec,
@@ -713,6 +714,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         file=document.file,
         due=body.get("due"),
         rules=rules.read(body.get("rules"), plugin),
+        draw_guards={
+            n: Guard.from_manifest(n, g) for n, g in (body.get("draw_guards") or {}).items()
+        },
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
             for n, x in (body.get("notifications") or {}).items()
@@ -1699,6 +1703,15 @@ class _Semantics:
         if amount is None:
             if entity_type.abstract:
                 return
+            if any(t.draw_guards for t in lineage):
+                self.add(
+                    "draw-guards-without-amount",
+                    f"`{entity_type.name}` has draw guards but has no amount to take.",
+                    source,
+                    ("draw_guards",) if entity_type.draw_guards else ("name",),
+                    key=True,
+                    hint="Give the type an `amount`.",
+                )
             for name, state, owner in held:
                 own = owner is entity_type
                 self.add(
