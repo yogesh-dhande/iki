@@ -1,13 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Settings · {{ team.name }}{% endblock %}
 {% block main_class %}page-wide{% endblock %}
+{% block crumbs %}<li><a href="{% url 'org:team_list' %}">Teams</a></li><li><a href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a></li><li><span aria-current="page">Settings</span></li>{% endblock %}
+{% block heading %}Team settings{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a></p>
-    <h1>Team settings</h1>
-  </div>
-</div>
 <div class="columns">
   <section class="card">
     <h2 class="section-title">Details</h2>

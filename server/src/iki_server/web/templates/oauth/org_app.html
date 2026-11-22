@@ -1,12 +1,8 @@
 {% extends "web/admin_base.html" %}
 {% block title %}{{ client.display_name }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">{{ client.display_name }}</span></li>{% endblock %}
+{% block heading %}{{ client.display_name }} <span class="badge{% if client.approval != 'approved' %} badge-muted{% endif %}">{{ client.get_approval_display }}</span>{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'oauth:org_apps' %}">Apps</a></p>
-    <h1>{{ client.display_name }} <span class="badge{% if client.approval != 'approved' %} badge-muted{% endif %}">{{ client.get_approval_display }}</span></h1>
-  </div>
-</div>
 <dl class="summary">
   <dt>Client ID</dt><dd><code>{{ client.client_id }}</code></dd>
   <dt>Registered</dt><dd>{% if client.first_party %}Iki’s own app{% else %}{{ client.get_registration_source_display }}{% endif %}, <time datetime="{{ client.created|date:'c' }}">{{ client.created|date:"j M Y" }}</time></dd>

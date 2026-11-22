@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Notifications{% endblock %}
 {% block content %}
-<div class="page-header"><h1>Notifications</h1></div>
 {% include "web/_account_tabs.html" %}
 <p class="muted">Iki shows your notifications under <a href="/notifications/">Notifications</a>. Choose how you’re told of each kind: in Iki and by email, at {{ user.email }}, or in Iki only. A plugin’s notifications can be off too, unless it requires them.</p>
 {% if not email_available %}

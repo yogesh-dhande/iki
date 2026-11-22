@@ -1,0 +1,7 @@
+{# The bar across the top of the page's column (ADR 0176), as page-top.tsx's TopBarFrame #}
+{# draws it: the page's breadcrumb on the left, its actions on the right; `page_header` is #}
+{# the page's (templatetags/page_header.py). On a phone its actions are under its title. #}
+<header class="page-top">
+  <div class="page-top-crumbs"><nav class="crumbs" aria-label="Breadcrumb"><ol>{% if page_header.crumbs %}{{ page_header.crumbs }}{% else %}<li><span aria-current="page">{{ page_header.title }}</span></li>{% endif %}</ol></nav></div>
+  <div class="page-top-actions">{% if page_header.actions %}<div class="page-actions" data-twin>{{ page_header.actions }}</div>{% endif %}</div>
+</header>

@@ -2,7 +2,6 @@
 {% load tz %}
 {% block title %}Audit log{% endblock %}
 {% block content %}
-<div class="page-header"><h1>Audit log</h1></div>
 <p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone. Projects kept whole for a matter are under <a href="{% url 'org:legal_holds' %}">Legal holds</a>.</p>
 <p class="muted">Times are in {{ zone }}, as are the dates you filter by.</p>
 <details class="filters"{% if filtered %} open{% endif %}>

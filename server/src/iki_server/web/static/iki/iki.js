@@ -72,7 +72,68 @@ document.addEventListener("DOMContentLoaded", () => {
   // The main sidebar, or the admin area's: either is a drawer on a narrow screen.
   const sidebar = document.querySelector("[data-sidebar]");
   if (sidebar) setUpSidebar(sidebar);
+
+  const description = document.querySelector("[data-description]");
+  if (description) setUpDescription(description);
 });
+
+// --- A page's line about itself (ADR 0176), as the web app's PageHeader shows it ---------
+
+// Beside the page's title, in one line. Cut short where it doesn't fit, it has an (i) button
+// that opens the whole of it in a toggletip: a dialog under the button, closed by Escape, a
+// click elsewhere or moving on from it.
+function setUpDescription(description) {
+  const line = description.querySelector(".page-description-text");
+  const button = description.querySelector(".page-about");
+  const popover = description.querySelector(".page-about-popover");
+  const dialog = popover?.querySelector("[role=dialog]");
+  if (!line || !button || !popover || !dialog) return;
+  const show = (open) => {
+    popover.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) place(popover, button, description);
+  };
+  const measure = () => {
+    const cut = line.scrollWidth > line.clientWidth + 1;
+    button.hidden = !cut;
+    if (!cut && !popover.hidden) show(false);
+  };
+  measure();
+  new window.ResizeObserver(measure).observe(line);
+  button.addEventListener("click", () => {
+    const open = popover.hidden;
+    show(open);
+    if (open) dialog.focus();
+  });
+  description.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !popover.hidden) {
+      event.stopPropagation();
+      show(false);
+      button.focus();
+    }
+  });
+  description.addEventListener("focusout", (event) => {
+    if (!description.contains(event.relatedTarget)) show(false);
+  });
+  document.addEventListener("click", (event) => {
+    if (!description.contains(event.target)) show(false);
+  });
+  window.addEventListener("resize", () => {
+    if (!popover.hidden) place(popover, button, description);
+  });
+}
+
+// Under its button, starting where the button does, but kept on the screen, 16px clear of
+// its edges.
+function place(popover, button, within) {
+  const gutter = 16;
+  const from = within.getBoundingClientRect().left;
+  const at = button.getBoundingClientRect().left;
+  const width = popover.getBoundingClientRect().width;
+  const room = document.documentElement.clientWidth - gutter - width;
+  const left = Math.max(gutter, Math.min(at, room));
+  popover.style.left = `${left - from}px`;
+}
 
 // --- The sidebar (ADR 0176), as the web app's sidebar.tsx works -----------------------
 

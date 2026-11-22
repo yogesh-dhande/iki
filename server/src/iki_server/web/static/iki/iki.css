@@ -532,6 +532,47 @@ main.app-main {
   margin-bottom: 0;
 }
 
+/* The server's pages (web/_page_heading.html): the toggletip is drawn under its button, in the
+   page, where iki.js places it; the app's is a popover over the page. */
+.page-description {
+  position: relative;
+}
+
+.page-description > .page-about-popover {
+  position: absolute;
+  top: calc(100% + calc(4rem / 13));
+  left: 0;
+  z-index: 20;
+  width: max-content;
+}
+
+.page-description > [hidden] {
+  display: none;
+}
+
+/* Without JavaScript nothing measures the line, so it isn't cut short: it wraps. */
+@media (scripting: none) {
+  .page-description-text {
+    white-space: normal;
+  }
+}
+
+/* A server page can't move its actions when the screen changes, so it draws them twice
+   (data-twin): in the bar, and under its title, where a phone shows them. */
+.page-actions-below[data-twin] {
+  display: none;
+}
+
+@media (max-width: 36rem) {
+  :is(.page-top-actions, .admin-actions):has(> [data-twin]) {
+    display: none;
+  }
+
+  .page-actions-below[data-twin] {
+    display: flex;
+  }
+}
+
 /* Signed in: the sidebar (ADR 0176) beside the page, which is left-aligned beside it. On
    the server's pages they're the body's; the web app draws them in its root. */
 :is(body, #root):has(> .sidebar) {
@@ -2266,6 +2307,12 @@ input:focus-visible {
   margin-bottom: 1.25rem;
 }
 
+/* The app's messages are always there, for screen readers: they take room only with one,
+   so a page's title is as far under the bar on the app's pages as on the server's. */
+.messages:empty {
+  margin: 0;
+}
+
 .messages .alert {
   margin: 0 0 0.5rem;
 }
@@ -2834,11 +2881,6 @@ main.admin-main {
   margin: 0;
   padding: calc(18rem / 13) calc(20rem / 13) calc(24rem / 13);
   font-size: 1rem;
-}
-
-/* The app's messages are always there, for screen readers: only take room with one. */
-.admin-main .messages:empty {
-  margin: 0;
 }
 
 .admin-main .page-header {

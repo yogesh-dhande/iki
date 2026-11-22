@@ -1,12 +1,8 @@
 {% extends "web/admin_base.html" %}
 {% block title %}{{ plugin.title|default:plugin.name }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">{{ plugin.title|default:plugin.name }}</span></li>{% endblock %}
+{% block heading %}{{ plugin.title|default:plugin.name }}{% if detached %} <span class="badge badge-muted">Detached</span>{% elif purged %} <span class="badge badge-muted">Purged</span>{% endif %}{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <p class="eyebrow"><a href="{% url 'org:plugins' %}">Plugins</a></p>
-    <h1>{{ plugin.title|default:plugin.name }}{% if detached %} <span class="badge badge-muted">Detached</span>{% elif purged %} <span class="badge badge-muted">Purged</span>{% endif %}</h1>
-  </div>
-</div>
 <section class="card">
   <dl class="summary">
     <dt>Name</dt><dd><code>{{ plugin.name }}</code></dd>

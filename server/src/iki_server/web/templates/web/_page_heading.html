@@ -1,0 +1,15 @@
+{# A page's title, with what it is in one line beside it (ADR 0176), as ui.tsx's PageHeader #}
+{# draws it. A line cut short has an (i) button that shows it whole (iki.js). On a phone the #}
+{# page's actions are here, under its title, and not in the bar: both are drawn, and the #}
+{# stylesheet shows the one for the screen. `page_header` is templatetags/page_header.py's. #}
+<div class="page-heading">
+  <div class="page-title-row">
+    <h1>{{ page_header.heading }}</h1>
+    {% if page_header.description %}<div class="page-description" data-description>
+      <p class="page-description-text">{{ page_header.description }}</p>
+      <button class="page-about" type="button" aria-label="About {{ page_header.title }}" aria-haspopup="dialog" aria-expanded="false" aria-controls="page-about" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5v.01"/></svg></button>
+      <div class="page-about-popover" id="page-about" hidden><div class="page-about-dialog" role="dialog" aria-label="About {{ page_header.title }}" tabindex="-1"><p>{{ page_header.description }}</p></div></div>
+    </div>{% endif %}
+  </div>
+  {% if page_header.actions %}<div class="page-actions page-actions-below" data-twin>{{ page_header.actions }}</div>{% endif %}
+</div>

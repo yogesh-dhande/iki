@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Admin{% endblock %}
+{% block heading %}The admin area isn’t open to you{% endblock %}
 {% block content %}
 {# /admin/ for someone none of its pages are for: a page of the main frame that says so. #}
 <section class="card">
-  <h1>The admin area isn’t open to you</h1>
   <p>Its pages are for {{ roles }}: the organization’s settings, compute and costs, and the audit log. If your work needs one of them, ask an Org Admin. Go to the <a href="/">home page</a>.</p>
 </section>
 {% endblock %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Let {{ client.display_name }} act for you?{% endblock %}
+{% block heading %}Let {{ client.display_name }} act for you?{% endblock %}
 {% block content %}
-<div class="page-header"><h1>Let {{ client.display_name }} act for you?</h1></div>
 <dl class="summary">
   <dt>Agent</dt><dd><strong>{{ client.display_name }}</strong> (client <code>{{ client.client_id }}</code>)</dd>
   <dt>Service account</dt><dd>{{ account.name }}{% if account.service_account.description %} <span class="muted">· {{ account.service_account.description }}</span>{% endif %}</dd>

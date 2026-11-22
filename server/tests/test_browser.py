@@ -410,6 +410,7 @@ PAGES = [
     ("org_admin", "/admin/registries/"),
     ("org_admin", "/admin/signatures/"),
     ("org_admin", "/admin/people/"),
+    ("org_admin", "/admin/sign-in/"),
     ("auditor", "/admin/audit/"),
     ("admin", "/entities/"),
     ("admin", "/entities/types/acme/protein.Protein/"),
@@ -601,6 +602,118 @@ def test_a_pages_breadcrumb_and_actions_are_in_a_bar_across_its_top(
     shown_at = below.bounding_box()
     assert heading is not None and shown_at is not None
     assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
+    assert_clean(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize(
+    ("principal", "path", "frame", "trail", "action"),
+    [
+        ("team_member", "/teams/", "#sidebar", ["Teams"], None),
+        (
+            "team_member",
+            "/teams/structural-biology/",
+            "#sidebar",
+            ["Teams", "Structural Biology"],
+            "New project",
+        ),
+        ("org_admin", "/admin/people/", "#admin-sidebar", ["Admin", "People"], "Service accounts"),
+    ],
+)
+def test_a_server_pages_header_is_the_apps(
+    open_as: Any,
+    world: World,
+    principal: str,
+    path: str,
+    frame: str,
+    trail: list[str],
+    action: str | None,
+) -> None:
+    """A server-rendered page has the bar the app's pages have (ADR 0176): 46px tall beside
+    the sidebar, its breadcrumb on the left and its actions on the right, then its title. A
+    line about it that doesn't fit opens whole in a toggletip. On a phone the actions go
+    under the title, and the page is never wider than the screen. By role: Firefox crashes
+    on labels after axe."""
+    world.team.description = (
+        "Crystallography and cryo-EM of the kinases the atlas covers, from expression and"
+        " purification to the deposited structure, with the beamline rota, the grid"
+        " screening queue and the processing pipelines the team keeps for everyone."
+    )
+    world.team.save()
+    page = open_as(principal, path)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    crumbs = page.get_by_role("navigation", name="Breadcrumb")
+    bar = page.locator(".page-top, .admin-top").filter(has=crumbs)
+    assert crumbs.get_by_role("listitem").all_inner_texts() == trail
+    assert crumbs.get_by_text(trail[-1], exact=True).get_attribute("aria-current") == "page"
+    box = bar.bounding_box()
+    side = page.locator(frame).bounding_box()
+    assert box is not None and side is not None
+    assert box["height"] == pytest.approx(46, abs=1)
+    assert box["y"] == pytest.approx(0, abs=1)
+    assert box["x"] == pytest.approx(side["x"] + side["width"], abs=1)
+    assert box["x"] + box["width"] == pytest.approx(1440, abs=1)
+    crumbs_box = crumbs.bounding_box()
+    assert crumbs_box is not None
+    assert crumbs_box["x"] < box["x"] + 30
+    middle = box["y"] + box["height"] / 2
+    assert crumbs_box["y"] + crumbs_box["height"] / 2 == pytest.approx(middle, abs=2)
+    title = page.get_by_role("heading", level=1).bounding_box()
+    assert title is not None and title["y"] > box["y"] + box["height"]
+    if action:
+        button = bar.get_by_role("link", name=action)
+        at = button.bounding_box()
+        assert at is not None
+        assert at["x"] + at["width"] == pytest.approx(box["x"] + box["width"] - 20, abs=2)
+        assert at["y"] + at["height"] / 2 == pytest.approx(middle, abs=2)
+        # Drawn twice, for a phone too, and shown once.
+        header = page.locator(".page-top, .admin-top, .page-heading")
+        assert header.get_by_role("link", name=action).count() == 1
+    else:
+        assert bar.get_by_role("link").count() == bar.get_by_role("listitem").count() - 1
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+
+    if path == "/teams/structural-biology/":
+        # What it is, beside its title: too long for the line, so whole in a toggletip.
+        about = page.get_by_role("button", name="About Structural Biology")
+        about_box = about.bounding_box()
+        assert about_box is not None and about_box["x"] > title["x"] + title["width"]
+        assert about.get_attribute("aria-expanded") == "false"
+        about.click()
+        toggletip = page.get_by_role("dialog", name="About Structural Biology")
+        toggletip.get_by_text("processing pipelines the team keeps").wait_for()
+        assert about.get_attribute("aria-expanded") == "true"
+        assert toggletip.evaluate("d => d === document.activeElement")
+        assert_clean(page)
+        page.keyboard.press("Escape")
+        toggletip.wait_for(state="hidden")
+        assert _focused(about)
+
+    # On a phone the title comes first: the bar keeps the breadcrumb, and the actions go
+    # under the title.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert crumbs.is_visible()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    if action:
+        assert bar.get_by_role("link", name=action).count() == 0
+        below = page.locator(".page-heading").get_by_role("link", name=action)
+        below.wait_for()
+        heading = page.get_by_role("heading", level=1).bounding_box()
+        shown_at = below.bounding_box()
+        assert heading is not None and shown_at is not None
+        assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
+        assert shown_at["x"] + shown_at["width"] <= 390
+    if path == "/teams/structural-biology/":
+        about = page.get_by_role("button", name="About Structural Biology")
+        about.click()
+        toggletip = page.get_by_role("dialog", name="About Structural Biology")
+        toggletip.wait_for()
+        tip = toggletip.bounding_box()
+        assert tip is not None and tip["x"] >= 16 - 1 and tip["x"] + tip["width"] <= 390 - 16 + 1
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        page.mouse.click(5, 800)  # Elsewhere.
+        toggletip.wait_for(state="hidden")
     assert_clean(page)
     page.context.close()
 
