@@ -2614,6 +2614,71 @@ def list_revisions(
     return result
 
 
+class ChangedOut(Schema):
+    id: UUID
+    hrid: str
+    title: str = Field(description="What it's called: its type's display title, or its HRID.")
+    type: str
+    archived: bool
+
+
+class ProjectChangeOut(RevisionOut):
+    entity: ChangedOut = Field(description="The record it changed.")
+
+
+class ChangesParams(Schema):
+    limit: int = Field(10, ge=1, le=50, description="How many, newest first.")
+
+
+@router.get(
+    "/projects/{project_id}/changes",
+    response=list[ProjectChangeOut],
+    summary="A project's latest changes",
+    by_alias=True,
+)
+def project_changes(
+    request: HttpRequest,
+    project_id: UUID,
+    params: Query[ChangesParams],
+) -> list[dict[str, Any]]:
+    """Newest first: the latest revisions of the records in the project (its own, and those
+    linked into it) that you can read, as its Entities tab lists them, each with the record
+    it changed. Its records' own revisions: a registry entry's curation is on the entry's
+    history (ADR 0115). Takes a role in the project. The full trail of each is the record's
+    ``/revisions``."""
+    me = caller(request)
+    found = project(me, project_id, Action.PROJECT_READ)
+    records = search.queryset(me, search.Search(project=found.pk)).values("pk")
+    revisions = list(
+        Revision.objects.filter(entity__in=records)
+        .select_related("user", "agent", "entity")
+        # Revisions' IDs are UUIDv7, in the order they were made, imported ones' included:
+        # newest first by the primary key's index, without sorting the project's history.
+        .order_by("-id")[: params.limit]
+    )
+    entities = list({r.entity_id: r.entity for r in revisions}.values())
+    values = services.current_values_of(entities) if entities else {}
+    made = _runs_of(me, revisions)
+    states = revision_states(revisions)
+    out = []
+    for r in revisions:
+        fields = shape(r.entity.type).fields()
+        shown = {n: to_json(fields[n], v) for n, v in values.get(r.entity_id, {}).items()}
+        out.append(
+            {
+                **_revision(r, made, states=states),
+                "entity": {
+                    "id": r.entity.pk,
+                    "hrid": r.entity.hrid,
+                    "title": _title(r.entity, shown),
+                    "type": r.entity.type,
+                    "archived": r.entity.archived_at is not None,
+                },
+            }
+        )
+    return out
+
+
 def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
     """The holds each of a record's revisions opened (ADR 0127), as ``HeldOut``, by
     revision number: reviewed or not, as its history keeps them."""

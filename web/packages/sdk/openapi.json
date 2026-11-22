@@ -2465,6 +2465,55 @@
         "title": "ChangeOut",
         "type": "object"
       },
+      "ChangedOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "archived"
+        ],
+        "title": "ChangedOut",
+        "type": "object"
+      },
+      "ChangesParams": {
+        "properties": {
+          "limit": {
+            "default": 10,
+            "description": "How many, newest first.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "ChangesParams",
+        "type": "object"
+      },
       "CheckpointOut": {
         "properties": {
           "attempt": {
@@ -12134,6 +12183,157 @@
           "run"
         ],
         "title": "ProjectCan",
+        "type": "object"
+      },
+      "ProjectChangeOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that made it, acting for user, if one did (ADR 0072)."
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Fields",
+            "type": "array"
+          },
+          "client": {
+            "description": "The OAuth app it came through, such as an AI agent's MCP client, if any.",
+            "title": "Client",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/ChangedOut",
+            "description": "The record it changed."
+          },
+          "entry": {
+            "default": false,
+            "description": "It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.",
+            "title": "Entry",
+            "type": "boolean"
+          },
+          "holds": {
+            "description": "The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.",
+            "items": {
+              "$ref": "#/components/schemas/HeldOut"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "created",
+              "edited",
+              "archived",
+              "restored",
+              "curated",
+              "superseded",
+              "moved",
+              "state_changed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record."
+          },
+          "run_withheld": {
+            "default": false,
+            "description": "A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.",
+            "title": "Run Withheld",
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionStateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`."
+          },
+          "submitted": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.",
+            "title": "Submitted"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who, or for a run, who launched it."
+          },
+          "via": {
+            "description": "How: web, api, mcp, run, …",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "kind",
+          "changed_fields",
+          "user",
+          "via",
+          "client",
+          "agent",
+          "reason",
+          "state",
+          "created_at",
+          "entity"
+        ],
+        "title": "ProjectChangeOut",
         "type": "object"
       },
       "ProjectChoiceIn": {
@@ -30814,6 +31014,66 @@
         "summary": "Export a bundle",
         "tags": [
           "bundles"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/changes": {
+      "get": {
+        "description": "Newest first: the latest revisions of the records in the project (its own, and those\nlinked into it) that you can read, as its Entities tab lists them, each with the record\nit changed. Its records' own revisions: a registry entry's curation is on the entry's\nhistory (ADR 0115). Takes a role in the project. The full trail of each is the record's\n``/revisions``.",
+        "operationId": "iki_server_api_entities_project_changes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many, newest first.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "How many, newest first.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectChangeOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A project's latest changes",
+        "tags": [
+          "entities"
         ]
       }
     },
