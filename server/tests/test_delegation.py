@@ -359,7 +359,7 @@ def test_an_org_admin_lets_a_credential_act_for_people(world: World) -> None:
 
     admin = world.browser("org_admin")
     bot = Bot(world, acts_for_people=False)
-    page = f"/service-accounts/{bot.account.pk}/"
+    page = f"/admin/service-accounts/{bot.account.pk}/"
     assert "Let it act for people" in admin.get(page).content.decode()
     done = post(admin, page, {"action": "allow_acting", "credential": str(bot.client.pk)})
     assert done.status_code == 302

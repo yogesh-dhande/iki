@@ -251,7 +251,7 @@ def test_where_each_commit_came_from_is_audited_and_shown(
         # Nothing was fetched anew.
         ("plugin.detached", {"state": ["active", "detached"]}),
     ]
-    page = world.browser("org_admin").get("/settings/plugins/acme/dna/").content.decode()
+    page = world.browser("org_admin").get("/admin/plugins/acme/dna/").content.decode()
     assert f"<dt>Repository</dt><dd><code>{canonical}</code></dd>" in page
     assert f"<dt>Fetched from</dt><dd><code>{mirror}</code></dd>" in page
 

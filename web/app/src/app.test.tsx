@@ -194,11 +194,11 @@ describe("the frame", () => {
       ["Projects", "/projects/"],
       ["Types", "/types/"],
       ["Teams", "/teams/"],
-      ["People", "/people/"],
-      ["Settings", "/settings/sign-in/"],
-      ["Costs", "/costs/"],
-      ["Compute", "/compute/"],
-      ["Audit", "/audit/"],
+      ["People", "/admin/people/"],
+      ["Settings", "/admin/sign-in/"],
+      ["Costs", "/admin/costs/"],
+      ["Compute", "/admin/compute/"],
+      ["Audit", "/admin/audit/"],
     ]);
     expect(links.filter((a) => a.getAttribute("aria-current") === "page")).toEqual([
       within(nav).getByRole("link", { name: "Projects" }),
@@ -1681,7 +1681,7 @@ describe("webhooks", () => {
   it("are Org Admins' to manage in settings", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    await renderApp("/settings/webhooks/");
+    await renderApp("/admin/webhooks/");
     expect(
       screen.getByText("Only Org Admins can manage the organization’s webhooks."),
     ).toBeVisible();
@@ -1710,7 +1710,7 @@ describe("webhooks", () => {
       );
       return { ...HOOK, active: false, disabled_reason: "org_admin" };
     });
-    const { user } = await renderApp("/settings/webhooks/");
+    const { user } = await renderApp("/admin/webhooks/");
     const nav = screen.getByRole("navigation", { name: "Admin" });
     expect(within(nav).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
       "aria-current",
@@ -1718,7 +1718,7 @@ describe("webhooks", () => {
     );
     expect(await screen.findByRole("link", { name: "eln.example.com" })).toHaveAttribute(
       "href",
-      `/settings/webhooks/${HOOK.id}/`,
+      `/admin/webhooks/${HOOK.id}/`,
     );
     const row = (await screen.findByText("lims.example.com")).closest("li") as HTMLElement;
     expect(within(row).getByRole("link", { name: "Kinase Atlas" })).toBeVisible();
@@ -1741,7 +1741,7 @@ describe("webhooks", () => {
     answer("GET /api/v1/webhook-policy", { project_webhooks: true });
     answer("GET /api/v1/project-webhooks", page([]));
     answer("PATCH /api/v1/webhook-policy", { project_webhooks: false });
-    const { user } = await renderApp("/settings/webhooks/");
+    const { user } = await renderApp("/admin/webhooks/");
     await user.click(await screen.findByRole("radio", { name: /No one/ }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Saved.")).toBeVisible();

@@ -134,33 +134,33 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
     sequences(world)
     deployed(*PLUGINS)
     admin = world.browser("org_admin")
-    listing = admin.get("/settings/plugins/").content.decode()
+    listing = admin.get("/admin/plugins/").content.decode()
     assert "Detached" in listing
-    page = admin.get("/settings/plugins/acme/dna/").content.decode()
+    page = admin.get("/admin/plugins/acme/dna/").content.decode()
     assert "<dt>Works with</dt><dd>Iki <code>&gt;=0.1</code></dd>" in page
     assert "What a purge would delete" in page
     assert "2 DNA sequences" in page
     assert "the 2 registry entries they’re records of" in page
 
     refused = post(
-        admin, "/settings/plugins/acme/dna/", {"action": "purge", "reason": "Over", "confirm": "x"}
+        admin, "/admin/plugins/acme/dna/", {"action": "purge", "reason": "Over", "confirm": "x"}
     )
     assert refused.status_code == 200
     assert "Type acme/dna to confirm." in refused.content.decode()
     made = post(
         admin,
-        "/settings/plugins/acme/dna/",
+        "/admin/plugins/acme/dna/",
         {"action": "purge", "reason": "Over", "confirm": "acme/dna"},
     )
     assert made.status_code == 302
-    assert "Purge scheduled" in admin.get("/settings/plugins/acme/dna/").content.decode()
-    assert "Purge on" in admin.get("/settings/plugins/").content.decode()
-    cancelled = post(admin, "/settings/plugins/acme/dna/", {"action": "cancel"})
+    assert "Purge scheduled" in admin.get("/admin/plugins/acme/dna/").content.decode()
+    assert "Purge on" in admin.get("/admin/plugins/").content.decode()
+    cancelled = post(admin, "/admin/plugins/acme/dna/", {"action": "cancel"})
     assert cancelled.status_code == 302
     assert purge.pending("acme/dna") is None
 
-    assert world.browser("auditor").get("/settings/plugins/").status_code == 403
-    assert admin.get("/settings/plugins/nothing/").status_code == 404
+    assert world.browser("auditor").get("/admin/plugins/").status_code == 403
+    assert admin.get("/admin/plugins/nothing/").status_code == 404
 
 
 # --- Once the wait is over -----------------------------------------------------------------
@@ -256,15 +256,15 @@ def test_a_purged_plugin_stays_on_record(world: World) -> None:
         done_at=now,
     )
     browser = world.browser("org_admin")
-    listing = browser.get("/settings/plugins/").content.decode()
+    listing = browser.get("/admin/plugins/").content.decode()
     assert f"Purged on {now:%Y-%m-%d}" in listing
-    page = browser.get("/settings/plugins/acme/lims/").content.decode()
+    page = browser.get("/admin/plugins/acme/lims/").content.decode()
     assert "What the purge deleted" in page
     assert "3 Samples" in page
     assert "Retention of 10 years over" in page
     assert "dropped its tables" in page
     assert "Schedule the purge" not in page
     assert "Cancel the purge" not in page
-    again = post(browser, "/settings/plugins/acme/lims/", {"action": "cancel"})
+    again = post(browser, "/admin/plugins/acme/lims/", {"action": "cancel"})
     assert again.status_code == 200
     assert PluginPurge.objects.get().done_at == now

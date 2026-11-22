@@ -71,7 +71,7 @@ def lock(user: User, failures: int) -> None:
         LOCKED,
         title=f"{who}'s signing is locked",
         body=body,
-        path="/settings/signatures/",
+        path="/admin/signatures/",
     )
     notify(
         [user],

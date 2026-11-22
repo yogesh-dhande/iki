@@ -8,7 +8,7 @@
         "items": [
           {
             "label": "Sign-in and provisioning",
-            "href": "/settings/sign-in/",
+            "href": "/admin/sign-in/",
             "requires": ["manage_org"],
             "icon": [
               "M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z",
@@ -17,9 +17,9 @@
           },
           {
             "label": "People",
-            "href": "/people/",
+            "href": "/admin/people/",
             "requires": ["manage_org"],
-            "current": ["/people/", "/service-accounts/"],
+            "current": ["/admin/people/", "/admin/service-accounts/"],
             "icon": [
               "M5.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0",
               "M2.5 20a6.5 6.5 0 0 1 13 0",
@@ -28,13 +28,13 @@
           },
           {
             "label": "Apps",
-            "href": "/settings/apps/",
+            "href": "/admin/apps/",
             "requires": ["manage_org"],
             "icon": ["M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"]
           },
           {
             "label": "Email",
-            "href": "/settings/email/",
+            "href": "/admin/email/",
             "requires": ["manage_org"],
             "icon": [
               "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
@@ -48,7 +48,7 @@
         "items": [
           {
             "label": "Registries",
-            "href": "/settings/registries/",
+            "href": "/admin/registries/",
             "requires": ["manage_org"],
             "icon": [
               "M4.5 3h5A1.5 1.5 0 0 1 11 4.5v5A1.5 1.5 0 0 1 9.5 11h-5A1.5 1.5 0 0 1 3 9.5v-5A1.5 1.5 0 0 1 4.5 3z",
@@ -58,13 +58,13 @@
           },
           {
             "label": "Plugins",
-            "href": "/settings/plugins/",
+            "href": "/admin/plugins/",
             "requires": ["manage_org"],
             "icon": ["M12 3 3 7.5v9L12 21l9-4.5v-9z", "M3 7.5 12 12l9-4.5M12 12v9"]
           },
           {
             "label": "Outside APIs",
-            "href": "/settings/outside-apis/",
+            "href": "/admin/outside-apis/",
             "requires": ["manage_org"],
             "app": true,
             "icon": [
@@ -75,7 +75,7 @@
           },
           {
             "label": "Webhooks",
-            "href": "/settings/webhooks/",
+            "href": "/admin/webhooks/",
             "requires": ["manage_webhooks"],
             "app": true,
             "icon": [
@@ -90,7 +90,7 @@
         "items": [
           {
             "label": "Compute",
-            "href": "/compute/",
+            "href": "/admin/compute/",
             "requires": ["manage_compute"],
             "app": true,
             "icon": [
@@ -100,7 +100,7 @@
           },
           {
             "label": "Costs and budgets",
-            "href": "/costs/",
+            "href": "/admin/costs/",
             "requires": ["read_costs"],
             "app": true,
             "icon": [
@@ -114,19 +114,19 @@
         "items": [
           {
             "label": "Audit log",
-            "href": "/audit/",
+            "href": "/admin/audit/",
             "requires": ["read_audit"],
             "icon": ["M6 3h9l4 4v14H6z", "M9 12h7M9 16h7M9 8h3"]
           },
           {
             "label": "Electronic signatures",
-            "href": "/settings/signatures/",
+            "href": "/admin/signatures/",
             "requires": ["manage_org", "read_audit"],
             "icon": ["M4 20h4L19 9l-4-4L4 16z"]
           },
           {
             "label": "Legal holds",
-            "href": "/settings/legal-holds/",
+            "href": "/admin/legal-holds/",
             "requires": ["manage_org", "read_audit"],
             "icon": ["M3 4h18v4H3z", "M5 8v12h14V8", "M10 12h4"]
           }
@@ -141,18 +141,17 @@
     { "label": "Teams", "href": "/teams/" },
     {
       "label": "People",
-      "href": "/people/",
+      "href": "/admin/people/",
       "requires": "manage_org",
-      "current": ["/people/", "/service-accounts/"]
+      "current": ["/admin/people/", "/admin/service-accounts/"]
     },
     {
       "label": "Settings",
-      "href": "/settings/sign-in/",
-      "requires": "manage_org",
-      "current": ["/settings/"]
+      "href": "/admin/sign-in/",
+      "requires": "manage_org"
     },
-    { "label": "Costs", "href": "/costs/", "requires": "read_costs", "app": true },
-    { "label": "Compute", "href": "/compute/", "requires": "manage_compute", "app": true },
-    { "label": "Audit", "href": "/audit/", "requires": "read_audit" }
+    { "label": "Costs", "href": "/admin/costs/", "requires": "read_costs", "app": true },
+    { "label": "Compute", "href": "/admin/compute/", "requires": "manage_compute", "app": true },
+    { "label": "Audit", "href": "/admin/audit/", "requires": "read_audit" }
   ]
 }

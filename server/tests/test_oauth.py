@@ -230,9 +230,9 @@ def test_a_registered_client_waits_for_an_org_admin(world: World) -> None:
 
     # The Org Admin sees the request and approves it.
     admin = world.browser("org_admin")
-    listing = admin.get("/settings/apps/")
+    listing = admin.get("/admin/apps/")
     assert listing.status_code == 200 and b"Notebook" in listing.content
-    assert post(admin, f"/settings/apps/{client.pk}/", {"action": "approve"}).status_code == 302
+    assert post(admin, f"/admin/apps/{client.pk}/", {"action": "approve"}).status_code == 302
     client.refresh_from_db()
     assert client.approval == Approval.APPROVED
     assert browser.get("/oauth/authorize/", authorize_query(client, challenge)).status_code == 200
@@ -240,7 +240,7 @@ def test_a_registered_client_waits_for_an_org_admin(world: World) -> None:
 
 def test_with_approval_turned_off_clients_work_at_once(world: World) -> None:
     admin = world.browser("org_admin")
-    post(admin, "/settings/apps/", {"action": "policy"})  # unchecked: no approval needed
+    post(admin, "/admin/apps/", {"action": "policy"})  # unchecked: no approval needed
     assert AuditEvent.objects.get(action="oauth.approval_policy_changed").data == {
         "required": False
     }
@@ -776,7 +776,7 @@ def test_credentials_are_created_on_the_service_account_page(world: World) -> No
     browser = world.browser("org_admin")
     response = post(
         browser,
-        f"/service-accounts/{account.pk}/",
+        f"/admin/service-accounts/{account.pk}/",
         {"action": "create_credential", "name": "CI", "scopes": ["read", "run"]},
     )
     assert response.status_code == 200, response.status_code
@@ -786,5 +786,5 @@ def test_credentials_are_created_on_the_service_account_page(world: World) -> No
     html = response.content.decode()
     assert client.client_id in html
     assert "secret" in html.lower()
-    again = browser.get(f"/service-accounts/{account.pk}/").content.decode()
+    again = browser.get(f"/admin/service-accounts/{account.pk}/").content.decode()
     assert client.client_id in again

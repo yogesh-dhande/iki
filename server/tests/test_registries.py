@@ -421,20 +421,20 @@ def test_a_projects_registry_is_fixed_once_it_has_entities(world: World) -> None
 
 def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: World) -> None:
     admin = world.browser("org_admin")
-    listed = admin.get("/settings/registries/").content.decode()
+    listed = admin.get("/admin/registries/").content.decode()
     assert Registry.default().name in listed and "Add a registry" in listed
-    refused = post(admin, "/settings/registries/", {"name": "Client A"})
+    refused = post(admin, "/admin/registries/", {"name": "Client A"})
     assert refused.status_code == 200
     assert "Choose the teams that use it" in refused.content.decode()
     made = post(
         admin,
-        "/settings/registries/",
+        "/admin/registries/",
         {"name": "Client A", "description": "A CRO client's.", "teams": [str(world.team.pk)]},
     )
     assert made.status_code == 302
     client = Registry.objects.get(name="Client A")
     assert list(client.teams.all()) == [world.team] and not client.all_teams
-    page = f"/settings/registries/{client.pk}/"
+    page = f"/admin/registries/{client.pk}/"
     appointed = post(admin, page, {"action": "appoint", "person": "auditor@example.com"})
     assert appointed.status_code == 302, appointed.content.decode()[:2000]
     assert client.registrars.filter(user=world.users["auditor"]).exists()

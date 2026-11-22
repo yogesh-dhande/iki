@@ -77,8 +77,8 @@ const STATUS = {
 
 function Workers() {
   // The tier is in the address, so the overview's "Manage" links open it filtered.
-  const tier: WorkerFilter["tier"] = useSearch({ from: "/compute/workers" }).tier ?? "all";
-  const navigate = useNavigate({ from: "/compute/workers" });
+  const tier: WorkerFilter["tier"] = useSearch({ from: "/admin/compute/workers" }).tier ?? "all";
+  const navigate = useNavigate({ from: "/admin/compute/workers" });
   const setTier = (next: WorkerFilter["tier"]) => {
     void navigate({ search: next === "all" ? {} : { tier: next }, replace: true });
   };
@@ -294,7 +294,7 @@ function SlurmCluster({ cluster }: { cluster: string }) {
   return (
     <span className="cell-meta">
       On the Slurm cluster{" "}
-      <Link to="/compute/slurm/">
+      <Link to="/admin/compute/slurm/">
         <code>{cluster}</code>
       </Link>
     </span>

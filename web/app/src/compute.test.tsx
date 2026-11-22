@@ -47,7 +47,7 @@ describe("Compute → Overview", () => {
   it("shows what's waiting, on which workers, and the machines Iki started", async () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/overview", overview());
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Compute" })).toBeVisible();
     const tabs = screen.getByRole("navigation", { name: "Compute" });
@@ -69,7 +69,7 @@ describe("Compute → Overview", () => {
     // Its own action, in the top bar: where tokens to register workers are made.
     expect(
       within(screen.getByRole("banner")).getByRole("link", { name: "Register a worker" }),
-    ).toHaveAttribute("href", "/compute/workers/#registration-tokens");
+    ).toHaveAttribute("href", "/admin/compute/workers/#registration-tokens");
 
     // Across every tier and environment: 4 queued, 1 awaiting approval, 2 running; 5
     // workers heard from, 1 not.
@@ -102,7 +102,7 @@ describe("Compute → Overview", () => {
     ]);
     expect(backend.getByRole("link", { name: "Manage Backend workers" })).toHaveAttribute(
       "href",
-      "/compute/workers/?tier=backend",
+      "/admin/compute/workers/?tier=backend",
     );
     // An empty tier is listed, and says what its workers would be.
     expect(rowOf("Workers by tier", "VM").getByText(/Machines Iki starts for runs/)).toBeVisible();
@@ -114,7 +114,7 @@ describe("Compute → Overview", () => {
   it("says so when nothing's waiting and no machines are up", async () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/overview", overview({ queues: [], machines: [] }));
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     expect(await screen.findByText("Nothing is waiting or running.")).toBeVisible();
     expect(screen.getByText(/None now\. Iki starts pods and virtual machines/)).toBeVisible();
   });
@@ -123,7 +123,7 @@ describe("Compute → Overview", () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/overview", overview());
     answer("GET /api/v1/compute/volumes", []);
-    await renderApp("/compute/volumes/");
+    await renderApp("/admin/compute/volumes/");
     const tabs = await screen.findByRole("navigation", { name: "Compute" });
     expect(within(tabs).getByRole("link", { name: "Volumes" })).toHaveAttribute(
       "aria-current",
@@ -136,7 +136,7 @@ describe("Compute → Overview", () => {
 
   it("isn't anyone else's", async () => {
     signedIn();
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/overview")).toEqual([]);
     // Someone with no page of the admin area gets the main frame.
@@ -147,7 +147,7 @@ describe("Compute → Overview", () => {
 
   it("isn't an auditor's, who sees it isn't in the admin area they have", async () => {
     signedIn({ can: { ...ME.can, read_audit: true, read_costs: true } });
-    await renderApp("/compute/");
+    await renderApp("/admin/compute/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/overview")).toEqual([]);
     const nav = screen.getByRole("navigation", { name: "Admin" });

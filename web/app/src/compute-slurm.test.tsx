@@ -99,7 +99,7 @@ describe("a Slurm template's facts", () => {
 describe("Compute → Slurm", () => {
   it("shows each cluster's templates as compute.yaml says them, and its workers", async () => {
     onSlurm([cluster()], []);
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     const row = (await (await card()).findByRole("rowheader", { name: "hpc-gpu" })).closest("tr");
     if (!row) throw new Error("no row");
     expect(
@@ -145,7 +145,7 @@ describe("Compute → Slurm", () => {
       ],
       [],
     );
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     const row = (await (await card()).findByRole("rowheader", { name: "hpc-gpu" })).closest("tr");
     if (!row) throw new Error("no row");
     expect(
@@ -165,25 +165,25 @@ describe("Compute → Slurm", () => {
 
   it("warns when no worker on a cluster is online", async () => {
     onSlurm([cluster({ workers_online: 0 })], []);
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     const alert = await (await card()).findByText(/No worker on its login nodes is online/);
     expect(alert).toHaveTextContent("so its runs wait");
     expect(within(alert).getByRole("link", { name: "Workers" })).toHaveAttribute(
       "href",
-      "/compute/workers/",
+      "/admin/compute/workers/",
     );
   });
 
   it("says how to add a cluster when there are none", async () => {
     onSlurm([], []);
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     expect(await screen.findByText(/This deployment has no Slurm clusters/)).toBeVisible();
     expect(calls("GET", ACCOUNTS)).toEqual([]);
   });
 
   it("lists the projects with their own account", async () => {
     onSlurm([cluster()], [account()]);
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     await (await card()).findByRole("rowheader", { name: "hpc-gpu" });
     const row = (
       await (await accounts()).findByRole("rowheader", { name: /Cryo-EM screening/ })
@@ -207,7 +207,7 @@ describe("Compute → Slurm", () => {
       given.push(account());
       return account();
     });
-    const { user } = await renderApp("/compute/slurm/");
+    const { user } = await renderApp("/admin/compute/slurm/");
     expect(await (await accounts()).findByText(/None yet/)).toBeVisible();
     await user.click((await accounts()).getByRole("button", { name: "Give a project an account" }));
     const dialog = within(screen.getByRole("dialog", { name: "Give a project an account on hpc" }));
@@ -244,7 +244,7 @@ describe("Compute → Slurm", () => {
         { pointer: "#/account", detail: "Slurm has no such account." },
       ]),
     );
-    const { user } = await renderApp("/compute/slurm/");
+    const { user } = await renderApp("/admin/compute/slurm/");
     await user.click(
       await (await accounts()).findByRole("button", { name: "Change Cryo-EM screening’s account" }),
     );
@@ -278,7 +278,7 @@ describe("Compute → Slurm", () => {
     answer("GET /api/v1/compute/quota-scopes", () => [
       { ...PROJECT, team: TEAM.name, team_id: TEAM.id },
     ]);
-    const { user } = await renderApp("/compute/slurm/");
+    const { user } = await renderApp("/admin/compute/slurm/");
     await user.click(
       await (await accounts()).findByRole("button", { name: "Give a project an account" }),
     );
@@ -295,7 +295,7 @@ describe("Compute → Slurm", () => {
   it("clears a project's account, saying where its jobs are charged then", async () => {
     onSlurm([cluster()], [account()]);
     answer(`DELETE ${ACCOUNTS}/${PROJECT.id}`, () => new Response(null, { status: 204 }));
-    const { user } = await renderApp("/compute/slurm/");
+    const { user } = await renderApp("/admin/compute/slurm/");
     await user.click(
       await (await accounts()).findByRole("button", { name: "Clear Cryo-EM screening’s account" }),
     );
@@ -312,7 +312,7 @@ describe("Compute → Slurm", () => {
 
   it("isn't anyone else's", async () => {
     signedIn();
-    await renderApp("/compute/slurm/");
+    await renderApp("/admin/compute/slurm/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/slurm")).toEqual([]);
   });

@@ -53,7 +53,7 @@ describe("how much of a limit is in use", () => {
 describe("Compute → Quotas", () => {
   it("lists each quota with how much of it is in use", async () => {
     onQuotas([quota(), quota({ id: "q2", project: null, tier: null, max_running: 0, running: 0 })]);
-    await renderApp("/compute/quotas/");
+    await renderApp("/admin/compute/quotas/");
     const row = (await card().findByRole("rowheader", { name: /Cryo-EM screening/ })).closest("tr");
     if (!row) throw new Error("no row");
     expect(
@@ -78,7 +78,7 @@ describe("Compute → Quotas", () => {
       quotas.push(quota());
       return quota();
     });
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);
     await user.click(card().getByRole("button", { name: "Set a quota" }));
     const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
@@ -120,7 +120,7 @@ describe("Compute → Quotas", () => {
       await held;
       return teams.filter((t) => t.name.toLowerCase().includes(search));
     });
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);
     await user.click(card().getByRole("button", { name: "Set a quota" }));
     const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
@@ -163,7 +163,7 @@ describe("Compute → Quotas", () => {
       quotas.push(saved);
       return saved;
     });
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);
     await user.click(card().getByRole("button", { name: "Set a quota" }));
     const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
@@ -198,7 +198,7 @@ describe("Compute → Quotas", () => {
     answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
       r.query.get("search") ? [] : [{ ...PROJECT, team: "Structural biology", team_id: null }],
     );
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);
     await user.click(card().getByRole("button", { name: "Set a quota" }));
     const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
@@ -211,7 +211,7 @@ describe("Compute → Quotas", () => {
 
   it("asks for a whole number", async () => {
     onQuotas([]);
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await user.click(await card().findByRole("button", { name: "Set a quota" }));
     const dialog = within(screen.getByRole("dialog", { name: "Set a quota" }));
     await user.type(dialog.getByRole("textbox", { name: /Runs waiting/ }), "2.5");
@@ -227,7 +227,7 @@ describe("Compute → Quotas", () => {
     answer("PATCH /api/v1/compute/quotas/00000000-0000-7000-8000-0000000000q1", () =>
       quota({ max_running: 8 }),
     );
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await user.click(
       await card().findByRole("button", { name: "Change Cryo-EM screening’s quota" }),
     );
@@ -249,7 +249,7 @@ describe("Compute → Quotas", () => {
       "DELETE /api/v1/compute/quotas/00000000-0000-7000-8000-0000000000q1",
       () => new Response(null, { status: 204 }),
     );
-    const { user } = await renderApp("/compute/quotas/");
+    const { user } = await renderApp("/admin/compute/quotas/");
     await user.click(
       await card().findByRole("button", { name: "Remove Cryo-EM screening’s quota" }),
     );
@@ -266,7 +266,7 @@ describe("Compute → Quotas", () => {
 
   it("isn't anyone else's", async () => {
     signedIn();
-    await renderApp("/compute/quotas/");
+    await renderApp("/admin/compute/quotas/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/quotas")).toEqual([]);
   });

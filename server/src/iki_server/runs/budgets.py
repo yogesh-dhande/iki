@@ -304,7 +304,7 @@ def _tell(budget: Budget, found: Status, threshold: int, notify: Any, kind: Any)
             "enforce": budget.enforce,
         },
     )
-    path = f"/projects/{budget.project.slug}/" if budget.project is not None else "/costs/"
+    path = f"/projects/{budget.project.slug}/" if budget.project is not None else "/admin/costs/"
     notify(
         _recipients(budget),
         kind,

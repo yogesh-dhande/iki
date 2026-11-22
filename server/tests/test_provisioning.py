@@ -423,16 +423,16 @@ def test_linking_a_group_shows_who_joins_and_leaves_then_decides_the_team(
     admin_browser: Browser, chemistry: tuple[ScimGroup, Team, dict[str, str]], token: str
 ) -> None:
     group, team, people = chemistry
-    settings_page = admin_browser.get("/settings/sign-in/").content.decode()
+    settings_page = admin_browser.get("/admin/sign-in/").content.decode()
     assert "Chemistry" in settings_page and "not linked" in settings_page
-    review = admin_browser.get(f"/settings/sign-in/groups/{group.pk}/?team={team.pk}")
+    review = admin_browser.get(f"/admin/sign-in/groups/{group.pk}/?team={team.pk}")
     page = review.content.decode()
     assert "Joining (1)" in page and "rosalind@example.com" in page
     assert "Leaving (1)" in page and "dorothy@example.com" in page
     assert members(team) == {"dorothy@example.com"}  # nothing changes until confirmed
     response = post(
         admin_browser,
-        f"/settings/sign-in/groups/{group.pk}/",
+        f"/admin/sign-in/groups/{group.pk}/",
         {"action": "link", "team": str(team.pk)},
     )
     assert path_of(response) == f"/teams/{team.slug}/"
@@ -484,8 +484,8 @@ def test_unlinking_keeps_members_and_hands_the_team_back(
     from iki_server.scim import services
 
     services.link_group(group, team, by=admin)
-    response = post(admin_browser, f"/settings/sign-in/groups/{group.pk}/", {"action": "unlink"})
-    assert path_of(response) == "/settings/sign-in/"
+    response = post(admin_browser, f"/admin/sign-in/groups/{group.pk}/", {"action": "unlink"})
+    assert path_of(response) == "/admin/sign-in/"
     assert members(team) == {"rosalind@example.com"}
     org_services.add_team_member(team, admin, by=admin)
     assert AuditEvent.objects.filter(action="scim.group_unlinked").exists()
@@ -495,9 +495,9 @@ def test_a_group_can_become_a_new_team(
     admin_browser: Browser, chemistry: tuple[ScimGroup, Team, dict[str, str]]
 ) -> None:
     group, _, _ = chemistry
-    review = admin_browser.get(f"/settings/sign-in/groups/{group.pk}/?team=new")
+    review = admin_browser.get(f"/admin/sign-in/groups/{group.pk}/?team=new")
     assert "Link Chemistry to a new team" in review.content.decode()
-    post(admin_browser, f"/settings/sign-in/groups/{group.pk}/", {"action": "link", "team": "new"})
+    post(admin_browser, f"/admin/sign-in/groups/{group.pk}/", {"action": "link", "team": "new"})
     team = Team.objects.get(name="Chemistry")
     assert members(team) == {"rosalind@example.com"}
 
@@ -538,7 +538,7 @@ def test_provisioned_people_are_activated_only_by_the_identity_provider(
     admin_browser: Browser, token: str, admin: User
 ) -> None:
     user_id = provision(token, "rosalind@example.com", "Rosalind Franklin")
-    page = admin_browser.get(f"/people/{user_id}/").content.decode()
+    page = admin_browser.get(f"/admin/people/{user_id}/").content.decode()
     assert "over SCIM" in page
     assert "unassign Iki from" in page
     assert 'value="deactivate"' not in page
@@ -552,8 +552,8 @@ def test_an_org_admin_can_sign_anyone_out_everywhere(
     user = User.objects.get(pk=provision(token, "rosalind@example.com", "Rosalind"))
     Client().force_login(user)
     Client().force_login(user)
-    response = post(admin_browser, f"/people/{user.pk}/", {"action": "end_sessions"})
-    assert path_of(response) == f"/people/{user.pk}/"
+    response = post(admin_browser, f"/admin/people/{user.pk}/", {"action": "end_sessions"})
+    assert path_of(response) == f"/admin/people/{user.pk}/"
     assert not UserSession.objects.filter(user=user).exists()
     event = AuditEvent.objects.get(action="user.sessions_revoked", actor=admin)
     assert event.data == {"sessions": 2, "tokens_revoked": 0, "reason": "signed_out_by_admin"}
@@ -566,23 +566,23 @@ def test_an_org_admin_can_sign_anyone_out_everywhere(
 def test_the_token_is_shown_once_and_replacing_it_revokes_the_old_one(
     admin_browser: Browser,
 ) -> None:
-    page = admin_browser.get("/settings/sign-in/").content.decode()
+    page = admin_browser.get("/admin/sign-in/").content.decode()
     assert "Turn on provisioning" in page
     assert "https://testserver/scim/v2/" in page
-    created = post(admin_browser, "/settings/sign-in/", {"action": "create_token"})
+    created = post(admin_browser, "/admin/sign-in/", {"action": "create_token"})
     assert created.status_code == 200
     first = re.search(r'id="scim-token">([^<]+)<', created.content.decode())
     assert first
     assert created["Cache-Control"].startswith("no-store") or "no-store" in created["Cache-Control"]
-    later = admin_browser.get("/settings/sign-in/").content.decode()
+    later = admin_browser.get("/admin/sign-in/").content.decode()
     assert first.group(1) not in later
     assert f"…{first.group(1)[-4:]}" in later
     assert scim(first.group(1), "GET", "/Users")["totalResults"] == 0
-    replaced = post(admin_browser, "/settings/sign-in/", {"action": "create_token"})
+    replaced = post(admin_browser, "/admin/sign-in/", {"action": "create_token"})
     second = re.search(r'id="scim-token">([^<]+)<', replaced.content.decode())
     assert second
     assert scim(first.group(1), "GET", "/Users")["status"] == "401"
-    post(admin_browser, "/settings/sign-in/", {"action": "revoke_token"})
+    post(admin_browser, "/admin/sign-in/", {"action": "revoke_token"})
     assert not tokens.scim_enabled()
     actions = list(
         AuditEvent.objects.filter(action__startswith="scim.token").values_list("action", flat=True)
@@ -599,7 +599,7 @@ def test_settings_page_counts_people_not_yet_provisioned(
     admin_browser: Browser, token: str
 ) -> None:
     provision(token, "rosalind@example.com")
-    page = admin_browser.get("/settings/sign-in/").content.decode()
+    page = admin_browser.get("/admin/sign-in/").content.decode()
     assert "1 provisioned, 1 active and not provisioned" in page
 
 
@@ -613,11 +613,11 @@ def test_settings_page_warns_before_the_saml_certificate_expires(
     from iki_server.accounts.models import IdentityProvider
 
     complete_saml_setup(client, saml_idp, "ada-1", {"email": "ada@example.com"})
-    page = client.get("/settings/sign-in/").content.decode()
+    page = client.get("/admin/sign-in/").content.decode()
     assert "SAML 2.0" in page and "expires soon" not in page
     IdentityProvider.objects.update(saml_certificate_expires_at=timezone.now() + timedelta(days=10))
-    assert "expires soon" in client.get("/settings/sign-in/").content.decode()
+    assert "expires soon" in client.get("/admin/sign-in/").content.decode()
 
 
 def test_the_nav_shows_sign_in_settings_to_org_admins(admin_browser: Browser) -> None:
-    assert 'href="/settings/sign-in/"' in admin_browser.get("/teams/").content.decode()
+    assert 'href="/admin/sign-in/"' in admin_browser.get("/teams/").content.decode()

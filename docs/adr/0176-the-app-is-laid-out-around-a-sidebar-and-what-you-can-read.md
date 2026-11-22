@@ -116,10 +116,16 @@ Each page needs the permission it needs today.
   left out, and `/admin/` opens the first page they may open. Someone with no
   administrative permission at all gets no admin frame: a page of the area tells them
   it isn't theirs in the main one.
-- **The pages keep their addresses,** under `/settings/`, `/people/`, `/compute/`,
-  `/costs/` and `/audit/`, and render in the admin frame there. GitHub keeps its
-  settings at `/settings/...` inside its settings frame the same way. Links and
-  bookmarks keep working without redirects, and nothing has two addresses.
+- **Every page of the area is under `/admin/`,** server-rendered or the web app's,
+  named for what it is: `/admin/sign-in/`, `/admin/people/` (and `/admin/people/<id>/`),
+  `/admin/service-accounts/`, `/admin/apps/`, `/admin/email/`, `/admin/registries/`,
+  `/admin/plugins/`, `/admin/outside-apis/`, `/admin/webhooks/`, `/admin/compute/`
+  (with `workers/`, `slurm/`, `quotas/` and `volumes/`), `/admin/costs/`,
+  `/admin/audit/`, `/admin/signatures/` and `/admin/legal-holds/`. One prefix says
+  which frame a page is in, and its address reads as its breadcrumb does. The old
+  addresses, under `/settings/`, `/people/`, `/service-accounts/`, `/compute/`,
+  `/costs/` and `/audit/`, are gone, without redirects: Iki isn't deployed anywhere
+  before M1, so no link or bookmark points at them. The API's paths don't change.
 - **The top bar holds a breadcrumb** of "Admin / page", and the page's own actions.
 - **The groups hold the pages Iki has:**
   - Organization: sign-in and provisioning, people (with service accounts), apps and
@@ -150,7 +156,7 @@ No page loads fonts or scripts from outside the deployment.
 ## Consequences
 
 - People who used the header's links find them in the sidebar or under
-  Admin. Old URLs keep working.
+  Admin, at the addresses under `/admin/`.
 - **Saved searches across projects are allowed.** A saved search that names
   no project finds records in every project its reader can read.
 - **Counts are cheap or absent.** The sidebar's type counts come from one

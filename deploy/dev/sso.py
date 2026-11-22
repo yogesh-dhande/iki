@@ -283,15 +283,15 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
         fail(f"the Org Admin's access to a project they're not in: {seen['can']}")
     ok("the Org Admin sees the project exists, but not its data")
 
-    people = admin.get(f"{IKI}/people/")
-    me = re.search(r'href="(/people/[0-9a-f-]+/)">Bob', people.text)
+    people = admin.get(f"{IKI}/admin/people/")
+    me = re.search(r'href="(/admin/people/[0-9a-f-]+/)">Bob', people.text)
     if not me:
         fail("bob isn't on the people page")
     post(admin, f"{IKI}{me.group(1)}", {"roles": ["org_admin"]})  # as on a first run
-    if admin.get(f"{IKI}/audit/").status_code != 403:
+    if admin.get(f"{IKI}/admin/audit/").status_code != 403:
         fail("an Org Admin without the Auditor role can read the audit log")
     post(admin, f"{IKI}{me.group(1)}", {"roles": ["org_admin", "auditor"]})
-    log = admin.get(f"{IKI}/audit/")
+    log = admin.get(f"{IKI}/admin/audit/")
     if "Created a project: Atlas" not in log.text or "Granted an org role" not in log.text:
         fail(f"the audit log page lacks the team and project events (HTTP {log.status_code})")
     ok("an Auditor reads the team, project and role changes in the audit log")
@@ -438,7 +438,7 @@ class Scim:
 
 def provisioning(admin: requests.Session) -> None:
     """SCIM: the Org Admin turns it on, the IdP pushes people and a group, access follows."""
-    page = post(admin, f"{IKI}/settings/sign-in/", {"action": "create_token"})
+    page = post(admin, f"{IKI}/admin/sign-in/", {"action": "create_token"})
     token = re.search(r'id="scim-token">([^<]+)<', page.text)
     if not token:
         fail(f"creating a SCIM token showed no token (HTTP {page.status_code})")
@@ -450,7 +450,7 @@ def provisioning(admin: requests.Session) -> None:
     name = f"E2E Chemistry {int(time.time())}"
     group = scim("POST", "/Groups", {"displayName": name, "members": [{"value": alice_id}]})
     response = post(
-        admin, f"{IKI}/settings/sign-in/groups/{group['id']}/", {"action": "link", "team": "new"}
+        admin, f"{IKI}/admin/sign-in/groups/{group['id']}/", {"action": "link", "team": "new"}
     )
     if (
         "Members come from the identity provider group" not in response.text
@@ -564,7 +564,7 @@ def rest_api(admin: requests.Session) -> None:
     stopped = api_call(admin, "PATCH", f"/service-accounts/{account['id']}", {"active": False})
     if stopped.status_code != 200 or stopped.json()["active"] is not False:
         fail(f"deactivating the service account answered HTTP {stopped.status_code}")
-    log = admin.get(f"{IKI}/audit/")
+    log = admin.get(f"{IKI}/admin/audit/")
     if "Created a service account" not in log.text:
         fail("the audit log lacks the service account")
     ok("service accounts can't be Org Admins; deactivating one is immediate and audited")
@@ -755,8 +755,8 @@ def oauth(admin: requests.Session) -> None:
     waiting = alice.get(f"{IKI}/oauth/authorize/", params=query)
     if waiting.status_code != 403:
         fail(f"an unapproved app's consent page answered HTTP {waiting.status_code}")
-    apps = admin.get(f"{IKI}/settings/apps/")
-    link = re.search(r'href="(/settings/apps/\d+/)">' + re.escape(client["client_name"]), apps.text)
+    apps = admin.get(f"{IKI}/admin/apps/")
+    link = re.search(r'href="(/admin/apps/\d+/)">' + re.escape(client["client_name"]), apps.text)
     if not link:
         fail("the new app isn't on Settings → Apps")
     page_post(admin, urljoin(IKI, link.group(1)), {"action": "approve"})
@@ -816,7 +816,7 @@ def oauth(admin: requests.Session) -> None:
     account = created.json()
     page = page_post(
         admin,
-        f"{IKI}/service-accounts/{account['id']}/",
+        f"{IKI}/admin/service-accounts/{account['id']}/",
         {"action": "create_credential", "name": "e2e", "scopes": ["read"]},
     )
     client_id = re.search(r'id="client-id">([^<]+)<', page.text)
@@ -838,7 +838,7 @@ def oauth(admin: requests.Session) -> None:
     # The same service account acting for alice, by her delegation (ADR 0073).
     page = page_post(
         admin,
-        f"{IKI}/service-accounts/{account['id']}/",
+        f"{IKI}/admin/service-accounts/{account['id']}/",
         {
             "action": "create_credential",
             "name": "e2e acting",
