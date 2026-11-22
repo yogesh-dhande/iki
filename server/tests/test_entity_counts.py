@@ -180,6 +180,9 @@ def test_counting_reads_each_readable_project_by_its_links_index(
 
     grouped = counts._counted(world.users["viewer"], world.project.pk)
     with connection.cursor() as cursor:
+        # Statistics of this test's own rows, not whatever other tests on this database
+        # left behind: with those, the plan depended on which tests ran before it.
+        cursor.execute("ANALYZE iki_entity, iki_entity_project")
         cursor.execute("SET LOCAL enable_seqscan = off")
         plan = grouped.explain()
-    assert "iki_entity_project_by_project" in plan
+    assert "iki_entity_project_by_project" in plan, plan
