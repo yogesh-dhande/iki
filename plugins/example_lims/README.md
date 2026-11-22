@@ -37,11 +37,10 @@ It shows the parts of Iki such a plugin needs:
   Registered, Received, In testing, In review, then Approved, Released or
   Rejected. Each state says which lab roles set it, from any other:
   Coordinators register and receive samples, Analysts test and submit
-  them, Reviewers approve them, and QA releases or rejects them. Sending one
-  back to testing, rejecting it, or registering it again asks why. Approved,
-  Released and Rejected lock it: its results can't change, by anyone or
-  anything, until someone sets its status back, and each change is kept in
-  its history with who made it and why.
+  them, Reviewers approve them, and QA releases or rejects them. Rejecting a
+  sample or registering it again requires a reason. Saving a correction to an Approved sample
+  also returns it to In testing and records the editor and reason. Released
+  and Rejected lock its values until an authorized person changes the status.
 - **Electronic signatures** under 21 CFR Part 11
   ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
   setting a sample In review is its analyst's signature of authorship,
@@ -57,7 +56,10 @@ It shows the parts of Iki such a plugin needs:
   it's submitted for review from In testing, once its result is recorded, and
   approved from In review, released once approved, and rejected once in review
   or approved. Whoever submitted it for review can't approve it, and whoever
-  approved it can't release it (four eyes). Guards are checked as each
+  approved it can't release it (four eyes). Recording or changing its purity,
+  concentration, result or testing notes since it entered In testing also
+  disqualifies the editor from approval and release. A reviewer can still
+  claim their assignment. Guards are checked as each
   signature is given, with its signer acting, so nobody signs a change a guard
   refuses. Where one won't let someone sign, the sample's page says why.
 - **Rules** checked at every save
@@ -113,12 +115,14 @@ It shows the parts of Iki such a plugin needs:
   coverage are percentages, intact mass is in atomic mass units, and
   endotoxin is in EU per mg of protein. The analyst signs for authorship,
   which locks the values and puts the result In review. A reviewer other
-  than the creator and submitting analyst signs to set it Reviewed.
-  Before release, an Analyst, Reviewer or QA can return the result to
-  Draft with a reason. A correction then needs fresh submission and review.
-  To release the Reviewed revision, the QA signer must be a different
-  person from the creator, submitting analyst, and reviewer. The project
-  that asked receives the locked result, and Released is final.
+  than the creator, submitting analyst and anyone who edited values since
+  the latest Draft signs to set it Reviewed. An Analyst, Reviewer or QA can
+  correct a submitted or reviewed result. The form shows that saving will
+  return it to Draft and asks for a reason. The correction and return appear
+  together in history. The corrected values need fresh submission and review.
+  QA must also be independent of the creator, submitting analyst, reviewer
+  and value editors to sign the reviewed revision. The project that asked
+  receives the locked release. Released is final.
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
   a sample's volume, in µL (shown in mL), and each aliquot's. A sample is

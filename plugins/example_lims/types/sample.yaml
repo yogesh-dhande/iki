@@ -3,13 +3,13 @@ apiVersion: iki/v1
 kind: EntityType
 name: Sample
 label: Sample
-schema_version: 1
+schema_version: 2
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
 description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
-  reviewed, then released by QA. Once it's approved its results can't change,
-  unless someone with the role sets it back, with a reason. Submitting,
+  reviewed, then released by QA. Correcting an approved sample requires a
+  reason and sends it back to testing. Submitting,
   approving, releasing and rejecting it are electronic signatures (21 CFR Part
   11): each signer signs in again, and the signature shows with the sample.
   Its analyst, reviewer and QA are assigned it in turn, and each has it on My
@@ -144,6 +144,7 @@ fields:
         description: A reviewer checked its results; they can't change now.
         set_by: [reviewer]
         locks: true
+        on_edit: in_testing
         signatures:
           - meaning: review
         guards:
@@ -158,6 +159,11 @@ fields:
             check: last.status.in_review == null || last.status.in_review.by != actor.person
             message: >-
               You submitted it for review, so someone else approves it.
+          independent_measurement:
+            check: >-
+              edits.status.in_testing.all(e, e.by != actor.person ||
+              !e.fields.exists(f, f in ["purity", "concentration", "result", "notes"]))
+            message: You edited the test results, so someone else approves this sample.
       released:
         label: Released
         description: QA released it, so its results can be used.
@@ -179,6 +185,11 @@ fields:
           not_its_approver:
             check: last.status.approved == null || last.status.approved.by != actor.person
             message: You approved it, so someone else in QA releases it.
+          independent_measurement:
+            check: >-
+              edits.status.in_testing.all(e, e.by != actor.person ||
+              !e.fields.exists(f, f in ["purity", "concentration", "result", "notes"]))
+            message: You edited the test results, so someone else in QA releases this sample.
       rejected:
         label: Rejected
         description: QA rejected it; it's kept, with its results, but not used.

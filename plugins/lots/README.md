@@ -56,6 +56,8 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   | Rejected    | ✓        | ✓                | QA rejection (responsibility) | With a reason. Kept, with its records, but not used.                                                                                                                                                                                                                                                        |
   | Expired     | ✓        | ✓                |                               | Once its expiry or retest date has come.                                                                                                                                                                                                                                                                    |
 
+  For a lot made in the lab, the QA signer must also be independent of
+  anyone who edited its record since it last entered Quarantined.
   Whoever made it hears when it's released, and when it's put on hold or
   rejected (which they can't turn off). The states are the abstract type's,
   and hold the amount of every kind, each in its own unit (ADR 0162).

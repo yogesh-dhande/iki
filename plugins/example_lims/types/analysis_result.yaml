@@ -3,7 +3,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AnalysisResult
 label: Analysis result
-schema_version: 2
+schema_version: 3
 description: >-
   What an analytical core measured for an analysis request (ADR 0132). The
   core owns it: its analyst records it, a reviewer checks it, and its QA
@@ -80,6 +80,7 @@ fields:
         description: The analyst has signed the measurement and submitted it for review.
         set_by: [analyst]
         locks: true
+        on_edit: draft
         signatures:
           - meaning: authorship
             statement: I recorded this measurement and its result as observed.
@@ -114,6 +115,7 @@ fields:
         description: An independent reviewer has checked the submitted measurement.
         set_by: [reviewer]
         locks: true
+        on_edit: draft
         signatures:
           - meaning: review
         guards:
@@ -123,6 +125,9 @@ fields:
           independent_reviewer:
             check: history.review[0].by != actor.person && last.review.in_review.by != actor.person
             message: Someone other than the result's creator and submitting analyst must review it.
+          independent_of_edits:
+            check: edits.review.draft.all(e, e.by != actor.person)
+            message: You edited this result in its current review cycle, so someone else reviews it.
       released:
         label: Released
         description: QA has released the reviewed measurement to the project that asked.
@@ -142,3 +147,6 @@ fields:
           independent_of_analyst:
             check: history.review[0].by != actor.person && last.review.in_review.by != actor.person
             message: You created or submitted this result, so someone else in QA releases it.
+          independent_of_edits:
+            check: edits.review.draft.all(e, e.by != actor.person)
+            message: You edited this result in its current review cycle, so someone else in QA releases it.
