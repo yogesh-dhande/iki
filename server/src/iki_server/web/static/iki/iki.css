@@ -3536,6 +3536,7 @@ input[type="file"]::file-selector-button {
 }
 
 .type-counts a {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;

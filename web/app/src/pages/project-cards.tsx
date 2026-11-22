@@ -88,7 +88,14 @@ export function EntityCounts({ project }: { project: Project }) {
                   />
                   {t.label}
                 </span>{" "}
-                <span className="type-count-value">{t.count.toLocaleString("en-GB")}</span>
+                {t.count === null ? (
+                  <span className="type-count-value muted" title="Not counted: it would be slow">
+                    <span aria-hidden="true">–</span>
+                    <span className="visually-hidden">not counted</span>
+                  </span>
+                ) : (
+                  <span className="type-count-value">{t.count.toLocaleString("en-GB")}</span>
+                )}
               </a>
             </li>
           ))}

@@ -176,6 +176,20 @@ describe("a project's page", () => {
     expect(calls("GET", "/api/v1/entities/counts")[0]?.query.get("project")).toBe(PROJECT.id);
   });
 
+  it("says which types it didn't count, where counting would be slow", async () => {
+    signedIn();
+    onProject();
+    answer("GET /api/v1/entities/counts", {
+      types: [{ type: "iki/dna.Plasmid", label: "Plasmid", count: null }],
+      total: null,
+    });
+    await renderApp("/projects/kinase-atlas/");
+    const counts = await screen.findByRole("list", { name: "Entities by type" });
+    expect(within(counts).getByRole("link", { name: "Plasmid not counted" })).toBeVisible();
+    const tabs = screen.getByRole("navigation", { name: "Project" });
+    expect(within(tabs).getByRole("link", { name: "Entities" })).toBeVisible();
+  });
+
   it("leaves the counts out where the server doesn't count", async () => {
     signedIn();
     onProject();

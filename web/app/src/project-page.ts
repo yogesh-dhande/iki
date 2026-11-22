@@ -13,10 +13,11 @@ import { sentBy, sentTo } from "./requests";
 
 export type ProjectChange = Schemas["ProjectChangeOut"];
 
-/** How many records of each type there are, of those the reader can read. */
+/** How many current records of each type there are, of those the reader can read: each
+ * count null where counting would be slow, and left out rather than estimated. */
 export interface EntityCounts {
-  types: { type: string; label: string; count: number }[];
-  total: number;
+  types: { type: string; label: string; count: number | null }[];
+  total: number | null;
 }
 
 /**

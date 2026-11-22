@@ -66,11 +66,16 @@ export function ProjectTabs() {
   const members = useQuery(membersQuery(project.id)).data;
   const counts = useQuery({ ...entityCountsQuery(project.id), enabled: project.can.read }).data;
   const types = useQuery(typesQuery).data;
-  const requests =
+  // Its request types' records: unknown if any of them is uncounted.
+  const requestCounts =
     counts && types
       ? counts.types
           .filter((c) => types.find((t) => t.name === c.type)?.request)
-          .reduce((sum, c) => sum + c.count, 0)
+          .map((c) => c.count)
+      : undefined;
+  const requests =
+    requestCounts && !requestCounts.includes(null)
+      ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
   const automationTab = project.can.read
     ? "/projects/$slug/workflows/"
@@ -143,7 +148,7 @@ export function ProjectTabs() {
         {project.can.read ? (
           <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
             Entities
-            <TabCount count={counts?.total} />
+            <TabCount count={counts?.total ?? undefined} />
           </Link>
         ) : null}
         {/* For a service, or a project that asks one (ADR 0132). */}
