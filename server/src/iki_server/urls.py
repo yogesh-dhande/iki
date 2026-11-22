@@ -8,7 +8,7 @@ from iki_server.api.v1 import api as api_v1
 from iki_server.components import views as components
 from iki_server.mcp import views as mcp
 from iki_server.realtime import views as realtime
-from iki_server.web import viewers
+from iki_server.web import admin_area, viewers
 from iki_server.web import views as web
 
 urlpatterns: list[URLPattern | URLResolver] = [
@@ -17,6 +17,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("logout/", accounts.logout, name="logout"),
     path("signed-out/", accounts.signed_out, name="signed_out"),
     path("setup/", include("iki_server.setup.urls")),
+    # The admin area's first page this person may open (ADR 0176). Its pages keep their
+    # own addresses, under /settings/, /people/, /compute/ and the rest.
+    path("admin/", admin_area.home, name="admin"),
     path("", include("iki_server.org.urls")),
     path("", include("iki_server.audit.urls")),
     path("", include("iki_server.scim.page_urls")),

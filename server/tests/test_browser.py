@@ -390,6 +390,8 @@ PAGES = [
     ("compute_admin", "/compute/quotas/"),
     ("org_admin", "/settings/registries/"),
     ("org_admin", "/settings/signatures/"),
+    ("org_admin", "/people/"),
+    ("auditor", "/audit/"),
 ]
 
 
@@ -524,6 +526,86 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     tokens.get_by_text("Copy the token now.").wait_for()
     tokens.get_by_text("iki-worker register --url").wait_for()
     assert_clean(page)
+    page.context.close()
+
+
+NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_the_admin_area_has_a_frame_of_its_own(
+    open_as: Any, world: World, color_scheme: str, browser_name: str
+) -> None:
+    """Its sidebar leads to its pages, the app's and the server's alike, and back to Iki;
+    a keyboard reaches it all; and on a phone its pages fold under a menu (ADR 0176)."""
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+    from iki_server.web import admin_area
+
+    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    page = open_as("org_admin", "/compute/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", name="Compute", level=1).wait_for()
+    admin = page.get_by_role("navigation", name="Admin")
+    assert page.get_by_role("navigation", name="Main").count() == 0
+    offered = [i.label for g in admin_area.groups() for i in g.items if i.label != "Audit log"]
+    assert admin.get_by_role("list").get_by_role("link").all_inner_texts() == offered
+    assert admin.get_by_role("link", name="Compute").get_attribute("aria-current") == "page"
+    crumbs = page.get_by_role("navigation", name="Breadcrumb")
+    assert crumbs.get_by_role("listitem").all_inner_texts() == ["Admin", "Compute"]
+    page.get_by_role("banner").get_by_role("link", name="Register a worker").wait_for()
+    page.get_by_role("row", name=re.compile("^Backend")).wait_for()
+    assert_clean(page)
+
+    # By keyboard: past the skip link, back to Iki first, then the area's pages. WebKit,
+    # as Safari, moves through links with Option-Tab.
+    tab = "Alt+Tab" if browser_name == "webkit" else "Tab"
+    focused = "document.activeElement.textContent.trim()"
+    page.keyboard.press(tab)
+    assert page.evaluate(focused) == "Skip to content"
+    page.keyboard.press(tab)
+    assert page.evaluate(focused) == "Back to Iki"
+    page.keyboard.press(tab)
+    assert page.evaluate(focused) == offered[0]
+
+    # A server page, in the same frame, and from it the app's.
+    admin.get_by_role("link", name="Plugins").click()
+    page.get_by_role("heading", name="Plugins", level=1).wait_for()
+    admin = page.get_by_role("navigation", name="Admin")
+    assert admin.get_by_role("link", name="Plugins").get_attribute("aria-current") == "page"
+    assert page.get_by_role("navigation", name="Main").count() == 0
+    assert_clean(page)
+    admin.get_by_role("link", name="Webhooks").click()
+    page.get_by_role("heading", name="Webhooks", level=1).wait_for()
+    assert (
+        page.get_by_role("navigation", name="Admin")
+        .get_by_role("link", name="Webhooks")
+        .get_attribute("aria-current")
+        == "page"
+    )
+
+    # On a phone: no sideways scrolling, and the pages under a menu, on either kind of page.
+    page.set_viewport_size({"width": 390, "height": 844})
+    for path, heading in (("/compute/workers/", "Compute"), ("/settings/sign-in/", None)):
+        page.goto(path)
+        if heading:
+            page.get_by_role("heading", name=heading, level=1).wait_for()
+        admin = page.get_by_role("navigation", name="Admin")
+        menu = admin.get_by_role("button", name="Menu")
+        menu.wait_for()
+        assert menu.get_attribute("aria-expanded") == "false"
+        assert not admin.get_by_role("link", name="People").is_visible()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL), path
+        menu.click()
+        assert menu.get_attribute("aria-expanded") == "true"
+        admin.get_by_role("link", name="People").wait_for()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL), path
+        assert_clean(page)
+
+    # And back to Iki, in its own frame.
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("navigation", name="Admin").get_by_role("link", name="Back to Iki").click()
+    page.get_by_role("navigation", name="Main").wait_for()
+    assert page.get_by_role("navigation", name="Admin").count() == 0
     page.context.close()
 
 
@@ -2363,17 +2445,26 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
         links: list[str] = nav.get_by_role("link").all_inner_texts()
         return links
 
+    # Admin is one link, to the admin area, which opens on the first page an auditor may.
+    in_the_app = sidebar()
+    assert in_the_app[:3] == ["My work", "Inbox", "All entities"]
+    assert in_the_app[-3:] == ["Types", "People and teams", "Admin"]
     nav.get_by_role("link", name="Admin").click()
     page.wait_for_url("**/costs/")
-    in_the_app = sidebar()
-    at = in_the_app.index("Admin")
-    assert in_the_app[:3] == ["My work", "Inbox", "All entities"]
-    assert in_the_app[at - 2 :] == ["Types", "People and teams", "Admin", "Costs", "Audit"]
-    assert nav.get_by_role("link", name="Costs").get_attribute("aria-current") == "page"
-    nav.get_by_role("link", name="Audit").click()
+    # The admin area (ADR 0176): its own sidebar offers what an auditor may open, and the
+    # main sidebar isn't drawn there.
+    admin = page.get_by_role("navigation", name="Admin")
+    admin.get_by_role("link", name="Audit log").click()
     page.get_by_role("heading", name="Audit log", level=1).wait_for()
-    assert sidebar() == in_the_app
-    assert nav.get_by_role("link", name="Audit").get_attribute("aria-current") == "page"
+    assert page.get_by_role("navigation", name="Main").count() == 0
+    admin = page.get_by_role("navigation", name="Admin")
+    assert admin.get_by_role("list").get_by_role("link").all_inner_texts() == [
+        "Costs and budgets",
+        "Audit log",
+        "Electronic signatures",
+        "Legal holds",
+    ]
+    assert admin.get_by_role("link", name="Audit log").get_attribute("aria-current") == "page"
     page.get_by_text("20 Nov 2026, 19:10:00 PST").wait_for()
     page.get_by_text("Times are in America/Los_Angeles").wait_for()
     # What the quota change changed, before and after, under the quota form's labels.
@@ -2391,6 +2482,10 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
     page.wait_for_url("**tz=America%2FLos_Angeles**")
     page.get_by_text("Created a project: Compute Capacity Study").wait_for()
     assert_clean(page)
+    # Back to Iki: the main sidebar, as it was.
+    page.get_by_role("navigation", name="Admin").get_by_role("link", name="Back to Iki").click()
+    nav.wait_for()
+    assert sidebar() == in_the_app
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

@@ -275,17 +275,17 @@ def current_links(html: str) -> list[str]:
     ("principal", "admin"),
     [
         ("viewer", None),
-        ("org_admin", "/settings/sign-in/"),
-        ("compute_admin", "/costs/"),
-        ("auditor", "/costs/"),
+        ("org_admin", "/admin/"),
+        ("compute_admin", "/admin/"),
+        ("auditor", "/admin/"),
     ],
 )
 def test_server_pages_have_the_web_apps_sidebar(
     world: World, principal: str, admin: str | None
 ) -> None:
     """The People, Teams, Settings and Audit pages offer what the web app's sidebar does,
-    under the same conditions: Admin for those who may open any administrative page, to the
-    first of them, and the projects they're in."""
+    under the same conditions: Admin, to the admin area, for those who may open any page of
+    it, and the projects they're in."""
     from iki_server.web.navigation import spec
 
     session = world.browser(principal)
@@ -324,31 +324,20 @@ def test_server_pages_have_the_web_apps_sidebar(
     [
         ("/teams/", "People and teams"),
         ("/teams/structural-biology/", "People and teams"),
-        ("/people/", "People"),
-        ("/service-accounts/", "People"),
-        ("/settings/sign-in/", "Settings"),
-        ("/settings/signatures/", "Settings"),
-        ("/settings/registries/", "Settings"),
-        ("/settings/email/", "Settings"),
-        ("/audit/", "Audit"),
+        # The admin area's pages mark theirs in its own sidebar (test_admin_area.py).
     ],
 )
 def test_the_sidebar_marks_the_section_a_page_is_in(world: World, path: str, section: str) -> None:
-    """On an administrative page, each the reader may open is beneath Admin, the page's own
-    current: the way from one to another, while Admin has no page of its own."""
-    from iki_server.org.models import OrgRole, OrgRoleAssignment
-
-    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.AUDITOR)
     page = world.browser("org_admin").get(path)
     assert page.status_code == 200
-    html = page.content.decode()
-    assert current_links(html) == [section]
-    beneath = sidebar_links(html)[sidebar_links(html).index("People and teams") + 1 :]
-    if section == "People and teams":
-        assert beneath == ["Admin"]
-    else:
-        assert beneath == ["Admin", "Settings", "People", "Costs", "Audit"]
-        assert 'class="nav-item nav-section"' in html
+    assert current_links(page.content.decode()) == [section]
+
+
+def test_the_admin_areas_pages_draw_its_frame_not_the_sidebar(world: World) -> None:
+    """Admin is one link, to the admin area, whose pages have a sidebar of their own."""
+    html = world.browser("org_admin").get("/settings/sign-in/").content.decode()
+    assert 'aria-label="Admin"' in html
+    assert 'class="sidebar-nav"' not in html
 
 
 def test_the_most_specific_link_is_the_current_one() -> None:
@@ -358,12 +347,12 @@ def test_the_most_specific_link_is_the_current_one() -> None:
     links = [
         Link("All projects", "/projects/", prefixes=("/projects/",)),
         Link("Kinase Atlas", "/projects/kinase-atlas/", prefixes=("/projects/kinase-atlas/",)),
-        Link("Admin", "/settings/sign-in/", prefixes=("/settings/", "/people/")),
+        Link("Types", "/types/", prefixes=("/types/",)),
     ]
     assert current_of("/projects/kinase-atlas/entities/", links) is links[1]
     assert current_of("/projects/", links) is links[0]
     assert current_of("/projects/new/", links) is links[0]
-    assert current_of("/people/", links) is links[2]
+    assert current_of("/types/acme/", links) is links[2]
     assert current_of("/work/", links) is None
 
 

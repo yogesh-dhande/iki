@@ -13,6 +13,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
+import { adminNavigation } from "./admin";
 import { ENTITIES } from "./entities";
 import { openSearch } from "./search";
 
@@ -40,9 +41,10 @@ const SPEC = navigation as unknown as {
   organization: {
     label: string;
     items: NavItem[];
-    admin: { label: string; icon: IconName; pages: NavItem[] };
+    admin: { icon: IconName };
   };
   account: NavItem[];
+  admin: { label: string; href: string };
 };
 
 /** Below this width the sidebar is a drawer (iki.css). */
@@ -94,26 +96,18 @@ export function currentOf(path: string, links: Shown[]): string | undefined {
   return best?.key;
 }
 
-/** The administrative pages someone may open, in the sidebar's order. */
-export function adminPages(can: Me["can"]): Shown[] {
-  return SPEC.organization.admin.pages
-    .filter((p) => !p.requires || can[p.requires])
-    .map((p) => shown(p, `admin:${p.href}`));
-}
-
-/** Admin, for those who may open any administrative page: to the first, current on all. */
-export function adminLink(can: Me["can"]): Shown | null {
-  const admin = SPEC.organization.admin;
-  const allowed = SPEC.organization.admin.pages.filter((p) => !p.requires || can[p.requires]);
-  const first = allowed[0];
-  if (!first) return null;
+/** Admin, to the admin area (ADR 0176), for whoever may open any page of it: its own frame
+ * and sidebar take them through the rest, and its pages don't draw this sidebar. */
+export function adminLink(me: Me): Shown | null {
+  if (adminNavigation(me).length === 0) return null;
   return {
     key: "admin",
-    label: admin.label,
-    href: first.href,
-    app: Boolean(first.app),
-    prefixes: [...new Set(allowed.flatMap((p) => p.current ?? [p.href]))],
-    icon: admin.icon,
+    label: SPEC.admin.label,
+    href: SPEC.admin.href,
+    // The server's: it sends them on to the first page of the area they may open.
+    app: false,
+    prefixes: [SPEC.admin.href],
+    icon: SPEC.organization.admin.icon,
   };
 }
 
@@ -410,7 +404,7 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       ? shown(SPEC.projects.new, "new-project")
       : null;
   const allProjects = shown(SPEC.projects.all, "all-projects");
-  const admin = adminLink(me.can);
+  const admin = adminLink(me);
   const organization = [
     ...SPEC.organization.items.map((item) => shown(item)),
     ...(admin ? [admin] : []),
@@ -427,10 +421,6 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
     ...SPEC.account.map((item) => shown(item)),
     ...(newProject ? [newProject] : []),
   ]);
-  // On an admin page, the admin pages beneath Admin, that page's current: until Admin has a
-  // page of its own, the way from one to the next.
-  const section = current === "admin" ? adminPages(me.can) : [];
-  const inSection = currentOf(pathname, section);
   const icon = (link: Shown) => (link.icon ? <Icon name={link.icon} /> : null);
 
   return (
@@ -535,25 +525,11 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       </Group>
       <Group label={SPEC.organization.label}>
         {organization.map((link) => (
-          <NavLink
-            key={link.key}
-            link={link}
-            current={current === link.key && !section.length}
-            className={link.key === "admin" && section.length ? "nav-item nav-section" : "nav-item"}
-          >
+          <NavLink key={link.key} link={link} current={current === link.key}>
             {icon(link)}
             <span className="nav-label">{link.label}</span>
           </NavLink>
         ))}
-        {section.length ? (
-          <div className="nav-sub">
-            {section.map((link) => (
-              <NavLink key={link.key} link={link} current={inSection === link.key}>
-                <span className="nav-label">{link.label}</span>
-              </NavLink>
-            ))}
-          </div>
-        ) : null}
       </Group>
     </nav>
   );

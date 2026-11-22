@@ -16,7 +16,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { meQuery, projectQuery, queryClient, rolesQuery, watchQuery } from "./api";
 import { outsideApisQuery } from "./outside-apis";
-import { Layout } from "./layout";
+import { Frame } from "./admin";
 import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
 import { componentsQuery } from "./components";
@@ -34,6 +34,7 @@ import { validateWorkSearch, Work } from "./pages/work";
 import { entryQuery } from "./registries";
 
 import { validateCostsSearch } from "./costs-search";
+import { validateWorkersSearch } from "./compute";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
@@ -127,7 +128,7 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   // Who's signed in, and the role names every page shows, before the first render.
   loader: ({ context }) =>
     Promise.all([context.queryClient.query(meQuery), context.queryClient.query(rolesQuery)]),
-  component: Layout,
+  component: Frame,
   notFoundComponent: NotFound,
   errorComponent: ErrorPage,
 });
@@ -165,12 +166,17 @@ const savedSearchRoute = createRoute({
 const costsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "costs",
+  staticData: { admin: true },
   // ?month=2026-11&by=team: another month, grouped another way.
   validateSearch: validateCostsSearch,
   component: OrgCosts,
 });
 
-const computeRoute = createRoute({ getParentRoute: () => rootRoute, path: "compute" });
+const computeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "compute",
+  staticData: { admin: true },
+});
 
 const computeOverviewRoute = createRoute({
   getParentRoute: () => computeRoute,
@@ -181,6 +187,8 @@ const computeOverviewRoute = createRoute({
 const computeWorkersRoute = createRoute({
   getParentRoute: () => computeRoute,
   path: "workers",
+  // ?tier=backend: only that tier's workers.
+  validateSearch: validateWorkersSearch,
   component: ComputeWorkersPage,
 });
 
@@ -539,7 +547,11 @@ const workflowRunRoute = createRoute({
   component: WorkflowRunPage,
 });
 
-const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "settings",
+  staticData: { admin: true },
+});
 
 const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
 

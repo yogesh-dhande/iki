@@ -62,6 +62,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // The admin area's menu: on a narrow screen its pages fold under a button. Without
+  // this, the button stays hidden and the pages stay listed.
+  const menu = document.querySelector("button[data-admin-menu]");
+  if (menu) {
+    menu.setAttribute("aria-expanded", "false");
+    menu.hidden = false;
+    menu.addEventListener("click", () => {
+      const open = menu.getAttribute("aria-expanded") === "true";
+      menu.setAttribute("aria-expanded", open ? "false" : "true");
+    });
+  }
+
   // Move focus to an error summary, so keyboard and screen reader users land on it.
   const summary = document.querySelector("[data-focus-on-load]");
   if (summary) {

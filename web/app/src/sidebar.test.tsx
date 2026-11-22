@@ -199,12 +199,14 @@ describe("which item is current", () => {
     expect(currentOf("/work/", links)).toBeUndefined();
   });
 
-  it("is Admin on every administrative page its reader may open", () => {
-    const none = { ...ME.can, manage_org: false, read_audit: false, read_costs: false };
-    expect(adminLink({ ...none, manage_compute: false })).toBeNull();
-    const auditor = adminLink({ ...none, read_audit: true, read_costs: true });
-    expect(auditor?.href).toBe("/costs/");
-    expect(auditor?.prefixes).toEqual(["/costs/", "/audit/"]);
+  it("offers Admin, to the admin area, to whoever may open any page of it", () => {
+    const none = Object.fromEntries(Object.keys(ME.can).map((k) => [k, false])) as typeof ME.can;
+    expect(adminLink({ ...ME, can: none })).toBeNull();
+    expect(adminLink({ ...ME, can: { ...none, read_audit: true } })).toMatchObject({
+      label: "Admin",
+      href: "/admin/",
+      prefixes: ["/admin/"],
+    });
   });
 
   it("names a person by their initials", () => {

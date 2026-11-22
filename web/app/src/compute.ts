@@ -37,6 +37,14 @@ export const TIER_WORKERS: Record<string, string> = {
   vm: "Machines Iki starts for runs, on its compute templates",
 };
 
+const TIERS: readonly Tier[] = ["self_hosted", "backend", "container", "vm"];
+
+/** Compute → Workers' address: ?tier=backend shows only that tier's workers. */
+export function validateWorkersSearch(search: Record<string, unknown>): { tier?: Tier } {
+  const tier = TIERS.find((t) => t === search["tier"]);
+  return tier ? { tier } : {};
+}
+
 /** "chromeleon, lab-3" (or spaces) as labels. The server checks and sorts them. */
 export function parseLabels(text: string): string[] {
   return text

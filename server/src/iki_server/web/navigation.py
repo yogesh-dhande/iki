@@ -78,8 +78,8 @@ def icon(name: str) -> tuple[str, ...]:
 
 
 def items() -> tuple[Item, ...]:
-    """Every fixed item, in the sidebar's order, the admin pages last: what tests check
-    are pages, and routed by the app where they say."""
+    """Every fixed item, in the sidebar's order: what tests check are pages, and routed by
+    the app where they say. Admin's pages are the admin area's (``admin_area``)."""
     raw = spec()
     found = [
         *raw["top"],
@@ -89,7 +89,6 @@ def items() -> tuple[Item, ...]:
         raw["projects"]["all"],
         *raw["organization"]["items"],
         *raw["account"],
-        *raw["organization"]["admin"]["pages"],
     ]
     return tuple(_item(i) for i in found)
 
@@ -132,9 +131,6 @@ class Sidebar:
     new_project: Link | None
     all_projects: Link
     organization: list[Link]
-    #: On an administrative page, the ones its reader may open, beneath Admin: until Admin
-    #: has a page of its own, the way from one to the next.
-    admin_pages: list[Link]
     account: list[Link]
     #: Who's signed in, as the account menu shows them.
     name: str = ""
@@ -153,29 +149,20 @@ def _link(item: Item) -> Link:
     return Link(item.label, item.href, item.icon, item.current)
 
 
-def _section(path: str, admin: Link | None, can: dict[str, bool]) -> list[Link]:
-    """The admin pages beneath Admin, the one the page is in current, if it's in one."""
-    if admin is None or not any(path.startswith(p) for p in admin.prefixes):
-        return []
-    pages = admin_pages(can)
-    return _mark(pages, current_of(path, pages))
+def admin_link(user: Any, path: str) -> Link | None:  # noqa: ANN401
+    """Admin, to the admin area (ADR 0176), for whoever may open any page of it: its own
+    frame and sidebar then take them through the rest. Its pages don't draw this sidebar."""
+    from iki_server.web import admin_area
 
-
-def admin_pages(can: dict[str, bool]) -> list[Link]:
-    """The administrative pages someone may open, in the sidebar's order."""
-    pages = [_item(p) for p in spec()["organization"]["admin"]["pages"]]
-    return [_link(p) for p in pages if p.requires is None or can[p.requires]]
-
-
-def admin_link(can: dict[str, bool]) -> Link | None:
-    """Admin, for those who may open any administrative page: to the first of them, current
-    on all of them."""
-    raw = spec()["organization"]["admin"]
-    allowed = admin_pages(can)
-    if not allowed:
+    if not admin_area.navigation(user, path):
         return None
-    prefixes = tuple(dict.fromkeys(p for page in allowed for p in page.prefixes))
-    return Link(raw["label"], allowed[0].href, icon(raw["icon"]), prefixes)
+    raw = spec()["admin"]
+    return Link(
+        raw["label"],
+        raw["href"],
+        icon(spec()["organization"]["admin"]["icon"]),
+        prefixes=(raw["href"],),
+    )
 
 
 def current_of(path: str, links: Iterable[Link]) -> Link | None:
@@ -213,7 +200,7 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
     new_project = _link(new) if new.requires is None or can[new.requires] else None
     all_projects = _link(_item(raw["projects"]["all"]))
     organization = [_link(_item(i)) for i in raw["organization"]["items"]]
-    admin = admin_link(can)
+    admin = admin_link(user, path)
     if admin is not None:
         organization.append(admin)
     account = [_link(_item(i)) for i in raw["account"]]
@@ -222,7 +209,6 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
     if new_project is not None:
         shown.append(new_project)
     current = current_of(path, shown)
-    section = _section(path, admin, can) if current is admin else []
     return Sidebar(
         top=_mark(top, current),
         unread=unread,
@@ -233,9 +219,7 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
         projects=_mark(projects, current),
         new_project=_mark([new_project], current)[0] if new_project else None,
         all_projects=_mark([all_projects], current)[0],
-        # On an admin page, it's the page beneath Admin that's current.
-        organization=_mark(organization, None if section else current),
-        admin_pages=section,
+        organization=_mark(organization, current),
         account=_mark(account, current),
         name=user.get_full_name() or user.email,
         email=user.email,

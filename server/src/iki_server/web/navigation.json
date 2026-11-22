@@ -1,20 +1,182 @@
 {
+  "admin": {
+    "label": "Admin",
+    "href": "/admin/",
+    "groups": [
+      {
+        "label": "Organization",
+        "items": [
+          {
+            "label": "Sign-in and provisioning",
+            "href": "/settings/sign-in/",
+            "requires": ["manage_org"],
+            "icon": [
+              "M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z",
+              "M8 11V8a4 4 0 0 1 8 0v3"
+            ]
+          },
+          {
+            "label": "People",
+            "href": "/people/",
+            "requires": ["manage_org"],
+            "current": ["/people/", "/service-accounts/"],
+            "icon": [
+              "M5.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0",
+              "M2.5 20a6.5 6.5 0 0 1 13 0",
+              "M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"
+            ]
+          },
+          {
+            "label": "Apps",
+            "href": "/settings/apps/",
+            "requires": ["manage_org"],
+            "icon": ["M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"]
+          },
+          {
+            "label": "Email",
+            "href": "/settings/email/",
+            "requires": ["manage_org"],
+            "icon": [
+              "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
+              "m3 7 9 6 9-6"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Data",
+        "items": [
+          {
+            "label": "Registries",
+            "href": "/settings/registries/",
+            "requires": ["manage_org"],
+            "icon": [
+              "M4.5 3h5A1.5 1.5 0 0 1 11 4.5v5A1.5 1.5 0 0 1 9.5 11h-5A1.5 1.5 0 0 1 3 9.5v-5A1.5 1.5 0 0 1 4.5 3z",
+              "M13 17a4 4 0 1 0 8 0a4 4 0 1 0-8 0",
+              "m17 3 4 7h-8z"
+            ]
+          },
+          {
+            "label": "Plugins",
+            "href": "/settings/plugins/",
+            "requires": ["manage_org"],
+            "icon": ["M12 3 3 7.5v9L12 21l9-4.5v-9z", "M3 7.5 12 12l9-4.5M12 12v9"]
+          },
+          {
+            "label": "Outside APIs",
+            "href": "/settings/outside-apis/",
+            "requires": ["manage_org"],
+            "app": true,
+            "icon": [
+              "M14 4h6v6",
+              "M20 4l-9 9",
+              "M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
+            ]
+          },
+          {
+            "label": "Webhooks",
+            "href": "/settings/webhooks/",
+            "requires": ["manage_webhooks"],
+            "app": true,
+            "icon": [
+              "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1",
+              "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Compute and cost",
+        "items": [
+          {
+            "label": "Compute",
+            "href": "/compute/",
+            "requires": ["manage_compute"],
+            "app": true,
+            "icon": [
+              "M4.5 4h15A1.5 1.5 0 0 1 21 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5v-9A1.5 1.5 0 0 1 4.5 4z",
+              "M8 20h8M12 16v4"
+            ]
+          },
+          {
+            "label": "Costs and budgets",
+            "href": "/costs/",
+            "requires": ["read_costs"],
+            "app": true,
+            "icon": [
+              "M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Compliance",
+        "items": [
+          {
+            "label": "Audit log",
+            "href": "/audit/",
+            "requires": ["read_audit"],
+            "icon": ["M6 3h9l4 4v14H6z", "M9 12h7M9 16h7M9 8h3"]
+          },
+          {
+            "label": "Electronic signatures",
+            "href": "/settings/signatures/",
+            "requires": ["manage_org", "read_audit"],
+            "icon": ["M4 20h4L19 9l-4-4L4 16z"]
+          },
+          {
+            "label": "Legal holds",
+            "href": "/settings/legal-holds/",
+            "requires": ["manage_org", "read_audit"],
+            "icon": ["M3 4h18v4H3z", "M5 8v12h14V8", "M10 12h4"]
+          }
+        ]
+      }
+    ]
+  },
   "top": [
-    { "label": "My work", "href": "/work/", "app": true, "icon": "work" },
-    { "label": "Inbox", "href": "/notifications/", "app": true, "icon": "inbox", "badge": "unread" }
+    {
+      "label": "My work",
+      "href": "/work/",
+      "app": true,
+      "icon": "work"
+    },
+    {
+      "label": "Inbox",
+      "href": "/notifications/",
+      "app": true,
+      "icon": "inbox",
+      "badge": "unread"
+    }
   ],
   "entities": {
     "label": "Entities",
     "icon": "entities",
-    "all": { "label": "All entities", "href": "/entities/" },
+    "all": {
+      "label": "All entities",
+      "href": "/entities/"
+    },
     "type": "/entities/types/",
     "counts": "/api/v1/entities/counts"
   },
   "work": [
-    { "label": "Requests", "href": "/requests/", "icon": "requests" },
-    { "label": "Runs", "href": "/runs/", "icon": "runs" }
+    {
+      "label": "Requests",
+      "href": "/requests/",
+      "icon": "requests"
+    },
+    {
+      "label": "Runs",
+      "href": "/runs/",
+      "icon": "runs"
+    }
   ],
-  "saved": { "label": "Saved views", "href": "/saved-searches/", "app": true, "icon": "saved" },
+  "saved": {
+    "label": "Saved views",
+    "href": "/saved-searches/",
+    "app": true,
+    "icon": "saved"
+  },
   "projects": {
     "label": "Projects",
     "href": "/projects/",
@@ -25,39 +187,41 @@
       "app": true,
       "requires": "create_projects"
     },
-    "all": { "label": "All projects", "href": "/projects/", "app": true, "icon": "projects" }
+    "all": {
+      "label": "All projects",
+      "href": "/projects/",
+      "app": true,
+      "icon": "projects"
+    }
   },
   "organization": {
     "label": "Organization",
     "items": [
-      { "label": "Types", "href": "/types/", "app": true, "icon": "types" },
-      { "label": "People and teams", "href": "/teams/", "icon": "people" }
+      {
+        "label": "Types",
+        "href": "/types/",
+        "app": true,
+        "icon": "types"
+      },
+      {
+        "label": "People and teams",
+        "href": "/teams/",
+        "icon": "people"
+      }
     ],
     "admin": {
-      "label": "Admin",
-      "icon": "admin",
-      "pages": [
-        {
-          "label": "Settings",
-          "href": "/settings/sign-in/",
-          "requires": "manage_org",
-          "current": ["/settings/"]
-        },
-        {
-          "label": "People",
-          "href": "/people/",
-          "requires": "manage_org",
-          "current": ["/people/", "/service-accounts/"]
-        },
-        { "label": "Costs", "href": "/costs/", "requires": "read_costs", "app": true },
-        { "label": "Compute", "href": "/compute/", "requires": "manage_compute", "app": true },
-        { "label": "Audit", "href": "/audit/", "requires": "read_audit" }
-      ]
+      "icon": "admin"
     }
   },
   "account": [
-    { "label": "Notification preferences", "href": "/account/notifications/" },
-    { "label": "Authorized apps", "href": "/account/apps/" }
+    {
+      "label": "Notification preferences",
+      "href": "/account/notifications/"
+    },
+    {
+      "label": "Authorized apps",
+      "href": "/account/apps/"
+    }
   ],
   "icons": {
     "search": ["M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0", "m20 20-3.5-3.5"],

@@ -293,9 +293,9 @@ def test_the_log_pages_with_a_stable_cursor(world: World, monkeypatch: pytest.Mo
 
 
 def test_auditor_link_only_for_auditors(world: World) -> None:
-    # Beneath Admin, on the administrative pages each may open (ADR 0176).
+    # In the admin area's sidebar, on its pages, for those who may read it (ADR 0176).
     on_audit = world.browser("auditor").get("/audit/").content.decode()
-    assert '<a class="nav-item" href="/audit/" aria-current="page">' in on_audit
+    assert 'href="/audit/"' in on_audit
     on_settings = world.browser("org_admin").get("/settings/sign-in/").content.decode()
     assert 'href="/audit/"' not in on_settings
     assert Api(world.browser("auditor")).get("/me").json()["can"]["read_audit"] is True

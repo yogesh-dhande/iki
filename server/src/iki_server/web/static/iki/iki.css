@@ -431,12 +431,6 @@ main:focus {
   color: var(--sidebar-current-text);
 }
 
-/* The section a page beneath it is in: Admin, while its pages are listed under it. */
-.nav-section {
-  color: var(--text);
-  font-weight: 600;
-}
-
 .nav-label {
   min-width: 0;
   overflow: hidden;
@@ -2320,6 +2314,452 @@ input[type="date"] {
 .segmented a[aria-current="page"] {
   background: var(--surface-2);
   font-weight: 600;
+}
+
+/* --- The admin area (ADR 0176) ------------------------------------------------- */
+
+/* Its own frame: a sidebar of the area's pages, then a top bar with the breadcrumb and
+   the page's actions over the page. It fills the body's grid, header to footer. */
+.admin-frame {
+  grid-row: 1 / -1;
+  display: grid;
+  grid-template-columns: calc(240rem / 13) minmax(0, 1fr);
+  min-height: 100dvh;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.admin-side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: calc(10rem / 13) calc(8rem / 13) calc(12rem / 13);
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+
+.admin-side svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.admin-side-head {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6rem / 13);
+}
+
+.admin-back,
+.admin-link,
+.admin-user {
+  display: flex;
+  align-items: center;
+  gap: calc(9rem / 13);
+  min-height: calc(28rem / 13);
+  padding: 0 calc(8rem / 13);
+  border-radius: 6px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-back {
+  color: var(--muted);
+}
+
+.admin-link,
+.admin-user {
+  color: var(--text);
+}
+
+.admin-back:hover,
+.admin-link:hover,
+.admin-user:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.admin-link[aria-current] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface-2));
+}
+
+.admin-title {
+  display: flex;
+  align-items: center;
+  gap: calc(8rem / 13);
+  min-width: 0;
+  padding: calc(4rem / 13) calc(8rem / 13) calc(6rem / 13);
+}
+
+.admin-title svg {
+  width: calc(18rem / 13);
+  height: calc(18rem / 13);
+  color: var(--accent);
+  stroke-width: 2;
+}
+
+.admin-title > span:first-of-type {
+  font-size: calc(14rem / 13);
+  font-weight: 600;
+}
+
+.admin-org {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(12rem / 13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.admin-group {
+  margin: 0;
+  padding: calc(14rem / 13) calc(8rem / 13) calc(4rem / 13);
+  color: var(--muted);
+  font-size: calc(11.5rem / 13);
+  font-weight: 600;
+}
+
+.admin-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The account, at the foot of the sidebar. */
+.admin-account {
+  display: flex;
+  align-items: center;
+  gap: calc(4rem / 13);
+  margin: auto 0 0;
+  padding-top: calc(16rem / 13);
+}
+
+.admin-user {
+  flex: 1;
+  min-width: 0;
+  min-height: calc(36rem / 13);
+}
+
+.admin-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22rem / 13);
+  height: calc(22rem / 13);
+  flex: none;
+  border-radius: 50%;
+  color: var(--surface);
+  background: var(--muted);
+  font-size: calc(9.5rem / 13);
+  font-weight: 600;
+}
+
+.admin-frame .admin-account .button,
+.admin-actions .button,
+.admin-menu-button {
+  min-height: calc(28rem / 13);
+  padding: 0 calc(10rem / 13);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.admin-menu-button {
+  display: none;
+}
+
+.admin-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.admin-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  min-height: calc(46rem / 13);
+  padding: calc(8rem / 13) calc(20rem / 13);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.admin-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6rem / 13);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.admin-crumbs li + li::before {
+  content: "/";
+  margin-right: calc(6rem / 13);
+}
+
+.admin-crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.admin-crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.admin-crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8rem / 13);
+  margin-left: auto;
+}
+
+.admin-actions:empty {
+  display: none;
+}
+
+main.admin-main {
+  width: 100%;
+  max-width: calc(1080rem / 13);
+  margin: 0;
+  padding: calc(18rem / 13) calc(20rem / 13) calc(24rem / 13);
+  font-size: 1rem;
+}
+
+/* The app's messages are always there, for screen readers: only take room with one. */
+.admin-main .messages:empty {
+  margin: 0;
+}
+
+.admin-main .page-header {
+  align-items: baseline;
+  margin-bottom: calc(14rem / 13);
+}
+
+.admin-main .page-header h1,
+.admin-main > h1 {
+  font-size: calc(18rem / 13);
+  font-weight: 600;
+}
+
+/* A page's own sub-pages, as Compute's are: tabs underlined, in a row. */
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 calc(14rem / 13);
+  border-bottom: 1px solid var(--border);
+  font-size: 1rem;
+}
+
+.admin-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(34rem / 13);
+  margin-bottom: -1px;
+  padding: 0 calc(10rem / 13);
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-tabs a:hover {
+  color: var(--text);
+}
+
+.admin-tabs a[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.admin-lede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(10rem / 13);
+  margin-bottom: calc(14rem / 13);
+}
+
+.admin-lede h1 {
+  margin: 0;
+  font-size: calc(18rem / 13);
+  font-weight: 600;
+}
+
+.admin-lede p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* Compute's overview: a row of numbers, then tables of them. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: calc(10rem / 13);
+  margin: 0 0 calc(18rem / 13);
+}
+
+.tile {
+  padding: calc(10rem / 13) calc(12rem / 13);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tile dt {
+  color: var(--muted);
+  font-size: calc(12rem / 13);
+}
+
+.tile dd {
+  margin: calc(2rem / 13) 0 0;
+  font-size: calc(20rem / 13);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-note {
+  display: block;
+  margin-top: calc(2rem / 13);
+  color: var(--muted);
+  font-size: calc(12rem / 13);
+}
+
+.admin-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(8rem / 13);
+  margin: 0 0 calc(8rem / 13);
+}
+
+.admin-section-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.admin-section-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(12rem / 13);
+}
+
+/* Compact tables, as the admin area's are: 32px headers, rows of about 40px. */
+.table-compact {
+  font-size: 1rem;
+}
+
+.table-compact th,
+.table-compact td {
+  padding: calc(4rem / 13) calc(12rem / 13);
+  height: calc(40rem / 13);
+  vertical-align: middle;
+}
+
+.table-compact thead th {
+  height: calc(32rem / 13);
+  font-size: calc(12rem / 13);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.table-compact tbody th {
+  font-weight: 500;
+}
+
+/* Prose in a cell keeps room to read: on a phone the table scrolls within its box instead. */
+.table-compact .cell-wide {
+  min-width: calc(224rem / 13);
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 48rem) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The sidebar folds into a bar over the page, with a menu that opens its pages. */
+  .admin-frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .admin-side {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .admin-side-head {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .admin-title {
+    order: -1;
+    flex: 1;
+    padding: 0 calc(8rem / 13);
+  }
+
+  .admin-menu-button:not([hidden]) {
+    display: inline-flex;
+  }
+
+  .admin-side:has(.admin-menu-button[aria-expanded="false"]:not([hidden])) .admin-menu {
+    display: none;
+  }
+
+  .admin-top {
+    padding: calc(8rem / 13) calc(16rem / 13);
+  }
+
+  main.admin-main {
+    padding: calc(16rem / 13);
+  }
 }
 
 /* --- The web app (React): same classes, a few pieces only it needs ---------- */

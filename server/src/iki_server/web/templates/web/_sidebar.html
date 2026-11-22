@@ -49,12 +49,8 @@ shows, open.
     </div>
     <div class="nav-group" role="group" aria-label="{{ nav.labels.organization }}">
       <div class="nav-heading" aria-hidden="true">{{ nav.labels.organization }}</div>
-      {% for link in nav.organization %}<a class="nav-item{% if forloop.last and nav.admin_pages %} nav-section{% endif %}" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
+      {% for link in nav.organization %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
       {% endfor %}
-      {% if nav.admin_pages %}<div class="nav-sub">
-        {% for link in nav.admin_pages %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="nav-label">{{ link.label }}</span></a>
-        {% endfor %}
-      </div>{% endif %}
     </div>
   </nav>
   <div class="account">

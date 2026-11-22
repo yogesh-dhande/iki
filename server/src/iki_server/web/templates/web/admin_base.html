@@ -1,0 +1,61 @@
+{% load static admin_area %}<!doctype html>
+{# The admin area's frame (ADR 0176), as the web app's AdminLayout draws it: its own sidebar, #}
+{# a way back to Iki, and a breadcrumb with the page's actions. Its head is base.html's. #}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="same-origin">
+  {% if user.is_authenticated %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+  <title>{% block title %}Admin{% endblock %}{% if organization_name %} · {{ organization_name }}{% endif %}</title>
+  {% include "_head_links.html" %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  {% admin_area as admin %}
+  <div class="admin-frame">
+    <nav class="admin-side" aria-label="Admin">
+      <div class="admin-side-head">
+        <a class="admin-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>Back to Iki</a>
+        <div class="admin-title">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/></svg>
+          <span>Admin</span>
+          {% if organization_name %}<span class="admin-org">{{ organization_name }}</span>{% endif %}
+        </div>
+        <button class="button admin-menu-button" type="button" aria-expanded="true" aria-controls="admin-menu" data-admin-menu hidden>Menu</button>
+      </div>
+      <div class="admin-menu" id="admin-menu">
+        {% for section in admin.sections %}
+        <p class="admin-group" id="admin-group-{{ forloop.counter }}">{{ section.label }}</p>
+        <ul class="admin-links" aria-labelledby="admin-group-{{ forloop.counter }}">
+          {% for link in section.links %}
+          <li><a class="admin-link" href="{{ link.href }}"{% if link.current %} aria-current="{% if request.path == link.href %}page{% else %}true{% endif %}"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{% for d in link.icon %}<path d="{{ d }}"/>{% endfor %}</svg>{{ link.label }}</a></li>
+          {% endfor %}
+        </ul>
+        {% endfor %}
+        <form class="admin-account" method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <a class="admin-user" href="{% url 'notifications:account' %}" title="{{ user.email }}: your account"><span class="admin-avatar" aria-hidden="true">{{ user.get_full_name|initials }}</span><span class="admin-user-name">{{ user.get_full_name|default:user.email }}</span></a>
+          <button class="button button-quiet" type="submit">Sign out</button>
+        </form>
+      </div>
+    </nav>
+    <div class="admin-column">
+      <header class="admin-top">
+        <nav class="admin-crumbs" aria-label="Breadcrumb">
+          <ol>
+            <li><a href="/admin/">Admin</a></li>
+            {% if admin.current %}<li>{% if request.path == admin.current.href %}<span aria-current="page">{{ admin.current.label }}</span>{% else %}<a href="{{ admin.current.href }}">{{ admin.current.label }}</a>{% endif %}</li>{% endif %}
+          </ol>
+        </nav>
+        <div class="admin-actions">{% block actions %}{% endblock %}</div>
+      </header>
+      <main id="main" class="admin-main" tabindex="-1">
+        {% include "web/_messages.html" %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

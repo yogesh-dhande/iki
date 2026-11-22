@@ -197,7 +197,7 @@ describe("the frame", () => {
       },
     });
     answer("GET /api/v1/projects", page([]));
-    await renderApp("/compute/");
+    await renderApp("/projects/");
     const nav = screen.getByRole("navigation", { name: "Main" });
     const links = within(nav).getAllByRole("link");
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
@@ -209,14 +209,11 @@ describe("the frame", () => {
       ["All projects", "/projects/"],
       ["Types", "/types/"],
       ["People and teams", "/teams/"],
-      // The first administrative page they may open; and on one, each of them beneath it.
-      ["Admin", "/costs/"],
-      ["Costs", "/costs/"],
-      ["Compute", "/compute/"],
-      ["Audit", "/audit/"],
+      // The admin area, which has a sidebar of its own for the rest.
+      ["Admin", "/admin/"],
     ]);
     expect(links.filter((a) => a.getAttribute("aria-current") === "page")).toEqual([
-      within(nav).getByRole("link", { name: "Compute" }),
+      within(nav).getByRole("link", { name: "All projects" }),
     ]);
   });
 
@@ -1736,13 +1733,8 @@ describe("webhooks", () => {
       return { ...HOOK, active: false, disabled_reason: "org_admin" };
     });
     const { user } = await renderApp("/settings/webhooks/");
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    const tabs = screen.getByRole("navigation", { name: "Settings" });
-    expect(within(tabs).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
+    const nav = screen.getByRole("navigation", { name: "Admin" });
+    expect(within(nav).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
       "aria-current",
       "page",
     );
