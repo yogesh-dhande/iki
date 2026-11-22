@@ -5333,16 +5333,18 @@ input[type="file"]::file-selector-button {
 }
 
 /* Search everything (ADR 0176): the ⌘K palette, near the top of the window, over the page.
-   Its classes all start .palette-, so nothing else on the page can collide with them. */
+   Its classes all start .palette-, so nothing else on the page can collide with them. Sizes
+   are the mockup's pixels over the 13px root, calc(Nrem / 13), so they follow the reader's
+   zoom: a 50px input row at 15px, 13px results in 34px rows, 11.5px group titles. */
 .palette-overlay {
   align-items: flex-start;
-  padding: 4rem 1rem 1rem;
+  padding: calc(64rem / 13) calc(16rem / 13) calc(16rem / 13);
   background: rgb(10 15 20 / 40%);
 }
 
 .palette-modal {
-  width: min(680px, 100%);
-  max-height: calc(100dvh - 5rem);
+  width: min(calc(680rem / 13), 100%);
+  max-height: calc(100dvh - calc(80rem / 13));
   display: flex;
   background: var(--surface);
   color: var(--text);
@@ -5358,14 +5360,14 @@ input[type="file"]::file-selector-button {
   width: 100%;
   min-height: 0;
   outline: none;
-  font-size: 0.8125rem;
+  font-size: 1rem;
   line-height: 1.4;
 }
 
 .palette-overlay .kbd {
   font: inherit;
-  font-size: 0.6875rem;
-  line-height: 16px;
+  font-size: calc(11rem / 13);
+  line-height: calc(16rem / 13);
   color: var(--muted);
   background: none;
   border: 1px solid var(--border);
@@ -5376,15 +5378,15 @@ input[type="file"]::file-selector-button {
 .palette-box {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 50px;
-  padding: 0 16px;
+  gap: calc(10rem / 13);
+  min-height: calc(50rem / 13);
+  padding: 0 calc(16rem / 13);
   border-bottom: 1px solid var(--border);
 }
 
 .palette-icon {
-  width: 17px;
-  height: 17px;
+  width: calc(17rem / 13);
+  height: calc(17rem / 13);
   flex: none;
   fill: none;
   stroke: var(--muted);
@@ -5398,8 +5400,9 @@ input[type="file"]::file-selector-button {
   border: 0;
   outline: 0;
   padding: 0;
+  height: auto;
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: calc(15rem / 13);
   color: var(--text);
   background: none;
 }
@@ -5422,29 +5425,29 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
-  padding: 8px 12px;
+  gap: calc(4rem / 13) calc(12rem / 13);
+  padding: calc(8rem / 13) calc(12rem / 13);
   border-bottom: 1px solid var(--border);
 }
 
 .palette-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: calc(4rem / 13);
 }
 
 .palette-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 0 10px;
+  gap: calc(6rem / 13);
+  min-height: calc(24rem / 13);
+  padding: 0 calc(10rem / 13);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: calc(12rem / 13);
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: calc(12rem / 13);
   cursor: pointer;
 }
 
@@ -5459,13 +5462,14 @@ input[type="file"]::file-selector-button {
 }
 
 .palette-pill-count {
+  opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }
 
 .palette-where {
   margin-left: auto;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: calc(12rem / 13);
 }
 
 .palette-results {
@@ -5476,12 +5480,12 @@ input[type="file"]::file-selector-button {
 }
 
 .palette-results:not(:empty) {
-  padding: 4px 0 6px;
+  padding: calc(4rem / 13) 0 calc(6rem / 13);
 }
 
 .palette-group-title {
-  padding: 10px 16px 4px;
-  font-size: 0.71875rem;
+  padding: calc(10rem / 13) calc(16rem / 13) calc(4rem / 13);
+  font-size: calc(11.5rem / 13);
   font-weight: 600;
   color: var(--muted);
 }
@@ -5489,9 +5493,9 @@ input[type="file"]::file-selector-button {
 .palette-option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 0 16px;
+  gap: calc(10rem / 13);
+  min-height: calc(34rem / 13);
+  padding: 0 calc(16rem / 13);
   color: inherit;
   text-decoration: none;
   cursor: pointer;
@@ -5515,9 +5519,11 @@ input[type="file"]::file-selector-button {
   color: var(--accent-hover);
 }
 
+/* A record's or request's type: a square in its type's color (TypeDot in search-palette.tsx).
+   Runs, projects, saved views and people are round and muted. */
 .palette-dot {
-  width: 7px;
-  height: 7px;
+  width: calc(7rem / 13);
+  height: calc(7rem / 13);
   flex: none;
   border-radius: 2px;
   background: var(--accent);
@@ -5530,9 +5536,9 @@ input[type="file"]::file-selector-button {
 
 .palette-hrid {
   flex: none;
-  min-width: 86px;
+  min-width: calc(86rem / 13);
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: calc(12rem / 13);
   color: var(--accent);
 }
 
@@ -5547,26 +5553,26 @@ input[type="file"]::file-selector-button {
 .palette-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: calc(10rem / 13);
   flex: 1 0 auto;
   min-width: 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: calc(12rem / 13);
   white-space: nowrap;
 }
 
 .palette-project {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6rem / 13);
   margin-left: auto;
 }
 
-.palette-project-mark {
-  width: 9px;
-  height: 9px;
+/* The project's own swatch (project-color.ts), as the sidebar shows it. */
+.palette-project-mark.swatch {
+  width: calc(9rem / 13);
+  height: calc(9rem / 13);
   border-radius: 2px;
-  border: 1px solid var(--muted);
 }
 
 .palette-meta .palette-enter {
@@ -5578,7 +5584,7 @@ input[type="file"]::file-selector-button {
 }
 
 .palette-note:not(:empty) {
-  padding: 22px 16px;
+  padding: calc(22rem / 13) calc(16rem / 13);
   text-align: center;
   color: var(--muted);
 }
@@ -5591,17 +5597,17 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 14px;
-  padding: 8px 16px;
+  gap: calc(6rem / 13) calc(14rem / 13);
+  padding: calc(8rem / 13) calc(16rem / 13);
   border-top: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: calc(12rem / 13);
 }
 
 .palette-keys {
   display: flex;
-  gap: 14px;
+  gap: calc(14rem / 13);
 }
 
 .palette-promise {
@@ -5612,17 +5618,17 @@ input[type="file"]::file-selector-button {
    keys to show. */
 @media (max-width: 600px) {
   .palette-overlay {
-    padding: 0.5rem;
+    padding: calc(8rem / 13);
   }
 
   .palette-modal {
-    max-height: calc(100dvh - 1rem);
+    max-height: calc(100dvh - calc(16rem / 13));
   }
 
   .palette-option {
     flex-wrap: wrap;
     row-gap: 0;
-    padding-block: 6px;
+    padding-block: calc(6rem / 13);
   }
 
   .palette-hrid {
@@ -5635,7 +5641,7 @@ input[type="file"]::file-selector-button {
 
   .palette-meta {
     flex-basis: 100%;
-    padding-left: 17px;
+    padding-left: calc(17rem / 13);
   }
 
   .palette-keys,
