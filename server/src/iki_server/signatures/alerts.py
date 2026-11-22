@@ -63,8 +63,8 @@ def lock(user: User, failures: int) -> None:
     who = user.name or user.email
     body = (
         f"{failures} attempts to sign as {who} failed within minutes, so their signing is "
-        "locked and their sessions ended. An Org Admin unlocks it in Settings, Signatures, "
-        "once they know who it was."
+        "locked and their sessions ended. An Org Admin unlocks it in Admin → Electronic "
+        "signatures, once they know who it was."
     )
     notify(
         org_admins(),

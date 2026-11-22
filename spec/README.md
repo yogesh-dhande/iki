@@ -1133,7 +1133,7 @@ apis:
     sends: { inputs: { protein: [sequence] }, params: [model, num_recycles] }
 ```
 
-An Org Admin approves each API for each project, in Settings → Outside APIs,
+An Org Admin approves each API for each project, in Admin → Outside APIs,
 and people agree to what's sent before launching; agents' runs wait for
 their person to. The command calls the API at its address,
 `IKI_API_FOLDCLOUD_URL`, through the egress proxy, **without a key**: the

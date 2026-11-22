@@ -647,7 +647,7 @@ def _due(name: str) -> PluginPurge:
     if scheduled is None:
         raise DeployError(
             f"The lockfile purges {name}, but no purge of it was asked for. An Org Admin asks "
-            f"for one on its page in Settings → Plugins, while it's detached. {keep}"
+            f"for one on its page in Admin → Plugins, while it's detached. {keep}"
         )
     if scheduled.run_after > timezone.now():
         raise DeployError(

@@ -245,7 +245,7 @@ class NotApproved(Refused):
         who = [u.name or u.email for u in admins()]
         super().__init__(
             f"{names} {verb} approved for {project.name}. An Org Admin approves outside APIs "
-            "in Settings → Outside APIs" + (f": {_join(who)}." if who else ".")
+            "in Admin → Outside APIs" + (f": {_join(who)}." if who else ".")
         )
         self.extensions = {"apis": [a.qualified_name for a in apis], "approvers": who}
 
@@ -609,7 +609,7 @@ def target(job_id: UUID, name: str, *, park: bool = False, cancelling: bool = Fa
     if not cancelling and approval(run.project, api) is None:
         return Target(
             f"{api.label} ({api.host}) isn't approved for {run.project.name} any more. An Org "
-            "Admin approves outside APIs in Settings → Outside APIs."
+            "Admin approves outside APIs in Admin → Outside APIs."
         )
     credential: tuple[str, str] | None = None
     if api.credential is not None:

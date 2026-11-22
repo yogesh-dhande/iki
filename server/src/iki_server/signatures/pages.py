@@ -1,4 +1,4 @@
-"""Settings → Signatures: the organization's certification to the FDA (21 CFR 11.100(c)),
+"""Admin → Electronic signatures: the organization's certification to the FDA (21 CFR 11.100(c)),
 whose signing failed attempts locked (§11.300(d)), and the keys that sign (§11.70).
 
 Org Admins record a certification and unlock people; Auditors read it all.

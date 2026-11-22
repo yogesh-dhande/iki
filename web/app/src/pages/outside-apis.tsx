@@ -1,5 +1,5 @@
 /**
- * Settings → Outside APIs (ADR 0130): every outside API installed plugins send data to,
+ * Admin → Outside APIs (ADR 0130): every outside API installed plugins send data to,
  * and the projects each is approved for. Org Admins approve one for a project here, for
  * the host and purpose it names, and only here: no token can, so no agent can approve
  * where its runs send data.
