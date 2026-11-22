@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Model
+from django.db.models import Model, Q
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
@@ -1377,6 +1377,14 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
     if entity.first() is None:
         return True
     return revision.project_id in set(projects)
+
+
+def disclosing(projects: Iterable[Any]) -> Q:
+    """Which of a registry entry's revisions a reader of ``projects`` is told who made, as
+    :func:`discloses` says of one: for filtering by who made them."""
+    return Q(kind__in=(RevisionKind.CURATED, RevisionKind.SUPERSEDED)) | Q(
+        project_id__in=list(projects)
+    )
 
 
 # --- Writing ------------------------------------------------------------------------------------
