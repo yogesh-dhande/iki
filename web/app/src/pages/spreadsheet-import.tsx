@@ -115,6 +115,30 @@ export function ImportSteps({ current }: { current: Step }) {
   );
 }
 
+/** A table wider than a phone, scrolled across: by keyboard too, so it can be focused,
+ * named as its table is. */
+function Scroll({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={className ? `table-scroll ${className}` : "table-scroll"}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region
+      tabIndex={0}
+      role="group"
+      aria-label={label}
+    >
+      {children}
+    </div>
+  );
+}
+
 // --- 1. The workbook -----------------------------------------------------------------------
 
 /**
@@ -469,7 +493,7 @@ export function SheetSample({ made }: { made: SheetImport }) {
     (made.last_row != null && n > made.last_row) ||
     made.skip.some(([a = 0, b = 0]) => n >= a && n <= b);
   return (
-    <div className="table-scroll sheet-sample">
+    <Scroll className="sheet-sample" label="The sheet’s first rows">
       <table className="table">
         <caption id={id}>
           Its first rows
@@ -513,7 +537,7 @@ export function SheetSample({ made }: { made: SheetImport }) {
           })}
         </tbody>
       </table>
-    </div>
+    </Scroll>
   );
 }
 
@@ -563,7 +587,7 @@ export function MapColumns({
           </ul>
         </div>
       ) : null}
-      <div className="table-scroll">
+      <Scroll label="Each column, and the field it sets">
         <table className="table sheet-columns">
           <caption className="visually-hidden">Each column, and the field it sets</caption>
           <thead>
@@ -640,7 +664,7 @@ export function MapColumns({
             })}
           </tbody>
         </table>
-      </div>
+      </Scroll>
       {unmappable.length ? (
         <p className="field-help">
           Not from a sheet:{" "}
@@ -910,7 +934,8 @@ export function NumbersAndDates({
       <p>
         Say how the sheet writes them: Iki doesn’t guess. Until you do, a cell that reads two ways,
         such as 1,234 or 03/04/2026, is flagged. Cells the workbook stores as numbers or dates read
-        one way only.
+        one way only. Below, Iki writes numbers with a decimal point and a space between thousands,
+        and dates year first.
       </p>
       {ambiguous ? (
         <div className="alert alert-warning" role="status">
@@ -947,7 +972,7 @@ export function NumbersAndDates({
         />
       </div>
       {made.readings.length ? (
-        <div className="table-scroll">
+        <Scroll label="How its numbers and dates read">
           <table className="table sheet-readings">
             <caption>
               How {numbers && dates ? "numbers and dates" : numbers ? "numbers" : "dates"} in the
@@ -955,19 +980,29 @@ export function NumbersAndDates({
             </caption>
             <thead>
               <tr>
-                <th scope="col">Column</th>
                 <th scope="col">Row</th>
                 <th scope="col">In the sheet</th>
                 <th scope="col">Reads as</th>
               </tr>
             </thead>
-            <tbody>
-              {made.readings.flatMap((reading) =>
-                reading.cells.map((cell) => {
-                  const column = columns.get(reading.column);
-                  return (
-                    <tr key={`${String(reading.column)}-${String(cell.row)}`}>
-                      <td>{column ? columnName(column) : reading.field}</td>
+            {/* A group a column: its name once, then its cells. */}
+            {made.readings.map((reading) => {
+              const column = columns.get(reading.column);
+              return (
+                <tbody key={reading.column}>
+                  <tr className="sheet-reading-column">
+                    <th scope="colgroup" colSpan={3}>
+                      {column ? (
+                        <>
+                          <span className="sheet-letter">{column.letter}</span> {column.header}
+                        </>
+                      ) : (
+                        reading.field
+                      )}
+                    </th>
+                  </tr>
+                  {reading.cells.map((cell) => (
+                    <tr key={cell.row}>
                       <td className="numeric">{cell.row}</td>
                       <td>
                         <code>{cell.cell}</code>
@@ -984,12 +1019,12 @@ export function NumbersAndDates({
                           ))}
                       </td>
                     </tr>
-                  );
-                }),
-              )}
-            </tbody>
+                  ))}
+                </tbody>
+              );
+            })}
           </table>
-        </div>
+        </Scroll>
       ) : (
         <p className="muted">No mapped column holds numbers or dates.</p>
       )}
@@ -1087,7 +1122,7 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
   return (
     <section className="card sheet-card" aria-labelledby={`${id}-title`}>
       <h3 className="section-title" id={`${id}-title`}>
-        Rows
+        {made.kind === "csv" ? "Rows" : `Rows of ${made.sheet}`}
       </h3>
       <SelectField
         label="Show"
@@ -1104,7 +1139,7 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
       {list.isError ? <ProblemAlert problem={problemOf(list.error)} /> : null}
       {list.isPending ? <Loading label="Loading its rows…" /> : null}
       {rows.length ? (
-        <div className="table-scroll">
+        <Scroll label="Its rows">
           <table className="table sheet-rows">
             <caption className="visually-hidden">
               {outcome ? OUTCOMES[outcome].label : "Every row"}, in the sheet’s order
@@ -1154,7 +1189,7 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       ) : list.isSuccess ? (
         <p className="empty">No rows {outcome ? "like that" : ""}.</p>
       ) : null}
@@ -1191,6 +1226,8 @@ export function CommitImport({
   const id = useId();
   const problems = made.preview?.counts["problem"] ?? 0;
   const rows = importable(made);
+  const type = useQuery(typesQuery).data?.find((t) => t.name === made.type);
+  const typeLabel = type ? inSentence(type.label_plural) : made.type;
   const [leaveOut, setLeaveOut] = useState(false);
   const [reason, setReason] = useState("");
   const commit = useApiMutation(
@@ -1234,7 +1271,7 @@ export function CommitImport({
       />
       <p id={`${id}-what`} className="field-help">
         {rows
-          ? `One run writes ${plural(rows, "row", "rows")} as ${made.type}, in row order: all of them, or none if anything is wrong.`
+          ? `One run writes ${plural(rows, "row", "rows")} as ${typeLabel}, in row order: all of them, or none if anything is wrong.`
           : "There’s nothing to import."}
       </p>
       <Button
@@ -1313,7 +1350,7 @@ export function ImportResult({ made, project }: { made: SheetImport; project: Pr
         </p>
       </div>
       {made.run_problems.length ? (
-        <div className="table-scroll">
+        <Scroll label="Why, by row">
           <table className="table">
             <caption>Why</caption>
             <thead>
@@ -1335,7 +1372,7 @@ export function ImportResult({ made, project }: { made: SheetImport; project: Pr
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       ) : null}
       {project.can.edit && !project.archived ? (
         <Button

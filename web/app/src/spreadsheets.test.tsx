@@ -425,6 +425,9 @@ describe("an import's steps", () => {
     expect(within(rows).getByRole("rowheader", { name: "5" })).toBeTruthy();
     expect(within(rows).getByText("B")).toBeTruthy();
     expect(within(rows).getByText(/Sequence is required/)).toBeTruthy();
+    // Each problem by its sheet, row and column.
+    expect(screen.getByRole("heading", { level: 3, name: "Rows of Kinases" })).toBeTruthy();
+    expect(screen.getByText(/One run writes 4 rows as proteins, in row order/)).toBeTruthy();
     // Nothing is imported while a row has problems, unless they're left out.
     const importing = screen.getByRole("button", { name: "Import 4 rows" });
     expect(importing.getAttribute("aria-disabled")).toBe("true");
