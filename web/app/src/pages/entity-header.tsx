@@ -89,12 +89,12 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
           <ol>
             {/* The lists of everything the reader can read, across projects (ADR 0176). */}
             <li>
-              <a href="/entities/">Entities</a>
+              <Link to="/entities/">Entities</Link>
             </li>
             <li>
-              <a href={`/entities/types/${entity.type}/`}>
+              <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
                 {type?.label_plural ?? type?.label ?? entity.type}
-              </a>
+              </Link>
             </li>
             <li>
               <span aria-current="page">{entity.hrid}</span>
