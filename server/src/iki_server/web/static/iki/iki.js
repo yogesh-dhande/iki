@@ -137,6 +137,9 @@ async function showEntityTypes(list) {
   }
   const all = list.querySelector("a");
   if (total !== null) all?.append(count(total));
+  // Two types of one label are told apart by their plugins, in muted text, as the app's
+  // sidebar does.
+  const labelled = (t) => t.label.trim().toLowerCase();
   for (const t of types) {
     const link = document.createElement("a");
     link.className = "nav-item";
@@ -144,6 +147,12 @@ async function showEntityTypes(list) {
     const label = document.createElement("span");
     label.className = "nav-label";
     label.textContent = t.label;
+    if (types.some((other) => other.type !== t.type && labelled(other) === labelled(t))) {
+      const plugin = document.createElement("span");
+      plugin.className = "type-plugin";
+      plugin.textContent = t.type.slice(0, t.type.lastIndexOf("."));
+      label.append(" ", plugin);
+    }
     link.append(label);
     if (t.count !== null) link.append(count(t.count));
     if (window.location.pathname.startsWith(link.pathname)) {
