@@ -19,7 +19,14 @@ from urllib.parse import quote
 import httpx2
 
 from iki import auth
-from iki.errors import IkiError, NotSignedIn, RunFailed, TimedOut, from_response
+from iki.errors import (
+    IkiError,
+    ImportFailed,
+    NotSignedIn,
+    RunFailed,
+    TimedOut,
+    from_response,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -45,6 +52,7 @@ if TYPE_CHECKING:
         MovementOut,
         NotificationOut,
         OriginOut,
+        PreviewRowOut,
         ProjectOut,
         ProjectRef,
         RequestOut,
@@ -52,11 +60,13 @@ if TYPE_CHECKING:
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        SavedMappingOut,
         ServiceOut,
         SettingsOut,
         SignatureOut,
         SignaturesOut,
         SignatureVerificationOut,
+        SpreadsheetImportOut,
         WalkItemOut,  # noqa: F401 - Walk's items, named in its base as a string
         WatchOut,
         WorkItemOut,
@@ -156,8 +166,8 @@ class Client:
     ``IKI_URL`` and ``IKI_TOKEN``.
 
     Its parts follow the API: ``entities``, ``entries``, ``types``, ``projects``, ``actions``,
-    ``runs``, ``files``, ``work`` and ``signatures``. For anything else, ``request`` calls the
-    API directly.
+    ``runs``, ``files``, ``spreadsheets``, ``work`` and ``signatures``. For anything else,
+    ``request`` calls the API directly.
 
     An AI agent using it may say what model it is, ``agent_model="claude-opus-5-5"``
     (or ``IKI_AGENT_MODEL``): what it changes then records that, as the agent's own word.
@@ -207,6 +217,7 @@ class Client:
         self.actions = Actions(self)
         self.runs = Runs(self)
         self.files = Files(self)
+        self.spreadsheets = Spreadsheets(self)
         self.costs = Costs(self)
         self.work = Work(self)
         self.signatures = Signatures(self)
@@ -375,6 +386,7 @@ class Entities(_Part):
         where: Mapping[str, Any] | None = None,
         sort: str | None = None,
         collection: str | None = None,
+        run: str | None = None,
         archived: bool | None = False,
         exact_type: bool = False,
         page_size: int = 100,
@@ -392,7 +404,8 @@ class Entities(_Part):
             ).to_pandas()
 
         Combine conditions with ``{"all": [...]}``, ``{"any": [...]}`` or
-        ``{"not": ...}``. `archived` is False by default; None finds both.
+        ``{"not": ...}``. `archived` is False by default; None finds both. `run` finds
+        what a run wrote: a spreadsheet import's records, say.
 
         What plugins' rules caught (ADR 0127): ``held``, what a rule holds for review,
         and ``breaks``, what breaks a rule it was saved before, by the rule's name or by
@@ -412,6 +425,7 @@ class Entities(_Part):
             "where": dict(where) if where is not None else None,
             "sort": _sort(sort),
             "collection": collection,
+            "run": run,
             "archived": archived,
             "exact_type": exact_type,
             "limit": page_size,
@@ -1570,6 +1584,211 @@ class Files(_Part):
             to=to,
             what=file_id,
         )
+
+
+#: An import's states once it's done with: its run's outcome, or why it stopped.
+_IMPORT_ENDED = frozenset({"imported", "failed", "cancelled", "discarded"})
+
+
+class Spreadsheets(_Part):
+    """Spreadsheets imported into records (ADR 0178): an XLSX workbook or a CSV file,
+    its columns mapped to a type's fields, every row checked, then written by one run,
+    all of them or none.
+
+    ``import_sheet`` does it all at once. Or step by step: ``start``, ``change`` (the
+    sheet, its rows, how its columns map, how its numbers and dates are written),
+    ``preview``, ``rows``, then ``commit``.
+    """
+
+    def import_sheet(
+        self,
+        source: str | os.PathLike[str] | BinaryIO,
+        *,
+        type: str,
+        project: str | Mapping[str, Any],
+        sheet: str | None = None,
+        columns: Sequence[Mapping[str, Any]] | None = None,
+        locale: Mapping[str, Any] | None = None,
+        mapping: str | None = None,
+        skip_problems: bool = False,
+        reason: str = "",
+        timeout: float | None = None,
+    ) -> SpreadsheetImportOut:
+        """Uploads the workbook, maps it (as Iki suggests, unless ``columns`` or a saved
+        ``mapping`` say otherwise), previews it, and imports it. Rows with problems raise
+        ``iki.ImportFailed`` listing them, unless ``skip_problems`` leaves them out.
+
+        ``locale`` says how the sheet's text writes numbers and dates:
+        ``{"decimal": "comma", "dates": "day_first"}``, say. Until it's said, a cell that
+        reads two ways (``1,234``, ``03/04/2026``) is a problem, never a guess.
+        """
+        started = self.start(source, type=type, project=project, timeout=timeout)
+        choices: dict[str, Any] = {}
+        if sheet is not None:
+            choices["sheet"] = sheet
+        if columns is not None:
+            choices["columns"] = [dict(c) for c in columns]
+        if locale is not None:
+            choices["locale"] = dict(locale)
+        if mapping is not None:
+            choices["mapping"] = mapping
+        if choices:
+            started = self.change(started, **choices)
+        checked = self.preview(started, timeout=timeout)
+        preview = checked.get("preview")
+        counts: Mapping[str, int] = preview["counts"] if preview else {}
+        if counts.get("problem") and not skip_problems:
+            problems = [
+                dict(p) for row in self.rows(checked, outcome=["problem"]) for p in row["problems"]
+            ]
+            raise ImportFailed(cast("dict[str, Any]", checked), problems)
+        return self.commit(checked, skip_problems=skip_problems, reason=reason, timeout=timeout)
+
+    def start(
+        self,
+        source: str | os.PathLike[str] | BinaryIO | None = None,
+        *,
+        type: str,
+        project: str | Mapping[str, Any],
+        file: str | None = None,
+        timeout: float | None = None,
+    ) -> SpreadsheetImportOut:
+        """Starts importing a workbook into ``type``'s records: one to upload, or a
+        ``file`` the project has, by ID. Returns it once Iki has read it, with its sheets
+        and the mapping Iki suggests."""
+        client = self._client
+        project_id = client._project_id(project)
+        if file is None:
+            if source is None:
+                raise IkiError("Give a workbook to upload, or the ID of a file the project has.")
+            file = str(client.files.upload(source, project=project_id, timeout=timeout)["id"])
+        made = client.request(
+            "POST",
+            _path("/projects/{p}/spreadsheet-imports", p=project_id),
+            json={"file": file, "type": type},
+        )
+        return self._until(made, lambda i: i["state"] != "reading", timeout)
+
+    def get(self, imported: str | Mapping[str, Any]) -> SpreadsheetImportOut:
+        return cast(
+            "SpreadsheetImportOut",
+            self._client.request("GET", _path("/spreadsheet-imports/{i}", i=_id(imported))),
+        )
+
+    def change(self, imported: str | Mapping[str, Any], **choices: Any) -> SpreadsheetImportOut:  # noqa: ANN401
+        """Chooses what it imports: ``sheet``, ``header_row``, ``first_row``,
+        ``last_row``, ``skip`` (ranges of rows), ``columns`` (each ``{"index", "field"}``
+        and how its cells read), ``locale`` or a saved ``mapping``."""
+        return cast(
+            "SpreadsheetImportOut",
+            self._client.request(
+                "PATCH", _path("/spreadsheet-imports/{i}", i=_id(imported)), json=choices
+            ),
+        )
+
+    def preview(
+        self, imported: str | Mapping[str, Any], *, timeout: float | None = None
+    ) -> SpreadsheetImportOut:
+        """Checks every row as importing would write it, and returns it once it's checked:
+        its ``preview`` counts what importing does; ``rows`` lists what each row would."""
+        made = self._client.request(
+            "POST", _path("/spreadsheet-imports/{i}/preview", i=_id(imported))
+        )
+        return self._until(made, lambda i: i["state"] != "previewing", timeout)
+
+    def rows(
+        self, imported: str | Mapping[str, Any], *, outcome: Sequence[str] = ()
+    ) -> Results[PreviewRowOut]:
+        """What its preview found, row by row: ``outcome`` narrows them (``problem``,
+        ``register``, ``add``, ``reuse``, ``same`` or ``create``)."""
+        client = self._client
+        path = _path("/spreadsheet-imports/{i}/rows", i=_id(imported))
+        return Results(
+            lambda c: client.request(
+                "GET", path, params={"outcome": list(outcome) or None, "cursor": c}
+            )
+        )
+
+    def commit(
+        self,
+        imported: str | Mapping[str, Any],
+        *,
+        skip_problems: bool = False,
+        reason: str = "",
+        wait: bool = True,
+        timeout: float | None = None,
+    ) -> SpreadsheetImportOut:
+        """Imports what the preview checked, as one run, and (with ``wait``) returns it
+        once its run has ended. A run that didn't write it raises ``iki.ImportFailed``,
+        with why at each row and column."""
+        made = self._client.request(
+            "POST",
+            _path("/spreadsheet-imports/{i}/commit", i=_id(imported)),
+            json={"skip_problems": skip_problems, "reason": reason},
+        )
+        if not wait:
+            return cast("SpreadsheetImportOut", made)
+        ended = self._until(made, lambda i: i["state"] in _IMPORT_ENDED, timeout)
+        if ended["state"] != "imported":
+            raise ImportFailed(
+                cast("dict[str, Any]", ended), cast("list[Any]", ended.get("run_problems") or [])
+            )
+        return ended
+
+    def discard(self, imported: str | Mapping[str, Any]) -> None:
+        self._client.request("DELETE", _path("/spreadsheet-imports/{i}", i=_id(imported)))
+
+    def mappings(
+        self,
+        project: str | Mapping[str, Any],
+        *,
+        type: str | None = None,
+    ) -> builtins.list[SavedMappingOut]:
+        """The project's saved mappings, for ``type`` if given."""
+        client = self._client
+        return cast(
+            "builtins.list[SavedMappingOut]",
+            client.request(
+                "GET",
+                _path("/projects/{p}/spreadsheet-mappings", p=client._project_id(project)),
+                params={"type": type},
+            ),
+        )
+
+    def save_mapping(self, imported: str | Mapping[str, Any], name: str) -> SavedMappingOut:
+        """Keeps its mapping in its project, by its headers, for the next sheet like it."""
+        return cast(
+            "SavedMappingOut",
+            self._client.request(
+                "POST",
+                _path("/spreadsheet-imports/{i}/mappings", i=_id(imported)),
+                json={"name": name},
+            ),
+        )
+
+    def _until(
+        self,
+        imported: Mapping[str, Any],
+        done: Callable[[Mapping[str, Any]], bool],
+        timeout: float | None,
+        poll: float = 2.0,
+    ) -> SpreadsheetImportOut:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        delay = min(poll, 1.0)
+        found: Mapping[str, Any] = imported
+        while not done(found):
+            if deadline is not None and time.monotonic() + delay > deadline:
+                raise TimedOut(
+                    f"The import is still {found['state']} after {timeout} s; it goes on."
+                )
+            self._client._sleep(delay)
+            delay = min(delay * 1.5, poll)
+            found = self.get(str(found["id"]))
+        return cast("SpreadsheetImportOut", found)
+
+
+def _id(imported: str | Mapping[str, Any]) -> str:
+    return str(imported["id"]) if isinstance(imported, Mapping) else imported
 
 
 def _download(

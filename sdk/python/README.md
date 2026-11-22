@@ -280,6 +280,50 @@ for file_id, file in entity["files"].items():
     iki.files.download(file_id, ".")  # checked against the checksum Iki recorded
 ```
 
+## Importing spreadsheets
+
+Import an XLSX workbook or a CSV file into a type's records in one call. Iki maps
+its columns to the type's fields by their headers (or by a mapping the project
+saved for sheets like it), checks every row as it would be written, then writes
+them all in one run, or none of them. Each record's origin names the workbook,
+its sheet and its row.
+
+```python
+imported = iki.spreadsheets.import_sheet(
+    "manifest.xlsx",
+    type="acme/protein.Sample",
+    project="kinase-atlas",
+    locale={"decimal": "comma", "dates": "day_first"},
+    reason="Batch 12 from the core facility",
+)
+samples = iki.entities.search("acme/protein.Sample", run=imported["run"]["hrid"])
+```
+
+Iki never guesses how a sheet writes numbers and dates. Until `locale` says,
+a cell that reads two ways, such as `1,234` or `03/04/2026`, is a problem.
+Rows with problems raise `iki.ImportFailed`, whose `problems` give each one's
+row, column and what's wrong. Pass `skip_problems=True` to import the other rows.
+
+To look before importing, take it a step at a time:
+
+```python
+sheet = iki.spreadsheets.start("manifest.xlsx", type="acme/protein.Sample", project=project)
+sheet["columns"]  # each column's header, the field Iki suggests, a few of its cells
+sheet["readings"]  # how its numbers and dates read, cell by cell
+sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "label"}, ...])
+sheet = iki.spreadsheets.preview(sheet)
+sheet["preview"]["counts"]  # rows to create, register, add, reuse, merge, or fix
+for row in iki.spreadsheets.rows(sheet, outcome=["problem"]):
+    print(row["row"], row["problems"])
+iki.spreadsheets.save_mapping(sheet, "Core facility manifest")
+iki.spreadsheets.commit(sheet, reason="Batch 12")
+```
+
+Importing requires project Editor access and the `write` scope. The REST API
+is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
+`POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then
+`POST …/commit`.
+
 ## Errors
 
 When Iki refuses something, you get an `iki.ApiError` that says why, with a
