@@ -302,9 +302,8 @@ No page loads fonts or scripts from outside the deployment.
   sorting, at millions of rows. A search across projects also names the
   reader's projects by ID, up to 500, so Postgres can tell from its statistics
   when they hold only a few records and read those instead of everyone's
-  newest first. The default isn't written into the address;
-  a saved search made before it, with no order of its own, opens oldest
-  first, as it was saved.
+  newest first. The default isn't written into the address, and a saved
+  search with no order of its own opens in it too.
 - **One row of controls, one row of types.** Search, Project, Filter and
   Sort sit on one row, with the count, Columns and the CSV download at its
   end. The type pills sit on a row of their own beneath, scrolling across on
