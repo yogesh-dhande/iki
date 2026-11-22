@@ -104,7 +104,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
         # Only the path: the rest comes from the file.
         files={"f1": {"path": "fixtures/abl.pdb"}},
     )
-    ran = run_local(worker_bin, tmp_path, given, plugin=PLUGINS / "protein")
+    ran = run_local(worker_bin, tmp_path, given, "--keep", plugin=PLUGINS / "protein")
     assert ran.returncode == 0, ran.stderr
     assert f"Read abl.pdb: {len(PDB)} bytes" in ran.stderr
     assert "Its chains: PRT-000001 (5 residues)" in ran.stderr

@@ -238,13 +238,15 @@ them read from the file, or give them to check the fixture still matches.
 
 What the command prints goes to stderr as it prints it. If it succeeds,
 its output goes to stdout, and each `{"$file": …}` is checked as an
-upload would be and described with its size, SHA-256 and path. The job's
-directory is kept, and its path is printed.
+upload would be and described with its size, SHA-256 and path. The worker
+removes the job directory when the run ends, including on failure or Ctrl-C.
+Use `--keep` to inspect the result files afterward.
 
 | Option              | What it's for                                                   |
 | ------------------- | --------------------------------------------------------------- |
 | `--plugin DIR`      | The plugin's directory. The current directory unless set.       |
 | `--timeout SECONDS` | Stop it after this long. The input's `job.timeout`, or an hour. |
+| `--keep`            | Keep the job directory and print its path to stderr.            |
 
 It exits 0 if the command succeeded, 1 if it failed, 2 if the input can't
 be run at all, and 130 if it was interrupted.

@@ -85,7 +85,8 @@ server differs: input files are copied from paths input.json gives (and
 checked against it), `$file`s are checked as for an upload but described
 rather than uploaded, what the command prints goes to stderr, and its
 output to stdout. The rest is the same code, so a fixture that passes
-locally runs the same way on a worker.
+locally runs the same way on a worker. A local run can keep its job
+directory for inspection with `--keep`, which prints its path to stderr.
 
 The worker logs one `logfmt` line per event to stderr, readable in a
 terminal and parsed as-is by Loki and Datadog.

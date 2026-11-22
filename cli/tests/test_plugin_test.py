@@ -18,7 +18,8 @@ WORKER = """\
 import json, os, sys
 given = json.load(open(sys.argv[3]))
 with open(os.environ["FAKE_SEEN"], "a") as seen:
-    seen.write(json.dumps({"input": given, "argv": sys.argv[1:]}) + "\\n")
+    call = {"input": given, "argv": sys.argv[1:], "work_dir": os.environ.get("IKI_WORK_DIR")}
+    seen.write(json.dumps(call) + "\\n")
 answers = json.load(open(os.environ["FAKE_ANSWERS"]))
 key = next(iter(given["inputs"].get("protein") or [{}]), {}).get("values", {}).get("sequence")
 answer = answers[key or given["params"].get("accession") or given["run"]["action"]]
@@ -124,8 +125,10 @@ def test_each_test_passes_or_says_why(plugin: Path, capsys: pytest.CaptureFixtur
 
 
 def test_its_run_input_is_made_from_the_manifests(
-    plugin: Path, capsys: pytest.CaptureFixture[str]
+    plugin: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    root = plugin.parent / "work"
+    monkeypatch.setenv("IKI_WORK_DIR", str(root))
     fixture(plugin, PROPERTIES.split("---")[0])
     answer(plugin, MKV={"output": OUTPUT, "code": 1, "log": "::error Unknown residue\n"})
     assert run(plugin) == 1
@@ -138,7 +141,11 @@ def test_its_run_input_is_made_from_the_manifests(
     assert given["command"] == ["python", "./scripts/properties.py"]
     assert given["inputs"]["protein"][0]["values"] == {"sequence": "MKV"}
     assert seen["argv"][:2] == ["run", "--local"]
-    assert seen["argv"][3:] == ["--plugin", str(plugin.resolve()), "--timeout", "300"]
+    assert seen["argv"][3:] == ["--plugin", str(plugin.resolve()), "--timeout", "300", "--keep"]
+    work = Path(seen["argv"][2]).parent
+    assert seen["work_dir"] == str(work)
+    assert work.parent == root
+    assert list(root.iterdir()) == []
 
 
 def test_what_an_action_may_not_change_fails_it(

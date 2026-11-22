@@ -9,8 +9,8 @@
 //!
 //! What the command prints goes to stderr as it prints it. If it succeeds, its output
 //! goes to stdout, with each `{"$file": …}` checked as a leased job's would be and
-//! described with the file's size, SHA-256 and path. The job's directory is kept, to
-//! look at.
+//! described with the file's size, SHA-256 and path. Use `--keep` to inspect those
+//! files after the run.
 //!
 //! With `--checkpoint-dir`, the command gets that directory as `IKI_CHECKPOINT_DIR`
 //! (ADR 0069), and it's kept: stop the command and run it again, and it resumes from
@@ -33,6 +33,8 @@ use crate::say;
 #[derive(Debug, PartialEq, Eq)]
 pub struct Options {
     pub input: PathBuf,
+    /// Keep the job directory after this run so its files can be inspected.
+    pub keep: bool,
     /// The plugin's directory. The current directory unless given.
     pub plugin_dir: Option<PathBuf>,
     /// Seconds. The input's `job.timeout`, or an hour, unless given.
@@ -82,7 +84,7 @@ impl Host for Local {
     }
 
     fn keep(&self, relative: &str, _path: &Path) -> Result<(), files::Failed> {
-        // Nothing to upload to: they stay where the command wrote them.
+        // Local artifacts can be inspected with --keep.
         say::info("Would keep an artifact.", &[("path", &relative)]);
         Ok(())
     }
@@ -206,6 +208,19 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
         timeout,
     };
     let report = job::execute(&host, &plan, &dirs, &raw, &interrupted);
+    let result = write_report(report, &dirs.root);
+    if !options.keep {
+        dirs.remove();
+    } else if dirs.root.is_dir() {
+        say::info(
+            "Kept the job directory.",
+            &[("job_dir", &dirs.root.display())],
+        );
+    }
+    result
+}
+
+fn write_report(report: Option<Report>, job_dir: &Path) -> Result<Ran, String> {
     Ok(match report {
         Some(Report::Complete(output)) => {
             let text = serde_json::to_string_pretty(&output)
@@ -213,10 +228,7 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
             let mut out = std::io::stdout().lock();
             writeln!(out, "{text}")
                 .map_err(|error| format!("Couldn't write the output: {error}."))?;
-            say::info(
-                "The command succeeded.",
-                &[("job_dir", &dirs.root.display())],
-            );
+            say::info("The command succeeded.", &[("job_dir", &job_dir.display())]);
             Ran::Succeeded
         }
         Some(Report::Fail(reason, message)) => {
@@ -224,7 +236,7 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
                 &message,
                 &[
                     ("reason", &format!("{reason:?}")),
-                    ("job_dir", &dirs.root.display()),
+                    ("job_dir", &job_dir.display()),
                 ],
             );
             if reason == FailInReason::Interrupted {

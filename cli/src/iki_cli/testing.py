@@ -234,7 +234,14 @@ def _run_one(
 ) -> tuple[float, list[str], list[str]]:
     """How long it took, what's wrong (nothing if it passed), and the command's log."""
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="iki-test-") as tmp:
+    root = os.environ.get("IKI_WORK_DIR")
+    try:
+        if root is not None:
+            Path(root).mkdir(mode=0o700, parents=True, exist_ok=True)
+        scratch = tempfile.TemporaryDirectory(prefix="iki-test-", dir=root)
+    except OSError as error:
+        return time.monotonic() - started, [f"Couldn't create the test directory: {error}."], []
+    with scratch as tmp:
         work = Path(tmp)
         given = action_tests.run_input(test, plugin, types, directory, settings, work)
         (work / "input.json").write_text(json.dumps(given, indent=2), "utf-8")
@@ -248,7 +255,9 @@ def _run_one(
                 str(directory.resolve()),
                 "--timeout",
                 str(test.action.timeout),
+                "--keep",
             ],
+            env={**os.environ, "IKI_WORK_DIR": str(work)},
             capture_output=True,
             text=True,
             check=False,
