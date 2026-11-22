@@ -152,10 +152,10 @@ fn parse_register(args: &[&str]) -> Command {
     Command::Register { url, token, name }
 }
 
-/// `run --local <input.json> [--plugin DIR] [--timeout SECONDS] [--checkpoint-dir DIR]`,
-/// in any order.
+/// `run --local <input.json>` and its options, in any order.
 fn parse_run(args: &[&str]) -> Command {
     let mut local = false;
+    let mut keep = false;
     let mut input = None;
     let mut plugin_dir = None;
     let mut timeout = None;
@@ -164,6 +164,7 @@ fn parse_run(args: &[&str]) -> Command {
     while let Some(arg) = rest.next() {
         match *arg {
             "--local" => local = true,
+            "--keep" => keep = true,
             "--plugin" => match rest.next() {
                 Some(dir) => plugin_dir = Some(PathBuf::from(dir)),
                 None => return Command::Unknown("--plugin needs a directory".into()),
@@ -190,6 +191,7 @@ fn parse_run(args: &[&str]) -> Command {
         (true, None) => Command::Unknown("run --local needs an input.json".into()),
         (true, Some(input)) => Command::RunLocal(local::Options {
             input,
+            keep,
             plugin_dir,
             timeout,
             checkpoint_dir,
@@ -216,9 +218,11 @@ Usage: iki-worker register --url <server> --token <registration token> [--name N
                                    that version (offline), as updating does
        iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
        iki-worker run --local <input.json> [--plugin DIR] [--timeout SECONDS]
-                              [--checkpoint-dir DIR]
+                              [--checkpoint-dir DIR] [--keep]
                                    Run one action's command here, with no server: its
                                    output goes to stdout, what it prints to stderr.
+                                   --keep keeps the job directory after the run and
+                                   prints its path to stderr.
                                    --plugin is the plugin's directory (the current one
                                    unless set). --checkpoint-dir gives a checkpointable
                                    action that directory as IKI_CHECKPOINT_DIR and keeps
@@ -558,6 +562,7 @@ mod tests {
             parse(&args(&["run", "--local", "in.json"])),
             Command::RunLocal(local::Options {
                 input: "in.json".into(),
+                keep: false,
                 plugin_dir: None,
                 timeout: None,
                 checkpoint_dir: None,
@@ -570,6 +575,7 @@ mod tests {
                 "--timeout",
                 "60",
                 "--local",
+                "--keep",
                 "--plugin",
                 "p",
                 "--checkpoint-dir",
@@ -577,6 +583,7 @@ mod tests {
             ])),
             Command::RunLocal(local::Options {
                 input: "in.json".into(),
+                keep: true,
                 plugin_dir: Some("p".into()),
                 timeout: Some(60),
                 checkpoint_dir: Some("saved".into()),

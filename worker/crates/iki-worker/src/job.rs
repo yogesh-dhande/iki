@@ -679,6 +679,18 @@ impl Dirs {
         }
         Ok(())
     }
+
+    /// Removes this job's directory when the run ends.
+    pub fn remove(&self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.root)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            say::warn(
+                "Couldn't remove a job's directory.",
+                &[("path", &self.root.display()), ("detail", &error)],
+            );
+        }
+    }
 }
 
 /// A directory only this user can read, as job data may be confidential.
@@ -1068,14 +1080,8 @@ pub fn run(
         }
     };
     let ended = held.end(report);
-    if !config.keep_job_dirs
-        && let Err(error) = std::fs::remove_dir_all(&dirs.root)
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        say::warn(
-            "Couldn't remove a job's directory.",
-            &[("path", &dirs.root.display()), ("detail", &error)],
-        );
+    if !config.keep_job_dirs {
+        dirs.remove();
     }
     ended
 }
