@@ -417,23 +417,26 @@ main.app-main {
 
 /* The bar's buttons are its controls' height, an icon's (⋯) square: 28px, clear of the 24
    WCAG 2.5.8 asks. */
-.page-top .button {
+.page-top .button,
+.page-actions-below .button {
   min-height: var(--control-height);
 }
 
-.page-top .button-icon {
+.page-top .button-icon,
+.page-actions-below .button-icon {
   min-width: var(--control-height);
   width: var(--control-height);
   padding: 0;
 }
 
-.page-top .button-icon svg {
+.page-top .button-icon svg,
+.page-actions-below .button-icon svg {
   width: calc(15rem / 13);
   height: calc(15rem / 13);
 }
 
-/* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
-/* On a phone, a page's actions under its title (PhoneActions in page-top.tsx). */
+/* On a phone, a page's actions under its title (PhoneActions in page-top.tsx), the size
+   they are in the bar. */
 .page-actions-below {
   flex-wrap: wrap;
   margin-top: calc(10rem / 13);
@@ -443,6 +446,7 @@ main.app-main {
   margin: 0 0 calc(12rem / 13);
 }
 
+/* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
 .page-heading {
   margin-bottom: calc(14rem / 13);
 }
