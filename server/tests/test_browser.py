@@ -632,6 +632,62 @@ def test_the_admin_area_has_a_frame_of_its_own(
     page.context.close()
 
 
+def test_the_admin_areas_pages_fit_a_phone_and_say_what_isnt_yours(
+    open_as: Any, world: World
+) -> None:
+    """Compute's workers by tier fit a phone whole: what each tier is goes under its name,
+    so Idle, Offline and Manage are in view without scrolling the table. Sign-in's token
+    actions look like the buttons they are. And /admin/, for someone none of it is for,
+    says so without an error."""
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+    from iki_server.scim import tokens
+
+    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    page = open_as("org_admin", "/admin/compute/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    table = page.get_by_role("table").first
+    backend = table.get_by_role("row", name=re.compile("^Backend"))
+    manage = backend.get_by_role("link", name="Manage Backend workers")
+    manage.wait_for()
+    assert table.evaluate("t => t.parentElement.scrollWidth <= t.parentElement.clientWidth")
+    edge = table.bounding_box()
+    shown_at = manage.bounding_box()
+    assert edge and shown_at
+    assert shown_at["x"] + shown_at["width"] <= edge["x"] + edge["width"], (edge, shown_at)
+    assert (
+        backend.get_by_role("rowheader")
+        .get_by_text("Workers you run and register with a token")
+        .is_visible()
+    )
+    assert page.get_by_role("columnheader", name="What it is").is_hidden()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("columnheader", name="What it is").wait_for()
+    assert table.get_by_role("cell", name="Workers you run and register with a token").is_visible()
+    page.context.close()
+
+    tokens.create(by=world.users["org_admin"])
+    page = open_as("org_admin", "/admin/sign-in/")
+    look = "b => ((s) => [s.borderTopWidth, s.borderTopColor, s.color])(getComputedStyle(b))"
+    replace = page.get_by_role("button", name="Replace token").evaluate(look)
+    turn_off = page.get_by_role("button", name="Turn off provisioning").evaluate(look)
+    for border in (replace, turn_off):
+        assert border[0] != "0px" and border[1] != "rgba(0, 0, 0, 0)", border
+    assert turn_off[2] != replace[2]  # In the error's color: it stops sign-ins it provisions.
+    assert_clean(page)
+    page.context.close()
+
+    for width in (1440, 390):
+        page = open_as("viewer", "/admin/")
+        page.set_viewport_size({"width": width, "height": 844})
+        page.get_by_role("heading", name="The admin area isn’t open to you", level=1).wait_for()
+        assert page.get_by_role("navigation", name="Admin").count() == 0
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert_clean(page)
+        page.context.close()
+
+
 def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
     """The button that opens the dialog doesn't move when the list above it is answered.
     It did, a line down, and a press begun while the list loaded ended on the card instead:

@@ -2186,7 +2186,8 @@ legend {
   gap: 1.5rem;
 }
 
-.button-danger {
+.button-danger,
+.button-danger:hover {
   color: var(--error);
 }
 
@@ -2713,9 +2714,24 @@ main.admin-main {
   font-variant-numeric: tabular-nums;
 }
 
+/* Compute's workers by tier: what each tier is has a column of its own, and on a phone goes
+   under the tier's name instead, so every count and Manage fit without scrolling. */
+.tier-what-under {
+  display: none;
+}
+
 @media (max-width: 48rem) {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-compact .tier-what {
+    display: none;
+  }
+
+  .table-compact .tier-what-under {
+    display: block;
+    margin-top: calc(2rem / 13);
   }
 
   /* The sidebar folds into a bar over the page, with a menu that opens its pages. */

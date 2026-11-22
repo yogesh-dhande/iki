@@ -141,7 +141,9 @@ function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
           <thead>
             <tr>
               <th scope="col">Tier</th>
-              <th scope="col">What it is</th>
+              <th scope="col" className="tier-what">
+                What it is
+              </th>
               <th scope="col" className="num">
                 Busy
               </th>
@@ -161,8 +163,12 @@ function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
               const name = TIER_NAME[w.tier] ?? w.tier;
               return (
                 <tr key={w.tier}>
-                  <th scope="row">{name}</th>
-                  <td className="muted cell-wide">{TIER_WORKERS[w.tier]}</td>
+                  <th scope="row">
+                    {name}
+                    {/* On a phone, what it is goes under its name, so the counts fit. */}
+                    <span className="cell-meta tier-what-under">{TIER_WORKERS[w.tier]}</span>
+                  </th>
+                  <td className="muted cell-wide tier-what">{TIER_WORKERS[w.tier]}</td>
                   <td className="num">{w.busy}</td>
                   <td className="num">{w.idle}</td>
                   <td className="num">{w.offline}</td>

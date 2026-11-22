@@ -142,7 +142,16 @@ def test_admin_opens_the_first_page_someone_may_open(
 
 
 def test_admin_is_not_for_someone_who_may_open_none_of_it(world: World) -> None:
-    assert world.browser("viewer").get("/admin/").status_code == 403
+    """It says so, and who it's for, without an error: /admin/ itself holds nothing, and
+    each page under it still refuses them."""
+    response = world.browser("viewer").get("/admin/")
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert "The admin area isn’t open to you" in page
+    assert "Org Admins, Compute Admins and Auditors" in page
+    assert 'aria-label="Admin"' not in page
+    assert 'aria-label="Main"' in page
+    assert world.browser("viewer").get("/admin/sign-in/").status_code == 403
     anonymous = world.browser("anonymous").get("/admin/")
     assert anonymous.status_code == 302
     assert anonymous["Location"].startswith("/login/")

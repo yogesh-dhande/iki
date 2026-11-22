@@ -14,8 +14,8 @@ render that one list, so the two can't drift apart. Each group has a ``label`` a
 - ``icon``: its icon's SVG paths, on a 24-unit grid.
 
 Every page of the area is under ``/admin/``, and ``/admin/`` itself opens the first one
-the person may open. Each page still checks its own permission; the sidebar only leaves
-out what the person can't open.
+the person may open, or says the area isn't theirs. Each page still checks its own
+permission; the sidebar only leaves out what the person can't open.
 """
 
 import json
@@ -24,12 +24,12 @@ from functools import cache
 from typing import Any
 
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
 
 from iki_server.org import permissions
+from iki_server.org.models import OrgRole
 from iki_server.web.navigation import SOURCE
 
 
@@ -106,7 +106,14 @@ def navigation(user: Any, path: str) -> list[Section]:  # noqa: ANN401
 @require_GET
 @login_required
 def home(request: HttpRequest) -> HttpResponse:
-    """``/admin/``: the first page of the area this person may open."""
+    """``/admin/``: the first page of the area this person may open. For someone it has
+    none for, a page that says so and who it's for: ``/admin/`` itself holds nothing, so
+    it answers that plainly rather than as an error, as each page under it does."""
     for section in navigation(request.user, request.path):
         return redirect(section.links[0].href)
-    raise PermissionDenied
+    roles = [f"{label}s" for label in OrgRole.labels]
+    return render(
+        request,
+        "web/admin_none.html",
+        {"roles": ", ".join(roles[:-1]) + " and " + roles[-1]},
+    )

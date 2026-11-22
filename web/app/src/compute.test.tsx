@@ -105,7 +105,9 @@ describe("Compute → Overview", () => {
       "/admin/compute/workers/?tier=backend",
     );
     // An empty tier is listed, and says what its workers would be.
-    expect(rowOf("Workers by tier", "VM").getByText(/Machines Iki starts for runs/)).toBeVisible();
+    expect(
+      rowOf("Workers by tier", "VM").getByRole("cell", { name: /Machines Iki starts for runs/ }),
+    ).toBeVisible();
     const gpu = rowOf("Machines Iki started", "gpu-a100");
     expect(gpu.getByText("Kubernetes Jobs, one per run")).toBeVisible();
     expect(gpu.getAllByRole("cell").map((c) => c.textContent)).toEqual(["3", "2"]);
