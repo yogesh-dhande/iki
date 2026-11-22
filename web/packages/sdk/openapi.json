@@ -5942,6 +5942,18 @@
             "title": "Export",
             "type": "string"
           },
+          "features": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A json field of features (type, start, end, name, strand) it adds along the sequence, or null. A record page draws them as a map.",
+            "title": "Features"
+          },
           "formats": {
             "description": "The files it's written as.",
             "items": {
@@ -5949,11 +5961,18 @@
             },
             "title": "Formats",
             "type": "array"
+          },
+          "sequence": {
+            "description": "The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.",
+            "title": "Sequence",
+            "type": "string"
           }
         },
         "required": [
           "export",
-          "formats"
+          "formats",
+          "sequence",
+          "features"
         ],
         "title": "FileExportOut",
         "type": "object"

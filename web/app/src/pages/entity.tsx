@@ -55,8 +55,9 @@ import { EntityRequest, ResultNote } from "./entity-request";
 import { EntityAmount } from "./entity-amount";
 import { EntityState } from "./entity-state";
 import { EntityWork } from "./entity-work";
-import { EntityTabs, neighboursQuery } from "./entity-header";
-import { FeatureTable, MiniMap, miniMapOf } from "./record-map";
+import { EntityTabs, neighboursOf, neighboursQuery, trailCount } from "./entity-header";
+import { objectList, type ObjectList } from "../object-lists";
+import { FEATURES_ID, FeatureTable, MiniMap, useMiniMap, type MapOf } from "./record-map";
 import { UtcTime, Via } from "./revision-text";
 import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
 
@@ -198,6 +199,18 @@ function DrawnBy({
   );
 }
 
+/** A field the page's map draws, such as a plasmid's annotated features: how many, and
+ * where they're listed, in the Features card below. */
+function MappedFeatures({ map }: { map: MapOf }) {
+  const n = map.features.length;
+  return (
+    <span>
+      {n.toLocaleString()} {n === 1 ? "feature" : "features"}, drawn in its map and listed in{" "}
+      <a href={`#${FEATURES_ID}`}>Features</a>
+    </span>
+  );
+}
+
 /** A long text value, cut short: it wraps within its cell, never widening the page. */
 function LongValue({
   value,
@@ -271,6 +284,9 @@ export function Value({
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="muted">None</span>;
+    // A list of objects, such as a plasmid's features: a table of what they hold, never JSON.
+    const objects = objectList(value);
+    if (objects) return <ObjectTable list={objects} label={field.label} />;
     const item: FieldDef = { ...field, type: field.items ?? "string" };
     // A long list of JSON, such as a sequence's features, is folded, as a long JSON value
     // is: it would otherwise fill the page.
@@ -378,6 +394,66 @@ export function Value({
     default:
       return <>{valueText(field, value, entity)}</>;
   }
+}
+
+/** The rows of a list of objects shown before it's asked for all of them. */
+const OBJECTS_SHOWN = 10;
+
+/** A list of objects as a small table (see object-lists.ts): a column per key they share,
+ * the first rows, and the rest on asking. */
+export function ObjectTable({ list, label }: { list: ObjectList; label: string }) {
+  const [all, setAll] = useState(false);
+  const id = useId();
+  const rows = all ? list.rows : list.rows.slice(0, OBJECTS_SHOWN);
+  const more = list.rows.length - OBJECTS_SHOWN;
+  return (
+    <div className="object-list">
+      {/* A wide one scrolls across within the value, by keyboard too. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region */}
+      <div className="table-scroll" tabIndex={0} role="group" aria-label={label}>
+        <table className="value-rows" id={`${id}-table`}>
+          <caption className="visually-hidden">{label}</caption>
+          <thead>
+            <tr>
+              {list.columns.map((c) => (
+                <th key={c.key} scope="col" className={c.numeric ? "numeric" : undefined}>
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              // Rows can repeat; their position tells them apart.
+              <tr key={index}>
+                {list.columns.map((c) => {
+                  const text = c.text(row);
+                  return (
+                    <td key={c.key} className={c.numeric ? "numeric" : undefined}>
+                      {text || <span className="muted">—</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {more > 0 ? (
+        <button
+          type="button"
+          className="button button-quiet object-list-more"
+          aria-controls={`${id}-table`}
+          aria-expanded={all}
+          onClick={() => {
+            setAll(!all);
+          }}
+        >
+          {all ? "Show fewer" : `Show all ${list.rows.length.toLocaleString()}`}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /** A list of rows (ADR 0137) as a table: a column per row field, a row per row. */
@@ -488,11 +564,13 @@ function MadeHow({ rows }: { rows: Making[] }) {
         {kind} with {what}
         {first.run ? (
           <>
-            , by{" "}
-            <Link to="/runs/$ref/" params={{ ref: first.run.hrid }}>
-              {first.run.hrid}
-            </Link>{" "}
-            (<code>{first.run.action}</code>)
+            , by {/* The run and its action kept together, each whole. */}
+            <span className="made-run">
+              <Link to="/runs/$ref/" params={{ ref: first.run.hrid }}>
+                {first.run.hrid}
+              </Link>{" "}
+              (<code>{first.run.action}</code>)
+            </span>
           </>
         ) : null}
         <span className="cell-meta">Recorded by Iki</span>
@@ -874,6 +952,7 @@ function FieldRows({
   type,
   provenance,
   marks,
+  map,
 }: {
   fields: FieldDef[];
   entity: Entity;
@@ -881,6 +960,8 @@ function FieldRows({
   provenance: Record<string, Revision> | undefined;
   /** Say how each is kept in its registry entry: identity, derived or fact. */
   marks: boolean;
+  /** Its features' map, whose field reads as how many, with the Features card below. */
+  map: MapOf | null;
 }) {
   const id = useId();
   // The fields whose descriptions are open: a toggletip each, opened by a press, so it
@@ -942,7 +1023,9 @@ function FieldRows({
                       {f.description}
                     </p>
                   ) : null}
-                  {drawn ? (
+                  {map?.field === f.name ? (
+                    <MappedFeatures map={map} />
+                  ) : drawn ? (
                     <DrawnBy entity={entity} value={entity.values[f.name]} viewer={drawn} />
                   ) : (
                     <Value
@@ -1083,11 +1166,18 @@ function Details({ entity, type }: { entity: Entity; type: EntityType | undefine
           >
             audit trail
           </Link>
+          {/* Its trail counts its entry's revisions too, as its tab does: say so. */}
+          {entry ? (
+            <span className="cell-meta">
+              Its audit trail has {trailCount(entity).toLocaleString()}: {entity.revision} of this
+              record, {entry.revision} of its entry
+            </span>
+          ) : null}
         </dd>
         {carried.length ? (
           <>
-            <dt>Signed</dt>
-            <dd>
+            <dt className="rail-wide">Signed</dt>
+            <dd className="rail-wide">
               <ul className="value-list rail-list">
                 {carried.map((s) => (
                   <li key={s.id}>
@@ -1101,8 +1191,8 @@ function Details({ entity, type }: { entity: Entity; type: EntityType | undefine
         ) : null}
         {making.length ? (
           <>
-            <dt>How it was made</dt>
-            <dd>
+            <dt className="rail-wide">How it was made</dt>
+            <dd className="rail-wide">
               <ul className="value-list">
                 {madeGroups(making).map((rows) => (
                   <li key={[rows[0]?.by, rows[0]?.run?.hrid, rows[0]?.source?.id].join("-")}>
@@ -1115,8 +1205,8 @@ function Details({ entity, type }: { entity: Entity; type: EntityType | undefine
         ) : null}
         {origins.length || bundles.length ? (
           <>
-            <dt>Imported from</dt>
-            <dd>
+            <dt className="rail-wide">Imported from</dt>
+            <dd className="rail-wide">
               <ul className="value-list">
                 {bundles.map((b, index) => (
                   <li key={`bundle-${String(index)}`}>
@@ -1145,10 +1235,10 @@ function LineageCard({ entity }: { entity: Entity }) {
   const graph = useQuery(neighboursQuery(entity)).data;
   const types = useQuery(typesQuery).data;
   if (!graph) return null;
-  const linked = graph.entities.filter((e) => e.at !== 0);
+  const linked = neighboursOf(graph, entity, types ?? []);
   const groups = [
-    { label: "Derived from", items: linked.filter((e) => e.at < 0) },
-    { label: "Used in", items: linked.filter((e) => e.at > 0) },
+    { label: "Derived from", items: linked.filter((n) => n.node.at < 0) },
+    { label: "Used in", items: linked.filter((n) => n.node.at > 0) },
   ].filter((g) => g.items.length);
   const slug = entity.owner_project?.slug;
   return (
@@ -1161,7 +1251,7 @@ function LineageCard({ entity }: { entity: Entity }) {
         <div key={g.label} className="rail-group">
           <h3 className="rail-group-title">{g.label}</h3>
           <ul className="rail-links">
-            {g.items.slice(0, RAIL_LINKS).map((e) => (
+            {g.items.slice(0, RAIL_LINKS).map(({ node: e, via }) => (
               <li key={e.id}>
                 <Link
                   to="/entities/$ref/"
@@ -1171,6 +1261,7 @@ function LineageCard({ entity }: { entity: Entity }) {
                   <code>{e.hrid}</code>
                   {e.title !== e.hrid ? ` · ${e.title}` : ""}
                 </Link>
+                {via.length ? <span className="rail-via"> via {via.join(", ")}</span> : null}
               </li>
             ))}
           </ul>
@@ -1210,7 +1301,7 @@ export function EntityOverview() {
   const asker = sides?.asking_project?.name ?? project;
   const asked = sides ? own.filter((f) => !isServiceField(sides, f.name)) : own;
   const served = sides ? own.filter((f) => isServiceField(sides, f.name)) : [];
-  const map = type ? miniMapOf(entity, type) : null;
+  const map = useMiniMap(entity, type);
   return (
     <>
       <EntityTabs entity={entity} type={type} />
@@ -1261,6 +1352,7 @@ export function EntityOverview() {
                 type={type}
                 provenance={provenance}
                 marks
+                map={map}
               />
             </section>
           ) : null}
@@ -1284,6 +1376,7 @@ export function EntityOverview() {
               type={type}
               provenance={provenance}
               marks={false}
+              map={map}
             />
           </section>
           {/* A request's service fills in its own fields (ADR 0132). */}
@@ -1305,6 +1398,7 @@ export function EntityOverview() {
                 type={type}
                 provenance={provenance}
                 marks={false}
+                map={map}
               />
             </section>
           ) : null}

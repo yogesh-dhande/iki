@@ -15,7 +15,7 @@ import {
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TopBar, TopBarFrame } from "./page-top";
 import { PageHeader } from "./ui";
@@ -176,5 +176,37 @@ describe("a page's header", () => {
     );
     expect(screen.getByText("Every run in your projects.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "About Runs" })).toBeNull();
+  });
+});
+
+describe("on a phone", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the breadcrumb in the bar and puts a page's actions under its title", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    await renderPages(
+      null,
+      <>
+        <PageHeader
+          title="Proteins"
+          crumbs={[<a href="/entities/">Entities</a>, "Proteins"]}
+          actions={<button type="button">New protein</button>}
+        />
+        <span data-testid="drawn" />
+      </>,
+    );
+    expect(crumbs()).toEqual(["Entities", "Proteins"]);
+    expect(within(bar()).queryByRole("button", { name: "New protein" })).toBeNull();
+    const title = screen.getByRole("heading", { level: 1, name: "Proteins" });
+    const action = screen.getByRole("button", { name: "New protein" });
+    // After the title, in the page's order.
+    expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

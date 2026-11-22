@@ -9,6 +9,9 @@
  * New menu, then the tab's own page may give its own. The deepest route's wins, slot by
  * slot, so a tab without actions keeps the project's; a breadcrumb that's only the page's
  * title gives way to a frame's real one.
+ *
+ * On a phone a page's title comes first: the bar keeps its breadcrumb, and the actions of a
+ * page with a title row (`PageHeader`, a record's) go under that title, in `PhoneActions`.
  */
 
 import { useMatch } from "@tanstack/react-router";
@@ -217,3 +220,29 @@ export function TopBar({
 
 const noSubscribe = () => () => undefined;
 const noOwner = () => undefined;
+
+/** A phone's screen (iki.css): a page's actions go under its title there. */
+export const PHONE = "(max-width: 36rem)";
+
+/** Whether the screen is a phone's. jsdom, which the tests run in, has no `matchMedia`. */
+export function usePhone(): boolean {
+  return useSyncExternalStore(subscribePhone, phoneNow, () => false);
+}
+
+function subscribePhone(changed: () => void): () => void {
+  if (typeof window.matchMedia !== "function") return () => undefined;
+  const query = window.matchMedia(PHONE);
+  query.addEventListener("change", changed);
+  return () => {
+    query.removeEventListener("change", changed);
+  };
+}
+
+function phoneNow(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
+}
+
+/** A page's actions under its title, on a phone. */
+export function PhoneActions({ children }: { children: ReactNode }) {
+  return <div className="page-actions page-actions-below">{children}</div>;
+}

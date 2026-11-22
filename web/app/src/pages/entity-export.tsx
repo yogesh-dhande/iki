@@ -54,9 +54,19 @@ export function exportFormats(type: EntityType | undefined): Format[] {
   return (type?.exports ?? []).flatMap((e) => e.formats);
 }
 
+/** A download icon: an arrow down to a line. */
+export function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+    </svg>
+  );
+}
+
 /**
  * An Export button and its dialog, for a type that exports files: nothing for one that
- * doesn't. With `revision`, it exports that revision as it was.
+ * doesn't. With `revision`, it exports that revision as it was, from a compact icon button
+ * in the revision's row of the audit trail.
  */
 export function ExportButton({
   entity,
@@ -71,16 +81,27 @@ export function ExportButton({
   if (!exportFormats(type).length) return null;
   return (
     <>
-      <Button
-        {...(revision === undefined
-          ? {}
-          : { variant: "quiet" as const, label: `Export revision ${String(revision)}` })}
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        Export
-      </Button>
+      {revision === undefined ? (
+        <Button
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          Export
+        </Button>
+      ) : (
+        <button
+          type="button"
+          className="trail-icon-button"
+          aria-label={`Export revision ${String(revision)}`}
+          title={`Export revision ${String(revision)}`}
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          <DownloadIcon />
+        </button>
+      )}
       <ExportDialog
         entity={entity}
         type={type}

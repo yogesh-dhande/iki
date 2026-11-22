@@ -433,6 +433,16 @@ main.app-main {
 }
 
 /* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
+/* On a phone, a page's actions under its title (PhoneActions in page-top.tsx). */
+.page-actions-below {
+  flex-wrap: wrap;
+  margin-top: calc(10rem / 13);
+}
+
+.record-heading + .page-actions-below {
+  margin: 0 0 calc(12rem / 13);
+}
+
 .page-heading {
   margin-bottom: calc(14rem / 13);
 }
@@ -3933,12 +3943,9 @@ a.lineage-node:focus-visible {
    a history button each, and a rail of details. Who changed what is on demand: in each
    field's history, and on the Audit trail tab. */
 
-.record-top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: calc(8rem / 13) calc(16rem / 13);
+/* Its title, under the bar across the top of the page, which holds where it is and its
+   actions (page-top.tsx); on a phone its actions follow its title instead. */
+.record-heading {
   margin-bottom: calc(12rem / 13);
 }
 
@@ -4037,13 +4044,13 @@ a.lineage-node:focus-visible {
 
 .record-title h1 {
   margin: 0;
-  font-size: calc(21.6rem / 13);
+  font-size: calc(19rem / 13);
   overflow-wrap: anywhere;
 }
 
 .id-chip {
-  padding: calc(0.8rem / 13) calc(6.4rem / 13);
-  font-size: calc(13.6rem / 13);
+  padding: calc(1rem / 13) calc(6rem / 13);
+  font-size: var(--text-sm);
   color: var(--muted);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -4058,9 +4065,8 @@ a.lineage-node:focus-visible {
 }
 
 .record-meta {
-  margin: calc(3.2rem / 13) 0 calc(12rem / 13);
+  margin: calc(3rem / 13) 0 0;
   color: var(--muted);
-  font-size: calc(14.4rem / 13);
 }
 
 .record-tabs {
@@ -4106,9 +4112,10 @@ a.lineage-node:focus-visible {
   min-width: 0;
 }
 
+/* A rail of 300 pixels beside its values, as wide as its facts need to read on a line. */
 .record-rail {
   display: flex;
-  flex: 1 1 calc(256rem / 13);
+  flex: 1 1 calc(300rem / 13);
   flex-direction: column;
   gap: calc(12rem / 13);
   min-width: 0;
@@ -4116,17 +4123,18 @@ a.lineage-node:focus-visible {
 
 @media (min-width: 64rem) {
   .record-rail {
-    max-width: calc(352rem / 13);
+    max-width: calc(300rem / 13);
   }
 }
 
-.record-main > .card + .card,
 .record-rail > .card + .card {
   margin-top: 0;
 }
 
-.record-main > * + * {
-  margin-top: calc(16rem / 13);
+/* Its cards apart, as the rail's are. */
+.record-main > * + *,
+.record-main > .card + .card {
+  margin-top: calc(14rem / 13);
 }
 
 .record-section {
@@ -4139,27 +4147,33 @@ a.lineage-node:focus-visible {
   flex-wrap: wrap;
   align-items: baseline;
   gap: calc(4rem / 13) calc(12rem / 13);
-  padding: calc(9.6rem / 13) calc(16rem / 13);
+  padding: calc(9rem / 13) calc(14rem / 13);
   border-bottom: 1px solid var(--border);
 }
 
 .section-head .section-title {
   margin: 0;
-  font-size: calc(15.2rem / 13);
+  font-size: 1rem;
 }
 
 .section-head p {
   margin: 0;
-  font-size: calc(13.6rem / 13);
+  font-size: var(--text-sm);
 }
 
+/* A label beside its select, on the select's line: a project's records, the trail's filters. */
 .section-picker,
 .inline-field {
   display: inline-flex;
   align-items: center;
-  gap: calc(6.4rem / 13);
+  gap: calc(6rem / 13);
   color: var(--muted);
-  font-size: calc(14.4rem / 13);
+}
+
+.section-picker label,
+.inline-field label {
+  margin: 0;
+  font-weight: 500;
 }
 
 .section-picker {
@@ -4168,13 +4182,15 @@ a.lineage-node:focus-visible {
 
 .section-picker select,
 .inline-field select {
-  min-height: calc(32rem / 13);
+  width: auto;
+  max-width: calc(220rem / 13);
+  min-height: var(--control-height);
   padding: 0 calc(8rem / 13);
   font: inherit;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
 }
 
 .field-rows {
@@ -4183,9 +4199,9 @@ a.lineage-node:focus-visible {
 
 .field-row {
   display: grid;
-  grid-template-columns: minmax(calc(112rem / 13), calc(176rem / 13)) minmax(0, 1fr);
+  grid-template-columns: calc(150rem / 13) minmax(0, 1fr);
   gap: calc(12rem / 13);
-  padding: calc(7.2rem / 13) calc(16rem / 13);
+  padding: calc(7rem / 13) calc(14rem / 13);
   border-bottom: 1px solid var(--border);
 }
 
@@ -4214,7 +4230,44 @@ a.lineage-node:focus-visible {
 .field-rows-empty,
 .field-rows-unset {
   margin: 0;
-  padding: calc(8rem / 13) calc(16rem / 13);
+  padding: calc(8rem / 13) calc(14rem / 13);
+}
+
+/* A list of objects in a value (a plasmid's features, say): a small table, its numbers
+   right-aligned, the rest of its rows on asking. */
+.object-list .value-rows {
+  width: 100%;
+}
+
+.object-list .value-rows th {
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.object-list .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.object-list .value-rows th + th,
+.object-list .value-rows td + td {
+  padding-left: calc(12rem / 13);
+}
+
+.object-list .value-rows th:first-child,
+.object-list .value-rows td:first-child {
+  padding-left: calc(8rem / 13);
+}
+
+.object-list .value-rows th:last-child,
+.object-list .value-rows td:last-child {
+  padding-right: calc(8rem / 13);
+}
+
+.object-list-more {
+  margin-top: calc(4rem / 13);
 }
 
 .field-rows + .field-rows-unset {
@@ -4274,7 +4327,6 @@ a.lineage-node:focus-visible {
   display: flex;
   flex-direction: column;
   gap: calc(8rem / 13);
-  font-size: calc(14.4rem / 13);
   outline: none;
 }
 
@@ -4295,6 +4347,13 @@ a.lineage-node:focus-visible {
   margin: 0;
 }
 
+/* Before and After, then Who, How, When and Revision: two lists, one column of labels, so
+   their values line up. */
+.history-facts,
+.history-change {
+  grid-template-columns: calc(64rem / 13) minmax(0, 1fr);
+}
+
 .history-facts dt,
 .history-change dt,
 .rail-facts dt {
@@ -4302,24 +4361,54 @@ a.lineage-node:focus-visible {
 }
 
 .history-facts dd,
-.history-change dd,
-.rail-facts dd {
+.history-change dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
 }
 
+/* A word, such as a run's ID or its action, breaks only if a line can't hold it. */
+.rail-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
 .rail-card {
-  padding: calc(13.6rem / 13) calc(16rem / 13);
+  padding: calc(12rem / 13) calc(14rem / 13);
 }
 
 .rail-card .section-title {
   margin: 0 0 calc(8rem / 13);
-  font-size: calc(15.2rem / 13);
+  font-size: 1rem;
 }
 
 .rail-facts {
-  font-size: calc(14.4rem / 13);
+  gap: calc(6rem / 13) calc(10rem / 13);
+  font-size: calc(12.5rem / 13);
+}
+
+/* A long fact, such as how it was made, under its label, across the card. */
+.rail-facts .rail-wide {
+  grid-column: 1 / -1;
+}
+
+.rail-facts dt.rail-wide {
+  margin-top: calc(2rem / 13);
+}
+
+.rail-facts dd.rail-wide {
+  margin-top: calc(-4rem / 13);
+}
+
+.rail-facts dd.rail-wide .value-list {
+  padding-left: calc(14rem / 13);
+}
+
+/* A run and its action, together: on the next line, whole, rather than split. */
+.made-run {
+  display: inline-block;
+  max-width: 100%;
 }
 
 .rail-list {
@@ -4337,10 +4426,10 @@ a.lineage-node:focus-visible {
 .rail-links {
   display: flex;
   flex-direction: column;
-  gap: calc(4.8rem / 13);
+  gap: calc(5rem / 13);
   margin: 0 0 calc(8rem / 13);
   padding: 0;
-  font-size: calc(14.4rem / 13);
+  font-size: calc(12.5rem / 13);
   list-style: none;
 }
 
@@ -4349,13 +4438,19 @@ a.lineage-node:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* Which of its fields links them: "via Sequence". */
+.rail-via {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
 /* A sequence's features, small: a ring for a circular one, a line for the rest. */
 .record-map {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: calc(8rem / 13);
-  font-size: calc(14.4rem / 13);
+  font-size: calc(12.5rem / 13);
 }
 
 .record-map svg {
@@ -4439,7 +4534,7 @@ line.map-backbone {
 
 .section-link {
   margin-left: auto;
-  font-size: calc(14.4rem / 13);
+  font-size: var(--text-sm);
 }
 
 /* Its features' table sits flush in its card, scrolling across within it on a phone. */
@@ -4470,6 +4565,7 @@ line.map-backbone {
 }
 
 /* The Audit trail tab: Timeline or By field, narrowed by person and field. */
+/* One row at a desk: the views, the filters, then what can't change beside its download. */
 .trail-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -4485,11 +4581,17 @@ line.map-backbone {
   border-radius: 8px;
 }
 
+/* On the filters' line, as tall as the selects beside it. */
+.trail-toolbar .segmented {
+  margin: 0;
+  border-radius: var(--radius-sm);
+}
+
 .segmented button {
-  min-height: calc(32rem / 13);
-  padding: 0 calc(12.8rem / 13);
+  min-height: var(--control-height);
+  padding: 0 calc(11rem / 13);
   font: inherit;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--muted);
   background: var(--surface);
   border: 0;
@@ -4509,9 +4611,12 @@ line.map-backbone {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: calc(8rem / 13) calc(12rem / 13);
+  gap: calc(8rem / 13) calc(10rem / 13);
   margin-left: auto;
-  font-size: calc(14.4rem / 13);
+}
+
+.trail-export > .muted {
+  font-size: var(--text-sm);
 }
 
 .trail-export .button svg,
@@ -4582,18 +4687,73 @@ line.map-backbone {
   gap: calc(4rem / 13) calc(12rem / 13);
 }
 
-.trail-title .button {
-  min-height: 0;
+/* A revision's actions, at the end of its title's row: its changes, and its export. */
+.trail-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4rem / 13);
   margin-left: auto;
-  padding: calc(2.4rem / 13) calc(6.4rem / 13);
-  font-size: calc(13.6rem / 13);
+}
+
+.trail-title .button {
+  min-height: calc(24rem / 13);
+  padding: 0 calc(6rem / 13);
+  font-size: var(--text-sm);
   color: var(--accent);
 }
 
-.trail-meta {
-  margin: calc(2.4rem / 13) 0 0;
+/* 24 pixels, WCAG 2.5.8's least, with its name on hovering. */
+.trail-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(24rem / 13);
+  height: calc(24rem / 13);
+  padding: 0;
   color: var(--muted);
-  font-size: calc(14.08rem / 13);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.trail-icon-button:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.trail-icon-button svg {
+  width: calc(14rem / 13);
+  height: calc(14rem / 13);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trail-meta {
+  margin: calc(2rem / 13) 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* Whose revisions a list holds, and how many: its tab counts both lists. */
+.trail-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(8rem / 13);
+  margin-bottom: calc(8rem / 13);
+}
+
+.trail-heading .section-title {
+  margin: 0;
+}
+
+.trail-heading-count {
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .trail-signatures {

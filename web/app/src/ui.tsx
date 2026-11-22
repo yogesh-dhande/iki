@@ -32,7 +32,7 @@ import {
 
 import type { Problem } from "@ikisci/sdk";
 
-import { TopBar } from "./page-top";
+import { PhoneActions, TopBar, usePhone } from "./page-top";
 
 // --- Buttons ---------------------------------------------------------------------
 
@@ -637,9 +637,12 @@ export function PageHeader({
   about?: ReactNode;
   marker?: ReactNode;
 }) {
+  // On a phone its title comes first, then its actions (page-top.tsx).
+  const phone = usePhone();
+  const acts = actions !== undefined && actions !== null && actions !== false;
   return (
     <>
-      <TopBar crumbs={crumbs ?? [title]} weak={!crumbs} actions={actions} />
+      <TopBar crumbs={crumbs ?? [title]} weak={!crumbs} actions={phone ? undefined : actions} />
       <div className="page-heading">
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <div className="page-title-row">
@@ -654,6 +657,7 @@ export function PageHeader({
             </Description>
           ) : null}
         </div>
+        {phone && acts ? <PhoneActions>{actions}</PhoneActions> : null}
       </div>
     </>
   );

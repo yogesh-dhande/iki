@@ -7291,10 +7291,20 @@ export interface components {
              */
             export: "sequence";
             /**
+             * Features
+             * @description A json field of features (type, start, end, name, strand) it adds along the sequence, or null. A record page draws them as a map.
+             */
+            features: string | null;
+            /**
              * Formats
              * @description The files it's written as.
              */
             formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Sequence
+             * @description The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.
+             */
+            sequence: string;
         };
         /** FileFilters */
         FileFilters: {

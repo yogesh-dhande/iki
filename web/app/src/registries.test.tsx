@@ -124,6 +124,18 @@ describe("a project's record of a registry entry", () => {
     expect(entry).toHaveTextContent(
       "In the Main registry. These values are the entry’s: every project with PRT-000001 has the same ones.",
     );
+    // Its trail counts its entry's revisions too: its tab and its details say so.
+    const tabs = screen.getByRole("navigation", { name: "Record" });
+    const trailTab = within(tabs).getByRole("link", {
+      name: /^Audit trail,\s*5\s*revisions: 2 of this record, 3 of its entry$/,
+    });
+    expect(trailTab.querySelector(".tab-count")).toHaveAttribute(
+      "title",
+      "5 revisions: 2 of this record, 3 of its entry",
+    );
+    expect(screen.getByRole("region", { name: "Details" })).toHaveTextContent(
+      "Its audit trail has 5: 2 of this record, 3 of its entry",
+    );
     const terms = within(entry)
       .getAllByRole("term")
       .map((t) => t.textContent);
