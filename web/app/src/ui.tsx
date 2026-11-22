@@ -18,10 +18,21 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
-import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
+import {
+  Button as AriaButton,
+  Dialog,
+  DialogTrigger,
+  Heading,
+  Modal,
+  ModalOverlay,
+  Popover,
+} from "react-aria-components";
 
 import type { Problem } from "@ikisci/sdk";
+
+import { PhoneActions, TopBar, usePhone } from "./page-top";
 
 // --- Buttons ---------------------------------------------------------------------
 
@@ -596,29 +607,124 @@ export function PageTitle({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * A page's header (ADR 0176): its breadcrumb and actions in the bar across the top of the
+ * page, then its title, with what it is in a line beside it.
+ *
+ * - `crumbs`: links to the pages above it, then its own name, last; its title if left out.
+ * - `actions`: its buttons (New, Import, Edit…), primary last.
+ * - `description`: one line beside the title. Cut short where it doesn't fit, it's whole
+ *   in the toggletip (i) beside it.
+ * - `about`: more about it, such as a link to its type, in that toggletip, always offered.
+ * - `marker`: a swatch before the title, as a type's dot or a project's square.
+ */
 export function PageHeader({
   title,
   eyebrow,
   badge,
   actions,
+  crumbs,
+  description,
+  about,
+  marker,
 }: {
   title: string;
   eyebrow?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
+  crumbs?: ReactNode[];
+  description?: ReactNode;
+  about?: ReactNode;
+  marker?: ReactNode;
 }) {
+  // On a phone its title comes first, then its actions (page-top.tsx).
+  const phone = usePhone();
+  const acts = actions !== undefined && actions !== null && actions !== false;
   return (
-    <div className="page-header">
-      <div>
+    <>
+      <TopBar crumbs={crumbs ?? [title]} weak={!crumbs} actions={phone ? undefined : actions} />
+      <div className="page-heading">
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-        <PageTitle>
-          {title}
-          {badge ? <> {badge}</> : null}
-        </PageTitle>
+        <div className="page-title-row">
+          {marker}
+          <PageTitle>
+            {title}
+            {badge ? <> {badge}</> : null}
+          </PageTitle>
+          {description || about ? (
+            <Description title={title} about={about}>
+              {description}
+            </Description>
+          ) : null}
+        </div>
+        {phone && acts ? <PhoneActions>{actions}</PhoneActions> : null}
       </div>
-      {actions}
+    </>
+  );
+}
+
+/** A page's line about itself, beside its title; whole, with `about`, in a toggletip. */
+function Description({
+  title,
+  about,
+  children,
+}: {
+  title: string;
+  about: ReactNode;
+  children: ReactNode;
+}) {
+  const line = useRef<HTMLParagraphElement>(null);
+  const cut = useCutShort(line, children);
+  return (
+    <div className="page-description">
+      {children ? (
+        <p className="page-description-text" ref={line}>
+          {children}
+        </p>
+      ) : null}
+      {cut || about ? (
+        <DialogTrigger>
+          <AriaButton className="page-about" aria-label={`About ${title}`}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 11v5" />
+              <path d="M12 7.5v.01" />
+            </svg>
+          </AriaButton>
+          <Popover className="page-about-popover" placement="bottom start">
+            <Dialog className="page-about-dialog" aria-label={`About ${title}`}>
+              {children ? <p>{children}</p> : null}
+              {about}
+            </Dialog>
+          </Popover>
+        </DialogTrigger>
+      ) : null}
     </div>
   );
+}
+
+/** Whether an element's one line of `text` is cut short, as it is drawn now. */
+function useCutShort(ref: RefObject<HTMLElement | null>, text: ReactNode): boolean {
+  const [cut, setCut] = useState(false);
+  // Measured again when its text changes, as well as its width.
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setCut(el.scrollWidth > el.clientWidth + 1);
+  }, [ref, text]);
+  useEffect(() => {
+    const el = ref.current;
+    // jsdom, which the tests run in, lays nothing out.
+    if (!el || typeof ResizeObserver !== "function") return;
+    const measure = () => {
+      setCut(el.scrollWidth > el.clientWidth + 1);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [ref]);
+  return cut;
 }
 
 export function Badge({ children, muted = false }: { children: ReactNode; muted?: boolean }) {

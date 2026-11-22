@@ -79,13 +79,14 @@ export function RegistryEntries() {
   return (
     <>
       <PageHeader
-        eyebrow={
+        crumbs={[
           registry.data.can.manage ? (
             <a href={`${REGISTRY_SETTINGS}${registry.data.id}/`}>{registry.data.name} registry</a>
           ) : (
             `${registry.data.name} registry`
-          )
-        }
+          ),
+          "Entries",
+        ]}
         title="Entries"
       />
       {!curates ? (
@@ -200,7 +201,7 @@ export function EntryPage() {
   return (
     <>
       <PageHeader
-        eyebrow={
+        description={
           <>
             {type ? (
               <Link to="/types/$/" params={{ _splat: type.name }}>

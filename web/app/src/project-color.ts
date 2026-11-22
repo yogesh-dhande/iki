@@ -8,13 +8,23 @@
 
 export const SWATCHES = 8;
 
-/** Which swatch an ID takes, from 1 to {@link SWATCHES}: FNV-1a over its characters. */
+/**
+ * Which swatch an ID or a type's name takes, from 1 to {@link SWATCHES}: FNV-1a over its
+ * characters, then MurmurHash3's finalizer. FNV-1a's low bits come only from its
+ * characters' low bits, so without the mixing, names that share a prefix (`iki/lots.`)
+ * crowd onto a few swatches: of the dev data's 24 types, 8 took one.
+ */
 export function swatchOf(id: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < id.length; i += 1) {
     hash ^= id.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
   return ((hash >>> 0) % SWATCHES) + 1;
 }
 

@@ -1,6 +1,6 @@
 /**
  * The page frame, matching the server's base.html: skip link, the sidebar (ADR 0176), and
- * the main region.
+ * the main region: the bar across its top (page-top.tsx), then the page.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import { isSignedOut, meQuery, onSignedOutChange, signInUrl } from "./api";
 import { useLiveUpdates } from "./events";
+import { TopBarFrame } from "./page-top";
 import { isAppPath } from "./search";
 import { SearchPalette } from "./search-palette";
 import { Brand, Sidebar } from "./sidebar";
@@ -80,11 +81,16 @@ export function Layout() {
           <Brand />
         </header>
       )}
-      <main id="main" className={narrow ? "page-narrow" : "page-wide"} tabIndex={-1}>
-        <SignedOut />
-        <MessagesProvider>
-          <Outlet />
-        </MessagesProvider>
+      {/* The bar across the top of the column, then the page, which fills the bar. */}
+      <main id="main" className="app-main" tabIndex={-1}>
+        <TopBarFrame>
+          <div className={narrow ? "page-body page-narrow" : "page-body page-wide"}>
+            <SignedOut />
+            <MessagesProvider>
+              <Outlet />
+            </MessagesProvider>
+          </div>
+        </TopBarFrame>
       </main>
       {me ? (
         <SearchPalette

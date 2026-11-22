@@ -23,6 +23,7 @@ import {
 } from "./search";
 import { SearchPalette } from "./search-palette";
 import { answer, calls } from "./test-server";
+import { typeSwatch } from "./type-color";
 
 const KINASE = {
   id: "00000000-0000-7000-8000-0000000000p1",
@@ -192,6 +193,11 @@ describe("search everything", () => {
     ]);
     // A record in two projects names both, for those who can't see the "+1".
     expect(options[0]).toHaveTextContent(", and Kinase Atlas");
+    // Each record's dot is its type's color.
+    expect(options[0]?.querySelector(".type-dot")).toHaveAttribute(
+      "data-swatch",
+      String(typeSwatch("acme/protein.Protein")),
+    );
     expect(options[2]).toHaveAttribute("href", "/entities/?q=lys");
     expect(screen.getByRole("group", { name: "Requests" })).toBeInTheDocument();
     // Kinds with nothing found aren't shown, nor their pills.

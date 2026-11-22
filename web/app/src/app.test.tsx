@@ -47,6 +47,13 @@ const PROJECT = project();
 const MEMBERS = `/api/v1/projects/${PROJECT.id}/members`;
 
 /** The settings card with this heading. */
+/** The page itself, below the bar across its top, whose breadcrumb is a list too. */
+function pageBody() {
+  const body = document.querySelector<HTMLElement>(".page-body");
+  if (!body) throw new Error("expected a page");
+  return within(body);
+}
+
 function card(heading: string): HTMLElement {
   const found = screen.getByRole("heading", { name: heading }).closest("section");
   if (!found) throw new Error(`no ${heading} card`);
@@ -166,10 +173,10 @@ describe("the frame", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
+    // Entities is closed away from its own pages (sidebar.test.tsx).
     expect(links).toEqual([
       "My work",
       "Inbox",
-      "All entities",
       "Requests",
       "Runs",
       "New project",
@@ -203,7 +210,6 @@ describe("the frame", () => {
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["My work", "/work/"],
       ["Inbox", "/notifications/"],
-      ["All entities", "/entities/"],
       ["Requests", "/requests/"],
       ["Runs", "/runs/"],
       ["All projects", "/projects/"],
@@ -266,16 +272,16 @@ describe("the project list", () => {
       query.get("cursor") === "next" ? page([second]) : { items: [PROJECT], next_cursor: "next" },
     );
     const { user } = await renderApp("/projects/");
-    expect(await screen.findAllByRole("listitem")).toHaveLength(1);
+    expect(await pageBody().findAllByRole("listitem")).toHaveLength(1);
     // The list's own: the sidebar asks for the projects they're in.
     const listed = calls("GET", "/api/v1/projects").filter((c) => !c.query.has("member"));
     expect(listed).toHaveLength(1);
     expect(listed[0]?.query.get("sort")).toBe("name");
     await user.click(screen.getByRole("button", { name: "Show more" }));
     await waitFor(() => {
-      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      expect(pageBody().getAllByRole("listitem")).toHaveLength(2);
     });
-    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Variant Calls");
+    expect(pageBody().getAllByRole("listitem")[1]).toHaveTextContent("Variant Calls");
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 });
@@ -301,7 +307,7 @@ describe("home", () => {
     );
     await renderApp("/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Welcome, Rosalind");
-    const rows = await screen.findAllByRole("listitem");
+    const rows = await pageBody().findAllByRole("listitem");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent("Kinase Atlas");
     expect(rows[0]).toHaveTextContent("Structural Biology");
@@ -1228,7 +1234,7 @@ describe("notifications", () => {
     signedIn();
     answer("GET /api/v1/notifications", page([UNREAD, READ]));
     await renderApp("/notifications/");
-    const rows = await screen.findAllByRole("listitem");
+    const rows = await pageBody().findAllByRole("listitem");
     expect(rows[0]).toHaveTextContent("Unread: Maurice Wilkins added you to Kinase Atlas");
     expect(rows[0]).toHaveTextContent("Kinase Atlas · by Maurice Wilkins · 5 minutes ago");
     expect(rows[1]).not.toHaveTextContent("Unread");
@@ -1271,7 +1277,7 @@ describe("notifications", () => {
       ]),
     );
     await renderApp("/notifications/");
-    const row = (await screen.findAllByRole("listitem"))[0];
+    const row = (await pageBody().findAllByRole("listitem"))[0];
     if (!row) throw new Error("expected a notification");
     expect(row).toHaveTextContent("Kinase Atlas · by Maurice Wilkins, through Claude Code");
     const records = within(row).getByRole("list", {
@@ -1335,7 +1341,7 @@ describe("notifications", () => {
     let inbox = [READ];
     answer("GET /api/v1/notifications", () => page(inbox));
     await renderApp("/notifications/");
-    await screen.findAllByRole("listitem");
+    await pageBody().findAllByRole("listitem");
     const stream = FakeEventSource.current();
     expect(stream?.url).toBe("/api/v1/events");
     expect(stream?.init).toEqual({ withCredentials: true });
@@ -1345,7 +1351,7 @@ describe("notifications", () => {
       stream?.send("notification", { id: UNREAD.id, unread: 1 });
     });
     expect(await screen.findByRole("link", { name: "Inbox 1 unread" })).toBeVisible();
-    expect(await screen.findAllByRole("listitem")).toHaveLength(2);
+    expect(await pageBody().findAllByRole("listitem")).toHaveLength(2);
 
     act(() => {
       stream?.send("notifications_read", { unread: 0 });
@@ -1358,7 +1364,7 @@ describe("notifications", () => {
     let inbox = [READ];
     answer("GET /api/v1/notifications", () => page(inbox));
     await renderApp("/notifications/");
-    await screen.findAllByRole("listitem");
+    await pageBody().findAllByRole("listitem");
     const stream = FakeEventSource.current();
 
     // Sent after the inbox was read, before the stream listened: no event brings it,
@@ -1368,7 +1374,7 @@ describe("notifications", () => {
       stream?.send("ready", { unread: 1 });
     });
     expect(await screen.findByRole("link", { name: "Inbox 1 unread" })).toBeVisible();
-    expect(await screen.findAllByRole("listitem")).toHaveLength(2);
+    expect(await pageBody().findAllByRole("listitem")).toHaveLength(2);
   });
 
   it("says when the stream finds the session ended, without leaving the page", async () => {

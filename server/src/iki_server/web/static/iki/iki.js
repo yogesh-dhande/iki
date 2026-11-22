@@ -102,7 +102,10 @@ function setUpSidebar(sidebar) {
     const secure = window.location.protocol === "https:" ? "; secure" : "";
     document.cookie = `${ENTITIES_COOKIE}=${open ? "open" : "closed"}; path=/; max-age=31536000; samesite=lax${secure}`;
   });
-  if (types) showEntityTypes(types);
+  // The current item in view, where the list scrolls: now, and again once the types are in.
+  const nav = sidebar.querySelector(".sidebar-nav");
+  if (nav) revealCurrent(nav);
+  if (types) showEntityTypes(types).then(() => nav && revealCurrent(nav));
 
   setUpAccount(sidebar);
   setUpDrawer(sidebar);
@@ -133,6 +136,11 @@ async function showEntityTypes(list) {
     const link = document.createElement("a");
     link.className = "nav-item";
     link.href = `/entities/types/${encodeURI(t.type)}/`;
+    const dot = document.createElement("span");
+    dot.className = "type-dot";
+    dot.dataset.swatch = String(swatchOf(t.type));
+    dot.setAttribute("aria-hidden", "true");
+    link.append(dot);
     const label = document.createElement("span");
     label.className = "nav-label";
     label.textContent = t.label;
@@ -150,6 +158,34 @@ async function showEntityTypes(list) {
     }
     list.append(link);
   }
+}
+
+// Scrolls the sidebar's list so its current item is in view, if it isn't: the list, not the
+// page, as the app's sidebar.tsx does.
+function revealCurrent(list) {
+  const item = list.querySelector('[aria-current="page"]');
+  if (!item) return;
+  const box = list.getBoundingClientRect();
+  const at = item.getBoundingClientRect();
+  const room = at.height;
+  if (at.top < box.top) list.scrollTop -= box.top - at.top + room;
+  else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom + room;
+}
+
+// A type's color, one of the stylesheet's eight swatches from its name, as the app's
+// project-color.ts and the server's navigation.swatch_of work it out (FNV-1a).
+function swatchOf(name) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  return ((hash >>> 0) % 8) + 1;
 }
 
 // How many: after a space, which a flex row doesn't draw but a screen reader reads.

@@ -398,7 +398,8 @@ def test_a_projects_square_is_its_color_as_the_app_draws_it(world: World) -> Non
     as in the app."""
     from iki_server.web.navigation import swatch_of
 
-    assert [swatch_of(pk) for pk in ("00000000-0000-7000-8000-000000000001", "p2")] == [2, 8]
+    assert [swatch_of(pk) for pk in ("00000000-0000-7000-8000-000000000001", "p2")] == [4, 2]
+    assert swatch_of("iki/dna.Plasmid") == 2
     assert {swatch_of(f"project-{n}") for n in range(64)} == set(range(1, 9))
     html = world.browser("viewer").get("/teams/").content.decode()
     swatch = swatch_of(str(world.project.pk))
@@ -406,6 +407,19 @@ def test_a_projects_square_is_its_color_as_the_app_draws_it(world: World) -> Non
         f'<span class="swatch swatch-large" data-swatch="{swatch}" aria-hidden="true"></span>'
         '<span class="nav-label">Kinase Atlas</span>'
     ) in html
+
+
+def test_the_account_is_marked_on_the_swatch_its_id_picks(world: World) -> None:
+    """A person's mark is on one of the eight swatches, from their ID, as the app's sidebar
+    draws it: not the accent, the same for everyone."""
+    from iki_server.web.navigation import swatch_of
+
+    viewer = world.users["viewer"]
+    html = world.browser("viewer").get("/teams/").content.decode()
+    assert (
+        f'<span class="avatar" data-swatch="{swatch_of(str(viewer.pk))}" aria-hidden="true">'
+        in html
+    )
 
 
 def test_the_sidebar_shows_the_project_a_page_is_in_beyond_the_first_few(world: World) -> None:
@@ -441,14 +455,23 @@ def test_the_inbox_says_how_many_are_unread(world: World) -> None:
 
 
 def test_the_entities_section_opens_as_the_reader_left_it(world: World) -> None:
-    from iki_server.web.navigation import ENTITIES_COOKIE
+    """Closed away from the entities' pages, where its types would push the rest of the
+    sidebar out of sight, until the reader opens it; then as they left it, everywhere."""
+    from iki_server.web.navigation import ENTITIES_COOKIE, entities_open
 
     session = world.browser("viewer")
-    assert 'id="nav-entities" data-entity-types' in session.get("/teams/").content.decode()
-    session.cookies[ENTITIES_COOKIE] = "closed"
     html = session.get("/teams/").content.decode()
     assert 'aria-expanded="false" aria-controls="nav-entities"' in html
     assert 'id="nav-entities" hidden data-entity-types' in html
+    session.cookies[ENTITIES_COOKIE] = "open"
+    html = session.get("/teams/").content.decode()
+    assert 'aria-expanded="true" aria-controls="nav-entities"' in html
+    assert 'id="nav-entities" data-entity-types' in html
+    # As the app's sidebar works it out (sidebar.test.tsx).
+    assert entities_open("/entities/PLS-000001/", None, "/entities/")
+    assert not entities_open("/requests/", None, "/entities/")
+    assert not entities_open("/entities/", "closed", "/entities/")
+    assert entities_open("/teams/", "open", "/entities/")
 
 
 def test_signed_out_pages_have_no_sidebar(world: World) -> None:

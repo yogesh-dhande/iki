@@ -11,14 +11,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState, type ReactNode } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { meQuery, type Me } from "./api";
 import { useDrawer } from "./drawer";
 import { useLiveUpdates } from "./events";
 import { Layout, organizationName, SignedOut } from "./layout";
+import { ActionsSlot, TopBar } from "./page-top";
+import { Account } from "./sidebar";
 import { markNavigated, MessagesProvider } from "./ui";
 
 /** An item of the admin area's sidebar. */
@@ -73,12 +74,10 @@ export function Frame() {
   return <Layout />;
 }
 
-const ActionsSlot = createContext<HTMLElement | null>(null);
-
-/** The page's own actions, on the right of the admin area's top bar. */
+/** The page's own actions, on the right of the admin area's top bar, as `PageHeader`'s
+ * are: the area's crumbs are its own. */
 export function AdminActions({ children }: { children: ReactNode }) {
-  const slot = useContext(ActionsSlot);
-  return slot ? createPortal(children, slot) : null;
+  return <TopBar actions={children} />;
 }
 
 function Icon({ paths }: { paths: string[] }) {
@@ -115,19 +114,6 @@ function SideLink({ item, pathname }: { item: AdminItem; pathname: string }) {
       {body}
     </a>
   );
-}
-
-function csrfToken(): string {
-  return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? "";
-}
-
-/** "Rosalind Franklin" is "RF": the account's badge at the foot of the sidebar. */
-export function initials(name: string): string {
-  const words = name.split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
-  return [words[0], words.length > 1 ? words[words.length - 1] : undefined]
-    .map((w) => w?.[0] ?? "")
-    .join("")
-    .toUpperCase();
 }
 
 function Crumbs({ groups, pathname }: { groups: AdminGroup[]; pathname: string }) {
@@ -231,20 +217,10 @@ export function AdminLayout({ me }: { me: Me }) {
                 </ul>
               </div>
             ))}
-            <form className="admin-account" method="post" action="/logout/">
-              <input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} />
-              <a className="admin-user" href="/account/" title={`${me.email}: your account`}>
-                <span className="admin-avatar" aria-hidden="true">
-                  {initials(me.name || me.email)}
-                </span>
-                <span className="admin-user-name">{me.name || me.email}</span>
-              </a>
-              <button className="button button-quiet" type="submit">
-                Sign out
-              </button>
-            </form>
           </div>
         </nav>
+        {/* Its foot, as the main sidebar's: the list scrolls above it. */}
+        <Account me={me} pathname={pathname} />
       </div>
       <div ref={backdrop} className="sidebar-backdrop" hidden={!open} />
       <div className="admin-column">
@@ -254,11 +230,11 @@ export function AdminLayout({ me }: { me: Me }) {
         </header>
         <main id="main" className="admin-main" tabIndex={-1}>
           <SignedOut />
-          <ActionsSlot.Provider value={slot}>
+          <ActionsSlot slot={slot}>
             <MessagesProvider>
               <Outlet />
             </MessagesProvider>
-          </ActionsSlot.Provider>
+          </ActionsSlot>
         </main>
       </div>
     </>

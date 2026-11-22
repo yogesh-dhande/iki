@@ -438,21 +438,26 @@ def _focused(locator: Locator) -> bool:
 def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     open_as: Any, path: str, color_scheme: str
 ) -> None:
-    """The sidebar (ADR 0176): Entities stays as its reader left it, the account menu opens
-    and closes from the keyboard, its button opens search as ⌘K does, and on a phone it's a drawer
-    that holds the focus until it closes, with the page never wider than the screen."""
+    """The sidebar (ADR 0176): Entities is closed away from its pages until its reader opens
+    it, then stays as they left it, the account menu opens and closes from the keyboard, its
+    button opens search as ⌘K does, and on a phone it's a drawer that holds the focus until
+    it closes, with the page never wider than the screen."""
     page = open_as("org_admin", path, color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     nav = page.get_by_role("navigation", name="Main")
     entities = nav.get_by_role("button", name="Entities")
+    assert entities.get_attribute("aria-expanded") == "false"
+    # Closed, it takes no room: what's below it moves up.
+    all_entities = page.locator("#nav-entities").get_by_role("link", name="All entities")
+    assert all_entities.count() == 0 or not all_entities.is_visible()
+    assert page.locator("#nav-entities").evaluate("e => e.getBoundingClientRect().height") == 0
     entities.focus()
     page.keyboard.press("Enter")
-    assert entities.get_attribute("aria-expanded") == "false"
+    assert entities.get_attribute("aria-expanded") == "true"
+    nav.get_by_role("link", name="All entities").wait_for()
     page.reload()
     shown(page)
-    assert entities.get_attribute("aria-expanded") == "false"
-    entities.click()
-    nav.get_by_role("link", name="All entities").wait_for()
+    assert entities.get_attribute("aria-expanded") == "true"
 
     account = page.get_by_role("button", name="Org Admin")
     account.focus()
@@ -495,6 +500,108 @@ def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     page.wait_for_url("**/types/")
     drawer.wait_for(state="hidden")
     assert page.evaluate(width)
+    page.context.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "current"),
+    # The web app's sidebar and the server's.
+    [("/projects/", "All projects"), ("/teams/", "People and teams")],
+)
+def test_the_sidebars_list_scrolls_between_its_head_and_foot_to_the_current_item(
+    open_as: Any, path: str, current: str
+) -> None:
+    """On a short screen, the sidebar's list scrolls on its own, between search at its top
+    and the account at its foot, which stay put; on load it's scrolled to the page's item."""
+    page = open_as("admin", path)
+    page.context.add_cookies([{"name": "iki_entities", "value": "open", "url": page.url}])
+    page.set_viewport_size({"width": 1440, "height": 320})
+    page.reload()
+    shown(page)
+    nav = page.get_by_role("navigation", name="Main")
+    item = nav.get_by_role("link", name=current, exact=True)
+    item.wait_for()
+    page.wait_for_function(
+        "() => { const n = document.querySelector('.sidebar-nav');"
+        " const i = n.querySelector('[aria-current=page]');"
+        " const a = n.getBoundingClientRect(), b = i.getBoundingClientRect();"
+        " return b.top >= a.top - 1 && b.bottom <= a.bottom + 1; }"
+    )
+    assert item.get_attribute("aria-current") == "page"
+    assert nav.evaluate("n => n.scrollHeight > n.clientHeight && n.scrollTop > 0")
+    search = page.get_by_role("button", name="Search everything").bounding_box()
+    account = page.get_by_role("button", name="Admin", exact=True).bounding_box()
+    box = nav.bounding_box()
+    assert search is not None and account is not None and box is not None
+    assert search["y"] + search["height"] <= box["y"] + 1
+    assert account["y"] >= box["y"] + box["height"] - 1
+    assert account["y"] + account["height"] <= 320 + 1
+    assert page.evaluate("window.scrollY") == 0
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_pages_breadcrumb_and_actions_are_in_a_bar_across_its_top(
+    open_as: Any, color_scheme: str
+) -> None:
+    """The bar across the top of the page (ADR 0176): 46px tall, across the whole column
+    beside the sidebar, with the breadcrumb on its left and the page's actions on its right;
+    then the page's title, with what it is in one line beside it and more in a toggletip.
+    On a phone the page is never wider than the screen."""
+    page = open_as("admin", "/entities/types/acme/protein.Protein/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    bar = page.locator(".page-top")
+    crumbs = bar.get_by_role("navigation", name="Breadcrumb")
+    crumbs.get_by_role("link", name="Entities").wait_for()
+    assert crumbs.get_by_text("Proteins").get_attribute("aria-current") == "page"
+    box = bar.bounding_box()
+    side = page.locator("#sidebar").bounding_box()
+    assert box is not None and side is not None
+    assert box["height"] == pytest.approx(46, abs=1)
+    assert box["y"] == pytest.approx(0, abs=1)
+    assert box["x"] == pytest.approx(side["x"] + side["width"], abs=1)
+    assert box["x"] + box["width"] == pytest.approx(1440, abs=1)
+    new = bar.get_by_role("button", name="New protein")
+    new_box = new.bounding_box()
+    crumbs_box = crumbs.bounding_box()
+    assert new_box is not None and crumbs_box is not None
+    # The breadcrumb on the left and the actions on the right, both in the bar's middle.
+    assert crumbs_box["x"] < box["x"] + 30
+    assert new_box["x"] + new_box["width"] == pytest.approx(box["x"] + box["width"] - 20, abs=2)
+    middle = box["y"] + box["height"] / 2
+    for part in (new_box, crumbs_box):
+        assert part["y"] + part["height"] / 2 == pytest.approx(middle, abs=2)
+
+    # The title below the bar, and the line about it beside it.
+    title = page.get_by_role("heading", level=1, name="Proteins").bounding_box()
+    about = page.get_by_role("button", name="About Proteins")
+    about_box = about.bounding_box()
+    assert title is not None and about_box is not None
+    assert title["y"] > box["y"] + box["height"]
+    assert about_box["x"] > title["x"] + title["width"]
+    assert about_box["y"] + about_box["height"] / 2 == pytest.approx(
+        title["y"] + title["height"] / 2, abs=3
+    )
+    about.click()
+    toggletip = page.get_by_role("dialog", name="About Proteins")
+    toggletip.get_by_role("link", name=re.compile("^About the Protein type")).wait_for()
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    toggletip.wait_for(state="hidden")
+
+    # On a phone the title comes first: the bar keeps the breadcrumb, and the actions go
+    # under the title.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    below = page.locator(".page-heading").get_by_role("button", name="New protein")
+    below.wait_for()
+    assert bar.get_by_role("button", name="New protein").count() == 0
+    assert bar.get_by_role("navigation", name="Breadcrumb").is_visible()
+    heading = page.get_by_role("heading", level=1, name="Proteins").bounding_box()
+    shown_at = below.bounding_box()
+    assert heading is not None and shown_at is not None
+    assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
+    assert_clean(page)
     page.context.close()
 
 
@@ -711,6 +818,38 @@ def test_the_admin_areas_pages_fit_a_phone_and_say_what_isnt_yours(
         assert page.evaluate(NO_SIDEWAYS_SCROLL)
         assert_clean(page)
         page.context.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    # The web app's admin frame and the server's.
+    ["/admin/compute/", "/admin/plugins/"],
+)
+def test_the_admin_drawer_ends_with_the_account_menu(open_as: Any, path: str) -> None:
+    """On a short phone, the admin area's drawer keeps the account at its foot, below the
+    list, which scrolls; it opens the same menu as the main sidebar's, Sign out last."""
+    page = open_as("org_admin", path)
+    page.set_viewport_size({"width": 390, "height": 480})
+    page.get_by_role("button", name="Menu", exact=True).click()
+    drawer = page.get_by_role("dialog", name="Menu")
+    account = drawer.get_by_role("button", name="Org Admin", exact=True)
+    account.wait_for()
+    nav = drawer.get_by_role("navigation", name="Admin")
+    assert nav.evaluate("n => n.scrollHeight > n.clientHeight")
+    foot = account.bounding_box()
+    box = nav.bounding_box()
+    assert foot is not None and box is not None
+    assert foot["y"] >= box["y"] + box["height"] - 1
+    assert foot["y"] + foot["height"] <= 480 + 1
+    account.click()
+    sign_out = drawer.get_by_role("button", name="Sign out")
+    sign_out.wait_for()
+    assert sign_out.is_visible()
+    page.keyboard.press("Escape")
+    sign_out.wait_for(state="hidden")
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.context.close()
 
 
 def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
@@ -3072,7 +3211,8 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
 
     # Admin is one link, to the admin area, which opens on the first page an auditor may.
     in_the_app = sidebar()
-    assert in_the_app[:3] == ["My work", "Inbox", "All entities"]
+    # Entities is closed away from its own pages.
+    assert in_the_app[:3] == ["My work", "Inbox", "Requests"]
     assert in_the_app[-3:] == ["Types", "People and teams", "Admin"]
     nav.get_by_role("link", name="Admin").click()
     page.wait_for_url("**/admin/costs/")

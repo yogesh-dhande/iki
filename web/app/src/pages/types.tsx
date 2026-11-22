@@ -8,6 +8,7 @@ import { Link, useParams } from "@tanstack/react-router";
 
 import { typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
 import { usePageTitle } from "../layout";
+import { TypeDot } from "../type-color";
 import { Badge, PageHeader } from "../ui";
 
 /** Where a field of a type with an identity is kept (ADR 0115). */
@@ -45,11 +46,10 @@ export function TypeList() {
   const plugins = [...new Set(types.map((t) => t.plugin))].sort();
   return (
     <>
-      <PageHeader title="Entity types" />
-      <p className="muted">
-        What this deployment’s plugins record. Each type’s fields, units and rules come from its
-        plugin.
-      </p>
+      <PageHeader
+        title="Entity types"
+        description="What this deployment’s plugins record. Each type’s fields, units and rules come from its plugin."
+      />
       {types.length === 0 ? (
         <p className="empty">No plugins with entity types are installed.</p>
       ) : null}
@@ -157,7 +157,8 @@ export function TypeDetail() {
   return (
     <>
       <PageHeader
-        eyebrow={<Link to="/types/">Entity types</Link>}
+        crumbs={[<Link to="/types/">Entity types</Link>, type.label]}
+        marker={<TypeDot type={type.name} large />}
         title={type.label}
         badge={
           <>

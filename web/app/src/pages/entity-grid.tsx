@@ -61,6 +61,7 @@ import {
   type ListSearch,
 } from "../lists";
 import { MAX_BATCH } from "../runs";
+import { TypeDot, TypeWithDot } from "../type-color";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, TypeName } from "../ui";
 import { CollectionBanner, SaveAsCollection } from "./collections";
 import {
@@ -217,7 +218,9 @@ function columnsFor(
     },
     cell: (e) => {
       const t = types.find((x) => x.name === e.type);
-      return t ? <TypeName shown={typeDisplayName(t, types)} /> : e.type;
+      return (
+        <TypeWithDot type={e.type} shown={t ? typeDisplayName(t, types) : { label: e.type }} />
+      );
     },
   };
   const projects: Column = {
@@ -1325,6 +1328,7 @@ function TypePills({
         onPick(value);
       }}
     >
+      {value ? <TypeDot type={value} /> : null}
       {label}
       {n === null || n === undefined ? null : (
         // Spaces between, as text, so a screen reader's name for it reads as it's seen.
