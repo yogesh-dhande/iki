@@ -201,7 +201,7 @@ def set_up(admin: str, protocol: str = "oidc") -> requests.Session:
     session = browser()
     response = submit(session, f"{IKI}/setup/", {"token": setup_link()}, form_id="setup-token-form")
     if urlsplit(response.url).path == "/setup/organization/":
-        response = submit(session, response.url, {"organization_name": "Iki (development)"})
+        response = submit(session, response.url, {"organization_name": "Development"})
     if urlsplit(response.url).path != "/setup/identity-provider/":
         fail(f"wizard went to {response.url} after the setup link (HTTP {response.status_code})")
     if protocol == "saml":
