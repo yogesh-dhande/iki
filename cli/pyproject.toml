@@ -7,12 +7,13 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "The Iki Authors" }]
-dependencies = ["iki-spec", "iki-codegen", "iki-server"]
+dependencies = ["iki-spec", "iki-codegen", "iki-server", "ikisci"]
 
 [tool.uv.sources]
 iki-spec = { workspace = true }
 iki-codegen = { workspace = true }
 iki-server = { workspace = true }
+ikisci = { workspace = true }
 
 [project.scripts]
 iki = "iki_cli.main:main"

@@ -13198,6 +13198,145 @@
         "title": "PlaceSearchIn",
         "type": "object"
       },
+      "PluginCandidateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "apiVersion": {
+            "const": "iki/v1",
+            "title": "Apiversion",
+            "type": "string"
+          },
+          "plugin": {
+            "additionalProperties": true,
+            "description": "The plugin object in the built manifest.json.",
+            "title": "Plugin",
+            "type": "object"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "plugin"
+        ],
+        "title": "PluginCandidateIn",
+        "type": "object"
+      },
+      "PluginFindingOut": {
+        "properties": {
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Affected records among those checked.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "examples": {
+            "description": "Example record HRIDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "subject",
+          "message",
+          "blocking",
+          "count",
+          "examples"
+        ],
+        "title": "PluginFindingOut",
+        "type": "object"
+      },
+      "PluginPreflightOut": {
+        "properties": {
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "candidate_revision": {
+            "description": "SHA-256 of the proposed manifest.",
+            "title": "Candidate Revision",
+            "type": "string"
+          },
+          "configuration_revision": {
+            "description": "Revision of the deployed configuration checked.",
+            "title": "Configuration Revision",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/PluginTypePreflightOut"
+            },
+            "title": "Types",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin",
+          "version",
+          "configuration_revision",
+          "candidate_revision",
+          "blocking",
+          "types"
+        ],
+        "title": "PluginPreflightOut",
+        "type": "object"
+      },
+      "PluginTypePreflightOut": {
+        "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PluginFindingOut"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "sampled": {
+            "title": "Sampled",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "checked",
+          "sampled",
+          "findings"
+        ],
+        "title": "PluginTypePreflightOut",
+        "type": "object"
+      },
       "PolicyIn": {
         "properties": {
           "project_webhooks": {
@@ -34259,6 +34398,57 @@
         "summary": "Revoke an outside API's approval for a project",
         "tags": [
           "Outside APIs"
+        ]
+      }
+    },
+    "/api/v1/plugins/{name}/preflight": {
+      "post": {
+        "description": "Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.\nThe report reads current records and identifies the sampled types. It requires an Org Admin\nand a token's admin scope with access to all projects.",
+        "operationId": "iki_server_api_plugins_preflight",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginCandidateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginPreflightOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a candidate plugin against existing records",
+        "tags": [
+          "plugins"
         ]
       }
     },

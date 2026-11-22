@@ -1222,6 +1222,7 @@ dependencies = [
     { name = "iki-codegen" },
     { name = "iki-server" },
     { name = "iki-spec" },
+    { name = "ikisci" },
 ]
 
 [package.metadata]
@@ -1229,6 +1230,7 @@ requires-dist = [
     { name = "iki-codegen", editable = "codegen" },
     { name = "iki-server", editable = "server" },
     { name = "iki-spec", editable = "spec" },
+    { name = "ikisci", editable = "sdk/python" },
 ]
 
 [[package]]

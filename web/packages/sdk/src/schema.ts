@@ -2491,6 +2491,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/{name}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a candidate plugin against existing records
+         * @description Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.
+         *     The report reads current records and identifies the sampled types. It requires an Org Admin
+         *     and a token's admin scope with access to all projects.
+         */
+        post: operations["iki_server_api_plugins_preflight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-roles": {
         parameters: {
             query?: never;
@@ -10845,6 +10867,74 @@ export interface components {
              */
             type: string;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** PluginCandidateIn */
+        PluginCandidateIn: {
+            /**
+             * Apiversion
+             * @constant
+             */
+            apiVersion: "iki/v1";
+            /**
+             * Plugin
+             * @description The plugin object in the built manifest.json.
+             */
+            plugin: {
+                [key: string]: unknown;
+            };
+        };
+        /** PluginFindingOut */
+        PluginFindingOut: {
+            /** Blocking */
+            blocking: boolean;
+            /**
+             * Count
+             * @description Affected records among those checked.
+             */
+            count: number;
+            /**
+             * Examples
+             * @description Example record HRIDs.
+             */
+            examples: string[];
+            /** Kind */
+            kind: string;
+            /** Message */
+            message: string;
+            /** Subject */
+            subject: string;
+        };
+        /** PluginPreflightOut */
+        PluginPreflightOut: {
+            /** Blocking */
+            blocking: boolean;
+            /**
+             * Candidate Revision
+             * @description SHA-256 of the proposed manifest.
+             */
+            candidate_revision: string;
+            /**
+             * Configuration Revision
+             * @description Revision of the deployed configuration checked.
+             */
+            configuration_revision: string;
+            /** Plugin */
+            plugin: string;
+            /** Types */
+            types: components["schemas"]["PluginTypePreflightOut"][];
+            /** Version */
+            version: string;
+        };
+        /** PluginTypePreflightOut */
+        PluginTypePreflightOut: {
+            /** Checked */
+            checked: number;
+            /** Findings */
+            findings: components["schemas"]["PluginFindingOut"][];
+            /** Sampled */
+            sampled: boolean;
+            /** Type */
+            type: string;
         };
         /** PolicyIn */
         PolicyIn: {
@@ -20046,6 +20136,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_plugins_preflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginCandidateIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginPreflightOut"];
+                };
             };
         };
     };

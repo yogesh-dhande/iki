@@ -30,6 +30,7 @@ from iki_server.api import (
     me,
     notifications,
     outside_apis,
+    plugins,
     projects,
     registries,
     requests,
@@ -71,6 +72,7 @@ for module in (
     me,
     users,
     service_accounts,
+    plugins,
     teams,
     projects,
     # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.
