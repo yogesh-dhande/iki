@@ -106,6 +106,60 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     assert_clean(page)
 
 
+# What the palette's parts measure, as the reader sees them: the input row, the first
+# result, its group's title and its project's swatch.
+MEASURE = """dialog => {
+    const box = dialog.querySelector('[role="combobox"]');
+    const row = box.parentElement;
+    const esc = row.querySelector("button");
+    const option = dialog.querySelector('[role="group"] [role="option"]');
+    const title = option.closest('[role="group"]').firstElementChild;
+    const mark = option.querySelector("[data-swatch]");
+    const rect = (el) => el.getBoundingClientRect();
+    const style = (el) => getComputedStyle(el);
+    return {
+        dialog: rect(dialog).toJSON(),
+        row: rect(row).toJSON(),
+        box: rect(box).toJSON(),
+        boxFont: style(box).fontSize,
+        esc: rect(esc).toJSON(),
+        icons: row.querySelectorAll("svg").length,
+        option: rect(option).toJSON(),
+        optionFont: style(option).fontSize,
+        titleFont: style(title).fontSize,
+        mark: mark && style(mark).backgroundColor,
+    };
+}"""
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_the_palette_is_sized_for_the_13px_root(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """The mockup's sizes: a 50px input row at 15px with Esc at its end, 13px results in
+    34px rows, 11.5px group titles, and each project in its own color."""
+    lysozymes(world)
+    page = open_as("admin", "/entities/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    dialog = search_for(page, "lysozyme")
+    m = dialog.evaluate(MEASURE)
+    assert abs(m["row"]["height"] - 50) <= 1
+    assert m["boxFont"] == "15px"
+    assert m["icons"] == 1
+    # The text box takes the row, and Esc sits at its end, centred on it.
+    # 680px, less the modal's border.
+    assert m["dialog"]["width"] == pytest.approx(678, abs=1)
+    assert m["box"]["width"] >= m["dialog"]["width"] - 120
+    assert m["dialog"]["right"] - m["esc"]["right"] <= 20
+    row_middle = m["row"]["top"] + m["row"]["height"] / 2
+    assert abs(m["esc"]["top"] + m["esc"]["height"] / 2 - row_middle) <= 1
+    assert abs(m["option"]["height"] - 34) <= 1
+    assert m["optionFont"] == "13px"
+    assert m["titleFont"] == "11.5px"
+    assert m["mark"] not in (None, "rgba(0, 0, 0, 0)", "transparent")
+    assert_clean(page)
+
+
 def test_the_palette_fits_a_phone(open_as: Any, world: World) -> None:
     lysozymes(world)
     page = open_as("admin", "/work/")
@@ -117,6 +171,10 @@ def test_the_palette_fits_a_phone(open_as: Any, world: World) -> None:
     assert box is not None
     assert box["x"] >= 0
     assert box["x"] + box["width"] <= 390
+    m = dialog.evaluate(MEASURE)
+    assert abs(m["row"]["height"] - 50) <= 1
+    assert m["boxFont"] == "15px"
+    assert m["optionFont"] == "13px"
     # On a phone, Esc is a button to press.
     assert_clean(page)
     dialog.get_by_role("button", name="Esc: close the search").click()

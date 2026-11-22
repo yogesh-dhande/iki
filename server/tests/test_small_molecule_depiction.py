@@ -50,7 +50,8 @@ POLICY = (
     "form-action 'none'; base-uri 'none'; object-src 'none'; sandbox allow-scripts"
 )
 PAGE = (
-    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>Depiction</title>\n'
+    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+    '<link rel="icon" href="data:,"><title>Depiction</title>\n'
     + frames.HARDEN_TAG
     + '<script type="module" src="/depiction.js" integrity="{integrity}" '
     'crossorigin="anonymous"></script>\n'

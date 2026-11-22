@@ -70,7 +70,7 @@ def _module(entry: str) -> tuple[str, str]:
 def _page(module: str, integrity: str) -> str:
     return (
         "<!doctype html>\n"
-        '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        '<html lang="en">\n<head>\n<meta charset="utf-8">\n<link rel="icon" href="data:,">\n'
         '<meta name="color-scheme" content="light dark">\n'
         "<title>Structure viewer</title>\n"
         f"{frames.HARDEN_TAG}"
