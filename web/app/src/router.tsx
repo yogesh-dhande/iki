@@ -309,7 +309,7 @@ const projectRunNewRoute = createRoute({
 const WORKFLOW_STATUSES = ["running", "succeeded", "failed", "cancelled"] as const;
 
 const projectWorkflowsRoute = createRoute({
-  getParentRoute: () => projectRoute,
+  getParentRoute: () => projectAutomationRoute,
   path: "workflows",
   // ?status=failed: only workflow runs with that status.
   validateSearch: (
@@ -322,7 +322,7 @@ const projectWorkflowsRoute = createRoute({
 });
 
 const projectWorkflowNewRoute = createRoute({
-  getParentRoute: () => projectRoute,
+  getParentRoute: () => projectAutomationRoute,
   path: "workflows/new",
   // ?workflow=iki/protein.translate_and_characterize: its form.
   validateSearch: (search: Record<string, unknown>): { workflow?: string | undefined } =>
@@ -334,7 +334,7 @@ const projectWorkflowNewRoute = createRoute({
 });
 
 const projectTriggersRoute = createRoute({
-  getParentRoute: () => projectRoute,
+  getParentRoute: () => projectAutomationRoute,
   path: "triggers",
   // ?trigger=iki/protein.compute_new_protein_properties: only what that trigger fired.
   validateSearch: (search: Record<string, unknown>): { trigger?: string | undefined } =>
@@ -344,19 +344,24 @@ const projectTriggersRoute = createRoute({
   component: ProjectTriggers,
 });
 
-// A project's Automation tab (ADR 0176): its workflows, triggers and webhooks keep their own
-// addresses; this one opens the first of them the reader may see.
+// A project's Automation tab (ADR 0176): its workflows, triggers and webhooks, each a tab
+// of its own under it. Its own address opens the first of them the reader may see.
 const projectAutomationRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "automation",
+});
+
+const projectAutomationIndexRoute = createRoute({
+  getParentRoute: () => projectAutomationRoute,
+  path: "/",
   beforeLoad: async ({ context, params }) => {
     const project = await context.queryClient.query(projectQuery(params.slug));
     redirect({
       throw: true,
       to:
         !project.can.read && project.can.manage_webhooks
-          ? "/projects/$slug/webhooks/"
-          : "/projects/$slug/workflows/",
+          ? "/projects/$slug/automation/webhooks/"
+          : "/projects/$slug/automation/workflows/",
       params,
       replace: true,
     });
@@ -382,7 +387,7 @@ const projectAppDraftRoute = createRoute({
 });
 
 const projectWebhooksRoute = createRoute({
-  getParentRoute: () => projectRoute,
+  getParentRoute: () => projectAutomationRoute,
   path: "webhooks",
 });
 
@@ -604,14 +609,16 @@ const routeTree = rootRoute.addChildren([
       projectEntityNewRoute,
       projectRunsRoute,
       projectRunNewRoute,
-      projectWorkflowsRoute,
-      projectWorkflowNewRoute,
-      projectTriggersRoute,
-      projectAutomationRoute,
+      projectAutomationRoute.addChildren([
+        projectAutomationIndexRoute,
+        projectWorkflowsRoute,
+        projectWorkflowNewRoute,
+        projectTriggersRoute,
+        projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
+      ]),
       projectSettingsRoute,
       projectImportRoute,
       projectAppDraftRoute,
-      projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),
   ]),
   typesRoute.addChildren([typeListRoute, typeRoute]),

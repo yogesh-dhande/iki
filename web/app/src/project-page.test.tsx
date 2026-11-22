@@ -258,16 +258,24 @@ describe("a project's page", () => {
     ).toBeVisible();
     expect(
       within(card).getByRole("link", { name: "Workflows, triggers and webhooks" }),
-    ).toHaveAttribute("href", "/projects/kinase-atlas/workflows/");
+    ).toHaveAttribute("href", "/projects/kinase-atlas/automation/");
   });
 });
 
 describe("a project's Automation tab", () => {
-  it("holds its workflows, triggers and webhooks, each at its own address", async () => {
+  it("is where workflows, triggers and webhooks are: their old addresses are gone", async () => {
+    signedIn();
+    onProject();
+    await renderApp("/projects/kinase-atlas/triggers/");
+    expect(screen.queryByRole("navigation", { name: "Automation" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("Kinase Atlas");
+  });
+
+  it("holds its workflows, triggers and webhooks, each a tab under it", async () => {
     signedIn();
     onProject();
     answer(`GET ${BASE}/triggers`, []);
-    await renderApp("/projects/kinase-atlas/triggers/");
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
     const tabs = screen.getByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
       "aria-current",
@@ -301,7 +309,7 @@ describe("a project's Automation tab", () => {
     onProject();
     const { router } = await renderApp("/projects/kinase-atlas/automation/");
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/workflows/");
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/automation/workflows/");
     });
 
     cleanup();
@@ -312,7 +320,9 @@ describe("a project's Automation tab", () => {
     });
     const again = await renderApp("/projects/kinase-atlas/automation/");
     await waitFor(() => {
-      expect(again.router.state.location.pathname).toBe("/projects/kinase-atlas/webhooks/");
+      expect(again.router.state.location.pathname).toBe(
+        "/projects/kinase-atlas/automation/webhooks/",
+      );
     });
   });
 });

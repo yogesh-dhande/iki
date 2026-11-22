@@ -509,7 +509,7 @@ lists them.
 ## Webhooks
 
 Webhooks tell other systems, such as an ELN or LIMS, when something changes
-(ADR 0031). Project Admins add them on a project's Webhooks tab, and Org
+(ADR 0031). Project Admins add them under a project's Automation tab, and Org
 Admins add organization-wide ones at Settings → Webhooks. The API is under
 `/api/v1/projects/{id}/webhooks` and `/api/v1/webhooks`; tokens need the
 `webhooks` scope.

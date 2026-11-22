@@ -1467,7 +1467,7 @@ describe("webhooks", () => {
   it("are a project tab for its Admins only", async () => {
     signedIn();
     onWebhooks();
-    await renderApp("/projects/kinase-atlas/webhooks/");
+    await renderApp("/projects/kinase-atlas/automation/webhooks/");
     // One of Automation's three (ADR 0176): the tab is current, and its row says which.
     const tabs = screen.getByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
@@ -1500,7 +1500,7 @@ describe("webhooks", () => {
         run: [],
       },
     });
-    await renderApp("/projects/kinase-atlas/webhooks/");
+    await renderApp("/projects/kinase-atlas/automation/webhooks/");
     expect(
       within(screen.getByRole("navigation", { name: "Automation" })).queryByRole("link", {
         name: "Webhooks",
@@ -1512,7 +1512,7 @@ describe("webhooks", () => {
   it("checks the address and events before adding one", async () => {
     signedIn();
     onWebhooks([]);
-    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/webhooks/");
     await user.click(await screen.findByRole("button", { name: "Add webhook" }));
     expect(screen.getByText("Enter the address to send events to.")).toBeVisible();
     expect(screen.getByText("Choose at least one event.")).toBeVisible();
@@ -1528,7 +1528,7 @@ describe("webhooks", () => {
       answer(`GET ${HOOKS}`, page([HOOK]));
       return respond(201, { ...HOOK, ...(call.body as object), secret });
     });
-    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/webhooks/");
     await user.type(
       await screen.findByRole("textbox", { name: /Address/ }),
       " https://eln.example.com/hooks/iki ",
@@ -1562,7 +1562,7 @@ describe("webhooks", () => {
         { pointer: "#/url", detail: "Iki doesn’t send to private addresses." },
       ]),
     );
-    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/webhooks/");
     await user.type(await screen.findByRole("textbox", { name: /Address/ }), "https://10.0.0.1/");
     await user.click(screen.getByRole("checkbox", { name: /project\.updated/ }));
     await user.click(screen.getByRole("button", { name: "Add webhook" }));
@@ -1577,7 +1577,7 @@ describe("webhooks", () => {
     signedIn();
     onWebhooks();
     answer("GET /api/v1/webhook-policy", { project_webhooks: false });
-    await renderApp("/projects/kinase-atlas/webhooks/");
+    await renderApp("/projects/kinase-atlas/automation/webhooks/");
     expect(await screen.findByText(/so these don’t send/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Add webhook" })).toBeNull();
   });
@@ -1590,7 +1590,7 @@ describe("webhooks", () => {
       answer(`GET /api/v1/webhooks/${HOOK.id}`, { ...HOOK, active: false });
       return { ...HOOK, active: false };
     });
-    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const { user } = await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     expect(
       await screen.findByRole("heading", { name: /Webhook to eln\.example\.com/ }),
     ).toBeVisible();
@@ -1605,7 +1605,7 @@ describe("webhooks", () => {
   it("says why it's off, and leaves an Org Admin's switch to them", async () => {
     signedIn();
     onWebhook({ ...HOOK, active: false, disabled_reason: "org_admin" });
-    await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     expect(await screen.findByText(/Only an Org Admin can turn it back on/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Turn on" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send a test message" })).toBeNull();
@@ -1619,7 +1619,7 @@ describe("webhooks", () => {
       disabled_reason: "failing",
       failing_since: "2026-03-09T09:00:00Z",
     });
-    await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     const alert = await screen.findByText(/so Iki turned this webhook off/);
     expect(alert).toHaveTextContent("since 9 Mar 2026");
     expect(screen.getByRole("button", { name: "Turn on" })).toBeVisible();
@@ -1632,7 +1632,7 @@ describe("webhooks", () => {
       secret: "whsec_new",
       previous_secret_expires_at: "2026-03-15T09:00:00Z",
     });
-    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const { user } = await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     await user.click(await screen.findByRole("button", { name: "Rotate secret" }));
     const dialog = screen.getByRole("alertdialog", { name: "Rotate the signing secret?" });
     expect(calls("POST")).toEqual([]);
@@ -1649,14 +1649,14 @@ describe("webhooks", () => {
     answer(`GET ${HOOKS}`, page([]));
     answer("GET /api/v1/webhook-policy", { project_webhooks: true });
     answer(`DELETE /api/v1/webhooks/${HOOK.id}`, respond(204));
-    const { router, user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const { router, user } = await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     await user.click(await screen.findByRole("button", { name: "Delete webhook" }));
     const dialog = screen.getByRole("alertdialog", {
       name: "Delete the webhook to eln.example.com?",
     });
     await user.click(within(dialog).getByRole("button", { name: "Delete webhook" }));
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/webhooks/");
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/automation/webhooks/");
     });
     expect(await screen.findByText("Deleted the webhook to eln.example.com.")).toBeVisible();
   });
@@ -1670,7 +1670,7 @@ describe("webhooks", () => {
       `POST /api/v1/webhooks/${HOOK.id}/deliveries/${sent.id}/redeliver`,
       respond(202, { ...sent, status: "pending" }),
     );
-    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const { user } = await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
     const row = (await screen.findByText("Failed")).closest("li") as HTMLElement;
     expect(row).toHaveTextContent("2 attempts · Timed out after 15 seconds.");
     const details = within(row).getByRole("button", { name: "Details of project.updated" });

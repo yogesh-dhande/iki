@@ -98,11 +98,12 @@ filtered to the project.
   description, how many members it has and the reader's role. **Watch** chooses
   how the reader is told of what happens in it, as GitHub's does; **New** makes a
   record, a run or a workflow run there, for those who may.
-- **Automation's three keep their addresses.** Workflows, triggers and webhooks
-  stay at `/projects/<slug>/workflows/`, `triggers/` and `webhooks/`, with
-  their new and detail pages, so every link to them still works; they show as
-  a row of their own under the Automation tab. `/projects/<slug>/automation/`
-  opens the first of them the reader may see.
+- **Automation's three are under it.** Workflows, triggers and webhooks are at
+  `/projects/<slug>/automation/workflows/`, `triggers/` and `webhooks/`, with
+  their new and detail pages, as a row of their own under the Automation tab.
+  `/projects/<slug>/automation/` opens the first of them the reader may see:
+  workflows, or webhooks for an Admin who can't read the project. Their old
+  addresses are gone, with no redirect: Iki wasn't deployed anywhere yet.
 - **The Overview** counts its records by type, each opening that type's table
   held to the project; lists its latest changes (`GET /projects/{id}/changes`:
   its records' revisions, read by the same rules as its Entities tab); and

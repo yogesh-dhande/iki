@@ -35,9 +35,6 @@ export function useProject(): Project {
 
 const tab = { "aria-current": "page" } as const;
 
-/** The tabs Automation holds, each at its own address (ADR 0176). */
-const AUTOMATION = ["workflows", "triggers", "webhooks"] as const;
-
 /** "an Editor", "a Viewer": a role's label in a sentence. */
 function withArticle(label: string): string {
   return `${/^[AEIOU]/i.test(label) ? "an" : "a"} ${label}`;
@@ -55,13 +52,13 @@ function TabCount({ count }: { count: number | undefined }) {
 }
 
 /** The project's heading and tabs, shared by its pages: where it is, what it's called, who's
- * in it, and its tabs. Automation's three keep their own addresses, a row of their own. */
+ * in it, and its tabs. Automation's three are a row of their own under it. */
 export function ProjectTabs() {
   const project = useProject();
   const sides = useRequestSides(project);
   const path = useRouterState({ select: (state) => state.location.pathname });
   const section = path.slice(`/projects/${project.slug}/`.length).split("/")[0] ?? "";
-  const inAutomation = (AUTOMATION as readonly string[]).includes(section);
+  const inAutomation = section === "automation";
   const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
   const members = useQuery(membersQuery(project.id)).data;
   const counts = useQuery({ ...entityCountsQuery(project.id), enabled: project.can.read }).data;
@@ -77,11 +74,6 @@ export function ProjectTabs() {
     requestCounts && !requestCounts.includes(null)
       ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
-  const automationTab = project.can.read
-    ? "/projects/$slug/workflows/"
-    : project.can.manage_webhooks
-      ? "/projects/$slug/webhooks/"
-      : null;
   const summary = [
     project.description.split("\n")[0]?.trim(),
     members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
@@ -163,15 +155,9 @@ export function ProjectTabs() {
             Runs
           </Link>
         ) : null}
-        {automationTab ? (
-          <Link
-            to={automationTab}
-            params={{ slug: project.slug }}
-            // Current on any of its three: they're one tab.
-            activeOptions={{ exact: true, includeSearch: false }}
-            activeProps={{}}
-            {...(inAutomation ? tab : {})}
-          >
+        {/* It opens the first of its three the reader may see, and is current on any. */}
+        {project.can.read || project.can.manage_webhooks ? (
+          <Link to="/projects/$slug/automation/" params={{ slug: project.slug }} activeProps={tab}>
             Automation
           </Link>
         ) : null}
@@ -189,17 +175,29 @@ export function ProjectTabs() {
       {inAutomation ? (
         <nav className="subtabs" aria-label="Automation">
           {project.can.read ? (
-            <Link to="/projects/$slug/workflows/" params={{ slug: project.slug }} activeProps={tab}>
+            <Link
+              to="/projects/$slug/automation/workflows/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
               Workflows
             </Link>
           ) : null}
           {project.can.read ? (
-            <Link to="/projects/$slug/triggers/" params={{ slug: project.slug }} activeProps={tab}>
+            <Link
+              to="/projects/$slug/automation/triggers/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
               Triggers
             </Link>
           ) : null}
           {project.can.manage_webhooks ? (
-            <Link to="/projects/$slug/webhooks/" params={{ slug: project.slug }} activeProps={tab}>
+            <Link
+              to="/projects/$slug/automation/webhooks/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
               Webhooks
             </Link>
           ) : null}
@@ -220,7 +218,11 @@ function NewMenu({ project }: { project: Project }) {
     ...(project.can.run.length
       ? [
           { id: "run", label: "Run", to: "/projects/$slug/runs/new/" } as const,
-          { id: "workflow", label: "Workflow run", to: "/projects/$slug/workflows/new/" } as const,
+          {
+            id: "workflow",
+            label: "Workflow run",
+            to: "/projects/$slug/automation/workflows/new/",
+          } as const,
         ]
       : []),
   ];

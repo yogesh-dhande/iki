@@ -381,8 +381,8 @@ PAGES = [
     ("admin", "/account/apps/"),
     ("admin", "/account/notifications/"),
     ("org_admin", "/settings/email/"),
-    ("admin", "/projects/kinase-atlas/webhooks/"),
-    ("admin", "/projects/kinase-atlas/triggers/"),
+    ("admin", "/projects/kinase-atlas/automation/webhooks/"),
+    ("admin", "/projects/kinase-atlas/automation/triggers/"),
     ("org_admin", "/settings/webhooks/"),
     ("compute_admin", "/compute/"),
     ("compute_admin", "/compute/workers/"),
@@ -649,7 +649,7 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
         chosen=["project.updated"],
         by=world.users["admin"],
     )
-    page = open_as("admin", "/projects/kinase-atlas/webhooks/")
+    page = open_as("admin", "/projects/kinase-atlas/automation/webhooks/")
     page.get_by_role("link", name="eln.example.com").click()
     page.get_by_role("button", name="Details of ping").click()
     page.get_by_text("Message ID").wait_for()
@@ -706,16 +706,16 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
     page = open_as("admin", f"/projects/{world.project.slug}/")
     tabs = page.get_by_role("navigation", name="Project")
     tabs.get_by_role("link", name="Automation").click()
-    page.wait_for_url(re.compile(r"/workflows/$"))
+    page.wait_for_url(re.compile(r"/automation/workflows/$"))
     automation = page.get_by_role("navigation", name="Automation")
     automation.get_by_role("link", name="Triggers").click()
-    page.wait_for_url(re.compile(r"/triggers/$"))
+    page.wait_for_url(re.compile(r"/automation/triggers/$"))
     assert automation.get_by_role("link", name="Triggers").get_attribute("aria-current") == "page"
     assert tabs.get_by_role("link", name="Automation").get_attribute("aria-current") == "page"
     assert_clean(page)
     # Its own address opens the first of the three.
     page.goto(f"/projects/{world.project.slug}/automation/")
-    page.wait_for_url(re.compile(r"/workflows/$"))
+    page.wait_for_url(re.compile(r"/automation/workflows/$"))
     shown(page)
 
 

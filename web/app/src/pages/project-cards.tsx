@@ -281,7 +281,7 @@ export function Automation({ project }: { project: Project }) {
       <div className="box-body">
         {parts.length ? <p className="muted">{parts.join(" · ")}</p> : null}
         <p>
-          <Link to="/projects/$slug/workflows/" params={{ slug: project.slug }}>
+          <Link to="/projects/$slug/automation/" params={{ slug: project.slug }}>
             {project.can.manage_webhooks
               ? "Workflows, triggers and webhooks"
               : "Workflows and triggers"}
