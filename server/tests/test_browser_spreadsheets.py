@@ -108,6 +108,8 @@ def test_a_sample_manifest_is_imported_from_the_entities_tab(
         }
     )
     page.wait_for_url(re.compile(r"/entities/import/[0-9a-f-]+/$"), timeout=60_000)
+    # An import has an address of its own, to come back to.
+    page.reload()
 
     # 2. Its sheet and rows: the samples, their header under the title, the total left out.
     page.get_by_role("heading", level=3, name="Sheet and rows").wait_for(timeout=60_000)
