@@ -4500,6 +4500,187 @@ input[type="file"]::file-selector-button {
 .search-group-title {
   padding: 10px 16px 4px;
   font-size: 0.71875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.search-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 16px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.search-option:hover {
+  color: inherit;
+}
+
+.search-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.search-all {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.search-all:hover {
+  color: var(--accent-hover);
+}
+
+.search-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.search-dot-round {
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.search-hrid {
+  flex: none;
+  min-width: 86px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.search-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.search-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 0 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.search-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.search-project-mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--muted);
+}
+
+.search-meta .search-enter {
+  margin-left: 0;
+}
+
+.search-detail + .search-enter {
+  margin-left: auto;
+}
+
+.search-note:not(:empty) {
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.search-note p {
+  margin: 0;
+}
+
+.search-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.search-keys {
+  display: flex;
+  gap: 14px;
+}
+
+.search-promise {
+  margin-left: auto;
+}
+
+/* A phone: the palette fills the width, each result takes two lines, and there are no
+   keys to show. */
+@media (max-width: 600px) {
+  .search-overlay {
+    padding: 0.5rem;
+  }
+
+  .search-modal {
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .search-option {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-block: 6px;
+  }
+
+  .search-hrid {
+    min-width: 0;
+  }
+
+  .search-title {
+    flex: 1 1 0;
+  }
+
+  .search-meta {
+    flex-basis: 100%;
+    padding-left: 17px;
+  }
+
+  .search-keys,
+  .search-enter {
+    display: none;
+  }
+
+  .search-where,
+  .search-promise {
+    margin-left: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .search-modal {
+    border: 2px solid CanvasText;
+  }
+
+  .search-option[aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .search-pill[aria-pressed="true"] {
+    border: 2px solid Highlight;
+  }
+}
 
 /* --- The lists across projects (ADR 0176): All entities, a type's table, requests, runs,
    and a project's tabs, which are the same lists. --------------------------------------- */
@@ -4726,14 +4907,6 @@ input[type="file"]::file-selector-button {
   color: var(--muted);
 }
 
-.search-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 0 16px;
-  color: inherit;
-
 .menu-item {
   display: flex;
   align-items: center;
@@ -4872,172 +5045,6 @@ input[type="file"]::file-selector-button {
   text-decoration: none;
   cursor: pointer;
 }
-
-.search-option:hover {
-  color: inherit;
-}
-
-.search-option[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.search-all {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.search-all:hover {
-  color: var(--accent-hover);
-}
-
-.search-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 2px;
-  background: var(--accent);
-}
-
-.search-dot-round {
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.search-hrid {
-  flex: none;
-  min-width: 86px;
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  color: var(--accent);
-}
-
-.search-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-.search-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1 0 auto;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-.search-project {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.search-project-mark {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  border: 1px solid var(--muted);
-}
-
-.search-meta .search-enter {
-  margin-left: 0;
-}
-
-.search-detail + .search-enter {
-  margin-left: auto;
-}
-
-.search-note:not(:empty) {
-  padding: 22px 16px;
-  text-align: center;
-  color: var(--muted);
-}
-
-.search-note p {
-  margin: 0;
-}
-
-.search-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-.search-keys {
-  display: flex;
-  gap: 14px;
-}
-
-.search-promise {
-  margin-left: auto;
-}
-
-/* A phone: the palette fills the width, each result takes two lines, and there are no
-   keys to show. */
-@media (max-width: 600px) {
-  .search-overlay {
-    padding: 0.5rem;
-  }
-
-  .search-modal {
-    max-height: calc(100dvh - 1rem);
-  }
-
-  .search-option {
-    flex-wrap: wrap;
-    row-gap: 0;
-    padding-block: 6px;
-  }
-
-  .search-hrid {
-    min-width: 0;
-  }
-
-  .search-title {
-    flex: 1 1 0;
-  }
-
-  .search-meta {
-    flex-basis: 100%;
-    padding-left: 17px;
-  }
-
-  .search-keys,
-  .search-enter {
-    display: none;
-  }
-
-  .search-where,
-  .search-promise {
-    margin-left: 0;
-  }
-}
-
-@media (forced-colors: active) {
-  .search-modal {
-    border: 2px solid CanvasText;
-  }
-
-  .search-option[aria-selected="true"] {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
-  }
-
-  .search-pill[aria-pressed="true"] {
-    border: 2px solid Highlight;
-  }
 
 .view-tab:hover {
   color: var(--text);

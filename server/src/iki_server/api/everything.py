@@ -377,6 +377,8 @@ def _saved_views(me: User, q: str, limit: int) -> _Group:
             query=dict(s.query),
         )
         for s in shown
+        # Only a project's: the filter above names readable projects.
+        if s.project is not None
     ]
     return group
 
