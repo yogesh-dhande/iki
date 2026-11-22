@@ -40,7 +40,8 @@ POLICY = (
     "sandbox allow-scripts"
 )
 PAGE = (
-    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>Bookings</title>\n'
+    '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+    '<link rel="icon" href="data:,"><title>Bookings</title>\n'
     + frames.HARDEN_TAG
     + '<script type="module" src="/calendar.js" integrity="{integrity}" '
     'crossorigin="anonymous"></script>\n'

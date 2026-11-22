@@ -1121,3 +1121,18 @@ def test_hrid_sequences_move_past_kept_hrids_as_the_app_role() -> None:
         with pytest.raises(ProgrammingError, match="permission denied"), transaction.atomic():
             cursor.execute("SELECT setval(%s::regclass, 10)", [HRID_SEQUENCE])
         cursor.execute("RESET ROLE")
+
+
+def test_a_number_kept_from_the_source_is_never_handed_out_later_in_the_same_import(
+    world: World, tmp_path: Path
+) -> None:
+    """An HRID kept as it was there moves its sequence on at once, so a record renumbered
+    later in the same import can't be given that number too."""
+    from iki_server.bundles.applying import _Writer
+    from iki_server.runs import services as run_services
+    from iki_server.runs.models import HRID_PREFIX
+
+    ahead = int(run_services._next_hrid().rpartition("-")[2]) + 40
+    writer = _Writer(made=cast(Any, None), bundle=cast(Any, None), tmp=tmp_path)
+    writer._keep(HRID_PREFIX, f"{HRID_PREFIX}-{ahead:06d}")
+    assert int(run_services._next_hrid().rpartition("-")[2]) > ahead
