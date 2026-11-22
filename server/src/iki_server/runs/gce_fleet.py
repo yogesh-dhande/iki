@@ -173,7 +173,7 @@ class GceFleet(Fleet):
             # only once the template says so.
             boot_image=str(template.gcp["image"]),
             # A new version of its volumes makes a new machine (ADR 0076).
-            data=disks(setups.volumes_for(group.environment, place) or {}),
+            data=disks(group.volumes),
         )
         request.pop("requestId")
         request["instance"].pop("name")
@@ -222,10 +222,6 @@ class GceFleet(Fleet):
 
     def launch(self, group: Group, place: str) -> bool:
         template = group.template
-        volumes = setups.volumes_for(group.environment, place)
-        if volumes is None:
-            # Its setup fills volumes, and no version is ready here: its runs say so.
-            return False
         launch, token = launches.create(
             template=template.name,
             provisioner=template.provisioner,
@@ -235,7 +231,7 @@ class GceFleet(Fleet):
             namespace=place,
             once=group.once,
             spec=self.spec(group, place),
-            volumes=setups.provenance(volumes),
+            volumes=setups.provenance(group.volumes),
         )
         return self.start(
             launch,
@@ -244,7 +240,7 @@ class GceFleet(Fleet):
             once=group.once,
             token=token,
             markets=_markets(template),
-            data=disks(volumes),
+            data=disks(group.volumes),
         )
 
     def start(

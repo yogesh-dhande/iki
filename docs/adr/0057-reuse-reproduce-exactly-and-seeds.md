@@ -35,12 +35,23 @@ results depend on:
   uploaded twice is the same;
 - its plugin's settings;
 - each input's entity, at the revision it reads, with its type's schema
-  version.
+  version;
+- each managed volume's name and the ID of the setup build that filled it
+  ([ADR 0075](0075-environment-setup-builds-and-managed-volumes.md)). Build
+  IDs distinguish snapshots even when two builds report the same data
+  version or have the same version number in different places.
 
 Runs of local code (no commit) get no key, since that code may have changed
-in between. Reference data versions will join the key when managed volumes
-arrive. The seed isn't in the key, because a deterministic command doesn't
-depend on it.
+in between. The seed isn't in the key, because a deterministic command
+doesn't depend on it.
+
+**A run pins its reference data at launch.** Iki picks the newest ready,
+unretired build at the first eligible place in the binding. All attempts
+of that run must use those volumes, including retries and attempts packed
+with other runs. If no build is ready, the run queues without looking for
+results to reuse. The provisioner pins a build and completes the key when
+it can place the job. Once that run succeeds, a launch with the same
+inputs and build can reuse it.
 
 **A launch reuses an identical run's results.** The earlier run must:
 
@@ -68,11 +79,12 @@ linked within one request. Their duplicates are reused anyway (ADR 0056).
 **Reproduce exactly runs a run again, and writes nothing.**
 `POST /runs/{ref}/reproduce` (the run page's **Reproduce exactly**) queues a
 run with the original's commit, its action as launched, params, plugin
-settings and seed. It reads the inputs at the revisions the original read,
-even if they've changed since. Workers already lease only runs of the
+settings, seed and pinned volume builds. It reads the inputs at the
+revisions the original read, even if they've changed since. Workers lease only runs of the
 commit they have (ADR 0047). Iki refuses the request (409) when the
-deployment runs other code for the plugin, or when the original has no
-output to compare with. A run that reused or reproduced another one is
+deployment runs other code for the plugin, its pinned reference data has
+been retired or is unavailable here, or the original has no output to
+compare with. A run that reused or reproduced another one is
 reproduced as that one.
 
 The reproduction asks for approval and counts against quotas like a launch.
@@ -97,9 +109,10 @@ differences.
 - Launching an identical deterministic run is instant and free, and says
   which run's results it reused. Batches reuse run by run, so approval
   covers only the runs that will run.
-- A GxP reviewer can reproduce any run whose plugin commit is still
-  deployed, and gets a recorded yes or no with the differences. Reproductions
-  are themselves runs, with their own audit trail, attempts and logs.
+- A GxP reviewer can reproduce a run while its plugin commit and reference
+  data are still available, and gets a recorded yes or no with the
+  differences. Reproductions are themselves runs, with their own audit
+  trail, attempts and logs.
 - An action that wrongly declares `deterministic` (a fetch from a source
   that changes) would have its results reused when they shouldn't be. The
   manifest linter already warns on `deterministic` with `network`, and

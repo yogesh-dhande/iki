@@ -43,7 +43,7 @@ copied: once the script has succeeded and the pod has gone, the version is
 ready.
 
 **Runs mount their version's directory read-only.** Each run pod mounts the
-claim read-only, with the newest version's directory as its `subPath`, where
+claim read-only, with the pinned version's directory as its `subPath`, where
 the environment says. Writing to it fails, and the run sees only that
 version. Each attempt records it, as for snapshots.
 
@@ -54,7 +54,7 @@ rather than waiting for the first template's; with none ready, they wait
 there, saying why.
 
 **A retired or failed version's directory is removed by a Job.** Once a
-version isn't kept (it's retired and no live pod has it, or its build
+version isn't kept (it's retired and its last pinned run and pod have ended, or its build
 failed, timed out or was cancelled, and its pod has gone), the provisioner
 starts a Job in the place's namespace: the worker's image, as runs' user,
 with the claim's `path` mounted writable, running

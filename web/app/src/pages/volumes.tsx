@@ -44,8 +44,8 @@ const INTRO =
   "Some environments read reference data, such as a sequence database, from a volume their " +
   "setup script fills. A setup build runs the script on a machine of its own and keeps what " +
   "it wrote as a new version: a snapshot, or its own directory on a shared file system or in a " +
-  "bucket. Each " +
-  "run reads the newest version that isn’t retired, read-only, and records which it read.";
+  "bucket. A run pins the newest ready version that hasn’t been retired. Every attempt reads " +
+  "that same version read-only.";
 
 export function ComputeVolumes() {
   usePageTitle("Volumes");
@@ -414,8 +414,8 @@ function BuildRow({
         {build.error ? <p className="row-reason">{build.error.message}</p> : null}
         {build.retired_at && build.retired_by ? (
           <p className="row-meta">
-            Retired by {build.retired_by.name} <RelativeTime value={build.retired_at} />. Machines
-            that have it keep it; it’s deleted once none does.
+            Retired by {build.retired_by.name} <RelativeTime value={build.retired_at} />. This
+            version is kept until all runs pinned to it and all machines with a copy have ended.
           </p>
         ) : null}
         {open ? <BuildDetails build={build} /> : null}
@@ -504,9 +504,9 @@ function BuildRow({
           </p>
         ) : deciding === "retire" ? (
           <p>
-            New machines get the newest version that isn’t retired
-            {build.current ? "; if there’s none, the environment’s runs wait for one" : ""}.
-            Machines that have this one keep it, and it’s deleted once none does.
+            New runs use the newest ready version that isn’t retired.
+            {build.current ? " If none is ready, they wait." : ""} Runs already pinned to this
+            version can still start or retry with it.
           </p>
         ) : (
           <p>

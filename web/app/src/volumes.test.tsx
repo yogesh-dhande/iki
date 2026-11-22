@@ -301,7 +301,7 @@ describe("Compute → Volumes", () => {
     await user.click(card().getByRole("button", { name: "Retire SETUP-000001, version 1" }));
     const dialog = screen.getByRole("alertdialog", { name: "Retire version 1?" });
     expect(dialog).toHaveTextContent(
-      "New machines get the newest version that isn’t retired; if there’s none, the environment’s runs wait for one.",
+      "New runs use the newest ready version that isn’t retired. If none is ready, they wait. Runs already pinned to this version can still start or retry with it.",
     );
     await user.click(within(dialog).getByRole("button", { name: "Retire version" }));
     expect(await screen.findByText("Retired version 1 (SETUP-000001).")).toBeInTheDocument();

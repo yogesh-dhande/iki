@@ -521,11 +521,15 @@ class ActionRun(models.Model):
     params = models.JSONField(default=dict)
     #: The plugin's settings, as the deployment set them at launch (never secrets).
     plugin_settings = models.JSONField(default=dict)
+    #: The setup build pinned for each managed volume, as recorded on a machine's launch.
+    #: Empty when the run needs none; SQL NULL while it waits for its first ready build.
+    volumes = models.JSONField(default=dict, null=True, blank=True)
     #: For the command's random numbers: given as ``IKI_SEED``, and again when it's
     #: reproduced (ADR 0057). None for runs from before seeds.
     seed = models.PositiveIntegerField(null=True, blank=True)
     #: For a deterministic action: a hash of everything its results depend on, so an
-    #: identical run can reuse them (ADR 0057). Empty when it can't be reused.
+    #: identical run can reuse them (ADR 0057). While volumes are pending this holds the
+    #: hash of the other launch inputs, completed when the build is pinned.
     reuse_key = models.CharField(max_length=64, blank=True, default="")
     #: The identical run whose results it reused instead of running.
     reused_from = models.ForeignKey(
@@ -891,8 +895,8 @@ class SetupBuild(models.Model):
     """A run of an environment's setup script that fills its volumes, in one place (a
     Kubernetes namespace), then snapshots them: a new version of each (ADR 0075). It
     belongs to the deployment, not to a project: Compute admins ask for it, and approve
-    it when the environment says to. Runs then read the newest version that isn't
-    retired, and record which."""
+    it when the environment says to. Runs pin an available build and every attempt reads
+    its volumes."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as SETUP-000123.")
@@ -925,8 +929,8 @@ class SetupBuild(models.Model):
     #: What the data is, as the setup said (``data_version`` in its output), such as
     #: ``PDB 2026-10-01``. Runs record it with the version they read.
     data_version = models.CharField(max_length=200, blank=True, default="")
-    #: Once retired, runs no longer start with it; its snapshots are deleted once no
-    #: machine holds a copy.
+    #: Once retired, new runs cannot pin it. Its snapshots stay while a pinned run or
+    #: machine still needs them.
     retired_at = models.DateTimeField(null=True, blank=True)
     retired_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"

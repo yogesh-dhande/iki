@@ -38,6 +38,7 @@ from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import F
 from django.utils import timezone
+from jsonschema import Draft202012Validator
 
 from iki_server.accounts.models import SERVICE_ACCOUNT_DOMAIN, Kind, User
 from iki_server.audit import log as audit
@@ -88,6 +89,7 @@ from iki_server.runs.models import (
     RunOutput,
 )
 from iki_server.tasks import task
+from iki_spec import schemas
 from iki_spec.model import Field
 
 logger = structlog.get_logger("iki.bundles")
@@ -807,6 +809,7 @@ class _Writer:
             reason=line["reason"],
             tier=line["tier"],
             environment=line["environment"],
+            volumes=_attempt_volumes(line["attempts"]),
             params=line["params"],
             plugin_settings=line["plugin_settings"],
             seed=line["seed"],
@@ -997,6 +1000,20 @@ class _Writer:
     def _name(self, source_id: str | None) -> str | None:
         user = self._user(source_id)
         return user.get_full_name() if user is not None else None
+
+
+def _attempt_volumes(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The volume pin for reproducing the final attempt, whose output is compared.
+    Bundles keep the attempt's original JSON even if this deployment can't use it."""
+    if not attempts:
+        return None
+    volumes: dict[str, Any] = max(attempts, key=lambda a: a["attempt"])["volumes"]
+    if volumes:
+        schema = schemas.load("run-input")["properties"]["volumes"]
+        validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+        if not validator.is_valid(volumes) or len({v["build"] for v in volumes.values()}) != 1:
+            return None
+    return volumes
 
 
 @dataclass

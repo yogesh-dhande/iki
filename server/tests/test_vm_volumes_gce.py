@@ -420,7 +420,7 @@ def test_a_retired_version_goes_once_no_machine_has_it(world: World) -> None:
     machines = fleet(gce)
     first = build_version(world, gce, machines)
     record = ManagedVolume.objects.get(build=first)
-    queue_run(world)
+    run = queue_run(world)
     provisioner.tick(machines)
     holder = Launch.objects.get(setup=None, state=LaunchState.STARTING)
     retired = api_as(world, "compute_admin").post(f"/compute/setups/{first.hrid}/retire")
@@ -428,6 +428,7 @@ def test_a_retired_version_goes_once_no_machine_has_it(world: World) -> None:
     provisioner.tick(machines, later(6))
     (image,) = gce.images_made.values()
     assert image["status"] == "READY"  # a machine has a copy
+    assert api_as(world, "runner").post(f"/runs/{run['id']}/cancel", {}).status_code == 200
     live(gce, holder)["status"] = "TERMINATED"
     provisioner.tick(machines, later(12))
     provisioner.tick(machines, later(18))

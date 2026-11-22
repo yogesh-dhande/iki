@@ -333,11 +333,15 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     )
     # A cluster's worker leases what its Slurm templates take, rather than what fits it.
     cluster = worker.slurm_cluster
+    # Only a machine with the run's pinned reference data can execute it. A run
+    # waiting for its first build has SQL NULL here and matches no machine.
+    volumes = dict(worker.launch.volumes) if worker.launch is not None else {}
     candidates = Job.objects.filter(
         Q() if cluster else _fits(worker),
         _runnable(worker),
         # A later attempt waits for its run's checkpoint to be checked (ADR 0069).
         checkpoints.ready_to_resume(),
+        run__volumes=volumes,
         state=JobState.QUEUED,
         tier=worker.tier,
         queued_at__lte=Now(),
@@ -439,8 +443,6 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             image = catalog.environment(action).image if action is not None else None
             build = launches.image_digest(image) if image else ""
         members = _pack(job, run)
-        # The versions of the environment's volumes its machine has (ADR 0075).
-        volumes = dict(worker.launch.volumes) if worker.launch is not None else {}
         job.state = JobState.LEASED
         job.template = template
         job.worker = worker
@@ -510,6 +512,7 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
             run__batch_id=run.batch_id,
             run__plugin_version=run.plugin_version,
             run__plugin_sha=run.plugin_sha,
+            run__volumes=run.volumes,
             tier=job.tier,
             environment=job.environment,
             labels=job.labels,

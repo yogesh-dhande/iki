@@ -10,7 +10,7 @@ Each tick, for each build in a namespace the provisioner manages:
   build has succeeded: a new version of each volume, which machines started for the
   environment's runs get a copy of. The disks are then deleted.
 - **Ended otherwise:** its disks, and any snapshots, are deleted.
-- **Retired:** its snapshots are deleted once no live machine has a copy of them.
+- **Retired:** its snapshots are deleted once all pinned runs and their machines have ended.
 
 Disks and snapshots carry the label ``iki.ikisci.org/setup`` with their build's ID; any
 whose build is gone are deleted.
@@ -36,6 +36,7 @@ from typing import Any
 import structlog
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.runs import catalog, launches, setups
@@ -51,9 +52,13 @@ from iki_server.runs.kubernetes import (
     snapshot_manifest,
 )
 from iki_server.runs.models import (
+    FINISHED,
+    SETUP_FINISHED,
+    ActionRun,
     Launch,
     LaunchState,
     ManagedVolume,
+    RunStatus,
     SetupBuild,
     SetupState,
     VolumeState,
@@ -63,7 +68,6 @@ from iki_spec.compute import Template
 __all__ = [
     "SETUP_LABEL",
     "fail",
-    "in_use",
     "kept",
     "ready_to_start",
     "record_shared",
@@ -88,13 +92,6 @@ START_TRIES = 3
 #: time, up to the most. Those tries don't count towards :data:`START_TRIES`.
 BACKOFF = timedelta(seconds=30)
 MAX_BACKOFF = timedelta(minutes=10)
-#: A build in these states has ended.
-FINISHED = (
-    SetupState.SUCCEEDED,
-    SetupState.FAILED,
-    SetupState.TIMED_OUT,
-    SetupState.CANCELLED,
-)
 #: How long a snapshot may take to become ready before the build fails.
 SNAPSHOT_WITHIN = timedelta(hours=6)
 
@@ -221,10 +218,17 @@ def stuck(build: SetupBuild, now: datetime, within: timedelta) -> bool:
 
 
 def kept(build: SetupBuild) -> bool:
-    """Whether a finished build's snapshots are kept: it succeeded, and it isn't retired or
-    a live machine still has a copy."""
-    return build.state == SetupState.SUCCEEDED and (
-        build.retired_at is None or in_use(str(build.pk))
+    """Keep a retired build until its last pinned run and its last machine have ended."""
+    if build.state != SetupState.SUCCEEDED:
+        return False
+    if build.retired_at is None:
+        return True
+    pin = Q(pk__in=[])
+    for name in build.spec["volumes"]:
+        pin |= Q(volumes__contains={name: {"build": str(build.pk)}})
+    return (
+        ActionRun.objects.filter(pin, status__in=set(RunStatus) - FINISHED).exists()
+        or Launch.objects.filter(pin).exclude(state=LaunchState.ENDED).exists()
     )
 
 
@@ -256,7 +260,7 @@ def to_remove(place: str) -> dict[SetupBuild, list[ManagedVolume]]:
     kept, and no machine of their build still writing."""
     found: dict[SetupBuild, list[ManagedVolume]] = {}
     going = ManagedVolume.objects.filter(
-        place=place, deleted_at__isnull=True, build__state__in=FINISHED
+        place=place, deleted_at__isnull=True, build__state__in=SETUP_FINISHED
     ).select_related("build")
     for record in going.order_by("created_at"):
         build = record.build
@@ -479,16 +483,6 @@ def _published(
 
 
 # --- Tidying up -------------------------------------------------------------------------------
-
-
-def in_use(build_id: str) -> bool:
-    """Whether a live machine has a copy of the build's volumes."""
-    live = Launch.objects.exclude(state=LaunchState.ENDED).exclude(volumes={})
-    return any(
-        (volume or {}).get("build") == build_id
-        for volumes in live.values_list("volumes", flat=True)
-        for volume in volumes.values()
-    )
 
 
 def _tidy(cluster: Cluster, pods: RunPods, namespace: str) -> None:

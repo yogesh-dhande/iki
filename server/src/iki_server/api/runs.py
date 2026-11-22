@@ -38,6 +38,7 @@ from iki_server.runs import (
     quotas,
     secrets,
     services,
+    setups,
     slurm,
     triggers,
     workers,
@@ -64,6 +65,8 @@ from iki_server.runs.models import (
     RunOutput,
     RunPark,
     RunStatus,
+    SetupBuild,
+    SetupState,
     TriggerFiring,
     WorkflowRun,
 )
@@ -940,6 +943,17 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         r.pk: r
         for r in services.visible_runs(me).filter(pk__in=linked).select_related("project__team")
     }
+    pins = {
+        build
+        for r in [*runs, *refs.values()]
+        if r.volumes and (build := setups.build_id(r.volumes))
+    }
+    available_builds = {
+        str(pk)
+        for pk in SetupBuild.objects.filter(
+            pk__in=pins, state=SetupState.SUCCEEDED, retired_at__isnull=True
+        ).values_list("pk", flat=True)
+    }
     shas = {r.action.split(".")[0] for r in runs}
     here = {
         plugin: (services.plugin_sha(plugin), registry.plugins()[plugin].version)
@@ -970,6 +984,12 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         for r in runs
         if r.status == RunStatus.QUEUED and r.tier in ("container", "vm")
     }
+    awaiting_volumes = {
+        _qualified_environment(r)
+        for r in runs
+        if r.status == RunStatus.QUEUED and r.volumes is None
+    }
+    missing = {env: setups.missing(env) for env in awaiting_volumes}
     # A Slurm cluster's runs wait for its worker, or its templates' room (ADR 0133).
     starting = {**provisioner.waiting(machines), **slurm.waiting(machines)}
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
@@ -1058,7 +1078,9 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
             "messages": outputs.get(run.pk, {}).get("messages") or [],
             "waiting": (
-                holds[run.tier].why(run.project) or starting.get(_qualified_environment(run))
+                holds[run.tier].why(run.project)
+                or (missing.get(_qualified_environment(run)) if run.volumes is None else None)
+                or starting.get(_qualified_environment(run))
                 if run.status == RunStatus.QUEUED
                 else None
             ),
@@ -1089,7 +1111,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
                 "cancel": not run.finished
                 and run.cancel_requested_at is None
                 and may_cancel[(run.project_id, run.tier)],
-                "reproduce": _may_reproduce(run, refs, here, may_cancel),
+                "reproduce": _may_reproduce(run, refs, here, may_cancel, available_builds),
                 "run_again": run.reused_from_id is not None
                 and catalog.action(run.action) is not None
                 and may_cancel[(run.project_id, run.tier)],
@@ -1131,14 +1153,19 @@ def _may_reproduce(
     refs: dict[Any, ActionRun],
     here: dict[str, tuple[str, str]],
     may_run: dict[tuple[Any, str], bool],
+    available_builds: set[str],
 ) -> bool:
-    """Whether reproducing the run would be taken: what it reproduces (a run that reused or
-    reproduced another stands for it) ended with an output, at code this deployment has."""
+    """Whether the original ended with an output and this deployment still has its
+    plugin commit and reference data."""
     linked = run.reused_from_id or run.reproduces_id
     original = refs.get(linked) if linked else run
     if original is None or not _has_output(original):
         return False
     if here.get(original.action.split(".")[0]) != (original.plugin_sha, original.plugin_version):
+        return False
+    if original.volumes is None or (
+        original.volumes and setups.build_id(original.volumes) not in available_builds
+    ):
         return False
     return may_run.get((original.project_id, original.tier), False)
 

@@ -690,8 +690,8 @@ export interface paths {
         put?: never;
         /**
          * Retire a version of an environment's volumes
-         * @description New machines get the newest version that isn't retired (or none, and its runs wait).
-         *     Machines that have it keep it; its snapshots are deleted once none does.
+         * @description Retire this version for new runs. Its data stays available until every run pinned
+         *     to it has ended and every machine that mounted it has gone.
          */
         post: operations["iki_server_api_setups_retire_setup"];
         delete?: never;
