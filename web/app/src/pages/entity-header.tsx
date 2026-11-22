@@ -31,6 +31,7 @@ import {
 } from "../entities";
 import { entityAppsQuery } from "../apps";
 import { lineageGraphQuery, type LineageEntity, type LineageGraph } from "../lineage";
+import { PhoneActions, TopBar, usePhone } from "../page-top";
 import { ExportDialog, exportFormats } from "./entity-export";
 import { signaturesQuery } from "./entity-signatures";
 import { StateBadges } from "./entity-state";
@@ -130,55 +131,50 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
   // The project's record, on every tab: other projects' records have its HRID too.
   const search = recordSearch(entity);
   const trail = trailCount(entity);
+  const phone = usePhone();
+  const actions = <RecordActions entity={entity} type={type} />;
   return (
     <>
-      {/* Where it is, its title, then what can be done with it: beside where it is on a
-          wide screen, under its title on a phone. */}
-      <div className="record-header">
-        <nav aria-label="Breadcrumb" className="crumbs">
-          <ol>
-            {/* The lists of everything the reader can read, across projects (ADR 0176). */}
-            <li>
-              <Link to="/entities/">Entities</Link>
-            </li>
-            <li>
-              <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
-                {type?.label_plural ?? type?.label ?? entity.type}
-              </Link>
-            </li>
-            <li>
-              <span aria-current="page">{entity.hrid}</span>
-            </li>
-          </ol>
-        </nav>
-        <div className="record-heading">
-          <div className="record-title">
-            <PageTitle>{entity.title}</PageTitle>
-            {entity.title !== entity.hrid ? <code className="id-chip">{entity.hrid}</code> : null}
-            <StatusPills entity={entity} type={type} />
-          </div>
-          <p className="record-meta">
-            {type ? (
-              <Link to="/types/$/" params={{ _splat: type.name }}>
-                {type.label}
-              </Link>
-            ) : (
-              <code>{entity.type}</code>
-            )}
-            {entity.owner_project ? (
-              <>
-                {" · "}
-                <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
-                  {entity.owner_project.name}
-                </Link>
-              </>
-            ) : null}
-            {" · changed "}
-            <RelativeTime value={entity.updated_at} />
-          </p>
+      {/* Where it is, in the lists of everything the reader can read, across projects, and
+          what can be done with it: in the bar across the top of the page (ADR 0176). On a
+          phone its title comes first, then its actions, under it. */}
+      <TopBar
+        crumbs={[
+          <Link to="/entities/">Entities</Link>,
+          <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
+            {type?.label_plural ?? type?.label ?? entity.type}
+          </Link>,
+          entity.hrid,
+        ]}
+        actions={phone ? undefined : actions}
+      />
+      <div className="record-heading">
+        <div className="record-title">
+          <PageTitle>{entity.title}</PageTitle>
+          {entity.title !== entity.hrid ? <code className="id-chip">{entity.hrid}</code> : null}
+          <StatusPills entity={entity} type={type} />
         </div>
-        <RecordActions entity={entity} type={type} />
+        <p className="record-meta">
+          {type ? (
+            <Link to="/types/$/" params={{ _splat: type.name }}>
+              {type.label}
+            </Link>
+          ) : (
+            <code>{entity.type}</code>
+          )}
+          {entity.owner_project ? (
+            <>
+              {" · "}
+              <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
+                {entity.owner_project.name}
+              </Link>
+            </>
+          ) : null}
+          {" · changed "}
+          <RelativeTime value={entity.updated_at} />
+        </p>
       </div>
+      {phone ? <PhoneActions>{actions}</PhoneActions> : null}
       <nav className="tabs record-tabs" aria-label="Record" ref={nav}>
         <Link
           to="/entities/$ref/"

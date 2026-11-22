@@ -452,18 +452,17 @@ export function WorkflowRunPage() {
   return (
     <>
       <PageHeader
-        eyebrow={
-          project ? (
-            <>
-              <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
-                {project.name}
-              </Link>
-              {" · Workflow"}
-            </>
-          ) : (
-            "Workflow"
-          )
-        }
+        crumbs={[
+          <Link to="/runs/">Runs</Link>,
+          ...(project
+            ? [
+                <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
+                  {project.name}
+                </Link>,
+              ]
+            : []),
+          run.hrid,
+        ]}
         title={run.label}
         badge={<Badge>{run.hrid}</Badge>}
         actions={

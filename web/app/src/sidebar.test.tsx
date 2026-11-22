@@ -16,8 +16,9 @@ import type { Schemas } from "@ikisci/sdk";
 import { queryClient } from "./api";
 import { swatchOf } from "./project-color";
 import { createAppRouter } from "./router";
-import { adminLink, currentOf, ENTITIES_COOKIE, initials } from "./sidebar";
+import { adminLink, currentOf, ENTITIES_COOKIE, entitiesOpen, initials } from "./sidebar";
 import { answer, calls, ME, page, project, respond, signedIn } from "./test-server";
+import { typeSwatch } from "./type-color";
 
 async function renderApp(path: string) {
   const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
@@ -53,6 +54,11 @@ afterEach(() => {
   document.cookie = `${ENTITIES_COOKIE}=; path=/; max-age=0`;
 });
 
+/** Entities open, as a reader who opened it left it: it lists the types. */
+function leftOpen(): void {
+  document.cookie = `${ENTITIES_COOKIE}=open; path=/`;
+}
+
 describe("what it lists", () => {
   it("lists each type the reader can read, with how many, and links to its table", async () => {
     signedIn();
@@ -64,11 +70,17 @@ describe("what it lists", () => {
       ],
       total: 1203,
     });
+    leftOpen();
     await renderApp("/projects/");
     const entities = within(nav()).getByRole("button", { name: "Entities" });
     expect(entities).toHaveAttribute("aria-expanded", "true");
     const plasmid = await within(nav()).findByRole("link", { name: "Plasmid 3" });
     expect(plasmid).toHaveAttribute("href", "/entities/types/iki/dna.Plasmid/");
+    // Each type's dot, its color from its name.
+    expect(plasmid.querySelector(".type-dot")).toHaveAttribute(
+      "data-swatch",
+      String(typeSwatch("iki/dna.Plasmid")),
+    );
     expect(within(nav()).getByRole("link", { name: "Primer 1,200" })).toBeVisible();
     expect(within(nav()).getByRole("link", { name: "All entities 1,203" })).toHaveAttribute(
       "href",
@@ -83,6 +95,7 @@ describe("what it lists", () => {
       types: [{ type: "iki/dna.Plasmid", label: "Plasmid", count: null }],
       total: null,
     });
+    leftOpen();
     await renderApp("/projects/");
     const plasmid = await within(nav()).findByRole("link", { name: "Plasmid" });
     expect(plasmid).toHaveAttribute("href", "/entities/types/iki/dna.Plasmid/");
@@ -100,6 +113,7 @@ describe("what it lists", () => {
       ],
       total: 11,
     });
+    leftOpen();
     await renderApp("/projects/");
     const lims = await within(nav()).findByRole("link", { name: "Sample iki/example_lims 2" });
     expect(lims.querySelector(".type-plugin")).toHaveTextContent("iki/example_lims");
@@ -111,6 +125,7 @@ describe("what it lists", () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
     answer("GET /api/v1/entities/counts", respond(503));
+    leftOpen();
     await renderApp("/projects/");
     await waitFor(() => {
       expect(calls("GET", "/api/v1/entities/counts")).toHaveLength(1);
@@ -124,18 +139,52 @@ describe("what it lists", () => {
     ).toEqual(["All entities"]);
   });
 
+  it("is open on the entities' pages and closed elsewhere, until the reader says", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    answer("GET /api/v1/entity-types", []);
+    const { router } = await renderApp("/projects/");
+    const entities = () => within(nav()).getByRole("button", { name: "Entities" });
+    // Closed, its types don't push Requests, Runs and the rest out of sight.
+    expect(entities()).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav()).queryByRole("link", { name: "All entities" })).toBeNull();
+    expect(within(nav()).getByRole("link", { name: "Runs" })).toBeVisible();
+    await router.navigate({ to: "/entities/types/$/", params: { _splat: "iki/dna.Plasmid" } });
+    await waitFor(() => {
+      expect(entities()).toHaveAttribute("aria-expanded", "true");
+    });
+    await router.navigate({ to: "/projects/" });
+    await waitFor(() => {
+      expect(entities()).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
   it("stays open or closed as the reader left it, on every page", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    const { user } = await renderApp("/projects/");
+    const { router, user } = await renderApp("/projects/");
     await user.click(within(nav()).getByRole("button", { name: "Entities" }));
     expect(within(nav()).getByRole("button", { name: "Entities" })).toHaveAttribute(
       "aria-expanded",
-      "false",
+      "true",
     );
-    expect(within(nav()).queryByRole("link", { name: "All entities" })).toBeNull();
     // The server reads it too, to draw its pages the same way.
+    expect(document.cookie).toContain(`${ENTITIES_COOKIE}=open`);
+    await router.navigate({ to: "/notifications/" });
+    await waitFor(() => {
+      expect(within(nav()).getByRole("link", { name: "All entities" })).toBeVisible();
+    });
+    await user.click(within(nav()).getByRole("button", { name: "Entities" }));
+    expect(within(nav()).queryByRole("link", { name: "All entities" })).toBeNull();
     expect(document.cookie).toContain(`${ENTITIES_COOKIE}=closed`);
+  });
+
+  it("starts open where its pages are, and closed elsewhere", () => {
+    expect(entitiesOpen("/entities/PLS-000001/", undefined)).toBe(true);
+    expect(entitiesOpen("/entities/types/iki/dna.Plasmid/", undefined)).toBe(true);
+    expect(entitiesOpen("/requests/", undefined)).toBe(false);
+    expect(entitiesOpen("/requests/", "open")).toBe(true);
+    expect(entitiesOpen("/entities/", "closed")).toBe(false);
   });
 
   it("lists their projects, marks the one they're on, and offers a new one", async () => {
@@ -149,8 +198,10 @@ describe("what it lists", () => {
     const here = within(nav()).getByRole("link", { name: "Variant Calls" });
     expect(here).toHaveAttribute("aria-current", "page");
     // Its color, as the server's sidebar draws it for the same ID (test_web_app.py).
-    expect(here.querySelector(".swatch")).toHaveAttribute("data-swatch", "8");
-    expect(swatchOf("00000000-0000-7000-8000-000000000001")).toBe(2);
+    expect(here.querySelector(".swatch")).toHaveAttribute("data-swatch", "2");
+    expect(swatchOf("00000000-0000-7000-8000-000000000001")).toBe(4);
+    // And a type's, from its name, as iki.js and the server work it out (test_web_app.py).
+    expect(swatchOf("iki/dna.Plasmid")).toBe(2);
     expect(within(nav()).getByRole("link", { name: "All projects" })).not.toHaveAttribute(
       "aria-current",
     );
@@ -262,6 +313,15 @@ describe("which item is current", () => {
 });
 
 describe("the account menu", () => {
+  it("marks its person with their initials, on the swatch their ID picks", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const mark = screen.getByRole("button", { name: "Rosalind Franklin" }).querySelector(".avatar");
+    expect(mark).toHaveTextContent("RF");
+    expect(mark).toHaveAttribute("data-swatch", String(swatchOf(ME.id)));
+  });
+
   it("closes on Escape, and the focus goes back to its button", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));

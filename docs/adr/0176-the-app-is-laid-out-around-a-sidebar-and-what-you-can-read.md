@@ -112,7 +112,36 @@ filtered to the project.
 - **Each project has a color,** a small square beside its name. Projects have
   no color to choose, so each takes one of eight from its ID: the same
   everywhere and for everyone, at 3:1 or more against the page in both themes.
-  People's initials take theirs the same way.
+  People's initials take theirs the same way, from their ID.
+- **Each entity type has a color too,** a small dot before its name wherever
+  types are listed: the sidebar, the type pills, the Type column, search
+  everything, a project's counts, and beside the type's table's title. It's one
+  of the same eight, from the type's name (`iki/dna.Plasmid`), so it's the same
+  in every deployment that has the type. The hash is FNV-1a then MurmurHash3's
+  finalizer: FNV-1a alone takes its low bits from its characters' low bits,
+  which crowds names that share a prefix onto a few swatches. The app,
+  `iki.js` and the server compute it alike, and tests pin the same values on
+  each. The dot is decorative; the name beside it is what's read.
+
+**Every page has the same header.** A bar 46px high runs across the top of
+the page's column: the breadcrumb on its left and the page's actions on its
+right, primary last. Below it are the page's title and a one-line
+description beside it. A description that doesn't fit, or a page with more to
+say (a type's table links to the type), adds an (i) button that opens the
+whole of it in a toggletip. A record's page keeps its title row (its name, ID
+and badges) under the same bar.
+
+- **The frame draws the bar, the page fills it.** `PageHeader`, or `TopBar`
+  for a page with its own title row, portals the page's crumbs and actions
+  into the bar, so they stay in the page's React tree with its state.
+- **Pages inside frames share it.** A project's tabs give the project's
+  breadcrumb and its New menu; a tab may give its own. For each slot the
+  deepest route's wins, so a tab without actions keeps the project's. A
+  breadcrumb that's only the page's title gives way to a frame's real one.
+- **The admin area** has a bar of its own, "Admin / page", which its pages
+  fill with their actions the same way.
+- **On a phone the title comes first.** The bar keeps the breadcrumb, and a
+  page's actions go under its title: a page with `PageHeader`, and a record.
 
 **A record shows its values. Who changed them is on demand.** The line under
 each field goes. Each field has a small history button that shows its last
@@ -219,8 +248,10 @@ No page loads fonts or scripts from outside the deployment.
   `/saved-searches/<id>/`, on its project's table, or All entities for a
   search of every project, so a link to one keeps working as the table's
   address changes.
-- **Entities stays open or closed** as each person left it. This is kept in
-  a cookie, so the server draws it the same way without a flash. Its types
+- **Entities is open on its own pages and closed elsewhere,** until the
+  person opens or closes it, after which it stays as they left it. That
+  choice is kept in a cookie, so the server draws it the same way without a
+  flash. On a record's page its type is current, not All entities. Its types
   are those the counts list, as All entities counts them; where counting
   would be slow they're listed without numbers, and if the counts can't be
   read, Entities holds All entities alone.
@@ -231,9 +262,13 @@ No page loads fonts or scripts from outside the deployment.
   `iki:search` event, as ⌘K does. The palette binds the shortcut, once a
   page; the sidebar binds none of its own. A server page shows the button
   only where it has loaded the palette.
+- **The list scrolls on its own,** between the brand and search at the top
+  and the account at the foot, which stay put. On load, and as the items
+  above it arrive, the current item is scrolled into view.
+- **The brand** is Iki's mark, then the organization's name.
 - **The account menu** shows your name and email, notification preferences,
-  authorized apps and sign-out. Error pages keep the sidebar, so you can
-  leave them by its links.
+  authorized apps and sign-out. The admin area's sidebar ends with the same
+  menu. Error pages keep the sidebar, so you can leave them by its links.
 - **On a narrow screen** (below 896px) the drawer is a modal dialog. The page
   behind it can't be reached until it closes, by Escape, its close button,
   the backdrop or a link. Without JavaScript, the sidebar shows open above
@@ -243,8 +278,9 @@ No page loads fonts or scripts from outside the deployment.
   1.4.11 asks of a control's edge. Borders that only divide are lighter.
 - **The Inter subsets** are Latin, Latin Extended and Greek; other scripts
   fall back to the system's font.
-- **Marks:** a project's mark in the sidebar is its color's square, worked
-  out the same way by the server's pages and the app.
+- **Marks:** a project's mark in the sidebar is its color's square, a type's
+  is its color's dot, and a person's is their initials on their color. Each
+  is worked out the same way by the server's pages and the app.
 
 ### The lists, in detail
 

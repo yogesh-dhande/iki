@@ -53,7 +53,6 @@ import {
   ConfirmDialog,
   Loading,
   PageHeader,
-  PageTitle,
   ProblemAlert,
   RelativeTime,
   TextField,
@@ -232,15 +231,10 @@ export function AllRuns() {
   const chosen = projects.find((p) => p.slug === search.project);
   return (
     <>
-      <div className="list-header">
-        <div className="list-title">
-          <PageTitle>Runs</PageTitle>
-          <p className="muted">
-            Every run in the projects you belong to, newest first. Runs in projects you aren’t in
-            never appear.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Runs"
+        description="Every run in the projects you belong to, newest first. Runs in projects you aren’t in never appear."
+      />
       <RunList
         project={chosen}
         across={{
@@ -1487,18 +1481,17 @@ export function RunPage() {
   return (
     <>
       <PageHeader
-        eyebrow={
-          project ? (
-            <>
-              <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
-                {project.name}
-              </Link>
-              {" · Run"}
-            </>
-          ) : (
-            "Run"
-          )
-        }
+        crumbs={[
+          <Link to="/runs/">Runs</Link>,
+          ...(project
+            ? [
+                <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
+                  {project.name}
+                </Link>,
+              ]
+            : []),
+          run.hrid,
+        ]}
         title={label}
         badge={
           <>

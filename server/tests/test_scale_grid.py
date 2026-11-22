@@ -341,11 +341,16 @@ def test_the_grid_stays_responsive(rows: int) -> None:
         print(f"{name}: {seconds * 1000:.0f} ms")  # noqa: T201 - the load test's report
     # A field without an index: sorting this many by it would take too long, which the
     # grid hears at once, not when its time is up.
-    began = time.perf_counter()
-    unindexed = client.call(
-        "POST", "/entities/search", grid | {"sort": {"field": "temperature_optimum"}}
-    )
-    took["by an unindexed field"] = time.perf_counter() - began
+    # Timed as the pages are, the median of a few tries after one to warm up; it answers
+    # 422 at scale, so not through _timed.
+    by_unindexed = grid | {"sort": {"field": "temperature_optimum"}}
+    unindexed = client.call("POST", "/entities/search", by_unindexed)
+    tries = []
+    for _ in range(3):
+        began = time.perf_counter()
+        client.call("POST", "/entities/search", by_unindexed)
+        tries.append(time.perf_counter() - began)
+    took["by an unindexed field"] = statistics.median(tries)
     if rows > search.UNINDEXED_SORT_MAX:
         assert unindexed.status_code == 422, unindexed.content[:300]
         said = unindexed.json()

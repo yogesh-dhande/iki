@@ -21,7 +21,7 @@
 import { ApiError, unwrap } from "@ikisci/sdk";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useState, type SubmitEvent } from "react";
+import { useState, type ReactNode, type SubmitEvent } from "react";
 
 import { iki, useApiMutation } from "../api";
 import {
@@ -525,6 +525,20 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
 
 // --- Edit --------------------------------------------------------------------------
 
+/** Where its edit form is: Entities, its type's table, the record, then Edit. */
+function editCrumbs(entity: Entity, type: EntityType | undefined): ReactNode[] {
+  return [
+    <Link to="/entities/">Entities</Link>,
+    <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
+      {type?.label_plural ?? entity.type}
+    </Link>,
+    <Link to="/entities/$ref/" params={{ ref: entity.hrid }} search={recordSearch(entity)}>
+      {entity.hrid}
+    </Link>,
+    "Edit",
+  ];
+}
+
 export function EditEntity() {
   const { ref } = useParams({ from: "/entities/$ref/edit" });
   const { project } = useSearch({ from: "/entities/$ref" });
@@ -535,7 +549,7 @@ export function EditEntity() {
   if (!type || !entity.can.edit || entity.archived) {
     return (
       <section className="card form-card">
-        <PageHeader title={`Edit ${entity.title}`} />
+        <PageHeader crumbs={editCrumbs(entity, type)} title={`Edit ${entity.title}`} />
         <p>
           {!type
             ? `Its type, ${entity.type}, isn’t installed any more, so it can’t be edited.`
@@ -665,14 +679,7 @@ function EditEntityForm({
   return (
     <>
       <section className="card form-card">
-        <PageHeader
-          eyebrow={
-            <Link to="/entities/$ref/" params={{ ref: opened.hrid }} search={recordSearch(opened)}>
-              {opened.hrid}
-            </Link>
-          }
-          title={`Edit ${opened.title}`}
-        />
+        <PageHeader crumbs={editCrumbs(opened, type)} title={`Edit ${opened.title}`} />
         {conflict ? (
           <div className="alert alert-warning" role="alert">
             <p>

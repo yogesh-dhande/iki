@@ -309,6 +309,229 @@ main:focus {
   font-size: var(--text-sm);
 }
 
+/* The web app's main column: the bar across its top (page-top.tsx), with the page's
+   breadcrumb on the left and its actions on the right, then the page, which keeps the
+   width it asks for. */
+main.app-main {
+  max-width: none;
+  padding: 0;
+}
+
+.page-body {
+  width: 100%;
+  margin: 0 auto;
+  padding: calc(18rem / 13) calc(20rem / 13) calc(32rem / 13);
+}
+
+:is(body, #root):has(> .sidebar) > main .page-body {
+  margin: 0;
+}
+
+.page-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13) calc(12rem / 13);
+  min-height: calc(46rem / 13);
+  padding: calc(8rem / 13) calc(20rem / 13);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.page-top[hidden] {
+  display: none;
+}
+
+/* Outside a frame (a page drawn on its own, as in a test): above the page's title. */
+.page-top-inline {
+  min-height: 0;
+  margin-bottom: calc(12rem / 13);
+  padding: 0;
+  border: 0;
+}
+
+.page-top-crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-top-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+.page-top-actions:empty {
+  display: none;
+}
+
+.page-top .crumbs {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6rem / 13);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-top .crumbs li + li::before {
+  content: "/" / "";
+  margin-right: calc(6rem / 13);
+}
+
+.page-top .crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.page-top .crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.page-top .crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.page-actions,
+.page-actions > .actions.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin: 0;
+}
+
+/* The bar's buttons are its controls' height, an icon's (⋯) square: 28px, clear of the 24
+   WCAG 2.5.8 asks. */
+.page-top .button,
+.page-actions-below .button {
+  min-height: var(--control-height);
+}
+
+.page-top .button-icon,
+.page-actions-below .button-icon {
+  min-width: var(--control-height);
+  width: var(--control-height);
+  padding: 0;
+}
+
+.page-top .button-icon svg,
+.page-actions-below .button-icon svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+}
+
+/* On a phone, a page's actions under its title (PhoneActions in page-top.tsx), the size
+   they are in the bar. */
+.page-actions-below {
+  flex-wrap: wrap;
+  margin-top: calc(10rem / 13);
+}
+
+.record-heading + .page-actions-below {
+  margin: 0 0 calc(12rem / 13);
+}
+
+/* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
+.page-heading {
+  margin-bottom: calc(14rem / 13);
+}
+
+.page-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4rem / 13) calc(10rem / 13);
+  min-width: 0;
+}
+
+.page-title-row h1 {
+  margin: 0;
+}
+
+.page-description {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: calc(2rem / 13);
+  min-width: min(calc(160rem / 13), 100%);
+}
+
+.page-description-text {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A 24-pixel target, as WCAG 2.5.8 asks. */
+.page-about {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: calc(24rem / 13);
+  height: calc(24rem / 13);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.page-about:hover,
+.page-about[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.page-about svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.page-about-popover {
+  max-width: min(calc(384rem / 13), calc(100vw - calc(32rem / 13)));
+  padding: calc(12rem / 13) calc(14rem / 13);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+.page-about-dialog {
+  outline: none;
+}
+
+.page-about-dialog p {
+  margin: 0 0 calc(8rem / 13);
+}
+
+.page-about-dialog > :last-child {
+  margin-bottom: 0;
+}
+
 /* Signed in: the sidebar (ADR 0176) beside the page, which is left-aligned beside it. On
    the server's pages they're the body's; the web app draws them in its root. */
 :is(body, #root):has(> .sidebar) {
@@ -480,6 +703,11 @@ main:focus {
   gap: 1px;
 }
 
+/* Closed, it takes no room: its display above would otherwise outrank the attribute. */
+.nav-sub[hidden] {
+  display: none;
+}
+
 .nav-sub .nav-item {
   min-height: calc(26rem / 13);
   padding-left: calc(32rem / 13);
@@ -547,11 +775,79 @@ main:focus {
   box-shadow: none;
 }
 
+/* A type's dot (type-color.tsx), and a person's mark on their swatch: one of the eight
+   project colors (--swatch-1 to --swatch-8, below), from the type's name or the person's
+   ID. Named by number, as the server's pages allow no inline styles (CSP). */
+.type-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--swatch-8);
+}
+
+.type-dot-large {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.avatar[data-swatch] {
+  color: var(--swatch-text);
+}
+
+/* A type's name with its dot, as the lists' Type column shows it. */
+.type-name {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6rem / 13);
+  min-width: 0;
+}
+
+:is(.type-dot, .avatar)[data-swatch="1"] {
+  background: var(--swatch-1);
+}
+
+:is(.type-dot, .avatar)[data-swatch="2"] {
+  background: var(--swatch-2);
+}
+
+:is(.type-dot, .avatar)[data-swatch="3"] {
+  background: var(--swatch-3);
+}
+
+:is(.type-dot, .avatar)[data-swatch="4"] {
+  background: var(--swatch-4);
+}
+
+:is(.type-dot, .avatar)[data-swatch="5"] {
+  background: var(--swatch-5);
+}
+
+:is(.type-dot, .avatar)[data-swatch="6"] {
+  background: var(--swatch-6);
+}
+
+:is(.type-dot, .avatar)[data-swatch="7"] {
+  background: var(--swatch-7);
+}
+
+:is(.type-dot, .avatar)[data-swatch="8"] {
+  background: var(--swatch-8);
+}
+
 .account {
   position: relative;
   flex: none;
   padding-top: calc(4rem / 13);
   border-top: 1px solid var(--border);
+}
+
+/* The admin area's sidebar, and its drawer, end with the same account, below its list
+   (admin.tsx, admin_base.html). */
+.admin-side > .account {
+  margin-top: auto;
 }
 
 .account-button {
@@ -1112,7 +1408,7 @@ input:focus-visible {
 
 /* A page of the app's: as wide as a table there needs, up to a line that still reads. */
 .page-wide {
-  max-width: calc(1180rem / 13);
+  max-width: calc(1440rem / 13);
 }
 
 /* The sequence viewer: residues in rows of 60, groups of 10, features as a track. */
@@ -2337,17 +2633,19 @@ input[type="date"] {
   flex-direction: column;
   height: 100dvh;
   min-width: 0;
-  overflow-y: auto;
   padding: calc(10rem / 13) calc(8rem / 13) calc(12rem / 13);
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   line-height: 1.4;
 }
 
+/* The list scrolls on its own, between Back to Iki and the account, which stay put. */
 .admin-nav {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 :is(.admin-side, .admin-topbar) svg {
@@ -2378,8 +2676,7 @@ input[type="date"] {
 }
 
 .admin-back,
-.admin-link,
-.admin-user {
+.admin-link {
   display: flex;
   align-items: center;
   gap: calc(9rem / 13);
@@ -2394,14 +2691,12 @@ input[type="date"] {
   color: var(--muted);
 }
 
-.admin-link,
-.admin-user {
+.admin-link {
   color: var(--text);
 }
 
 .admin-back:hover,
-.admin-link:hover,
-.admin-user:hover {
+.admin-link:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 7%, transparent);
 }
@@ -2462,42 +2757,6 @@ input[type="date"] {
   list-style: none;
 }
 
-/* The account, at the foot of the sidebar. */
-.admin-account {
-  display: flex;
-  align-items: center;
-  gap: calc(4rem / 13);
-  margin: auto 0 0;
-  padding-top: calc(16rem / 13);
-}
-
-.admin-user {
-  flex: 1;
-  min-width: 0;
-  min-height: calc(36rem / 13);
-}
-
-.admin-user-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: calc(22rem / 13);
-  height: calc(22rem / 13);
-  flex: none;
-  border-radius: 50%;
-  color: var(--surface);
-  background: var(--muted);
-  font-size: calc(9.5rem / 13);
-  font-weight: 600;
-}
-
-.admin-account .button,
 .admin-actions .button {
   min-height: calc(28rem / 13);
   padding: 0 calc(10rem / 13);
@@ -3688,38 +3947,10 @@ a.lineage-node:focus-visible {
    a history button each, and a rail of details. Who changed what is on demand: in each
    field's history, and on the Audit trail tab. */
 
-/* Where it is beside its actions, then its title; on a phone, its actions under its title. */
-.record-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "crumbs actions"
-    "heading heading";
-  align-items: center;
-  gap: calc(8rem / 13) calc(16rem / 13);
+/* Its title, under the bar across the top of the page, which holds where it is and its
+   actions (page-top.tsx); on a phone its actions follow its title instead. */
+.record-heading {
   margin-bottom: calc(12rem / 13);
-}
-
-.record-header > .crumbs {
-  grid-area: crumbs;
-}
-
-.record-header > .record-heading {
-  grid-area: heading;
-}
-
-.record-header > .record-actions {
-  grid-area: actions;
-}
-
-@media (max-width: 36rem) {
-  .record-header {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "crumbs"
-      "heading"
-      "actions";
-  }
 }
 
 .crumbs ol {

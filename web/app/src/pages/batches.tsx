@@ -183,18 +183,17 @@ export function BatchPage() {
   return (
     <>
       <PageHeader
-        eyebrow={
-          project ? (
-            <>
-              <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
-                {project.name}
-              </Link>
-              {" · Batch"}
-            </>
-          ) : (
-            "Batch"
-          )
-        }
+        crumbs={[
+          <Link to="/runs/">Runs</Link>,
+          ...(project
+            ? [
+                <Link to="/projects/$slug/runs/" params={{ slug: project.slug }}>
+                  {project.name}
+                </Link>,
+              ]
+            : []),
+          batch.hrid,
+        ]}
         title={label}
         badge={<Badge>{batch.hrid}</Badge>}
         actions={<CancelBatch batch={batch} />}

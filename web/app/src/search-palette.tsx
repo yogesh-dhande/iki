@@ -39,6 +39,7 @@ import {
   type SearchKind,
   type SearchResult,
 } from "./search";
+import { TypeDot } from "./type-color";
 
 /** One row the arrows move through: a result, or a group's link to its full list. */
 interface Row {
@@ -409,10 +410,13 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
   const [first, ...others] = result.projects;
   return (
     <>
-      {record ? (
-        <TypeDot type={result.type} />
+      {record && result.type ? (
+        <TypeDot type={result.type} className="palette-dot" />
       ) : (
-        <span className="palette-dot palette-dot-round" aria-hidden="true" />
+        <span
+          className={record ? "palette-dot" : "palette-dot palette-dot-round"}
+          aria-hidden="true"
+        />
       )}
       {result.hrid ? <span className="palette-hrid">{result.hrid}</span> : null}
       <span className="palette-title">{result.title}</span>
@@ -446,14 +450,4 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
       </span>
     </>
   );
-}
-
-/**
- * A record's or request's type, as a square in its type's color: the hook for the type
- * color helper (ADR 0176), which gives each type a swatch from its name as projects get
- * one from their ID. Until it lands, every type is the accent; `data-type` names the
- * type for it.
- */
-function TypeDot({ type }: { type: string | null }) {
-  return <span className="palette-dot" data-type={type ?? undefined} aria-hidden="true" />;
 }

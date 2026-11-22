@@ -41,13 +41,10 @@
           {% endfor %}
         </ul>
         {% endfor %}
-        <form class="admin-account" method="post" action="{% url 'logout' %}">
-          {% csrf_token %}
-          <a class="admin-user" href="{% url 'notifications:account' %}" title="{{ user.email }}: your account"><span class="admin-avatar" aria-hidden="true">{{ user.get_full_name|initials }}</span><span class="admin-user-name">{{ user.get_full_name|default:user.email }}</span></a>
-          <button class="button button-quiet" type="submit">Sign out</button>
-        </form>
       </div>
     </nav>
+    {# Its foot, as the main sidebar's: the list scrolls above it. #}
+    {% include "web/_account.html" with account=account_menu %}
   </div>
   <div class="sidebar-backdrop" data-drawer-close hidden></div>
   <div class="admin-column">

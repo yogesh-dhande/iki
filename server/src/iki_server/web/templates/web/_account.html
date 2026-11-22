@@ -1,0 +1,20 @@
+{% comment %}
+The account at the foot of a sidebar, the main one's and the admin area's alike, as the web
+app's sidebar.tsx draws it: who's signed in, on their swatch, opening their pages and Sign
+out. `account` is an iki_server.web.navigation.AccountMenu. iki.js opens and closes it;
+without JavaScript the menu shows, open.
+{% endcomment %}
+<div class="account">
+    <button class="account-button" type="button" aria-expanded="false" aria-controls="account-menu" data-account-toggle title="{{ account.email }}">
+      <span class="avatar" data-swatch="{{ account.swatch }}" aria-hidden="true">{{ account.initials }}</span><span class="nav-label">{{ account.name }}</span>{% include "web/_icon.html" with paths=account.icon %}
+    </button>
+    <div class="account-menu" id="account-menu" hidden data-account-menu>
+      <p class="account-who"><span class="account-who-name">{{ account.name }}</span><span class="account-who-email">{{ account.email }}</span></p>
+      {% for link in account.links %}<a class="account-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>
+      {% endfor %}
+      <form class="account-sign-out" method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button class="account-item" type="submit">Sign out</button>
+      </form>
+    </div>
+  </div>

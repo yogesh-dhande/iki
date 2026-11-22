@@ -104,19 +104,59 @@ SWATCHES = 8
 
 
 def swatch_of(pk: str) -> int:
-    """Which swatch a project's ID takes, from 1 to :data:`SWATCHES`, as the app's
-    ``project-color.ts`` works it out (FNV-1a over its characters): the same color for a
-    project on every page, server or app, and for everyone."""
+    """Which swatch an ID or a type's name takes, from 1 to :data:`SWATCHES`, as the app's
+    ``project-color.ts`` works it out (FNV-1a over its characters, then MurmurHash3's
+    finalizer): the same color on every page, server or app, and for everyone."""
     hashed = 0x811C9DC5
     for char in pk:
         hashed ^= ord(char)
         hashed = (hashed * 0x01000193) & 0xFFFFFFFF
+    hashed ^= hashed >> 16
+    hashed = (hashed * 0x85EBCA6B) & 0xFFFFFFFF
+    hashed ^= hashed >> 13
+    hashed = (hashed * 0xC2B2AE35) & 0xFFFFFFFF
+    hashed ^= hashed >> 16
     return hashed % SWATCHES + 1
 
 
 def initials(name: str) -> str:
     """A person's mark, as the app draws it: the first letters of their first two names."""
     return "".join(word[:1] for word in name.split()[:2]).upper()
+
+
+@dataclass(frozen=True)
+class AccountMenu:
+    """The account at the foot of a sidebar, the main one's or the admin area's: who's
+    signed in, on their swatch, and their pages, then Sign out."""
+
+    name: str
+    email: str
+    #: Their ID, which picks their mark's color.
+    user_id: str
+    links: list[Link]
+    icon: tuple[str, ...]
+
+    @property
+    def initials(self) -> str:
+        return initials(self.name)
+
+    @property
+    def swatch(self) -> int:
+        """Their mark's color, as the app's sidebar picks it: from their ID."""
+        return swatch_of(self.user_id)
+
+
+def account_menu(user: Any, path: str) -> AccountMenu:  # noqa: ANN401
+    """The account menu of the person signed in, on the page at ``path``."""
+    raw = spec()
+    links = [_link(_item(i)) for i in raw["account"]]
+    return AccountMenu(
+        name=user.get_full_name() or user.email,
+        email=user.email,
+        user_id=str(user.pk),
+        links=_mark(links, current_of(path, links)),
+        icon=icon("account"),
+    )
 
 
 @dataclass(frozen=True)
@@ -131,16 +171,10 @@ class Sidebar:
     new_project: Link | None
     all_projects: Link
     organization: list[Link]
-    account: list[Link]
-    #: Who's signed in, as the account menu shows them.
-    name: str = ""
-    email: str = ""
+    #: Who's signed in, and their pages.
+    account: AccountMenu
     labels: dict[str, str] = field(default_factory=dict)
     icons: dict[str, tuple[str, ...]] = field(default_factory=dict)
-
-    @property
-    def initials(self) -> str:
-        return initials(self.name)
 
 
 def _link(item: Item) -> Link:
@@ -178,6 +212,16 @@ def _mark(links: Sequence[Link], current: Link | None) -> list[Link]:
     return [replace(link, current=link is current) for link in links]
 
 
+def entities_open(path: str, left: str | None, entities: str) -> bool:
+    """Whether Entities starts open, as the app's sidebar works it out: as the reader left it,
+    once they've opened or closed it; until then, open on the entities' own pages (under
+    ``entities``), where its types are the way on, and closed elsewhere, where they'd push
+    the rest of the sidebar out of sight."""
+    if left in ("open", "closed"):
+        return left == "open"
+    return path.startswith(entities)
+
+
 def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> Sidebar:  # noqa: ANN401
     """The sidebar of the person signed in, on the page at ``path``."""
     raw = spec()
@@ -201,16 +245,16 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
     admin = admin_link(user, path)
     if admin is not None:
         organization.append(admin)
-    account = [_link(_item(i)) for i in raw["account"]]
+    account = account_menu(user, path)
 
-    shown = [*top, all_entities, *work, *projects, all_projects, *organization, *account]
+    shown = [*top, all_entities, *work, *projects, all_projects, *organization, *account.links]
     if new_project is not None:
         shown.append(new_project)
     current = current_of(path, shown)
     return Sidebar(
         top=_mark(top, current),
         unread=unread,
-        entities_open=cookies.get(ENTITIES_COOKIE) != "closed",
+        entities_open=entities_open(path, cookies.get(ENTITIES_COOKIE), all_entities.href),
         all_entities=_mark([all_entities], current)[0],
         work=_mark(work, current),
         saved=saved,
@@ -218,9 +262,7 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
         new_project=_mark([new_project], current)[0] if new_project else None,
         all_projects=_mark([all_projects], current)[0],
         organization=_mark(organization, current),
-        account=_mark(account, current),
-        name=user.get_full_name() or user.email,
-        email=user.email,
+        account=replace(account, links=_mark(account.links, current)),
         labels={
             "entities": raw["entities"]["label"],
             "saved": raw["saved"]["label"],

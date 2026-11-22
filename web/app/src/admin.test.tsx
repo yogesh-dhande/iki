@@ -3,7 +3,8 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ADMIN_GROUPS, initials } from "./admin";
+import { ADMIN_GROUPS } from "./admin";
+import { swatchOf } from "./project-color";
 import { renderApp } from "./entity-fixtures";
 import { answer, ME, signedIn } from "./test-server";
 
@@ -104,14 +105,26 @@ describe("the admin area", () => {
 
   it("leads back to Iki, says where you are, and has your account at its foot", async () => {
     signedIn({ can: { ...NONE, manage_org: true } });
-    await renderApp("/admin/compute/");
+    const { user } = await renderApp("/admin/compute/");
     const nav = screen.getByRole("navigation", { name: "Admin" });
     expect(within(nav).getByRole("link", { name: "Back to Iki" })).toHaveAttribute("href", "/");
-    const account = within(nav).getByRole("link", { name: /Rosalind Franklin/ });
-    expect(account).toHaveAttribute("href", "/account/");
+    // The same account menu as the main sidebar's, at the sidebar's foot, below its list.
+    const side = nav.parentElement;
+    if (!side) throw new Error("expected the sidebar");
+    expect(side.lastElementChild).toHaveClass("account");
+    const account = within(side).getByRole("button", { name: "Rosalind Franklin" });
     expect(account).toHaveTextContent("RFRosalind Franklin");
-    const signOut = within(nav).getByRole("button", { name: "Sign out" });
+    expect(account.querySelector(".avatar")).toHaveAttribute(
+      "data-swatch",
+      String(swatchOf(ME.id)),
+    );
+    await user.click(account);
+    expect(within(side).getByRole("link", { name: "Notification preferences" })).toHaveFocus();
+    const signOut = within(side).getByRole("button", { name: "Sign out" });
     expect(signOut.closest("form")).toHaveAttribute("action", "/logout/");
+    await user.keyboard("{Escape}");
+    expect(account).toHaveFocus();
+    expect(within(side).queryByRole("button", { name: "Sign out" })).toBeNull();
     const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(within(crumbs).getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin/");
     // The main navigation isn't there: the sidebar is the area's own.
@@ -157,12 +170,5 @@ describe("the admin area", () => {
       expect(item.icon.length).toBeGreaterThan(0);
       expect(item.href).toMatch(/^\/.*\/$/);
     }
-  });
-
-  it("badges the account with its initials", () => {
-    expect(initials("Rosalind Franklin")).toBe("RF");
-    expect(initials("Rosalind Elsie Franklin")).toBe("RF");
-    expect(initials("rosalind@example.com")).toBe("R");
-    expect(initials("Ørsted")).toBe("Ø");
   });
 });

@@ -774,6 +774,26 @@ describe("an entity's page", () => {
     expect(document.title).toBe("PST-000001 (PST-000001) · Example Bio");
   });
 
+  it("is its type's page in the sidebar, not All entities", async () => {
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/counts", {
+      types: [{ type: PROTEIN.name, label: "Protein", count: 1 }],
+      total: 1,
+    });
+    await renderApp("/entities/PRT-000001/");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(await within(nav).findByRole("link", { name: "Protein 1" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(nav).getByRole("link", { name: "All entities 1" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
   it("titles a named entity by its name, and converts to the display unit", async () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());

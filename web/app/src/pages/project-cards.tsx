@@ -17,7 +17,8 @@ import {
   type Project,
 } from "../api";
 import { personName, typesQuery } from "../entities";
-import { initials, swatchColor } from "../project-color";
+import { initials, swatchOf } from "../project-color";
+import { TypeDot } from "../type-color";
 import { changeWords, changedBy, projectChangesQuery, type ProjectChange } from "../project-page";
 import { countsQuery } from "../lists";
 import { projectTriggersQuery, workflowsQuery } from "../runs";
@@ -79,11 +80,7 @@ export function EntityCounts({ project }: { project: Project }) {
             <li key={t.type}>
               <Link to="/entities/types/$/" params={{ _splat: t.type }} search={held}>
                 <span className="type-count-label">
-                  <span
-                    className="swatch swatch-dot"
-                    style={{ background: swatchColor(t.type) }}
-                    aria-hidden="true"
-                  />
+                  <TypeDot type={t.type} />
                   {t.label}
                 </span>{" "}
                 {t.count === null ? (
@@ -108,13 +105,13 @@ export function EntityCounts({ project }: { project: Project }) {
 export function Avatar({ id, name, named = false }: { id: string; name: string; named?: boolean }) {
   if (named) {
     return (
-      <span className="avatar" style={{ background: swatchColor(id) }} aria-hidden="true">
+      <span className="avatar" data-swatch={swatchOf(id)} aria-hidden="true">
         {initials(name)}
       </span>
     );
   }
   return (
-    <span className="avatar" style={{ background: swatchColor(id) }} title={name}>
+    <span className="avatar" data-swatch={swatchOf(id)} title={name}>
       <span aria-hidden="true">{initials(name)}</span>
       <span className="visually-hidden">{name}</span>
     </span>
