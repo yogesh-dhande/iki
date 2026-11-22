@@ -1366,12 +1366,6 @@ input:focus-visible {
   background: var(--success-bg);
 }
 
-/* A revision's electronic signatures (ADR 0126), under it in the history. */
-.row-signatures {
-  margin: 0.25rem 0 0;
-  padding-left: 1.2rem;
-}
-
 /* What a signer attests to (ADR 0126), set apart from the dialog's own words. */
 .statement {
   border-left: 4px solid var(--border);
@@ -2280,23 +2274,6 @@ input:focus-visible {
   border-bottom-color: currentcolor;
 }
 
-.page-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
-}
-
-.page-header h1 {
-  margin: 0;
-}
-
-.page-header .actions {
-  margin: 0;
-}
-
 .eyebrow {
   margin: 0 0 0.25rem;
   font-size: var(--text-sm);
@@ -2883,17 +2860,6 @@ main.admin-main {
   font-size: 1rem;
 }
 
-.admin-main .page-header {
-  align-items: baseline;
-  margin-bottom: calc(14rem / 13);
-}
-
-.admin-main .page-header h1,
-.admin-main > h1 {
-  font-size: calc(18rem / 13);
-  font-weight: 600;
-}
-
 /* A page's own sub-pages, as Compute's are: tabs underlined, in a row. */
 .admin-tabs {
   display: flex;
@@ -3367,26 +3333,6 @@ main.admin-main {
   border-radius: var(--radius);
   background: var(--surface);
 }
-
-.filter-rows {
-  margin: 0 0 0.5rem;
-  padding: 0;
-  list-style: none;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: start;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.filter-row > select {
-  max-width: 100%;
-}
-
 .filter-value {
   flex: 1 1 14rem;
   min-width: 0;
@@ -3575,19 +3521,6 @@ main.admin-main {
 }
 
 /* What's picked, and what can be done with it. */
-/* The grid's count, and the download of everything it counts. */
-.grid-caption {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 1rem;
-  margin: 0 0 0.5rem;
-}
-
-.grid-caption p {
-  margin: 0;
-}
-
 .selection-bar {
   display: flex;
   flex-wrap: wrap;
@@ -3740,34 +3673,6 @@ a.lineage-node:focus-visible {
 .lineage-more .button {
   margin-bottom: 1.25rem;
 }
-
-.lineage-steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.lineage-step {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1.5rem;
-  margin: 0;
-}
-
-.lineage-step dt {
-  font-weight: 600;
-}
-
-.lineage-step dd {
-  margin: 0;
-}
-
-.lineage-step ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .lineage-node.is-entry {
   border-style: double;
   border-width: 3px;
@@ -3993,37 +3898,6 @@ a.lineage-node:focus-visible {
    actions (page-top.tsx); on a phone its actions follow its title instead. */
 .record-heading {
   margin-bottom: calc(12rem / 13);
-}
-
-.crumbs ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(5.6rem / 13);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--muted);
-  font-size: calc(14.4rem / 13);
-}
-
-.crumbs li + li::before {
-  content: "/" / "";
-  margin-right: calc(5.6rem / 13);
-}
-
-.crumbs a {
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.crumbs a:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
-
-.crumbs [aria-current="page"] {
-  color: var(--text);
-  font-weight: 600;
 }
 
 .record-actions {
@@ -5415,13 +5289,6 @@ input[type="file"]::file-selector-button {
   height: 14px;
   border-radius: 4px;
 }
-
-.swatch-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-}
-
 /* A swatch named by its number, as the server's sidebar draws a project's: its pages allow
    no inline styles (CSP). */
 .swatch[data-swatch="1"] {
@@ -5465,68 +5332,6 @@ input[type="file"]::file-selector-button {
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-/* Where it is, and what can be done from anywhere in it. */
-.project-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 12px;
-}
-
-.breadcrumb ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-}
-
-.breadcrumb li {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.breadcrumb li + li::before {
-  content: "/";
-  margin-right: 6px;
-  color: var(--muted);
-}
-
-.breadcrumb a {
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.breadcrumb a:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
-
-.breadcrumb a[aria-current="page"] {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.project-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.project-actions .button {
-  min-height: 28px;
-  gap: 6px;
-  padding: 0 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
 }
 
 .project-heading {
