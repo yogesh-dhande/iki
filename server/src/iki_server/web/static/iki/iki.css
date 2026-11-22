@@ -6166,40 +6166,6 @@ input[type="file"]::file-selector-button {
 /* --- The lists across projects (ADR 0176): All entities, a type's table, requests, runs,
    and a project's tabs, which are the same lists. --------------------------------------- */
 
-.list-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: calc(8rem / 13) calc(16rem / 13);
-  margin: 0 0 calc(12rem / 13);
-}
-
-.list-heading {
-  min-width: 0;
-}
-
-.list-title {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: calc(4rem / 13) calc(12rem / 13);
-}
-
-.list-title h1 {
-  margin: 0;
-}
-
-.list-title p {
-  margin: 0;
-}
-
-.list-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(8rem / 13);
-}
-
 .crumbs {
   margin: 0 0 calc(4rem / 13);
   font-size: calc(14rem / 13);
@@ -6226,8 +6192,7 @@ input[type="file"]::file-selector-button {
   margin: 0 0 calc(12rem / 13);
 }
 
-.list-toolbar .button,
-.list-actions .button {
+.list-toolbar .button {
   width: auto;
   min-height: 28px;
   height: 28px;
