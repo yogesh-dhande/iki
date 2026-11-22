@@ -152,7 +152,7 @@ class RunFailed(IkiError):
 
 
 class TimedOut(IkiError):
-    """Waiting took longer than you allowed. The run goes on: wait for it again."""
+    """Waiting took longer than you allowed. The run or file check continues."""
 
 
 _BY_STATUS: dict[int, type[ApiError]] = {

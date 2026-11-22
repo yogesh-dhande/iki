@@ -7,14 +7,17 @@ import re
 from collections.abc import Callable, Iterator
 from datetime import timedelta
 from importlib import import_module
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from django.apps import apps as django_apps
 from django.utils import timezone
 from oauth2_provider.models import get_access_token_model, get_refresh_token_model
 from org_world import World, post
+from real_server import Server
 from test_files import api_as as browser_api
 from test_files import send
 from test_files import start as start_upload
@@ -24,7 +27,10 @@ from test_workers import worker
 
 import iki
 from iki import auth
+from iki.schema import FileOut
 from iki_server.entities.models import Revision
+from iki_server.files.models import Upload
+from iki_server.files.storage import DEFAULT_PART_SIZE
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -75,8 +81,14 @@ def approving(world: World, said: list[str], principal: str = "editor") -> Calla
     return say
 
 
-def signed_in(world: World, server: Any, sdk: list[str], monkeypatch: pytest.MonkeyPatch) -> Any:
-    monkeypatch.setattr(iki, "_say", approving(world, sdk))
+def signed_in(
+    world: World,
+    server: Server,
+    sdk: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    principal: str = "editor",
+) -> iki.Client:
+    monkeypatch.setattr(iki, "_say", approving(world, sdk, principal))
     return iki.login(server.url, open_browser=False)
 
 
@@ -178,6 +190,84 @@ def test_a_notebook_downloads_a_file_without_sending_its_sign_in_elsewhere(
     saved = iki.files.download(added["file"]["id"], tmp_path)
     assert Path(saved) == tmp_path / "abl.pdb"
     assert hashlib.sha256(Path(saved).read_bytes()).hexdigest() == hashlib.sha256(PDB).hexdigest()
+
+
+def test_a_notebook_uploads_a_path_for_an_entity_file_field(
+    world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    signed_in(world, server, sdk, monkeypatch)
+    source = tmp_path / "abl.pdb"
+    with source.open("wb") as out:
+        # Two parts, with a short final part. Keep the fixture small on disk.
+        out.seek(DEFAULT_PART_SIZE)
+        out.write(PDB)
+    with source.open("rb") as stream:
+        expected = hashlib.file_digest(stream, "sha256").hexdigest()
+    added: FileOut = iki.files.upload(
+        source, project=world.project.slug, media_type="chemical/x-pdb", poll=0.1, timeout=90
+    )
+    assert (added["name"], added["size"], added["sha256"]) == (
+        source.name,
+        DEFAULT_PART_SIZE + len(PDB),
+        expected,
+    )
+    structure = iki.entities.create(
+        "acme/protein.ProteinStructure", {"structure": added["id"]}, project=world.project.slug
+    )
+    assert structure["values"]["structure"] == added["id"]
+
+
+def test_a_notebook_uploads_a_stream_for_an_import(
+    world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = signed_in(world, server, sdk, monkeypatch)
+    fasta = b">example\nMKVLEICLK\n"
+    header = b"instrument export\n"
+    with BytesIO(header + fasta) as stream:
+        stream.seek(len(header))
+        added = client.files.upload(
+            stream, project=str(world.project.pk), name="proteins.fasta", media_type="text/plain"
+        )
+        assert stream.tell() == len(header)
+    assert added["sha256"] == hashlib.sha256(fasta).hexdigest()
+    run = client.runs.start(
+        "acme/protein.import_proteins", project=world.project.slug, params={"file": added["id"]}
+    )
+    assert run["files"][added["id"]] == {
+        "name": "proteins.fasta",
+        "media_type": "text/plain",
+        "size": len(fasta),
+    }
+
+
+def test_a_notebook_reports_the_servers_check_failure(
+    world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class DamagedPart(httpx2.HTTPTransport):
+        def handle_request(self, request: httpx2.Request) -> httpx2.Response:
+            if request.method == "PUT":
+                # Same length, different bytes. Completion succeeds, the stored checksum fails.
+                request = httpx2.Request("PUT", request.url, content=b"x" * len(PDB))
+            return super().handle_request(request)
+
+    signed_in(world, server, sdk, monkeypatch)
+    with (
+        iki.Client(server.url, transport=DamagedPart()) as client,
+        pytest.raises(iki.IkiError, match="don't match the SHA-256"),
+    ):
+        client.files.upload(BytesIO(PDB), name="abl.pdb", project=world.project.slug, timeout=30)
+    upload = Upload.objects.get()
+    assert upload.state == "failed" and upload.file_id is None
+
+
+def test_a_viewer_is_told_they_cannot_upload_to_the_project(
+    world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = signed_in(world, server, sdk, monkeypatch, "viewer")
+    with pytest.raises(iki.Forbidden, match="project") as raised:
+        client.files.upload(BytesIO(PDB), name="abl.pdb", project=world.project.slug)
+    assert (raised.value.status, raised.value.code) == (403, "forbidden")
+    assert not Upload.objects.exists()
 
 
 def test_a_sign_in_is_renewed_and_ended(
