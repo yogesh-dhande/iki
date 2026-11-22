@@ -28,6 +28,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
+from iki_server.api.runs import RunStatusName
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.entities import access
 from iki_server.entities import services as entity_services
@@ -107,7 +108,7 @@ class RunRef(Schema):
     label: str = Field(description="Its action's label.")
 
 
-class OriginOut(Schema):
+class FileOriginOut(Schema):
     kind: Literal["upload", "run", "registration", "import"] = Field(
         description="How it was added: uploaded, uploaded by a run's worker for its results, "
         "registered where it already was, or imported with a bundle from another deployment."
@@ -129,7 +130,7 @@ class SampleOut(Schema):
 
 
 class FileDetailOut(FileRowOut):
-    origin: OriginOut
+    origin: FileOriginOut
     samples: list[SampleOut] = Field(description="The samples it belongs to that you can read.")
 
 
@@ -153,7 +154,7 @@ class UsingRunOut(Schema):
     hrid: str
     action: str
     label: str
-    status: str
+    status: RunStatusName
     project: ProjectRef
     roles: list[Literal["param", "input", "made"]] = Field(
         description="How it used the file: a file param, an input's file, or made by it."

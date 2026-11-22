@@ -52,6 +52,7 @@ function group(kind: SearchGroup["kind"], items: SearchResult[], extra: Partial<
     entities: "Entities",
     requests: "Requests",
     runs: "Runs",
+    files: "Files",
     projects: "Projects",
     saved_views: "Saved views",
     people: "People",

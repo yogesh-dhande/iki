@@ -19,6 +19,8 @@ export interface Picked {
   uploading?: boolean;
   /** A file chosen from this computer with others, which its input starts uploading. */
   file?: File;
+  /** A file's size in bytes, where it's known, said beside its name. */
+  size?: number;
 }
 
 export interface QuantityDraft {
@@ -152,7 +154,10 @@ export function toDraft(
     }
     case "file": {
       const id = value as string;
-      return { id, hrid: "", title: entity.files[id]?.name ?? "A file you can’t read" };
+      const found = entity.files[id];
+      return found
+        ? { id, hrid: "", title: found.name, size: found.size }
+        : { id, hrid: "", title: "A file you can’t read" };
     }
     case "person": {
       const id = value as string;

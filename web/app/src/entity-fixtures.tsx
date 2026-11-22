@@ -112,6 +112,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   description: "A protein sequence.",
   extends: null,
   abstract: false,
+  sample: false,
   detached: false,
   subtypes: [],
   hrid_prefix: "PRT",

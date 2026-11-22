@@ -148,6 +148,7 @@ async function uploadNow(
         name: file.name,
         media_type: mediaType,
         size: file.size,
+        acquired_at: "",
         sha256: hash,
       },
     }),

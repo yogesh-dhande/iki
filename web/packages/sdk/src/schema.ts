@@ -7460,7 +7460,7 @@ export interface components {
             media_type: string;
             /** Name */
             name: string;
-            origin: components["schemas"]["OriginOut"];
+            origin: components["schemas"]["FileOriginOut"];
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -7596,6 +7596,27 @@ export interface components {
              * @description Its media type, such as chemical/seq-na-genbank.
              */
             media_type: string;
+        };
+        /** FileOriginOut */
+        FileOriginOut: {
+            /**
+             * Kind
+             * @description How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.
+             * @enum {string}
+             */
+            kind: "upload" | "run" | "registration" | "import";
+            /** @description The run that made it, if you can read the run. */
+            run: components["schemas"]["RunRef"] | null;
+            /**
+             * Uri
+             * @description Where a registered file is, such as s3://lab/x.csv.
+             */
+            uri: string | null;
+            /**
+             * Version
+             * @description The object version a registered file is pinned to.
+             */
+            version: string | null;
         };
         /** FileOut */
         FileOut: {
@@ -9681,24 +9702,52 @@ export interface components {
         };
         /** OriginOut */
         OriginOut: {
+            /** @description The file it was read from, if you can read it. */
+            file: components["schemas"]["OriginFileOut"] | null;
             /**
-             * Kind
-             * @description How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.
-             * @enum {string}
+             * Id
+             * @description Its identifier there: an accession, or a record's name.
              */
-            kind: "upload" | "run" | "registration" | "import";
-            /** @description The run that made it, if you can read the run. */
-            run: components["schemas"]["RunRef"] | null;
+            id: string;
+            /** @description How the record says its source made it (ADR 0106): its source's word. */
+            made: components["schemas"]["MadeOut"] | null;
             /**
-             * Uri
-             * @description Where a registered file is, such as s3://lab/x.csv.
+             * Recorded At
+             * Format: date-time
              */
-            uri: string | null;
+            recorded_at: string;
+            /**
+             * Retrieved At
+             * @description When the run fetched it.
+             */
+            retrieved_at: string | null;
+            /**
+             * Revision
+             * @description The revision the run made; none if the entity was already there.
+             */
+            revision: number | null;
+            /** @description The run that imported it, if you can read it. */
+            run: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Sha256
+             * @description The SHA-256 of the record as the run read it.
+             */
+            sha256: string;
+            /**
+             * Source
+             * @description The database or format, such as NCBI Nucleotide.
+             */
+            source: string;
+            /**
+             * Url
+             * @description Where people can see the record (https), if the run said.
+             */
+            url: string;
             /**
              * Version
-             * @description The object version a registered file is pinned to.
+             * @description The record's version or the database's release.
              */
-            version: string | null;
+            version: string;
         };
         /** OutputErrorOut */
         OutputErrorOut: {
@@ -14853,8 +14902,11 @@ export interface components {
              * @description How it used the file: a file param, an input's file, or made by it.
              */
             roles: ("param" | "input" | "made")[];
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "awaiting_approval" | "queued" | "running" | "parked" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
         /** VersionOut */
         VersionOut: {

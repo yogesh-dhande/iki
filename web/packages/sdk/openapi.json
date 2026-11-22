@@ -6150,7 +6150,7 @@
             "type": "string"
           },
           "origin": {
-            "$ref": "#/components/schemas/OriginOut"
+            "$ref": "#/components/schemas/FileOriginOut"
           },
           "project": {
             "anyOf": [
@@ -6429,6 +6429,64 @@
           "description"
         ],
         "title": "FileFormatOut",
+        "type": "object"
+      },
+      "FileOriginOut": {
+        "properties": {
+          "kind": {
+            "description": "How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.",
+            "enum": [
+              "upload",
+              "run",
+              "registration",
+              "import"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that made it, if you can read the run."
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a registered file is, such as s3://lab/x.csv.",
+            "title": "Uri"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The object version a registered file is pinned to.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "kind",
+          "run",
+          "uri",
+          "version"
+        ],
+        "title": "FileOriginOut",
         "type": "object"
       },
       "FileOut": {
@@ -10701,58 +10759,107 @@
       },
       "OriginOut": {
         "properties": {
-          "kind": {
-            "description": "How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.",
-            "enum": [
-              "upload",
-              "run",
-              "registration",
-              "import"
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OriginFileOut"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Kind",
+            "description": "The file it was read from, if you can read it."
+          },
+          "id": {
+            "description": "Its identifier there: an accession, or a record's name.",
+            "title": "Id",
             "type": "string"
+          },
+          "made": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MadeOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the record says its source made it (ADR 0106): its source's word."
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the run fetched it.",
+            "title": "Retrieved At"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision the run made; none if the entity was already there.",
+            "title": "Revision"
           },
           "run": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RunRef"
+                "$ref": "#/components/schemas/RunRefOut"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The run that made it, if you can read the run."
+            "description": "The run that imported it, if you can read it."
           },
-          "uri": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Where a registered file is, such as s3://lab/x.csv.",
-            "title": "Uri"
+          "sha256": {
+            "description": "The SHA-256 of the record as the run read it.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source": {
+            "description": "The database or format, such as NCBI Nucleotide.",
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where people can see the record (https), if the run said.",
+            "title": "Url",
+            "type": "string"
           },
           "version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The object version a registered file is pinned to.",
-            "title": "Version"
+            "description": "The record's version or the database's release.",
+            "title": "Version",
+            "type": "string"
           }
         },
         "required": [
-          "kind",
+          "source",
+          "id",
+          "version",
+          "url",
+          "retrieved_at",
+          "sha256",
+          "file",
           "run",
-          "uri",
-          "version"
+          "revision",
+          "made",
+          "recorded_at"
         ],
         "title": "OriginOut",
         "type": "object"
@@ -21995,6 +22102,18 @@
             "type": "array"
           },
           "status": {
+            "enum": [
+              "awaiting_approval",
+              "queued",
+              "running",
+              "parked",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "rejected",
+              "declined"
+            ],
             "title": "Status",
             "type": "string"
           }
