@@ -25,7 +25,6 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { SettingsTabs } from "./webhooks";
 
 type Approval = OutsideApi["approvals"][number];
 
@@ -312,7 +311,6 @@ export function OutsideApisSettings() {
   return (
     <>
       <PageHeader title="Outside APIs" />
-      <SettingsTabs />
       <p>
         Models and services outside Iki that installed plugins’ actions send data to. A run can send
         data to one only once it’s approved for the run’s project, and the person starting it has

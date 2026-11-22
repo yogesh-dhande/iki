@@ -246,13 +246,7 @@ def test_server_pages_have_the_web_apps_header(
     [
         ("/teams/", "Teams"),
         ("/teams/structural-biology/", "Teams"),
-        ("/people/", "People"),
-        ("/service-accounts/", "People"),
-        ("/settings/sign-in/", "Settings"),
-        ("/settings/signatures/", "Settings"),
-        ("/settings/registries/", "Settings"),
-        ("/settings/email/", "Settings"),
-        ("/audit/", "Audit"),
+        # The admin area's pages mark theirs in its own sidebar (test_admin_area.py).
     ],
 )
 def test_the_header_marks_the_section_a_page_is_in(world: World, path: str, section: str) -> None:

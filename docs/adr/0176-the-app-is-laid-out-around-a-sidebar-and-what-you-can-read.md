@@ -112,6 +112,31 @@ Iki. Its groups are:
 
 Each page needs the permission it needs today.
 
+- **The sidebar offers only what its reader may open.** A group with nothing in it is
+  left out, and `/admin/` opens the first page they may open. Someone with no
+  administrative permission at all gets no admin frame: a page of the area tells them
+  it isn't theirs in the main one.
+- **The pages keep their addresses,** under `/settings/`, `/people/`, `/compute/`,
+  `/costs/` and `/audit/`, and render in the admin frame there. GitHub keeps its
+  settings at `/settings/...` inside its settings frame the same way. Links and
+  bookmarks keep working without redirects, and nothing has two addresses.
+- **The top bar holds a breadcrumb** of "Admin / page", and the page's own actions.
+- **The groups hold the pages Iki has:**
+  - Organization: sign-in and provisioning, people (with service accounts), apps and
+    email.
+  - Data: registries, plugins, the outside APIs plugins call, and webhooks.
+  - Compute and cost: compute (overview, workers, Slurm clusters, quotas, volumes),
+    and costs and budgets.
+  - Compliance: the audit log, electronic signatures and their meanings, and legal
+    holds.
+
+  General settings, an admin list of projects and exports or backups have no page
+  yet: each joins its group when it has one. Teams stay in the main sidebar, under
+  People and teams, because everyone uses them, not only administrators.
+
+- **`navigation.json` lists the sidebar,** with the `can` each item needs (any one of
+  them), so the server's pages and the app's draw the same one.
+
 **The look is compact.**
 
 - **Type:** 13px Inter, self-hosted (SIL Open Font License), with monospace

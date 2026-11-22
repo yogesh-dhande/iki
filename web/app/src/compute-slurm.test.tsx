@@ -118,7 +118,7 @@ describe("Compute → Slurm", () => {
     expect((await card()).getByText("2 workers online on its login nodes.")).toBeVisible();
     expect(screen.getByText(/which is reviewed like code: change them there/)).toBeVisible();
     const tabs = screen.getByRole("navigation", { name: "Compute" });
-    expect(within(tabs).getByRole("link", { name: "Slurm" })).toHaveAttribute(
+    expect(within(tabs).getByRole("link", { name: "Slurm clusters" })).toHaveAttribute(
       "aria-current",
       "page",
     );
