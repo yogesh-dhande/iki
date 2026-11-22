@@ -22,6 +22,15 @@ checkout, never input from outside, so the attack isn't reachable, and nothing t
 includes it. Remove this once a fixed picomatch is out and the tools take it."""
 
 [[IgnoredVulns]]
+id = "RUSTSEC-2026-0592"
+ignoreUntil = 2026-11-25T00:00:00Z
+reason = """url 2.5.8: a stack overflow in Url::origin() on nested blob: URLs. iki-worker \
+reaches url only through ureq and its cookie store, and talks only to the server it's \
+configured with and the addresses that server gives it, never a blob: URL from outside, so \
+the overflow isn't reachable. The fix, url 2.5.9, was released on 2026-11-20 and is under \
+the three-day minimum age until 2026-11-23. Remove this and take 2.5.9 then."""
+
+[[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 ignoreUntil = 2027-02-18T00:00:00Z
 reason = """chrono: an unmaintained-crate advisory, not a vulnerability, with no fixed \
