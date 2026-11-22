@@ -438,21 +438,26 @@ def _focused(locator: Locator) -> bool:
 def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     open_as: Any, path: str, color_scheme: str
 ) -> None:
-    """The sidebar (ADR 0176): Entities stays as its reader left it, the account menu opens
-    and closes from the keyboard, its button opens search as ⌘K does, and on a phone it's a drawer
-    that holds the focus until it closes, with the page never wider than the screen."""
+    """The sidebar (ADR 0176): Entities is closed away from its pages until its reader opens
+    it, then stays as they left it, the account menu opens and closes from the keyboard, its
+    button opens search as ⌘K does, and on a phone it's a drawer that holds the focus until
+    it closes, with the page never wider than the screen."""
     page = open_as("org_admin", path, color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     nav = page.get_by_role("navigation", name="Main")
     entities = nav.get_by_role("button", name="Entities")
+    assert entities.get_attribute("aria-expanded") == "false"
+    # Closed, it takes no room: what's below it moves up.
+    all_entities = page.locator("#nav-entities").get_by_role("link", name="All entities")
+    assert all_entities.count() == 0 or not all_entities.is_visible()
+    assert page.locator("#nav-entities").evaluate("e => e.getBoundingClientRect().height") == 0
     entities.focus()
     page.keyboard.press("Enter")
-    assert entities.get_attribute("aria-expanded") == "false"
+    assert entities.get_attribute("aria-expanded") == "true"
+    nav.get_by_role("link", name="All entities").wait_for()
     page.reload()
     shown(page)
-    assert entities.get_attribute("aria-expanded") == "false"
-    entities.click()
-    nav.get_by_role("link", name="All entities").wait_for()
+    assert entities.get_attribute("aria-expanded") == "true"
 
     account = page.get_by_role("button", name="Org Admin")
     account.focus()
@@ -495,6 +500,43 @@ def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     page.wait_for_url("**/types/")
     drawer.wait_for(state="hidden")
     assert page.evaluate(width)
+    page.context.close()
+
+
+@pytest.mark.parametrize(
+    ("path", "current"),
+    # The web app's sidebar and the server's.
+    [("/projects/", "All projects"), ("/teams/", "People and teams")],
+)
+def test_the_sidebars_list_scrolls_between_its_head_and_foot_to_the_current_item(
+    open_as: Any, path: str, current: str
+) -> None:
+    """On a short screen, the sidebar's list scrolls on its own, between search at its top
+    and the account at its foot, which stay put; on load it's scrolled to the page's item."""
+    page = open_as("admin", path)
+    page.context.add_cookies([{"name": "iki_entities", "value": "open", "url": page.url}])
+    page.set_viewport_size({"width": 1440, "height": 320})
+    page.reload()
+    shown(page)
+    nav = page.get_by_role("navigation", name="Main")
+    item = nav.get_by_role("link", name=current, exact=True)
+    item.wait_for()
+    page.wait_for_function(
+        "() => { const n = document.querySelector('.sidebar-nav');"
+        " const i = n.querySelector('[aria-current=page]');"
+        " const a = n.getBoundingClientRect(), b = i.getBoundingClientRect();"
+        " return b.top >= a.top - 1 && b.bottom <= a.bottom + 1; }"
+    )
+    assert item.get_attribute("aria-current") == "page"
+    assert nav.evaluate("n => n.scrollHeight > n.clientHeight && n.scrollTop > 0")
+    search = page.get_by_role("button", name="Search everything").bounding_box()
+    account = page.get_by_role("button", name="Admin", exact=True).bounding_box()
+    box = nav.bounding_box()
+    assert search is not None and account is not None and box is not None
+    assert search["y"] + search["height"] <= box["y"] + 1
+    assert account["y"] >= box["y"] + box["height"] - 1
+    assert account["y"] + account["height"] <= 320 + 1
+    assert page.evaluate("window.scrollY") == 0
     page.context.close()
 
 

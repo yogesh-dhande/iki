@@ -689,6 +689,11 @@ main.app-main {
   gap: 1px;
 }
 
+/* Closed, it takes no room: its display above would otherwise outrank the attribute. */
+.nav-sub[hidden] {
+  display: none;
+}
+
 .nav-sub .nav-item {
   min-height: calc(26rem / 13);
   padding-left: calc(32rem / 13);
@@ -823,6 +828,11 @@ main.app-main {
   flex: none;
   padding-top: calc(4rem / 13);
   border-top: 1px solid var(--border);
+}
+
+/* The admin area's sidebar ends with the same account (admin.tsx, admin_base.html). */
+.admin-menu > .account {
+  margin-top: auto;
 }
 
 .account-button {
@@ -2629,8 +2639,7 @@ input[type="date"] {
 }
 
 .admin-back,
-.admin-link,
-.admin-user {
+.admin-link {
   display: flex;
   align-items: center;
   gap: calc(9rem / 13);
@@ -2645,14 +2654,12 @@ input[type="date"] {
   color: var(--muted);
 }
 
-.admin-link,
-.admin-user {
+.admin-link {
   color: var(--text);
 }
 
 .admin-back:hover,
-.admin-link:hover,
-.admin-user:hover {
+.admin-link:hover {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 7%, transparent);
 }
@@ -2713,42 +2720,6 @@ input[type="date"] {
   list-style: none;
 }
 
-/* The account, at the foot of the sidebar. */
-.admin-account {
-  display: flex;
-  align-items: center;
-  gap: calc(4rem / 13);
-  margin: auto 0 0;
-  padding-top: calc(16rem / 13);
-}
-
-.admin-user {
-  flex: 1;
-  min-width: 0;
-  min-height: calc(36rem / 13);
-}
-
-.admin-user-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: calc(22rem / 13);
-  height: calc(22rem / 13);
-  flex: none;
-  border-radius: 50%;
-  color: var(--surface);
-  background: var(--muted);
-  font-size: calc(9.5rem / 13);
-  font-weight: 600;
-}
-
-.admin-frame .admin-account .button,
 .admin-actions .button,
 .admin-menu-button {
   min-height: calc(28rem / 13);

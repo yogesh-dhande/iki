@@ -34,11 +34,7 @@
           {% endfor %}
         </ul>
         {% endfor %}
-        <form class="admin-account" method="post" action="{% url 'logout' %}">
-          {% csrf_token %}
-          <a class="admin-user" href="{% url 'notifications:account' %}" title="{{ user.email }}: your account"><span class="admin-avatar" aria-hidden="true">{{ user.get_full_name|initials }}</span><span class="admin-user-name">{{ user.get_full_name|default:user.email }}</span></a>
-          <button class="button button-quiet" type="submit">Sign out</button>
-        </form>
+        {% include "web/_account.html" with account=account_menu %}
       </div>
     </nav>
     <div class="admin-column">

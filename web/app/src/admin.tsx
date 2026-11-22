@@ -17,6 +17,7 @@ import { meQuery, type Me } from "./api";
 import { useLiveUpdates } from "./events";
 import { Layout, organizationName, SignedOut } from "./layout";
 import { ActionsSlot, TopBar } from "./page-top";
+import { Account } from "./sidebar";
 import { markNavigated, MessagesProvider } from "./ui";
 
 /** An item of the admin area's sidebar. */
@@ -113,19 +114,6 @@ function SideLink({ item, pathname }: { item: AdminItem; pathname: string }) {
   );
 }
 
-function csrfToken(): string {
-  return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? "";
-}
-
-/** "Rosalind Franklin" is "RF": the account's badge at the foot of the sidebar. */
-export function initials(name: string): string {
-  const words = name.split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
-  return [words[0], words.length > 1 ? words[words.length - 1] : undefined]
-    .map((w) => w?.[0] ?? "")
-    .join("")
-    .toUpperCase();
-}
-
 function Crumbs({ groups, pathname }: { groups: AdminGroup[]; pathname: string }) {
   const item = groups.flatMap((g) => g.items).find((i) => isCurrent(i, pathname));
   let here: ReactNode = null;
@@ -210,18 +198,7 @@ export function AdminLayout({ me }: { me: Me }) {
                 </ul>
               </div>
             ))}
-            <form className="admin-account" method="post" action="/logout/">
-              <input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} />
-              <a className="admin-user" href="/account/" title={`${me.email}: your account`}>
-                <span className="admin-avatar" aria-hidden="true">
-                  {initials(me.name || me.email)}
-                </span>
-                <span className="admin-user-name">{me.name || me.email}</span>
-              </a>
-              <button className="button button-quiet" type="submit">
-                Sign out
-              </button>
-            </form>
+            <Account me={me} pathname={pathname} />
           </div>
         </nav>
         <div className="admin-column">

@@ -173,10 +173,10 @@ describe("the frame", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
+    // Entities is closed away from its own pages (sidebar.test.tsx).
     expect(links).toEqual([
       "My work",
       "Inbox",
-      "All entities",
       "Requests",
       "Runs",
       "New project",
@@ -210,7 +210,6 @@ describe("the frame", () => {
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["My work", "/work/"],
       ["Inbox", "/notifications/"],
-      ["All entities", "/entities/"],
       ["Requests", "/requests/"],
       ["Runs", "/runs/"],
       ["All projects", "/projects/"],

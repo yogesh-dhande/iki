@@ -18,33 +18,38 @@ describe("a type's color", () => {
     );
   });
 
-  it("spreads a deployment's types over every swatch", () => {
+  it("spreads a deployment's types over every swatch, none crowded", () => {
+    // The dev deployment's types: many share a prefix, which plain FNV-1a crowds together.
     const types = [
-      "iki/dna.Plasmid",
-      "iki/dna.DnaSequence",
+      "iki/core.Alignment",
+      "iki/example_lims.AnalysisRequest",
+      "iki/example_lims.AnalysisResult",
+      "iki/antibody.Antibody",
+      "iki/core.App",
+      "iki/plasmid.Assembly",
+      "iki/example_lims.Booking",
+      "iki/core.Collection",
+      "iki/small_molecule.Compound",
+      "iki/small_molecule.CompoundBatch",
+      "iki/dna.DNASequence",
+      "iki/lots.GenericLot",
+      "iki/example_lims.Instrument",
+      "iki/oligo.Monomer",
+      "iki/oligo.Oligonucleotide",
+      "iki/lots.OligoLot",
+      "iki/core.Organism",
+      "iki/plasmid.Plasmid",
       "iki/dna.Primer",
       "iki/protein.Protein",
-      "iki/protein.Antibody",
-      "iki/protein.ProteinStructure",
-      "iki/lims.Sample",
-      "iki/lims.Instrument",
-      "iki/lims.Booking",
-      "iki/chem.Compound",
-      "iki/chem.CompoundBatch",
-      "iki/oligo.Oligonucleotide",
-      "iki/oligo.Monomer",
-      "iki/core.Collection",
-      "iki/core.App",
-      "iki/align.Alignment",
-      "iki/organism.Organism",
-      "iki/assembly.Assembly",
-      "iki/requests.AnalysisRequest",
-      "iki/requests.AnalysisResult",
-      "iki/lots.GenericLot",
       "iki/lots.ProteinLot",
-      "iki/lots.OligonucleotideLot",
+      "iki/protein.ProteinStructure",
+      "acme/example.Sample",
+      "iki/example_lims.Sample",
     ];
-    expect(new Set(types.map(typeSwatch)).size).toBe(8);
+    const counts = new Map<number, number>();
+    for (const t of types) counts.set(typeSwatch(t), (counts.get(typeSwatch(t)) ?? 0) + 1);
+    expect(counts.size).toBe(8);
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(6);
   });
 
   it("draws a dot named by its swatch, which screen readers skip", () => {

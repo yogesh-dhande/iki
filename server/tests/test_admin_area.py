@@ -230,13 +230,21 @@ def test_admin_pages_share_the_main_pages_head_and_its_search(world: World) -> N
 
 
 def test_the_frame_has_the_account_and_the_narrow_screens_menu(world: World) -> None:
+    """The account at the foot of its sidebar is the main sidebar's: its mark on the swatch
+    its ID picks, opening the person's pages and Sign out."""
+    from iki_server.web.navigation import swatch_of
+
+    org_admin = world.users["org_admin"]
     html = world.browser("org_admin").get("/admin/plugins/").content.decode()
     assert re.search(
-        r'<a class="admin-user" href="/account/"[^>]*><span class="admin-avatar" '
-        r'aria-hidden="true">OA</span><span class="admin-user-name">Org Admin</span></a>',
+        r'<button class="account-button" type="button" aria-expanded="false" '
+        r'aria-controls="account-menu" data-account-toggle title="org_admin@example.com">\s*'
+        rf'<span class="avatar" data-swatch="{swatch_of(str(org_admin.pk))}" aria-hidden="true">'
+        r'OA</span><span class="nav-label">Org Admin</span>',
         html,
     )
-    assert re.search(r'<form class="admin-account" method="post" action="/logout/">', html)
+    assert '<a class="account-item" href="/account/notifications/">' in html
+    assert re.search(r'<form class="account-sign-out" method="post" action="/logout/">', html)
     # Hidden until iki.js runs, so without it the pages stay listed.
     assert re.search(
         r'<button class="button admin-menu-button" type="button" aria-expanded="true" '

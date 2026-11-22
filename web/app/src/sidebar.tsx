@@ -8,12 +8,13 @@
 
 import { unwrap } from "@ikisci/sdk";
 import { queryOptions, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useMatch, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
 import { adminNavigation } from "./admin";
+import { entityQuery } from "./entities";
 import { countsQuery } from "./lists";
 import { swatchOf } from "./project-color";
 import { openSearch } from "./search";
@@ -51,8 +52,26 @@ const SPEC = navigation as unknown as {
 
 /** Below this width the sidebar is a drawer (iki.css). */
 const DRAWER = "(max-width: 56rem)";
-/** Whether Entities is open, as the reader left it: the server reads it too. */
+/** Whether Entities is open, once the reader has opened or closed it: the server reads it
+ * too. Until then it's open on the entities' own pages only, where its types are the way
+ * on, and closed elsewhere, where they'd push the rest of the sidebar out of sight. */
 export const ENTITIES_COOKIE = "iki_entities";
+
+/** Whether Entities starts open on a page: as the reader left it, else on its pages. */
+export function entitiesOpen(pathname: string, left: string | undefined): boolean {
+  if (left === "open" || left === "closed") return left === "open";
+  return pathname.startsWith(SPEC.entities.all.href);
+}
+
+/** Scrolls a list so the item in it is in view, if it isn't: itself, not the page. */
+export function reveal(list: HTMLElement, item: HTMLElement): void {
+  const box = list.getBoundingClientRect();
+  const at = item.getBoundingClientRect();
+  // A row's height of room around it, so it isn't flush against the edge.
+  const room = at.height;
+  if (at.top < box.top) list.scrollTop -= box.top - at.top + room;
+  else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom + room;
+}
 
 export function Icon({ name }: { name: IconName }) {
   return (
@@ -328,7 +347,9 @@ function SearchButton() {
 
 function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
   const unread = useQuery(unreadQuery).data ?? 0;
-  const [open, setOpen] = useState(() => readCookie(ENTITIES_COOKIE) !== "closed");
+  const [left, setLeft] = useState(() => readCookie(ENTITIES_COOKIE));
+  const open = entitiesOpen(pathname, left);
+  const navRef = useRef<HTMLElement>(null);
   // As the server's sidebar names it: there's one sidebar on a page.
   const entitiesId = "nav-entities";
   // How many of each type they can read, across their projects, as All entities counts
@@ -381,21 +402,39 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
     ...(admin ? [admin] : []),
   ];
 
-  const current = currentOf(pathname, [
-    ...top,
-    allEntities,
-    ...types,
-    ...work,
-    ...mine,
-    allProjects,
-    ...organization,
-    ...SPEC.account.map((item) => shown(item)),
-    ...(newProject ? [newProject] : []),
-  ]);
+  // A record's page is in its type: the record's in the cache, which its page loaded.
+  const record = useMatch({ from: "/entities/$ref", shouldThrow: false });
+  const recordType = useQuery({
+    ...entityQuery(record?.params.ref ?? "", record?.search.project),
+    enabled: false,
+  }).data?.type;
+  const recordTypeLink =
+    record && recordType ? types.find((t) => t.type === recordType) : undefined;
+  const current =
+    recordTypeLink?.key ??
+    currentOf(pathname, [
+      ...top,
+      allEntities,
+      ...types,
+      ...work,
+      ...mine,
+      allProjects,
+      ...organization,
+      ...SPEC.account.map((item) => shown(item)),
+      ...(newProject ? [newProject] : []),
+    ]);
   const icon = (link: Shown) => (link.icon ? <Icon name={link.icon} /> : null);
+  // Its current item in view, where the list scrolls: on load, as what's above it arrives
+  // (types, saved views, projects), and as the reader moves on.
+  const above = [types.length, saved.length, mine.length].join();
+  useEffect(() => {
+    const list = navRef.current;
+    const item = list?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (list && item) reveal(list, item);
+  }, [current, open, above]);
 
   return (
-    <nav className="sidebar-nav" aria-label="Main">
+    <nav className="sidebar-nav" aria-label="Main" ref={navRef}>
       {top.map((link) => {
         const badge = link.badge === "unread" && unread ? unread : 0;
         return (
@@ -421,8 +460,9 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
         aria-expanded={open}
         aria-controls={entitiesId}
         onClick={() => {
-          writeCookie(ENTITIES_COOKIE, open ? "closed" : "open");
-          setOpen(!open);
+          const now = open ? "closed" : "open";
+          writeCookie(ENTITIES_COOKIE, now);
+          setLeft(now);
         }}
       >
         <Icon name={SPEC.entities.icon} />
@@ -541,9 +581,9 @@ function csrfToken(): string {
   return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? "";
 }
 
-/** The account menu: opens over the sidebar, and closes on Escape, a click elsewhere, or
- * moving on from it. */
-function Account({ me, pathname }: { me: Me; pathname: string }) {
+/** The account menu, at the foot of the sidebar and of the admin area's: opens over it, and
+ * closes on Escape, a click elsewhere, or moving on from it. */
+export function Account({ me, pathname }: { me: Me; pathname: string }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const box = useRef<HTMLDivElement>(null);

@@ -53,19 +53,6 @@ shows, open.
       {% endfor %}
     </div>
   </nav>
-  <div class="account">
-    <button class="account-button" type="button" aria-expanded="false" aria-controls="account-menu" data-account-toggle title="{{ nav.email }}">
-      <span class="avatar" data-swatch="{{ nav.swatch }}" aria-hidden="true">{{ nav.initials }}</span><span class="nav-label">{{ nav.name }}</span>{% include "web/_icon.html" with paths=nav.icons.account %}
-    </button>
-    <div class="account-menu" id="account-menu" hidden data-account-menu>
-      <p class="account-who"><span class="account-who-name">{{ nav.name }}</span><span class="account-who-email">{{ nav.email }}</span></p>
-      {% for link in nav.account %}<a class="account-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>
-      {% endfor %}
-      <form class="account-sign-out" method="post" action="{% url 'logout' %}">
-        {% csrf_token %}
-        <button class="account-item" type="submit">Sign out</button>
-      </form>
-    </div>
-  </div>
+  {% include "web/_account.html" with account=nav.account %}
 </div>
 <div class="sidebar-backdrop" data-drawer-close hidden></div>
