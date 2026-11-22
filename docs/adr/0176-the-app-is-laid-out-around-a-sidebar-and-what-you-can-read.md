@@ -144,9 +144,10 @@ No page loads fonts or scripts from outside the deployment.
 - **Admin, until its area exists,** opens the first administrative page you
   may open. On any administrative page, the others you may open are listed
   beneath it, so each stays a click away.
-- **Search everything**, from its button or from ⌘K or Ctrl+K, sends a
-  cancelable `iki:search` event, which the search palette handles. With
-  nothing to handle it, it opens All entities.
+- **Search everything**, the sidebar's button, opens the palette with an
+  `iki:search` event, as ⌘K does. The palette binds the shortcut, once a
+  page; the sidebar binds none of its own. A server page shows the button
+  only where it has loaded the palette.
 - **The account menu** shows your name and email, notification preferences,
   authorized apps and sign-out. Error pages keep the sidebar, so you can
   leave them by its links.

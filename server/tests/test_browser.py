@@ -414,7 +414,7 @@ def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     open_as: Any, path: str, color_scheme: str
 ) -> None:
     """The sidebar (ADR 0176): Entities stays as its reader left it, the account menu opens
-    and closes from the keyboard, ⌘K or Ctrl+K asks for search, and on a phone it's a drawer
+    and closes from the keyboard, its button opens search as ⌘K does, and on a phone it's a drawer
     that holds the focus until it closes, with the page never wider than the screen."""
     page = open_as("org_admin", path, color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
@@ -439,18 +439,16 @@ def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     assert account.get_attribute("aria-expanded") == "false"
     assert _focused(account)
 
-    page.evaluate(
-        """() => {
-          window.__searches = 0;
-          window.addEventListener("iki:search", (e) => {
-            e.preventDefault();
-            window.__searches++;
-          });
-        }"""
-    )
-    page.keyboard.press("Control+k")
+    # Search everything: the palette, from the shortcut and from the button.
+    palette = page.get_by_role("dialog", name="Search everything")
+    page.keyboard.press("ControlOrMeta+k")
+    palette.wait_for()
+    page.keyboard.press("Escape")
+    palette.wait_for(state="hidden")
     page.get_by_role("button", name="Search everything").click()
-    assert page.evaluate("window.__searches") == 2
+    palette.wait_for()
+    page.keyboard.press("Escape")
+    palette.wait_for(state="hidden")
 
     page.set_viewport_size({"width": 390, "height": 844})
     width = "document.documentElement.scrollWidth - window.innerWidth <= 1"

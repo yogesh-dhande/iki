@@ -86,18 +86,10 @@ function setUpSidebar(sidebar) {
     for (const kbd of sidebar.querySelectorAll("[data-shortcut]")) kbd.textContent = "⌘K";
   }
 
-  // Search everything: the web app's palette, where it listens; this page has none, so
-  // the list of every record, which searches them too.
-  const search = () => {
-    const asked = new window.CustomEvent("iki:search", { cancelable: true });
-    if (window.dispatchEvent(asked)) window.location.assign("/entities/");
-  };
-  sidebar.querySelector("[data-search]")?.addEventListener("click", search);
-  document.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      search();
-    }
+  // Search everything: the web app's palette, which this page loads with the button, and
+  // which binds ⌘K (Ctrl+K) itself.
+  sidebar.querySelector("[data-search]")?.addEventListener("click", () => {
+    window.dispatchEvent(new window.CustomEvent("iki:search"));
   });
 
   const toggle = sidebar.querySelector("[data-entities-toggle]");

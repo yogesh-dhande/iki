@@ -14,6 +14,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
 import { ENTITIES } from "./entities";
+import { openSearch } from "./search";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
 export interface NavItem {
@@ -346,31 +347,14 @@ const APPLE = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /** Search everything: the palette listens for `iki:search` and, opening, cancels it. Where
  * nothing does, the list of every record, which searches them too. */
+/** Search everything: opens the palette, which binds ⌘K (Ctrl+K) itself, once a page. */
 function SearchButton() {
-  const navigate = useNavigate();
-  const search = useCallback(() => {
-    if (window.dispatchEvent(new CustomEvent("iki:search", { cancelable: true }))) {
-      void navigate({ to: SPEC.entities.all.href });
-    }
-  }, [navigate]);
-  useEffect(() => {
-    const pressed = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        search();
-      }
-    };
-    document.addEventListener("keydown", pressed);
-    return () => {
-      document.removeEventListener("keydown", pressed);
-    };
-  }, [search]);
   return (
     <button
       className="sidebar-search"
       type="button"
       aria-keyshortcuts="Meta+K Control+K"
-      onClick={search}
+      onClick={openSearch}
     >
       <Icon name="search" />
       <span className="sidebar-search-label">Search everything</span>

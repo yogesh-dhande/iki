@@ -20,9 +20,10 @@ shows, open.
       {% include "web/_icon.html" with paths=nav.icons.close %}<span class="visually-hidden">Close menu</span>
     </button>
   </div>
+  {% if search_assets %}{# Only where the palette is: it binds ⌘K, and opens on iki:search. #}
   <button class="sidebar-search" type="button" data-search aria-keyshortcuts="Meta+K Control+K">
     {% include "web/_icon.html" with paths=nav.icons.search %}<span class="sidebar-search-label">Search everything</span><kbd class="kbd" data-shortcut aria-hidden="true">Ctrl K</kbd>
-  </button>
+  </button>{% endif %}
   <nav class="sidebar-nav" aria-label="Main">
     {% for link in nav.top %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span>{% if link.badge %} <span class="nav-badge">{{ link.badge_text }}</span> <span class="visually-hidden">unread</span>{% endif %}</a>
     {% endfor %}

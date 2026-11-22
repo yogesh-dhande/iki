@@ -260,31 +260,36 @@ describe("the drawer", () => {
 });
 
 describe("search everything", () => {
-  it("asks the palette, on the button and on ⌘K or Ctrl+K", async () => {
+  it("opens the palette from its button, as ⌘K and Ctrl+K do: once each", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    const { user } = await renderApp("/projects/");
-    const asked = vi.fn((event: Event) => {
-      event.preventDefault();
+    answer("GET /api/v1/search", {
+      q: "",
+      groups: [],
+      searched_records: false,
+      recent: [],
+      projects_readable: 0,
     });
+    const { user } = await renderApp("/projects/");
+    const asked = vi.fn();
     window.addEventListener("iki:search", asked);
     try {
-      await user.click(screen.getByRole("button", { name: "Search everything" }));
-      await user.keyboard("{Meta>}k{/Meta}");
-      await user.keyboard("{Control>}k{/Control}");
+      for (const open of [
+        () => user.click(screen.getByRole("button", { name: "Search everything" })),
+        () => user.keyboard("{Meta>}k{/Meta}"),
+        () => user.keyboard("{Control>}k{/Control}"),
+      ]) {
+        await open();
+        expect(await screen.findByRole("dialog", { name: "Search everything" })).toBeVisible();
+        await user.keyboard("{Escape}");
+        await waitFor(() => {
+          expect(screen.queryByRole("dialog", { name: "Search everything" })).toBeNull();
+        });
+      }
+      // The sidebar binds no shortcut of its own: the palette's opens it, once.
       expect(asked).toHaveBeenCalledTimes(3);
     } finally {
       window.removeEventListener("iki:search", asked);
     }
-  });
-
-  it("opens the list of every record where there's no palette", async () => {
-    signedIn();
-    answer("GET /api/v1/projects", page([]));
-    const { router, user } = await renderApp("/projects/");
-    await user.click(screen.getByRole("button", { name: "Search everything" }));
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/entities/");
-    });
   });
 });
