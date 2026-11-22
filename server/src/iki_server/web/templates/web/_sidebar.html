@@ -1,0 +1,71 @@
+{% comment %}
+The sidebar (ADR 0176), as the web app's sidebar.tsx draws it, from navigation.json through
+iki_server.web.navigation. iki.js opens and closes its parts, fills in the types of entity
+the reader can read, and makes it a drawer on a narrow screen. Without JavaScript, every part
+shows, open.
+{% endcomment %}
+<header class="topbar">
+  <button class="topbar-menu" type="button" aria-controls="sidebar" aria-expanded="false" data-drawer-open>
+    {% include "web/_icon.html" with paths=nav.icons.menu %}<span class="visually-hidden">Menu</span>
+  </button>
+  {% include "web/_brand.html" %}
+</header>
+<div class="sidebar" id="sidebar" data-sidebar>
+  <div class="sidebar-brand">
+    {% include "web/_brand.html" %}
+    <button class="sidebar-close" type="button" data-drawer-close>
+      {% include "web/_icon.html" with paths=nav.icons.close %}<span class="visually-hidden">Close menu</span>
+    </button>
+  </div>
+  <button class="sidebar-search" type="button" data-search aria-keyshortcuts="Meta+K Control+K">
+    {% include "web/_icon.html" with paths=nav.icons.search %}<span class="sidebar-search-label">Search everything</span><kbd class="kbd" data-shortcut aria-hidden="true">Ctrl K</kbd>
+  </button>
+  <nav class="sidebar-nav" aria-label="Main">
+    {% for link in nav.top %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span>{% if link.badge %} <span class="nav-badge">{{ link.badge_text }}</span> <span class="visually-hidden">unread</span>{% endif %}</a>
+    {% endfor %}
+    <div class="nav-gap"></div>
+    <button class="nav-item nav-toggle" type="button" aria-expanded="{% if nav.entities_open %}true{% else %}false{% endif %}" aria-controls="nav-entities" data-entities-toggle>
+      {% include "web/_icon.html" with paths=nav.icons.entities %}<span class="nav-label">{{ nav.labels.entities }}</span>{% include "web/_icon.html" with paths=nav.icons.chevron %}
+    </button>
+    <div class="nav-sub" id="nav-entities"{% if not nav.entities_open %} hidden{% endif %} data-entity-types data-counts="{{ nav.counts_url }}">
+      <a class="nav-item" href="{{ nav.all_entities.href }}"{% if nav.all_entities.current %} aria-current="page"{% endif %}><span class="nav-label">{{ nav.all_entities.label }}</span></a>
+    </div>
+    {% for link in nav.work %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
+    {% endfor %}
+    {% if nav.saved %}<div class="nav-group" role="group" aria-labelledby="nav-saved">
+      <div class="nav-heading" id="nav-saved">{{ nav.labels.saved }}</div>
+      {% for link in nav.saved %}<a class="nav-item" href="{{ link.href }}">{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
+      {% endfor %}
+    </div>{% endif %}
+    <div class="nav-group" role="group" aria-labelledby="nav-projects">
+      <div class="nav-heading"><span id="nav-projects">{{ nav.labels.projects }}</span>{% if nav.new_project %}<a class="nav-add" href="{{ nav.new_project.href }}" title="{{ nav.new_project.label }}"{% if nav.new_project.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.icons.plus %}<span class="visually-hidden">{{ nav.new_project.label }}</span></a>{% endif %}</div>
+      {% for link in nav.projects %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="project-mark" aria-hidden="true">{{ link.initial }}</span><span class="nav-label">{{ link.label }}</span></a>
+      {% endfor %}
+      <a class="nav-item nav-quiet" href="{{ nav.all_projects.href }}"{% if nav.all_projects.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.all_projects.icon %}<span class="nav-label">{{ nav.all_projects.label }}</span></a>
+    </div>
+    <div class="nav-group" role="group" aria-labelledby="nav-organization">
+      <div class="nav-heading" id="nav-organization">{{ nav.labels.organization }}</div>
+      {% for link in nav.organization %}<a class="nav-item{% if forloop.last and nav.admin_pages %} nav-section{% endif %}" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>
+      {% endfor %}
+      {% if nav.admin_pages %}<div class="nav-sub">
+        {% for link in nav.admin_pages %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="nav-label">{{ link.label }}</span></a>
+        {% endfor %}
+      </div>{% endif %}
+    </div>
+  </nav>
+  <div class="account">
+    <button class="account-button" type="button" aria-expanded="false" aria-controls="account-menu" data-account-toggle title="{{ nav.email }}">
+      <span class="avatar" aria-hidden="true">{{ nav.initials }}</span><span class="nav-label">{{ nav.name }}</span>{% include "web/_icon.html" with paths=nav.icons.account %}
+    </button>
+    <div class="account-menu" id="account-menu" hidden data-account-menu>
+      <p class="account-who"><span class="account-who-name">{{ nav.name }}</span><span class="account-who-email">{{ nav.email }}</span></p>
+      {% for link in nav.account %}<a class="account-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a>
+      {% endfor %}
+      <form class="account-sign-out" method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button class="account-item" type="submit">Sign out</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="sidebar-backdrop" data-drawer-close hidden></div>

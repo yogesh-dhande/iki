@@ -28,6 +28,7 @@ from playwright.sync_api import (
     Browser,
     BrowserContext,
     Frame,
+    Locator,
     Page,
     Playwright,
     sync_playwright,
@@ -400,6 +401,80 @@ def test_pages_are_accessible_and_keep_the_policy(open_as: Any, color_scheme: st
         page.context.close()
 
 
+def _focused(locator: Locator) -> bool:
+    return bool(locator.evaluate("e => e === document.activeElement"))
+
+
+@pytest.mark.parametrize(
+    ("path", "color_scheme"),
+    # The web app's sidebar and the server's, in each theme.
+    [("/projects/", "light"), ("/teams/", "dark")],
+)
+def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
+    open_as: Any, path: str, color_scheme: str
+) -> None:
+    """The sidebar (ADR 0176): Entities stays as its reader left it, the account menu opens
+    and closes from the keyboard, ⌘K or Ctrl+K asks for search, and on a phone it's a drawer
+    that holds the focus until it closes, with the page never wider than the screen."""
+    page = open_as("org_admin", path, color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    nav = page.get_by_role("navigation", name="Main")
+    entities = nav.get_by_role("button", name="Entities")
+    entities.focus()
+    page.keyboard.press("Enter")
+    assert entities.get_attribute("aria-expanded") == "false"
+    page.reload()
+    shown(page)
+    assert entities.get_attribute("aria-expanded") == "false"
+    entities.click()
+    nav.get_by_role("link", name="All entities").wait_for()
+
+    account = page.get_by_role("button", name="Org Admin")
+    account.focus()
+    page.keyboard.press("Enter")
+    page.get_by_role("link", name="Notification preferences").wait_for()
+    page.get_by_role("button", name="Sign out").wait_for()
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    assert account.get_attribute("aria-expanded") == "false"
+    assert _focused(account)
+
+    page.evaluate(
+        """() => {
+          window.__searches = 0;
+          window.addEventListener("iki:search", (e) => {
+            e.preventDefault();
+            window.__searches++;
+          });
+        }"""
+    )
+    page.keyboard.press("Control+k")
+    page.get_by_role("button", name="Search everything").click()
+    assert page.evaluate("window.__searches") == 2
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    width = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+    assert page.evaluate(width)
+    nav.wait_for(state="hidden")
+    menu = page.get_by_role("button", name="Menu", exact=True)
+    menu.click()
+    drawer = page.get_by_role("dialog", name="Menu")
+    close = drawer.get_by_role("button", name="Close menu")
+    page.wait_for_function("() => document.activeElement?.closest('[role=dialog]') !== null")
+    assert _focused(close)
+    assert page.evaluate(width)
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    drawer.wait_for(state="hidden")
+    assert _focused(menu)
+    menu.click()
+    drawer.get_by_role("link", name="Types").click()
+    page.wait_for_url("**/types/")
+    drawer.wait_for(state="hidden")
+    assert page.evaluate(width)
+    page.context.close()
+
+
 def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     open_as: Any, world: World
 ) -> None:
@@ -527,7 +602,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
         actor=viewer,
     )
     page = open_as("admin", "/notifications/")
-    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    page.get_by_role("link", name="Inbox 1 unread").wait_for()
     # What the inbox's requests answered, to say why if the new one never shows.
     answered: list[str] = []
     page.on(
@@ -545,7 +620,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
         project=world.project,
         actor=viewer,
     )
-    page.get_by_role("link", name="Notifications, 2 unread").wait_for()
+    page.get_by_role("link", name="Inbox 2 unread").wait_for()
     try:
         page.get_by_role("link", name=title).wait_for()
     except PlaywrightTimeoutError:
@@ -554,7 +629,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
 
     page.get_by_role("link", name=title).click()
     page.wait_for_url("**/projects/kinase-atlas/")
-    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    page.get_by_role("link", name="Inbox 1 unread").wait_for()
     assert_clean(page)
 
 
@@ -2250,12 +2325,12 @@ def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, wor
     assert_clean(page, axe_in_firefox=False)
 
 
-def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
+def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
     open_as: Any, world: World
 ) -> None:
-    """An auditor in California opens the log from the web app: its header offers what the
-    app's did, its times are in their zone and say so, and the date the app showed a
-    project's creation on finds it."""
+    """An auditor in California opens the log from the web app's sidebar, through Admin:
+    the server's sidebar offers what the app's did, its times are in their zone and say so,
+    and the date the app showed a project's creation on finds it."""
     from datetime import UTC, datetime
 
     from iki_server.audit import log as audit
@@ -2280,16 +2355,23 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
     )
     page = open_as("auditor", "/", timezone_id="America/Los_Angeles")
 
-    def header() -> list[str]:
-        nav = page.get_by_role("navigation", name="Main")
+    nav = page.get_by_role("navigation", name="Main")
+
+    def sidebar() -> list[str]:
         links: list[str] = nav.get_by_role("link").all_inner_texts()
         return links
 
-    in_the_app = header()
-    assert in_the_app == ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]
-    page.get_by_role("navigation", name="Main").get_by_role("link", name="Audit").click()
+    nav.get_by_role("link", name="Admin").click()
+    page.wait_for_url("**/costs/")
+    in_the_app = sidebar()
+    at = in_the_app.index("Admin")
+    assert in_the_app[:3] == ["My work", "Inbox", "All entities"]
+    assert in_the_app[at - 2 :] == ["Types", "People and teams", "Admin", "Costs", "Audit"]
+    assert nav.get_by_role("link", name="Costs").get_attribute("aria-current") == "page"
+    nav.get_by_role("link", name="Audit").click()
     page.get_by_role("heading", name="Audit log", level=1).wait_for()
-    assert header() == in_the_app
+    assert sidebar() == in_the_app
+    assert nav.get_by_role("link", name="Audit").get_attribute("aria-current") == "page"
     page.get_by_text("20 Nov 2026, 19:10:00 PST").wait_for()
     page.get_by_text("Times are in America/Los_Angeles").wait_for()
     # What the quota change changed, before and after, under the quota form's labels.

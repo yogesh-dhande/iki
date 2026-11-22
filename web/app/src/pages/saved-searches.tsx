@@ -3,15 +3,17 @@
  * project), and saving the grid's search under a name.
  *
  * A saved search keeps what the address does (type, archived or not, text,
- * filters and sort), so opening one is following a link to that address.
+ * filters and sort), so opening one is following a link to that address. The
+ * sidebar's saved views link to `/saved-searches/<id>/`, which goes there.
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { queryOptions, useQuery, useSuspenseQuery, type QueryClient } from "@tanstack/react-query";
+import { Link, redirect, useParams } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
+import { usePageTitle } from "../layout";
 import {
   gridSearch,
   SAVED_SEARCHES,
@@ -250,5 +252,62 @@ export function SavedSearches({ project, search }: { project: Project; search: E
         </p>
       </ConfirmDialog>
     </div>
+  );
+}
+
+function savedSearchQuery(id: string) {
+  return queryOptions({
+    queryKey: [...SAVED_SEARCHES, "one", id],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/saved-searches/{saved_id}", { params: { path: { saved_id: id } } }),
+      ),
+  });
+}
+
+function projectByIdQuery(id: string) {
+  return queryOptions({
+    queryKey: ["projects", "by-id", id],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } }),
+      ),
+  });
+}
+
+/** Opening a saved search from its own address (a saved view): its project's grid, with
+ * the search in the grid's address. One the grid can't show stays here, to say so. */
+export async function openSavedSearch(client: QueryClient, id: string): Promise<void> {
+  const saved = await client.query(savedSearchQuery(id));
+  const project = await client.query(projectByIdQuery(saved.project));
+  const address = toAddress(saved.query);
+  if (address) {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- how TanStack redirects
+    throw redirect({
+      to: "/projects/$slug/entities/",
+      params: { slug: project.slug },
+      search: address,
+      replace: true,
+    });
+  }
+}
+
+export function SavedSearchPage() {
+  const { savedId } = useParams({ from: "/saved-searches/$savedId" });
+  const saved = useSuspenseQuery(savedSearchQuery(savedId)).data;
+  const project = useSuspenseQuery(projectByIdQuery(saved.project)).data;
+  usePageTitle(saved.name);
+  return (
+    <section className="card">
+      <h1>{saved.name}</h1>
+      <p>
+        This search was saved through Iki’s API, with conditions the grid can’t show, so it can’t
+        open there. Its project’s entities are{" "}
+        <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
+          in {project.name}
+        </Link>
+        .
+      </p>
+    </section>
   );
 }

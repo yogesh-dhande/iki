@@ -57,6 +57,12 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("compute/quotas/", web.app, name="compute_quotas"),
     path("compute/volumes/", web.app, name="compute_volumes"),
     path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
+    # What the reader can read across projects (ADR 0176), and one of their saved searches.
+    path("entities/", web.app, name="entities"),
+    path("entities/types/<qualified:name>/", web.app, name="entities_of_type"),
+    path("requests/", web.app, name="requests"),
+    path("runs/", web.app, name="runs"),
+    path("saved-searches/<uuid:saved_id>/", web.app, name="saved_search"),
     # Entities and their types (a project's entities are in org.urls).
     path("types/", web.app, name="entity_types"),
     path("types/<qualified:name>/", web.app, name="entity_type"),

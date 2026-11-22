@@ -734,13 +734,17 @@ describe("an app can't", () => {
       expect(shown, String(index)).toBeInTheDocument();
       cleanup();
     }
-    // Nothing was fetched for them: only the page's own, and whether you watch it.
+    // Nothing was fetched for them: only the page's own, whether you watch it, and the
+    // sidebar's.
     expect(
       calls("GET").filter(
         (c) =>
           !/^\/api\/v1\/(entities\/APP-000001|entity-types|me|components|notifications|project-roles)/.test(
             c.path,
-          ) && !/^\/api\/v1\/entities\/[0-9a-f-]+\/watch$/.test(c.path),
+          ) &&
+          !/^\/api\/v1\/entities\/[0-9a-f-]+\/watch$/.test(c.path) &&
+          c.path !== "/api/v1/saved-searches" &&
+          !(c.path === "/api/v1/projects" && c.query.get("member") === "true"),
       ),
     ).toEqual([]);
   });

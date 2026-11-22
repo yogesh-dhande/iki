@@ -2,6 +2,7 @@
 
 import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,11 @@ APP_PAGES = [
     "/projects/a-b/runs/new/",
     "/runs/RUN-000001/",
     "/batches/BAT-000001/",
+    "/entities/",
+    "/entities/types/acme/dna.DNASequence/",
+    "/requests/",
+    "/runs/",
+    "/saved-searches/01a1c452-a14b-7195-acd0-4b6ba266a656/",
 ]
 
 
@@ -57,6 +63,7 @@ SAMPLES = {
     "draft": "01a1c452-a14b-7195-acd0-4b6ba266a653",
     "importId": "01a1c452-a14b-7195-acd0-4b6ba266a654",
     "registryId": "01a1c452-a14b-7195-acd0-4b6ba266a655",
+    "savedId": "01a1c452-a14b-7195-acd0-4b6ba266a656",
     # A splat, `$`, takes the rest of the path: a name with its `/`, as a type's or a
     # component's has (ADR 0113).
     "": "acme/protein.Protein",
@@ -200,52 +207,123 @@ def test_chunks_imported_by_the_entry_are_preloaded_once() -> None:
     ]
 
 
-# --- The header ------------------------------------------------------------------
+# --- The sidebar (ADR 0176) ------------------------------------------------------
 
 
-def header_links(html: str) -> list[tuple[str, bool]]:
-    """The main navigation's links: each one's label, and whether it's the current page."""
-    nav = re.search(r'<nav class="site-nav" aria-label="Main">(.*?)</nav>', html, re.S)
-    assert nav, "no main navigation"
-    return [
-        (label, bool(current))
-        for current, label in re.findall(
-            r'<a href="[^"]*"( aria-current="page")?>([^<]+)</a>', nav[1]
-        )
-    ]
+class _Links(HTMLParser):
+    """Each link in an element with the id or class asked for: its text as a screen reader
+    reads it (without what's aria-hidden), where it goes, and whether it's the current page."""
+
+    def __init__(self, within: str) -> None:
+        super().__init__()
+        self.within = within
+        self.depth = 0
+        #: The depth an aria-hidden element opened at, while in one.
+        self.hidden: int | None = None
+        self.links: list[dict[str, Any]] = []
+        self.link: dict[str, Any] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        found = dict(attrs)
+        if self.depth:
+            self.depth += tag not in VOID
+            if self.hidden is None and found.get("aria-hidden") == "true":
+                self.hidden = self.depth
+        elif self.within in (found.get("class") or "").split() or found.get("id") == self.within:
+            self.depth = 1
+        if self.depth and tag == "a":
+            self.link = {"href": found["href"], "current": "aria-current" in found, "text": ""}
+            self.link["label"] = found.get("aria-label")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """``<path ... />``: opened and closed at once."""
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self.depth:
+            return
+        if self.hidden == self.depth:
+            self.hidden = None
+        if tag == "a" and self.link is not None:
+            self.link["text"] = " ".join(self.link["text"].split())
+            self.links.append(self.link)
+            self.link = None
+        self.depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self.link is not None and self.hidden is None:
+            self.link["text"] += data
+
+
+VOID = {"input", "br", "img", "meta", "link", "hr"}
+
+
+def links_in(html: str, within: str = "sidebar-nav") -> list[dict[str, Any]]:
+    parser = _Links(within)
+    parser.feed(html)
+    return parser.links
+
+
+def sidebar_links(html: str) -> list[str]:
+    return [link["text"] for link in links_in(html)]
+
+
+def current_links(html: str) -> list[str]:
+    return [link["text"] for link in links_in(html) if link["current"]]
 
 
 @pytest.mark.parametrize(
-    ("principal", "expected"),
+    ("principal", "admin"),
     [
-        ("viewer", ["My work", "Projects", "Types", "Teams"]),
-        (
-            "org_admin",
-            ["My work", "Projects", "Types", "Teams", "People", "Settings", "Costs"],
-        ),
-        ("compute_admin", ["My work", "Projects", "Types", "Teams", "Costs", "Compute"]),
-        ("auditor", ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]),
+        ("viewer", None),
+        ("org_admin", "/settings/sign-in/"),
+        ("compute_admin", "/costs/"),
+        ("auditor", "/costs/"),
     ],
 )
-def test_server_pages_have_the_web_apps_header(
-    world: World, principal: str, expected: list[str]
+def test_server_pages_have_the_web_apps_sidebar(
+    world: World, principal: str, admin: str | None
 ) -> None:
-    """The People, Teams, Settings and Audit pages offer what the web app's header does,
-    under the same conditions: the ones /me's `can` says they may open."""
-    from iki_server.web.navigation import items
+    """The People, Teams, Settings and Audit pages offer what the web app's sidebar does,
+    under the same conditions: Admin for those who may open any administrative page, to the
+    first of them, and the projects they're in."""
+    from iki_server.web.navigation import spec
 
     session = world.browser(principal)
     can = session.get("/api/v1/me").json()["can"]
-    offered = [i.label for i in items() if i.requires is None or can[i.requires]]
-    links = [label for label, _ in header_links(session.get("/teams/").content.decode())]
-    assert links == offered == expected
+    html = session.get("/teams/").content.decode()
+    projects = [
+        p["name"]
+        for p in session.get("/api/v1/projects?member=true&archived=false&sort=name").json()[
+            "items"
+        ]
+    ]
+    expected = [
+        "My work",
+        "Inbox",
+        "All entities",
+        "Requests",
+        "Runs",
+        *(["New project"] if can["create_projects"] else []),
+        *projects,
+        "All projects",
+        "Types",
+        "People and teams",
+        *(["Admin"] if admin else []),
+    ]
+    assert sidebar_links(html) == expected
+    hrefs = {link["text"]: link["href"] for link in links_in(html)}
+    assert hrefs.get("Admin") == admin
+    assert hrefs["People and teams"] == "/teams/"
+    assert [link["href"] for link in links_in(html, "account-menu")] == [
+        i["href"] for i in spec()["account"]
+    ]
 
 
 @pytest.mark.parametrize(
     ("path", "section"),
     [
-        ("/teams/", "Teams"),
-        ("/teams/structural-biology/", "Teams"),
+        ("/teams/", "People and teams"),
+        ("/teams/structural-biology/", "People and teams"),
         ("/people/", "People"),
         ("/service-accounts/", "People"),
         ("/settings/sign-in/", "Settings"),
@@ -255,26 +333,134 @@ def test_server_pages_have_the_web_apps_header(
         ("/audit/", "Audit"),
     ],
 )
-def test_the_header_marks_the_section_a_page_is_in(world: World, path: str, section: str) -> None:
+def test_the_sidebar_marks_the_section_a_page_is_in(world: World, path: str, section: str) -> None:
+    """On an administrative page, each the reader may open is beneath Admin, the page's own
+    current: the way from one to another, while Admin has no page of its own."""
     from iki_server.org.models import OrgRole, OrgRoleAssignment
 
     OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.AUDITOR)
     page = world.browser("org_admin").get(path)
     assert page.status_code == 200
-    assert [label for label, current in header_links(page.content.decode()) if current] == [section]
+    html = page.content.decode()
+    assert current_links(html) == [section]
+    beneath = sidebar_links(html)[sidebar_links(html).index("People and teams") + 1 :]
+    if section == "People and teams":
+        assert beneath == ["Admin"]
+    else:
+        assert beneath == ["Admin", "Settings", "People", "Costs", "Audit"]
+        assert 'class="nav-item nav-section"' in html
 
 
-def test_the_headers_items_are_pages_and_the_app_routes_those_it_says() -> None:
+def test_the_most_specific_link_is_the_current_one() -> None:
+    """A project's page marks the project, not All projects; a type's, the type."""
+    from iki_server.web.navigation import Link, current_of
+
+    links = [
+        Link("All projects", "/projects/", prefixes=("/projects/",)),
+        Link("Kinase Atlas", "/projects/kinase-atlas/", prefixes=("/projects/kinase-atlas/",)),
+        Link("Admin", "/settings/sign-in/", prefixes=("/settings/", "/people/")),
+    ]
+    assert current_of("/projects/kinase-atlas/entities/", links) is links[1]
+    assert current_of("/projects/", links) is links[0]
+    assert current_of("/projects/new/", links) is links[0]
+    assert current_of("/people/", links) is links[2]
+    assert current_of("/work/", links) is None
+
+
+def test_the_sidebar_lists_the_readers_active_projects_and_saved_searches(world: World) -> None:
+    """Their own saved searches, in the projects they can still read: not another's, nor one
+    in a project they've left. Each opens from its own address."""
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+    from iki_server.searches.models import SavedSearch
+
+    viewer = world.users["viewer"]
+    left = Project.objects.create(team=world.team, name="Left Behind")
+    mine = SavedSearch.objects.create(
+        project=world.project, name="Kinases", query={"q": "kinase"}, created_by=viewer
+    )
+    SavedSearch.objects.create(
+        project=world.project,
+        name="Theirs",
+        query={},
+        created_by=world.users["editor"],
+        shared=True,
+    )
+    SavedSearch.objects.create(project=left, name="Gone", query={}, created_by=viewer)
+    ProjectMembership.objects.create(
+        project=left, user=world.users["editor"], role=ProjectRole.ADMIN
+    )
+
+    html = world.browser("viewer").get("/teams/").content.decode()
+    links = {link["text"]: link["href"] for link in links_in(html)}
+    assert links["Kinases"] == f"/saved-searches/{mine.pk}/"
+    assert "Theirs" not in links and "Gone" not in links
+    # Their active project, not the archived one, nor one they're not in.
+    assert links["Kinase Atlas"] == "/projects/kinase-atlas/"
+    assert "Old Screens" not in links and "Left Behind" not in links
+
+
+def test_the_sidebar_shows_the_project_a_page_is_in_beyond_the_first_few(world: World) -> None:
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+    from iki_server.web.navigation import sidebar, spec
+
+    shown = spec()["projects"]["shown"]
+    for n in range(shown + 1):
+        p = Project.objects.create(team=world.team, name=f"A{n:02d} Screen")
+        ProjectMembership.objects.create(
+            project=p, user=world.users["viewer"], role=ProjectRole.VIEWER
+        )
+    session = world.browser("viewer")
+    names = [t for t in sidebar_links(session.get("/teams/").content.decode()) if "Screen" in t]
+    assert len(names) == shown
+    # A project's pages are the app's, whose sidebar is the server's own.
+    deep = sidebar(world.users["viewer"], "/projects/kinase-atlas/members/", {})
+    assert [p.label for p in deep.projects][-1] == "Kinase Atlas"
+    assert [p.label for p in deep.projects if p.current] == ["Kinase Atlas"]
+
+
+def test_the_inbox_says_how_many_are_unread(world: World) -> None:
+    from iki_server.notifications import kinds
+    from iki_server.notifications.services import notify
+
+    admin = world.users["admin"]
+    notify([admin], kinds.TEAM_ADDED, title="Added", path="/teams/", actor=world.users["viewer"])
+    html = world.browser("admin").get("/teams/").content.decode()
+    (inbox,) = [link for link in links_in(html) if link["href"] == "/notifications/"]
+    # Named by what it shows, then how many, as a screen reader reads it.
+    assert (inbox["text"], inbox["label"]) == ("Inbox 1 unread", None)
+    assert '<span class="nav-badge">1</span>' in html
+
+
+def test_the_entities_section_opens_as_the_reader_left_it(world: World) -> None:
+    from iki_server.web.navigation import ENTITIES_COOKIE
+
+    session = world.browser("viewer")
+    assert 'id="nav-entities" data-entity-types' in session.get("/teams/").content.decode()
+    session.cookies[ENTITIES_COOKIE] = "closed"
+    html = session.get("/teams/").content.decode()
+    assert 'aria-expanded="false" aria-controls="nav-entities"' in html
+    assert 'id="nav-entities" hidden data-entity-types' in html
+
+
+def test_signed_out_pages_have_no_sidebar(world: World) -> None:
+    html = world.browser("anonymous").get("/login/").content.decode()
+    assert 'class="sidebar"' not in html
+    assert 'class="site-header"' in html
+
+
+def test_the_sidebars_items_are_pages_and_the_app_routes_those_it_says() -> None:
     from django.urls import resolve
 
     from iki_server.api.schemas import MeCan
-    from iki_server.web.navigation import items
+    from iki_server.web.navigation import items, spec
 
     routed = set(routed_pages())
     for item in items():
         resolve(item.href)
         assert item.app == (item.href in routed), item
         assert item.requires is None or item.requires in MeCan.model_fields, item
+    saved = spec()["saved"]
+    assert saved["app"] == (f"{saved['href']}{SAMPLES['savedId']}/" in routed)
 
 
 # --- Serving the build ---------------------------------------------------------
@@ -332,3 +518,31 @@ def test_the_worker_protocol_document_is_current() -> None:
     assert json.loads(committed.read_text()) == json.loads(json.dumps(current)), (
         "The worker API changed. Run `make protocol` and commit worker/."
     )
+
+
+def test_the_sidebar_asks_for_counts_only_where_the_api_has_them(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request that fails is an error in the browser's console: until the API counts each
+    type's records, neither sidebar asks it to, and lists the types without counts."""
+    from iki_server.web import navigation
+
+    navigation.entity_counts_url.cache_clear()
+    session = world.browser("viewer")
+    counts = navigation.spec()["entities"]["counts"]
+    has = session.get(counts).status_code != 404
+    shown = counts if has else ""
+    assert navigation.entity_counts_url() == shown
+    assert f'data-counts="{shown}"' in session.get("/teams/").content.decode()
+    assert f'<meta name="iki-entity-counts" content="{shown}">' in (
+        session.get("/projects/").content.decode()
+    )
+    # Where it has them, it says where.
+    real = navigation.spec()
+    entities = {**real["entities"], "counts": "/api/v1/entities/search"}
+    monkeypatch.setattr(navigation, "spec", lambda: {**real, "entities": entities})
+    navigation.entity_counts_url.cache_clear()
+    try:
+        assert navigation.entity_counts_url() == "/api/v1/entities/search"
+    finally:
+        navigation.entity_counts_url.cache_clear()

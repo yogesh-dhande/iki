@@ -166,8 +166,19 @@ describe("the frame", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(links).toEqual(["My work", "Projects", "Types", "Teams", "People", "Settings"]);
-    expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute(
+    expect(links).toEqual([
+      "My work",
+      "Inbox",
+      "All entities",
+      "Requests",
+      "Runs",
+      "New project",
+      "All projects",
+      "Types",
+      "People and teams",
+      "Admin",
+    ]);
+    expect(within(nav).getByRole("link", { name: "All projects" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -177,51 +188,64 @@ describe("the frame", () => {
   it("offers every section to someone who may open them all, as server pages do", async () => {
     signedIn({
       can: {
-        manage_org: true,
+        manage_org: false,
         read_audit: true,
-        create_projects: true,
-        manage_webhooks: true,
+        create_projects: false,
+        manage_webhooks: false,
         read_costs: true,
         manage_compute: true,
       },
     });
     answer("GET /api/v1/projects", page([]));
-    await renderApp("/projects/");
+    await renderApp("/compute/");
     const nav = screen.getByRole("navigation", { name: "Main" });
     const links = within(nav).getAllByRole("link");
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["My work", "/work/"],
-      ["Projects", "/projects/"],
+      ["Inbox", "/notifications/"],
+      ["All entities", "/entities/"],
+      ["Requests", "/requests/"],
+      ["Runs", "/runs/"],
+      ["All projects", "/projects/"],
       ["Types", "/types/"],
-      ["Teams", "/teams/"],
-      ["People", "/people/"],
-      ["Settings", "/settings/sign-in/"],
+      ["People and teams", "/teams/"],
+      // The first administrative page they may open; and on one, each of them beneath it.
+      ["Admin", "/costs/"],
       ["Costs", "/costs/"],
       ["Compute", "/compute/"],
       ["Audit", "/audit/"],
     ]);
     expect(links.filter((a) => a.getAttribute("aria-current") === "page")).toEqual([
-      within(nav).getByRole("link", { name: "Projects" }),
+      within(nav).getByRole("link", { name: "Compute" }),
     ]);
   });
 
-  it("links to the person's account and their notifications", async () => {
+  it("links to the person's account and their inbox", async () => {
     signedIn();
     answer("GET /api/v1/notifications/summary", { unread: 3 });
     answer("GET /api/v1/projects", page([]));
-    await renderApp("/projects/");
-    expect(screen.getByRole("link", { name: "Rosalind Franklin" })).toHaveAttribute(
+    const { user } = await renderApp("/projects/");
+    const inbox = await screen.findByRole("link", { name: "Inbox 3 unread" });
+    expect(inbox).toHaveAttribute("href", "/notifications/");
+    const account = screen.getByRole("button", { name: "Rosalind Franklin" });
+    expect(account).toHaveAttribute("aria-expanded", "false");
+    await user.click(account);
+    expect(account).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: "Notification preferences" })).toHaveAttribute(
       "href",
-      "/account/",
+      "/account/notifications/",
     );
-    const bell = await screen.findByRole("link", { name: "Notifications, 3 unread" });
-    expect(bell).toHaveAttribute("href", "/notifications/");
+    expect(screen.getByRole("link", { name: "Authorized apps" })).toHaveAttribute(
+      "href",
+      "/account/apps/",
+    );
   });
 
   it("signs out with a form post carrying the CSRF token", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    await renderApp("/projects/");
+    const { user } = await renderApp("/projects/");
+    await user.click(screen.getByRole("button", { name: "Rosalind Franklin" }));
     const button = screen.getByRole("button", { name: "Sign out" });
     const form = button.closest("form");
     expect(form).toHaveAttribute("action", "/logout/");
@@ -246,8 +270,10 @@ describe("the project list", () => {
     );
     const { user } = await renderApp("/projects/");
     expect(await screen.findAllByRole("listitem")).toHaveLength(1);
-    expect(calls("GET", "/api/v1/projects")).toHaveLength(1);
-    expect(calls("GET", "/api/v1/projects")[0]?.query.get("sort")).toBe("name");
+    // The list's own: the sidebar asks for the projects they're in.
+    const listed = calls("GET", "/api/v1/projects").filter((c) => !c.query.has("member"));
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.query.get("sort")).toBe("name");
     await user.click(screen.getByRole("button", { name: "Show more" }));
     await waitFor(() => {
       expect(screen.getAllByRole("listitem")).toHaveLength(2);
@@ -299,10 +325,9 @@ describe("home", () => {
       archived: "false",
       limit: "1",
     });
-    expect(screen.getByRole("link", { name: "New project" })).toHaveAttribute(
-      "href",
-      "/projects/new/",
-    );
+    expect(
+      within(screen.getByRole("main")).getByRole("link", { name: "New project" }),
+    ).toHaveAttribute("href", "/projects/new/");
   });
 
   it("opens a project named Others from an Org Admin's home page", async () => {
@@ -1322,13 +1347,13 @@ describe("notifications", () => {
     act(() => {
       stream?.send("notification", { id: UNREAD.id, unread: 1 });
     });
-    expect(await screen.findByRole("link", { name: "Notifications, 1 unread" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "Inbox 1 unread" })).toBeVisible();
     expect(await screen.findAllByRole("listitem")).toHaveLength(2);
 
     act(() => {
       stream?.send("notifications_read", { unread: 0 });
     });
-    expect(await screen.findByRole("link", { name: "Notifications" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "Inbox" })).toBeVisible();
   });
 
   it("shows one that came while its stream was opening", async () => {
@@ -1345,7 +1370,7 @@ describe("notifications", () => {
     act(() => {
       stream?.send("ready", { unread: 1 });
     });
-    expect(await screen.findByRole("link", { name: "Notifications, 1 unread" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: "Inbox 1 unread" })).toBeVisible();
     expect(await screen.findAllByRole("listitem")).toHaveLength(2);
   });
 

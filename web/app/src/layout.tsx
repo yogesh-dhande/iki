@@ -1,15 +1,15 @@
 /**
- * The page frame, matching the server's base.html: skip link, header with
- * the main navigation and sign-out, and the main region.
+ * The page frame, matching the server's base.html: skip link, the sidebar (ADR 0176), and
+ * the main region.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
+import { Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 
-import navigation from "../../../server/src/iki_server/web/navigation.json";
-import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery, type Me } from "./api";
+import { isSignedOut, meQuery, onSignedOutChange, signInUrl } from "./api";
 import { useLiveUpdates } from "./events";
+import { Brand, Sidebar } from "./sidebar";
 import { markNavigated, MessagesProvider } from "./ui";
 
 export function organizationName(): string {
@@ -45,77 +45,6 @@ export function usePageTitle(title: string | undefined): void {
   }, [title]);
 }
 
-/** An item of the header's main navigation (the server's navigation.json, which its
- * base.html renders too, so the two headers can't drift apart). */
-export interface NavItem {
-  label: string;
-  href: string;
-  /** The one of `me.can` it needs, if any. */
-  requires?: keyof Me["can"];
-  /** The paths it's the current section for, by prefix: its `href` if left out. */
-  current?: string[];
-  /** The app routes it, so its link doesn't load a page. */
-  app?: boolean;
-}
-
-export const MAIN_NAVIGATION = navigation.main as NavItem[];
-
-function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
-  return (
-    <nav className="site-nav" aria-label="Main">
-      {MAIN_NAVIGATION.filter((item) => !item.requires || me.can[item.requires]).map((item) => {
-        const current = (item.current ?? [item.href]).some((p) => pathname.startsWith(p));
-        const props = { "aria-current": current ? ("page" as const) : undefined };
-        return item.app ? (
-          <Link key={item.href} to={item.href} {...props}>
-            {item.label}
-          </Link>
-        ) : (
-          <a key={item.href} href={item.href} {...props}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
-}
-
-function csrfToken(): string {
-  return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? "";
-}
-
-function Bell() {
-  const unread = useQuery(unreadQuery).data ?? 0;
-  const shown = unread > 99 ? "99+" : String(unread);
-  return (
-    <Link
-      className="header-notifications"
-      to="/notifications/"
-      activeProps={{ "aria-current": "page" }}
-      aria-label={unread ? `Notifications, ${String(unread)} unread` : "Notifications"}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        focusable="false"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-        <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-      </svg>
-      {unread ? (
-        <span className="badge" aria-hidden="true">
-          {shown}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
-
 /** Shown when Iki found out, in the background, that the session ended. */
 function SignedOut() {
   const signedOut = useSyncExternalStore(onSignedOutChange, isSignedOut);
@@ -132,7 +61,6 @@ function SignedOut() {
 
 export function Layout() {
   const me = useQuery(meQuery).data;
-  const org = organizationName();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const narrow = useMatches({ select: (matches) => matches.some((m) => m.staticData.narrow) });
   const router = useRouter();
@@ -143,40 +71,19 @@ export function Layout() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <header className="site-header">
-        <Link className="brand" to="/">
-          <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" strokeWidth="2.5" />
-            <circle cx="16" cy="16" r="5" fill="currentColor" />
-          </svg>
-          <span className="brand-name">iki</span>
-          {org ? <span className="brand-org">{org}</span> : null}
-        </Link>
-        {me ? (
-          <>
-            <MainNavigation me={me} pathname={pathname} />
-            <form className="header-actions" method="post" action="/logout/">
-              <input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} />
-              <Bell />
-              <a className="header-user" href="/account/" title={`${me.email}: your account`}>
-                {me.name || me.email}
-              </a>
-              <button className="button button-quiet" type="submit">
-                Sign out
-              </button>
-            </form>
-          </>
-        ) : null}
-      </header>
+      {me ? (
+        <Sidebar me={me} pathname={pathname} />
+      ) : (
+        <header className="site-header">
+          <Brand />
+        </header>
+      )}
       <main id="main" className={narrow ? "page-narrow" : "page-wide"} tabIndex={-1}>
         <SignedOut />
         <MessagesProvider>
           <Outlet />
         </MessagesProvider>
       </main>
-      <footer className="site-footer">
-        <span>Iki</span>
-      </footer>
     </>
   );
 }

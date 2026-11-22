@@ -50,7 +50,7 @@ import { PluginPlace } from "./plugin-place";
 import { ReassignDialog } from "./reassign";
 import { SavedSearches } from "./saved-searches";
 
-const ROW_HEIGHT = 44;
+const ROW_HEIGHT = 34;
 /** The most records one reassignment changes, as the API takes. */
 const MAX_REASSIGN = 500;
 /** Fetch the next page when this many rows remain below the view. */

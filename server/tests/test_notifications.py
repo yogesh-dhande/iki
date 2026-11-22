@@ -422,16 +422,14 @@ def test_org_admins_can_send_themselves_a_test_email(
 def test_server_pages_show_the_unread_count(world: World) -> None:
     notes_for(world, "org_admin", 2)
     text = world.browser("org_admin").get("/teams/").content.decode()
-    assert 'aria-label="Notifications, 2 unread"' in text
-    assert '<span class="badge" aria-hidden="true">2</span>' in text
-    assert ">Settings</a>" in text
+    assert '<span class="nav-badge">2</span> <span class="visually-hidden">unread</span>' in text
+    assert '<span class="nav-label">Admin</span></a>' in text
 
 
 def test_the_badge_caps_large_counts(world: World) -> None:
     notes_for(world, "org_admin", 100)
     text = world.browser("org_admin").get("/teams/").content.decode()
-    assert 'aria-label="Notifications, 100 unread"' in text
-    assert '<span class="badge" aria-hidden="true">99+</span>' in text
+    assert '<span class="nav-badge">99+</span> <span class="visually-hidden">unread</span>' in text
 
 
 def test_the_inbox_is_the_web_apps_page(world: World) -> None:

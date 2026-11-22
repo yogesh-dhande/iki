@@ -18,3 +18,11 @@ suite, server/tests/data/snapgene/*.dna, unmodified.
 Copyright the Biopython contributors. Distributed under the Biopython License
 Agreement; see server/tests/data/snapgene/BIOPYTHON-LICENSE.rst or
 https://github.com/biopython/biopython/blob/master/LICENSE.rst.
+
+This product includes the Inter typeface as @fontsource-variable/inter
+5.3.0 publishes it (its Latin, Latin Extended and Greek subsets),
+server/src/iki_server/web/static/iki/fonts/*.woff2, unmodified.
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter).
+Licensed under the SIL Open Font License, Version 1.1; see
+server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt or
+https://openfontlicense.org.
