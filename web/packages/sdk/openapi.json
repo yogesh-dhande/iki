@@ -17107,6 +17107,162 @@
         "title": "SearchCsvParams",
         "type": "object"
       },
+      "SearchEverythingOut": {
+        "properties": {
+          "groups": {
+            "description": "Each kind searched, in order, even if empty.",
+            "items": {
+              "$ref": "#/components/schemas/SearchGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "projects_readable": {
+            "description": "How many projects you can read: where it looked.",
+            "title": "Projects Readable",
+            "type": "integer"
+          },
+          "q": {
+            "title": "Q",
+            "type": "string"
+          },
+          "recent": {
+            "description": "With no text: what you changed or ran lately, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/SearchResultOut"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "searched_records": {
+            "description": "Whether records, requests and runs were searched: text needs three characters, or the start of an HRID.",
+            "title": "Searched Records",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "q",
+          "groups",
+          "searched_records",
+          "recent",
+          "projects_readable"
+        ],
+        "title": "SearchEverythingOut",
+        "type": "object"
+      },
+      "SearchEverythingParams": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "entities",
+                  "requests",
+                  "runs",
+                  "projects",
+                  "saved_views",
+                  "people"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this kind, with more of it.",
+            "title": "Kind"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Results per kind: 5 by default, 20 for one `kind`.",
+            "title": "Limit"
+          },
+          "q": {
+            "default": "",
+            "description": "What to look for.",
+            "maxLength": 200,
+            "title": "Q",
+            "type": "string"
+          }
+        },
+        "title": "SearchEverythingParams",
+        "type": "object"
+      },
+      "SearchGroupOut": {
+        "properties": {
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their full list, when there is one.",
+            "title": "Href"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResultOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "entities",
+              "requests",
+              "runs",
+              "projects",
+              "saved_views",
+              "people"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "more_than_total": {
+            "description": "There are more than `total`.",
+            "title": "More Than Total",
+            "type": "boolean"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many there are, up to 1,000; null when counting would be too slow.",
+            "title": "Total"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "total",
+          "more_than_total",
+          "href",
+          "items"
+        ],
+        "title": "SearchGroupOut",
+        "type": "object"
+      },
       "SearchIn": {
         "properties": {
           "archived": {
@@ -17219,6 +17375,99 @@
           }
         },
         "title": "SearchIn",
+        "type": "object"
+      },
+      "SearchResultOut": {
+        "properties": {
+          "detail": {
+            "description": "What it is: a record's type, a run's action and status, a project's team, a person's email address, whose a saved view is.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "href": {
+            "description": "Where it opens.",
+            "title": "Href",
+            "type": "string"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its HRID, for records, requests and runs.",
+            "title": "Hrid"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "entity",
+              "request",
+              "run",
+              "project",
+              "saved_view",
+              "person"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "projects": {
+            "description": "The projects it's in that you can read, its owner first, up to three. A person's are the ones you share with them.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved view's search, as `POST /entities/search` takes it.",
+            "title": "Query"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A record's or request's type, qualified.",
+            "title": "Type"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "hrid",
+          "title",
+          "detail",
+          "type",
+          "projects",
+          "href",
+          "query"
+        ],
+        "title": "SearchResultOut",
         "type": "object"
       },
       "SecretOut": {
@@ -34360,6 +34609,97 @@
         "summary": "Change a saved search",
         "tags": [
           "saved searches"
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "description": "Records, requests, runs, projects, people and saved views matching `q`, across every\nproject you can read, grouped by kind: each kind by its own reading rules, so nothing\nyou couldn't open is found, or counted. Records, requests and runs are found by their\nHRID (or its start), or text in their title or action; the others by name. With no\n`q`, `recent` lists what you changed or ran lately.",
+        "operationId": "iki_server_api_everything_search_everything",
+        "parameters": [
+          {
+            "description": "What to look for.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "What to look for.",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this kind, with more of it.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "entities",
+                    "requests",
+                    "runs",
+                    "projects",
+                    "saved_views",
+                    "people"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this kind, with more of it.",
+              "title": "Kind"
+            }
+          },
+          {
+            "description": "Results per kind: 5 by default, 20 for one `kind`.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Results per kind: 5 by default, 20 for one `kind`.",
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchEverythingOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Search everything you can read",
+        "tags": [
+          "search"
         ]
       }
     },

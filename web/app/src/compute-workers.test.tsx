@@ -171,6 +171,21 @@ describe("Compute → Workers", () => {
     });
   });
 
+  it("opens filtered to the tier its address names, as the overview links it", async () => {
+    onWorkers([worker()], []);
+    const { router, user } = await renderApp("/compute/workers/?tier=backend");
+    const tier = section("Workers").getByRole("combobox", { name: "Tier" });
+    expect(tier).toHaveValue("backend");
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/compute/workers").at(-1)?.query.get("tier")).toBe("backend");
+    });
+    await user.selectOptions(tier, "all");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({});
+    });
+    expect(calls("GET", "/api/v1/compute/workers").at(-1)?.query.get("tier")).toBeNull();
+  });
+
   it("revokes a worker, saying what happens to its jobs", async () => {
     onWorkers([worker()], []);
     answer("POST /api/v1/compute/workers/00000000-0000-7000-8000-0000000000w1/revoke", () =>

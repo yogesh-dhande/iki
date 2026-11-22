@@ -25,14 +25,13 @@ import {
   Button,
   ConfirmDialog,
   Loading,
-  PageHeader,
   ProblemAlert,
   RadioField,
   SelectField,
   TextField,
   useMessages,
 } from "../ui";
-import { ComputeTabs } from "./compute";
+import { ComputeHeader } from "./compute";
 import { NotFound } from "./errors";
 
 export function ComputeQuotasPage() {
@@ -41,8 +40,7 @@ export function ComputeQuotasPage() {
   if (!me.can.manage_compute) return <NotFound />;
   return (
     <>
-      <PageHeader title="Quotas" eyebrow="Compute" />
-      <ComputeTabs />
+      <ComputeHeader />
       <Quotas />
     </>
   );

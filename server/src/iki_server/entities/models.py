@@ -539,6 +539,9 @@ class Revision(models.Model):
             ),
         ]
         indexes: ClassVar[list[models.Index]] = [
+            # What someone changed lately, newest first: what searching everything shows
+            # before anything is typed (ADR 0176).
+            models.Index(fields=["user", "id"], name="iki_revision_by_user"),
             # A record's state history, field by field: who set which state when.
             models.Index(
                 fields=["entity", "state_field", "number"],

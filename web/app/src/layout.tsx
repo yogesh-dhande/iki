@@ -10,6 +10,8 @@ import { useEffect, useSyncExternalStore } from "react";
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery, type Me } from "./api";
 import { useLiveUpdates } from "./events";
+import { isAppPath } from "./search";
+import { SearchPalette } from "./search-palette";
 import { markNavigated, MessagesProvider } from "./ui";
 
 export function organizationName(): string {
@@ -117,7 +119,7 @@ function Bell() {
 }
 
 /** Shown when Iki found out, in the background, that the session ended. */
-function SignedOut() {
+export function SignedOut() {
   const signedOut = useSyncExternalStore(onSignedOutChange, isSignedOut);
   if (!signedOut) return null;
   return (
@@ -177,6 +179,14 @@ export function Layout() {
       <footer className="site-footer">
         <span>Iki</span>
       </footer>
+      {me ? (
+        <SearchPalette
+          navigate={(href) => {
+            if (isAppPath(href)) void router.navigate({ href });
+            else window.location.assign(href);
+          }}
+        />
+      ) : null}
     </>
   );
 }

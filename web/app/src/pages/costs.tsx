@@ -7,6 +7,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 
+import { AdminActions } from "../admin";
 import { meQuery } from "../api";
 import {
   budgetsQuery,
@@ -76,16 +77,12 @@ export function OrgCosts() {
 
   return (
     <>
-      <PageHeader
-        title="Costs"
-        actions={
-          <div className="actions">
-            <a className={buttonClass()} href={recordsUrl(period)} download>
-              Download records (CSV)
-            </a>
-          </div>
-        }
-      />
+      <AdminActions>
+        <a className={buttonClass()} href={recordsUrl(period)} download>
+          Download records (CSV)
+        </a>
+      </AdminActions>
+      <PageHeader title="Costs" />
       <p className="muted">
         What the machines Iki starts for runs cost, at their compute templates’ prices. A machine’s
         cost counts when it’s recorded: when it ends, or when a warm one finishes a run. Each run

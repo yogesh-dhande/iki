@@ -1,9 +1,7 @@
-{% extends "base.html" %}
+{% extends "web/admin_base.html" %}
 {% block title %}Electronic signatures{% endblock %}
-{% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Electronic signatures</h1></div>
-{% if manage %}{% include "web/_settings_tabs.html" %}{% endif %}
 <p class="muted">People sign records in Iki by signing in again at the identity provider, with their password and second factor. Each signature shows its signer’s name, the date and time, and what it means, and is bound to the revision it signs: anything changed afterwards, even in the database, fails its check (21 CFR Part 11).</p>
 <div class="columns">
   <section aria-labelledby="certification-title">

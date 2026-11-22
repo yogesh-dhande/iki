@@ -111,32 +111,8 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
   };
 }
 
-// --- Settings tabs ------------------------------------------------------------------
-
-/** The organization settings' tabs, as the server-rendered settings pages show them. */
-export function SettingsTabs() {
-  return (
-    <nav className="tabs" aria-label="Settings">
-      <a href="/settings/sign-in/">Sign-in</a>
-      <a href="/settings/apps/">Apps</a>
-      <a href="/settings/email/">Email</a>
-      <Link to="/settings/webhooks/" activeProps={{ "aria-current": "page" }}>
-        Webhooks
-      </Link>
-      <Link to="/settings/outside-apis/" activeProps={{ "aria-current": "page" }}>
-        Outside APIs
-      </Link>
-    </nav>
-  );
-}
-
 function OrgHeader() {
-  return (
-    <>
-      <PageHeader title="Webhooks" />
-      <SettingsTabs />
-    </>
-  );
+  return <PageHeader title="Webhooks" />;
 }
 
 function OnlyOrgAdmins() {

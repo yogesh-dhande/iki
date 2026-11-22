@@ -1840,6 +1840,452 @@ input[type="date"] {
   font-weight: 600;
 }
 
+/* --- The admin area (ADR 0176) ------------------------------------------------- */
+
+/* Its own frame: a sidebar of the area's pages, then a top bar with the breadcrumb and
+   the page's actions over the page. It fills the body's grid, header to footer. */
+.admin-frame {
+  grid-row: 1 / -1;
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-height: 100dvh;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.admin-side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 0.625rem 0.5rem 0.75rem;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+
+.admin-side svg {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.admin-side-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.admin-back,
+.admin-link,
+.admin-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5625rem;
+  min-height: 1.75rem;
+  padding: 0 0.5rem;
+  border-radius: 6px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-back {
+  color: var(--muted);
+}
+
+.admin-link,
+.admin-user {
+  color: var(--text);
+}
+
+.admin-back:hover,
+.admin-link:hover,
+.admin-user:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.admin-link[aria-current] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface-2));
+}
+
+.admin-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.25rem 0.5rem 0.375rem;
+}
+
+.admin-title svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--accent);
+  stroke-width: 2;
+}
+
+.admin-title > span:first-of-type {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.admin-org {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.admin-group {
+  margin: 0;
+  padding: 0.875rem 0.5rem 0.25rem;
+  color: var(--muted);
+  font-size: 0.71875rem;
+  font-weight: 600;
+}
+
+.admin-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The account, at the foot of the sidebar. */
+.admin-account {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: auto 0 0;
+  padding-top: 1rem;
+}
+
+.admin-user {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.25rem;
+}
+
+.admin-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  flex: none;
+  border-radius: 50%;
+  color: var(--surface);
+  background: var(--muted);
+  font-size: 0.59375rem;
+  font-weight: 600;
+}
+
+.admin-frame .admin-account .button,
+.admin-actions .button,
+.admin-menu-button {
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.admin-menu-button {
+  display: none;
+}
+
+.admin-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.admin-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.875rem;
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.admin-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.admin-crumbs li + li::before {
+  content: "/";
+  margin-right: 0.375rem;
+}
+
+.admin-crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.admin-crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.admin-crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.admin-actions:empty {
+  display: none;
+}
+
+main.admin-main {
+  width: 100%;
+  max-width: 67.5rem;
+  margin: 0;
+  padding: 1.125rem 1.25rem 1.5rem;
+  font-size: 0.8125rem;
+}
+
+/* The app's messages are always there, for screen readers: only take room with one. */
+.admin-main .messages:empty {
+  margin: 0;
+}
+
+.admin-main .page-header {
+  align-items: baseline;
+  margin-bottom: 0.875rem;
+}
+
+.admin-main .page-header h1,
+.admin-main > h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* A page's own sub-pages, as Compute's are: tabs underlined, in a row. */
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 0.875rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.admin-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.125rem;
+  margin-bottom: -1px;
+  padding: 0 0.625rem;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-tabs a:hover {
+  color: var(--text);
+}
+
+.admin-tabs a[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.admin-lede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin-bottom: 0.875rem;
+}
+
+.admin-lede h1 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.admin-lede p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* Compute's overview: a row of numbers, then tables of them. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.625rem;
+  margin: 0 0 1.125rem;
+}
+
+.tile {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tile dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.tile dd {
+  margin: 0.125rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-note {
+  display: block;
+  margin-top: 0.125rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.admin-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.admin-section-head h2 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.admin-section-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* Compact tables, as the admin area's are: 32px headers, rows of about 40px. */
+.table-compact {
+  font-size: 0.8125rem;
+}
+
+.table-compact th,
+.table-compact td {
+  padding: 0.25rem 0.75rem;
+  height: 2.5rem;
+  vertical-align: middle;
+}
+
+.table-compact thead th {
+  height: 2rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.table-compact tbody th {
+  font-weight: 500;
+}
+
+/* Prose in a cell keeps room to read: on a phone the table scrolls within its box instead. */
+.table-compact .cell-wide {
+  min-width: 14rem;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 48rem) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The sidebar folds into a bar over the page, with a menu that opens its pages. */
+  .admin-frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .admin-side {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .admin-side-head {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .admin-title {
+    order: -1;
+    flex: 1;
+    padding: 0 0.5rem;
+  }
+
+  .admin-menu-button:not([hidden]) {
+    display: inline-flex;
+  }
+
+  .admin-side:has(.admin-menu-button[aria-expanded="false"]:not([hidden])) .admin-menu {
+    display: none;
+  }
+
+  .admin-top {
+    padding: 0.5rem 1rem;
+  }
+
+  main.admin-main {
+    padding: 1rem;
+  }
+}
+
 /* --- The web app (React): same classes, a few pieces only it needs ---------- */
 
 /* The app renders the header, main and footer inside #root; they lay out as
@@ -3639,4 +4085,336 @@ input[type="file"]::file-selector-button {
 .avatars-more {
   align-self: center;
   font-size: 12px;
+}
+
+/* Search everything (ADR 0176): the ⌘K palette, near the top of the window, over the page.
+   Self-contained: every rule is under .search-overlay. */
+.search-overlay {
+  align-items: flex-start;
+  padding: 4rem 1rem 1rem;
+  background: rgb(10 15 20 / 40%);
+}
+
+.search-modal {
+  width: min(680px, 100%);
+  max-height: calc(100dvh - 5rem);
+  display: flex;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 22%);
+  overflow: hidden;
+}
+
+.search-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  outline: none;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.search-overlay .kbd {
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 16px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--text);
+  background: none;
+}
+
+.search-box input::placeholder {
+  color: var(--muted);
+}
+
+/* The text box is where focus stays: its row shows it. */
+.search-box:focus-within {
+  box-shadow: inset 0 -2px 0 var(--focus);
+}
+
+.search-esc {
+  flex: none;
+  cursor: pointer;
+}
+
+.search-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.search-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.search-pill:hover {
+  background: var(--surface-2);
+}
+
+.search-pill[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+
+.search-pill-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.search-where {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.search-results:not(:empty) {
+  padding: 4px 0 6px;
+}
+
+.search-group-title {
+  padding: 10px 16px 4px;
+  font-size: 0.71875rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.search-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 16px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.search-option:hover {
+  color: inherit;
+}
+
+.search-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.search-all {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.search-all:hover {
+  color: var(--accent-hover);
+}
+
+.search-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.search-dot-round {
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.search-hrid {
+  flex: none;
+  min-width: 86px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.search-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.search-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 0 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.search-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.search-project-mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--muted);
+}
+
+.search-meta .search-enter {
+  margin-left: 0;
+}
+
+.search-detail + .search-enter {
+  margin-left: auto;
+}
+
+.search-note:not(:empty) {
+  padding: 22px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.search-note p {
+  margin: 0;
+}
+
+.search-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.search-keys {
+  display: flex;
+  gap: 14px;
+}
+
+.search-promise {
+  margin-left: auto;
+}
+
+/* A phone: the palette fills the width, each result takes two lines, and there are no
+   keys to show. */
+@media (max-width: 600px) {
+  .search-overlay {
+    padding: 0.5rem;
+  }
+
+  .search-modal {
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .search-option {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-block: 6px;
+  }
+
+  .search-hrid {
+    min-width: 0;
+  }
+
+  .search-title {
+    flex: 1 1 0;
+  }
+
+  .search-meta {
+    flex-basis: 100%;
+    padding-left: 17px;
+  }
+
+  .search-keys,
+  .search-enter {
+    display: none;
+  }
+
+  .search-where,
+  .search-promise {
+    margin-left: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .search-modal {
+    border: 2px solid CanvasText;
+  }
+
+  .search-option[aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .search-pill[aria-pressed="true"] {
+    border: 2px solid Highlight;
+  }
 }
