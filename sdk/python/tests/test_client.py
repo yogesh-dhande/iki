@@ -1,6 +1,7 @@
 """The client, against a fake Iki: what it sends, and what it makes of the answers."""
 
 import hashlib
+import io
 import json
 from datetime import date
 from pathlib import Path
@@ -691,6 +692,129 @@ def test_runs_make_a_dataframe(fake: FakeIki, client: Client) -> None:
 
 
 # --- Files -------------------------------------------------------------------------------------
+
+
+def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_path: Path) -> None:
+    path = tmp_path / "empty.txt"
+    path.touch()
+    digest = hashlib.sha256(b"").hexdigest()
+    record = {"id": "f1", "name": path.name, "size": 0, "sha256": digest}
+    fake.on(
+        "POST",
+        "/api/v1/uploads",
+        {"id": "u1", "state": "ready", "file": record, "parts": [], "part_count": 0},
+    )
+
+    assert client.files.upload(path, project=PROJECT) == record
+    assert fake.body("POST", "/api/v1/uploads") == {
+        "project": PROJECT,
+        "name": path.name,
+        "media_type": "text/plain",
+        "size": 0,
+        "sha256": digest,
+    }
+    assert len(fake.requests) == 1
+
+
+class _Pipe(io.BytesIO):
+    """A binary stream that supports only bounded reads and may return short chunks."""
+
+    def seekable(self) -> bool:
+        return False
+
+    def seek(self, pos: int, whence: int = 0, /) -> int:
+        raise io.UnsupportedOperation("cannot seek")
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        assert size is not None and size >= 0
+        return super().read(min(size, 2))
+
+
+def test_upload_sends_parts_to_storage_and_renews_an_expired_part(
+    fake: FakeIki, client: Client
+) -> None:
+    stream = _Pipe(b"skipabcdef")
+    assert stream.read(2) + stream.read(2) == b"skip"
+    digest = hashlib.sha256(b"abcdef").hexdigest()
+    record = {"id": "f1", "size": 6, "sha256": digest}
+    target = "https://files.example.com/staging/u1"
+    first = {"number": 1, "size": 4, "url": f"{target}?part=1&sig=one"}
+    second = {"number": 2, "size": 2, "url": f"{target}?part=2&sig=two"}
+    fake.on(
+        "POST",
+        "/api/v1/uploads",
+        httpx2.Response(
+            201,
+            json={
+                "id": "u1",
+                "state": "pending",
+                "file": None,
+                "parts": [first, second],
+                "part_count": 2,
+                "part_size": 4,
+            },
+            headers={"Set-Cookie": "session=private; Domain=.example.com; Path=/; Secure"},
+        ),
+    )
+
+    def store(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(403 if request.url.params["sig"] == "two" else 200)
+
+    fake.on("PUT", "/staging/u1", store)
+    fake.on("POST", "/api/v1/uploads/u1/parts", [{**second, "url": f"{target}?part=2&sig=fresh"}])
+    checking = {"id": "u1", "state": "checking", "file": None}
+    fake.on("POST", "/api/v1/uploads/u1/complete", checking)
+    fake.on("GET", "/api/v1/uploads/u1", checking, {**checking, "state": "ready", "file": record})
+
+    assert client.files.upload(stream, name="run.bin", project=PROJECT) == record
+    assert not stream.closed
+    assert fake.body("POST", "/api/v1/uploads") == {
+        "project": PROJECT,
+        "name": "run.bin",
+        "media_type": "application/octet-stream",
+        "size": 6,
+        "sha256": digest,
+    }
+    assert fake.body("POST", "/api/v1/uploads/u1/parts") == {"numbers": [2]}
+    puts = fake.sent("PUT", "/staging/u1")
+    assert sorted((r.url.params["sig"], r.content, r.headers["content-length"]) for r in puts) == [
+        ("fresh", b"ef", "2"),
+        ("one", b"abcd", "4"),
+        ("two", b"ef", "2"),
+    ]
+    for req in puts:
+        assert req.url.host == "files.example.com"
+        assert "Authorization" not in req.headers
+        assert "Cookie" not in req.headers
+
+
+def offer_one_part(fake: FakeIki) -> None:
+    part = {"number": 1, "size": 1, "url": "https://files.example.com/staging/u1?sig=one"}
+    fake.on(
+        "POST",
+        "/api/v1/uploads",
+        {"id": "u1", "state": "pending", "parts": [part], "part_size": 1, "part_count": 1},
+    )
+
+
+def test_a_failed_part_is_retried_then_cancelled(fake: FakeIki, client: Client) -> None:
+    offer_one_part(fake)
+    fake.on("PUT", "/staging/u1", httpx2.Response(503))
+    fake.on("DELETE", "/api/v1/uploads/u1", httpx2.Response(204))
+    with pytest.raises(iki.IkiError, match=r"part 1.*503"):
+        client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.bin")
+    assert [r.content for r in fake.sent("PUT", "/staging/u1")] == [b"x"] * 4
+    assert len(fake.sent("DELETE", "/api/v1/uploads/u1")) == 1
+    assert not fake.sent("POST", "/api/v1/uploads/u1/complete")
+
+
+def test_timing_out_leaves_iki_checking_the_upload(fake: FakeIki, client: Client) -> None:
+    offer_one_part(fake)
+    fake.on("PUT", "/staging/u1", httpx2.Response(200))
+    fake.on("POST", "/api/v1/uploads/u1/complete", {"id": "u1", "state": "checking", "file": None})
+    with pytest.raises(iki.TimedOut, match="u1"):
+        client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.bin", timeout=0)
+    assert not fake.sent("DELETE", "/api/v1/uploads/u1")
 
 
 def downloadable(fake: FakeIki, content: bytes, sha256: str, name: str = "abl1.pdb") -> None:
