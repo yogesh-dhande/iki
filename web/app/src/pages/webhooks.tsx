@@ -96,7 +96,7 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
           {children}
         </Link>
       ) : (
-        <Link to="/settings/webhooks/">{children}</Link>
+        <Link to="/admin/webhooks/">{children}</Link>
       ),
     one: (webhookId: string, children: ReactNode) =>
       scope === "project" && project ? (
@@ -104,7 +104,7 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
           {children}
         </Link>
       ) : (
-        <Link to="/settings/webhooks/$webhookId/" params={{ webhookId }}>
+        <Link to="/admin/webhooks/$webhookId/" params={{ webhookId }}>
           {children}
         </Link>
       ),
@@ -436,7 +436,7 @@ export function ProjectWebhook() {
 
 export function OrgWebhook() {
   const me = useSuspenseQuery(meQuery).data;
-  const { webhookId } = useParams({ from: "/settings/webhooks/$webhookId" });
+  const { webhookId } = useParams({ from: "/admin/webhooks/$webhookId" });
   return (
     <>
       <OrgHeader />
@@ -856,7 +856,7 @@ function Delete({
                   params: { slug: project.slug },
                 }).then(done);
               } else {
-                void navigate({ to: "/settings/webhooks/" }).then(done);
+                void navigate({ to: "/admin/webhooks/" }).then(done);
               }
             },
           });

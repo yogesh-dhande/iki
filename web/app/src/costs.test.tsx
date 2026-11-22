@@ -83,7 +83,7 @@ describe("the organization's costs", () => {
   it("are in the navigation only for those who may read them", async () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary());
-    await renderApp("/costs/");
+    await renderApp("/admin/costs/");
     const nav = screen.getByRole("navigation", { name: "Admin" });
     expect(within(nav).getByRole("link", { name: "Costs and budgets" })).toHaveAttribute(
       "aria-current",
@@ -94,7 +94,7 @@ describe("the organization's costs", () => {
   it("show this month by project, with idle machines apart, and download as CSV", async () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary());
-    await renderApp("/costs/");
+    await renderApp("/admin/costs/");
     const table = await screen.findByRole("table");
     const rows = within(table)
       .getAllByRole("row")
@@ -122,7 +122,7 @@ describe("the organization's costs", () => {
   it("go back a month, and group another way, in the address", async () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary({ by: "team", groups: [] }));
-    const { user, router } = await renderApp("/costs/?month=2026-03");
+    const { user, router } = await renderApp("/admin/costs/?month=2026-03");
     expect(await screen.findByText("No machine time was recorded in March 2026.")).toBeVisible();
     await user.selectOptions(screen.getByRole("combobox", { name: "Group by" }), "Team");
     expect(router.state.location.search).toEqual({ month: "2026-03", by: "team" });
@@ -135,7 +135,7 @@ describe("the organization's costs", () => {
 
   it("aren't anyone else's", async () => {
     signedIn();
-    await renderApp("/costs/");
+    await renderApp("/admin/costs/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/costs")).toEqual([]);
   });
@@ -219,7 +219,7 @@ describe("budgets", () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary());
     answer("GET /api/v1/compute/budgets", [budget()]);
-    await renderApp("/costs/");
+    await renderApp("/admin/costs/");
     const section = (
       await screen.findByRole("heading", { name: "Budgets for November 2026" })
     ).closest("section");
@@ -238,7 +238,7 @@ describe("budgets", () => {
     answer("GET /api/v1/compute/costs", summary());
     answer("GET /api/v1/compute/budgets", []);
     answer("POST /api/v1/compute/budgets", budget());
-    const { user } = await renderApp("/costs/");
+    const { user } = await renderApp("/admin/costs/");
     expect(await screen.findByText(/No budgets\. Set one for the organization/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Set a budget for Kinase Atlas" }));
     const dialog = screen.getByRole("dialog", { name: "Set a budget for Kinase Atlas" });
@@ -271,7 +271,7 @@ describe("budgets", () => {
     answer("GET /api/v1/compute/budgets", [budget({ project: null })]);
     answer(`PATCH /api/v1/compute/budgets/${budget().id}`, budget({ project: null, amount: 75 }));
     answer(`DELETE /api/v1/compute/budgets/${budget().id}`, respond(204));
-    const { user } = await renderApp("/costs/");
+    const { user } = await renderApp("/admin/costs/");
     await user.click(
       await screen.findByRole("button", { name: "Change The organization’s budget" }),
     );

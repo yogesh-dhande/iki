@@ -29,8 +29,8 @@ import { NotFound } from "./errors";
 export function OrgCosts() {
   usePageTitle("Costs");
   const me = useSuspenseQuery(meQuery).data;
-  const search = useSearch({ from: "/costs" });
-  const navigate = useNavigate({ from: "/costs" });
+  const search = useSearch({ from: "/admin/costs" });
+  const navigate = useNavigate({ from: "/admin/costs" });
   const current = thisMonth();
   const period = search.month ? shiftMonth(`${search.month}-01`, 0) : current;
   const by = search.by ?? "project";

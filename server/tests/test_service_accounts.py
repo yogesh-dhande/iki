@@ -98,11 +98,11 @@ def test_the_database_refuses_a_person_shaped_service_account(world: World) -> N
 
 def test_org_admins_create_and_manage_them_from_the_people_pages(world: World) -> None:
     browser = world.browser("org_admin")
-    people = browser.get("/people/")
+    people = browser.get("/admin/people/")
     assert b"Service accounts" in people.content
-    created = post(browser, "/service-accounts/", {"name": "LIMS sync", "description": "x"})
+    created = post(browser, "/admin/service-accounts/", {"name": "LIMS sync", "description": "x"})
     account = User.objects.get(kind=Kind.SERVICE)
-    assert created["Location"] == f"/service-accounts/{account.pk}/"
+    assert created["Location"] == f"/admin/service-accounts/{account.pk}/"
     page = browser.get(created["Location"])
     assert account.email.encode() in page.content
     assert b"can\xe2\x80\x99t be Org Admins" in page.content
@@ -115,14 +115,14 @@ def test_org_admins_create_and_manage_them_from_the_people_pages(world: World) -
     assert not account.is_active
     # Not listed among people, and the person page sends you to the right place.
     browser.get(created["Location"])  # shows the message
-    assert account.email.encode() not in browser.get("/people/").content
-    assert browser.get(f"/people/{account.pk}/")["Location"] == created["Location"]
+    assert account.email.encode() not in browser.get("/admin/people/").content
+    assert browser.get(f"/admin/people/{account.pk}/")["Location"] == created["Location"]
 
 
 def test_duplicate_names_are_shown_on_the_form(world: World) -> None:
     browser = world.browser("org_admin")
-    post(browser, "/service-accounts/", {"name": "LIMS sync"})
-    again = post(browser, "/service-accounts/", {"name": "lims SYNC"})
+    post(browser, "/admin/service-accounts/", {"name": "LIMS sync"})
+    again = post(browser, "/admin/service-accounts/", {"name": "lims SYNC"})
     assert again.status_code == 200
     assert b"already a service account" in again.content
 

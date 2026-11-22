@@ -47,6 +47,7 @@ class Migration(migrations.Migration):
                 (
                     "entity",
                     models.ForeignKey(
+                        db_index=False,
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="links",
                         to="iki_entities.entity",
@@ -64,6 +65,7 @@ class Migration(migrations.Migration):
                 (
                     "project",
                     models.ForeignKey(
+                        db_index=False,
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="+",
                         to="iki_org.project",

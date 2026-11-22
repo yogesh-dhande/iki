@@ -101,7 +101,7 @@ def test_org_admins_are_told_when_someone_asks_for_an_app(world: World) -> None:
     (note,) = inbox(world, "org_admin")
     assert note.kind == "oauth.app_awaiting_approval"
     assert note.title == "Editor asks you to approve Claude Code"
-    assert note.path == f"/settings/apps/{client.pk}/"
+    assert note.path == f"/admin/apps/{client.pk}/"
     # Deactivated Org Admins aren't told.
     assert inbox(world, "inactive") == []
 
@@ -384,15 +384,15 @@ def test_the_preferences_page_saves_choices(world: World) -> None:
 
 
 def test_only_org_admins_open_the_email_settings(world: World) -> None:
-    assert world.browser("admin").get("/settings/email/").status_code == 403
-    page = world.browser("org_admin").get("/settings/email/")
+    assert world.browser("admin").get("/admin/email/").status_code == 403
+    page = world.browser("org_admin").get("/admin/email/")
     assert page.status_code == 200
     assert "Email isn’t set up" in page.content.decode()
 
 
 def test_org_admins_choose_whether_emails_carry_details(world: World) -> None:
     browser = world.browser("org_admin")
-    post(browser, "/settings/email/", {"action": "details"})
+    post(browser, "/admin/email/", {"action": "details"})
     assert Installation.get().email_details is False
     event = AuditEvent.objects.get(action="notifications.email_details_changed")
     assert event.data == {"details": False}
@@ -403,7 +403,7 @@ def test_org_admins_can_send_themselves_a_test_email(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = world.browser("org_admin")
-    response = post(browser, "/settings/email/", {"action": "test"})
+    response = post(browser, "/admin/email/", {"action": "test"})
     assert response.status_code == 302
     (message,) = mail.outbox
     assert message.to == ["org_admin@example.com"]
@@ -412,7 +412,7 @@ def test_org_admins_can_send_themselves_a_test_email(
         raise smtplib.SMTPAuthenticationError(535, b"bad credentials")
 
     monkeypatch.setattr("django.core.mail.EmailMessage.send", broken)
-    page = browser.get(post(browser, "/settings/email/", {"action": "test"})["Location"])
+    page = browser.get(post(browser, "/admin/email/", {"action": "test"})["Location"])
     assert "Couldn’t send it: SMTPAuthenticationError" in page.content.decode()
 
 

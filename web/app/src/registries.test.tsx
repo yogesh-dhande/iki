@@ -596,7 +596,7 @@ describe("a project's registry", () => {
     expect(card).toHaveTextContent("Kinase Atlas is in the Main registry.");
     expect(within(card).getByRole("link", { name: "Manage registries" })).toHaveAttribute(
       "href",
-      "/settings/registries/",
+      "/admin/registries/",
     );
     await user.selectOptions(
       await within(card).findByRole("combobox", { name: "Registry" }),

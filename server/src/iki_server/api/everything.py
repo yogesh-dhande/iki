@@ -417,7 +417,7 @@ def _directory(me: User) -> tuple[QuerySet[User], bool]:
 
 def _people(me: User, q: str, limit: int) -> _Group:
     directory, manages = _directory(me)
-    group = _Group("people", href="/people/" if manages else None)
+    group = _Group("people", href="/admin/people/" if manages else None)
     found = directory.filter(Q(name__icontains=q) | Q(email__icontains=q))
     group.total, group.more = _counted(found)
     shown = list(found.order_by("name", "email", "pk")[:limit])
@@ -427,7 +427,7 @@ def _people(me: User, q: str, limit: int) -> _Group:
     for person in shown:
         theirs = shared.get(person.pk, [])
         if manages:
-            href = f"/people/{person.pk}/"
+            href = f"/admin/people/{person.pk}/"
         elif theirs:
             href = f"/projects/{theirs[0].slug}/members/"
         else:

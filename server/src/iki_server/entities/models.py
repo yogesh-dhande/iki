@@ -226,8 +226,11 @@ class ProjectLink(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="links")
-    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    # No index of their own: each leads one of the two below, which serve its lookups too.
+    entity = models.ForeignKey(
+        Entity, on_delete=models.PROTECT, related_name="links", db_index=False
+    )
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+", db_index=False)
     linked_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
     )

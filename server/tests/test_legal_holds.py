@@ -58,27 +58,27 @@ def test_the_page_lists_them_for_auditors_and_lets_org_admins_change_them(world:
     admin = world.browser("org_admin")
     placed = post(
         admin,
-        "/settings/legal-holds/",
+        "/admin/legal-holds/",
         {"action": "place", "project": str(world.project.pk), "matter": "Case 24-117"},
     )
     assert placed.status_code == 302
     hold = LegalHold.objects.get()
-    page = admin.get("/settings/legal-holds/").content.decode()
+    page = admin.get("/admin/legal-holds/").content.decode()
     assert "Case 24-117" in page
     assert f"Release the hold on {world.project.name} for Case 24-117" in page
 
-    auditor = world.browser("auditor").get("/settings/legal-holds/").content.decode()
+    auditor = world.browser("auditor").get("/admin/legal-holds/").content.decode()
     assert "Case 24-117" in auditor
     assert "Release" not in auditor
     assert "Put a project on hold" not in auditor
     refused = post(
         world.browser("auditor"),
-        "/settings/legal-holds/",
+        "/admin/legal-holds/",
         {"action": "release", "hold": str(hold.pk)},
     )
     assert refused.status_code == 403
 
-    released = post(admin, "/settings/legal-holds/", {"action": "release", "hold": str(hold.pk)})
+    released = post(admin, "/admin/legal-holds/", {"action": "release", "hold": str(hold.pk)})
     assert released.status_code == 302
     assert not holds.is_held(world.project)
 
@@ -89,4 +89,4 @@ def test_people_in_the_project_arent_told(world: World) -> None:
         api = world.browser(who)
         body = api.get(f"/api/v1/projects/{world.project.pk}").content.decode()
         assert "hold" not in body.lower()
-        assert api.get("/settings/legal-holds/").status_code == 403
+        assert api.get("/admin/legal-holds/").status_code == 403

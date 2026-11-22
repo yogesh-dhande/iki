@@ -127,7 +127,7 @@ def test_team_forms_say_how_someone_new_gets_an_account(world: World, scim: bool
     team = admin.get(f"/teams/{world.team.slug}/").content.decode()
     refused = post(admin, f"/teams/{world.team.slug}/", {"person": "new@example.com"})
     said = refused.content.decode()
-    registry = admin.get(f"/settings/registries/{Registry.default().pk}/").content.decode()
+    registry = admin.get(f"/admin/registries/{Registry.default().pk}/").content.decode()
     setup_done = admin.get("/setup/done/").content.decode()
     if scim:
         assert "People can be added once your identity provider provisions them." in team
@@ -320,37 +320,37 @@ def test_archived_teams_are_offered_to_no_one_for_new_projects(world: World) -> 
 
 
 def test_people_page_lists_everyone_with_roles(world: World) -> None:
-    page = text(world.browser("org_admin").get("/people/"))
+    page = text(world.browser("org_admin").get("/admin/people/"))
     assert "compute_admin@example.com" in page
     assert "Compute Admin" in page
     assert "Deactivated" in page
 
 
 def test_people_link_only_for_org_admins(world: World) -> None:
-    # Beneath Admin, on the administrative pages (ADR 0176).
-    assert 'href="/people/"' in text(world.browser("org_admin").get("/settings/sign-in/"))
-    assert 'href="/people/"' not in text(world.browser("admin").get("/teams/"))
+    # In the admin area's sidebar, on its pages (ADR 0176).
+    assert 'href="/admin/people/"' in text(world.browser("org_admin").get("/admin/sign-in/"))
+    assert 'href="/admin/people/"' not in text(world.browser("admin").get("/teams/"))
 
 
 def test_org_admins_grant_and_revoke_org_roles(world: World) -> None:
     admin = world.browser("org_admin")
     viewer = world.users["viewer"]
-    saved = post(admin, f"/people/{viewer.pk}/", {"roles": ["auditor", "compute_admin"]})
+    saved = post(admin, f"/admin/people/{viewer.pk}/", {"roles": ["auditor", "compute_admin"]})
     assert "Saved Viewer’s org roles." in follow(admin, saved)
     assert permissions.org_roles(viewer) == {OrgRole.AUDITOR, OrgRole.COMPUTE_ADMIN}
-    post(admin, f"/people/{viewer.pk}/", {})
+    post(admin, f"/admin/people/{viewer.pk}/", {})
     assert not OrgRoleAssignment.objects.filter(user=viewer).exists()
 
 
 def test_the_last_org_admin_cant_step_down(world: World) -> None:
     admin = world.browser("org_admin")
     me = world.users["org_admin"]
-    page = follow(admin, post(admin, f"/people/{me.pk}/", {"roles": "auditor"}))
+    page = follow(admin, post(admin, f"/admin/people/{me.pk}/", {"roles": "auditor"}))
     assert "Iki needs at least one Org Admin." in page
     assert OrgRoleAssignment.objects.filter(user=me, role=OrgRole.ORG_ADMIN).exists()
     # A deactivated Org Admin doesn't count; an active second one does.
     services.grant_org_role(world.users["viewer"], OrgRole.ORG_ADMIN, by=me)
-    post(admin, f"/people/{me.pk}/", {"roles": "auditor"})
+    post(admin, f"/admin/people/{me.pk}/", {"roles": "auditor"})
     assert not OrgRoleAssignment.objects.filter(user=me, role=OrgRole.ORG_ADMIN).exists()
 
 
@@ -360,12 +360,12 @@ def test_deactivating_someone_signs_them_out_everywhere(world: World) -> None:
     assert UserSession.objects.filter(user=world.users["viewer"]).exists()
 
     admin = world.browser("org_admin")
-    done = post(admin, f"/people/{world.users['viewer'].pk}/", {"action": "deactivate"})
+    done = post(admin, f"/admin/people/{world.users['viewer'].pk}/", {"action": "deactivate"})
     assert "Deactivated Viewer." in follow(admin, done)
     assert not UserSession.objects.filter(user=world.users["viewer"]).exists()
     assert path_of(victim.get("/")).startswith("/login/")
 
-    post(admin, f"/people/{world.users['viewer'].pk}/", {"action": "activate"})
+    post(admin, f"/admin/people/{world.users['viewer'].pk}/", {"action": "activate"})
     assert User.objects.get(pk=world.users["viewer"].pk).is_active
     # Memberships survive, so access comes back with the account.
     assert world.project.memberships.filter(user=world.users["viewer"]).exists()
@@ -374,7 +374,7 @@ def test_deactivating_someone_signs_them_out_everywhere(world: World) -> None:
 def test_nobody_deactivates_themselves_or_the_last_org_admin(world: World) -> None:
     me = world.users["org_admin"]
     admin = world.browser("org_admin")
-    page = follow(admin, post(admin, f"/people/{me.pk}/", {"action": "deactivate"}))
+    page = follow(admin, post(admin, f"/admin/people/{me.pk}/", {"action": "deactivate"}))
     assert "You can’t deactivate yourself." in page
     other = world.users["viewer"]
     services.grant_org_role(other, OrgRole.ORG_ADMIN, by=me)

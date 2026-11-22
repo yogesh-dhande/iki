@@ -65,7 +65,7 @@ export function ComputeSlurmPage() {
             This deployment has no Slurm clusters. To add one, give a template in its{" "}
             <code>compute.yaml</code> the <code>slurm</code> provisioner and the cluster’s name.
             Then make a Container token for the cluster under{" "}
-            <Link to="/compute/workers/">Workers</Link>, and register a worker with it on the
+            <Link to="/admin/compute/workers/">Workers</Link>, and register a worker with it on the
             cluster’s login node.
           </p>
         </section>
@@ -99,8 +99,8 @@ function ClusterCard({ cluster }: { cluster: SlurmCluster }) {
         <div className="alert alert-warning" role="status">
           <p>
             No worker on its login nodes is online, so its runs wait. Make a Container token for{" "}
-            {cluster.name} under <Link to="/compute/workers/">Workers</Link>, and register a worker
-            with it on a login node.
+            {cluster.name} under <Link to="/admin/compute/workers/">Workers</Link>, and register a
+            worker with it on a login node.
           </p>
         </div>
       )}

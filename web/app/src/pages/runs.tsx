@@ -181,7 +181,7 @@ function NeedsWorker({ why, labels }: { why: NonNullable<Run["needs_worker"]>; l
       <p>{said}</p>
       {me.can.manage_compute && why === "unregistered" ? (
         <p>
-          <Link to="/compute/workers/">Make a self-hosted registration token</Link> for this
+          <Link to="/admin/compute/workers/">Make a self-hosted registration token</Link> for this
           project’s team, and register a machine with it.
         </p>
       ) : null}

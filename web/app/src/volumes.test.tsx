@@ -127,7 +127,7 @@ describe("how setups read", () => {
 describe("Compute → Volumes", () => {
   it("is in the admin area's navigation only for Compute admins", async () => {
     onVolumes(() => []);
-    await renderApp("/compute/volumes/");
+    await renderApp("/admin/compute/volumes/");
     await loaded();
     const nav = screen.getByRole("navigation", { name: "Admin" });
     // Under Compute, rather than its own page.
@@ -139,14 +139,14 @@ describe("Compute → Volumes", () => {
 
   it("isn't anyone else's", async () => {
     signedIn();
-    await renderApp("/compute/volumes/");
+    await renderApp("/admin/compute/volumes/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
     expect(calls("GET", "/api/v1/compute/volumes")).toEqual([]);
   });
 
   it("shows an environment's volumes, its setup, and why its runs wait", async () => {
     onVolumes(() => []);
-    await renderApp("/compute/volumes/");
+    await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(card().getByText(/Its runs are waiting/)).toHaveTextContent(
       "Its runs are waiting. Waiting for its reference data (af-db): no version is ready.",
@@ -171,7 +171,7 @@ describe("Compute → Volumes", () => {
       builds.push(build({ requested_by: { id: ME.id, name: ME.name } }));
       return builds;
     });
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     await card().findByText("None yet.");
     await user.click(card().getByRole("button", { name: "Ask for a setup build" }));
@@ -210,7 +210,7 @@ describe("Compute → Volumes", () => {
       });
       return current;
     });
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     await user.click(
       await card().findByRole("button", { name: "Approve SETUP-000001, version 1" }),
@@ -233,7 +233,7 @@ describe("Compute → Volumes", () => {
       `POST /api/v1/compute/setups/${BUILD_ID}/approve`,
       problem(409, "refused", "It was cancelled."),
     );
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     await user.click(
       await card().findByRole("button", { name: "Approve SETUP-000001, version 1" }),
@@ -289,7 +289,7 @@ describe("Compute → Volumes", () => {
       };
       return current;
     });
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(await card().findByText(/^version 1 \(SETUP-000001/)).toHaveTextContent(
       "version 1 (SETUP-000001, AlphaFold DBs 2026-10), ready",
@@ -348,7 +348,7 @@ describe("Compute → Volumes", () => {
         finished: false,
       };
     });
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(
       await card().findByRole("progressbar", { name: "SETUP-000001 progress" }),
@@ -418,7 +418,7 @@ describe("Compute → Volumes", () => {
         ],
       }),
     ]);
-    await renderApp("/compute/volumes/");
+    await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(card().getByText(/EC2 has no p4d.24xlarge free/)).toBeInTheDocument();
     expect(
@@ -457,7 +457,7 @@ describe("Compute → Volumes", () => {
       size: 0,
       finished: false,
     }));
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(
       card().getByText("Its script succeeded; it’s ready once its machine has stopped."),
@@ -496,7 +496,7 @@ describe("Compute → Volumes", () => {
       size: 0,
       finished: false,
     }));
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     expect(
       card().getByText("Its script succeeded; what it wrote is being copied into the bucket."),
@@ -520,7 +520,7 @@ describe("Compute → Volumes", () => {
       };
       return current;
     });
-    const { user } = await renderApp("/compute/volumes/");
+    const { user } = await renderApp("/admin/compute/volumes/");
     await loaded();
     await user.click(await card().findByRole("button", { name: "Cancel SETUP-000001, version 1" }));
     let dialog = screen.getByRole("alertdialog", { name: "Cancel SETUP-000001?" });

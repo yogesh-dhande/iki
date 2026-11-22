@@ -3,9 +3,9 @@
  * of the area's pages, from the server's navigation.json, that leads back to Iki; then a
  * top bar with the breadcrumb and the page's own actions, over the page.
  *
- * The pages keep their addresses (/compute/, /costs/, /settings/webhooks/ and the rest),
- * as GitHub's settings keep theirs inside its settings frame. A route says it's one of
- * them with `staticData: { admin: true }`; each page still checks its own permission.
+ * The app's pages of the area are the router's /admin/ route's children (compute, costs,
+ * webhooks and outside APIs), which says so with `staticData: { admin: true }`; each page
+ * still checks its own permission.
  */
 
 import { useQuery } from "@tanstack/react-query";

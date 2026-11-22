@@ -172,20 +172,22 @@ const savedSearchRoute = createRoute({
   component: SavedSearchPage,
 });
 
-const costsRoute = createRoute({
+// The admin area (ADR 0176): its pages are in its frame, not the main layout.
+const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "costs",
+  path: "admin",
   staticData: { admin: true },
+});
+
+const costsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "costs",
   // ?month=2026-11&by=team: another month, grouped another way.
   validateSearch: validateCostsSearch,
   component: OrgCosts,
 });
 
-const computeRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "compute",
-  staticData: { admin: true },
-});
+const computeRoute = createRoute({ getParentRoute: () => adminRoute, path: "compute" });
 
 const computeOverviewRoute = createRoute({
   getParentRoute: () => computeRoute,
@@ -617,13 +619,7 @@ const workflowRunRoute = createRoute({
   component: WorkflowRunPage,
 });
 
-const settingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "settings",
-  staticData: { admin: true },
-});
-
-const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
+const orgWebhooksRoute = createRoute({ getParentRoute: () => adminRoute, path: "webhooks" });
 
 const orgWebhookListRoute = createRoute({
   getParentRoute: () => orgWebhooksRoute,
@@ -638,7 +634,7 @@ const orgWebhookRoute = createRoute({
 });
 
 const outsideApisRoute = createRoute({
-  getParentRoute: () => settingsRoute,
+  getParentRoute: () => adminRoute,
   path: "outside-apis",
   loader: ({ context }) => context.queryClient.query(outsideApisQuery),
   component: OutsideApisSettings,
@@ -649,14 +645,6 @@ const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
   workRoute,
-  costsRoute,
-  computeRoute.addChildren([
-    computeOverviewRoute,
-    computeWorkersRoute,
-    computeQuotasRoute,
-    computeSlurmRoute,
-    computeVolumesRoute,
-  ]),
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,
@@ -699,7 +687,15 @@ const routeTree = rootRoute.addChildren([
   batchRoute,
 
   workflowRunRoute,
-  settingsRoute.addChildren([
+  adminRoute.addChildren([
+    costsRoute,
+    computeRoute.addChildren([
+      computeOverviewRoute,
+      computeWorkersRoute,
+      computeQuotasRoute,
+      computeSlurmRoute,
+      computeVolumesRoute,
+    ]),
     orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute]),
     outsideApisRoute,
   ]),

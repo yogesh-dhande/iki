@@ -19,7 +19,7 @@ export type Moved = Schemas["MovedOut"];
 export const REGISTRIES = ["registries"] as const;
 
 /** Where Org Admins add registries, choose their teams and appoint their registrars. */
-export const REGISTRY_SETTINGS = "/settings/registries/";
+export const REGISTRY_SETTINGS = "/admin/registries/";
 
 /** The registries the reader may see; with `team`, those its new projects may be in. */
 export function registriesQuery(team?: string) {

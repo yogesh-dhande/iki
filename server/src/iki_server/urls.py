@@ -17,8 +17,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("logout/", accounts.logout, name="logout"),
     path("signed-out/", accounts.signed_out, name="signed_out"),
     path("setup/", include("iki_server.setup.urls")),
-    # The admin area's first page this person may open (ADR 0176). Its pages keep their
-    # own addresses, under /settings/, /people/, /compute/ and the rest.
+    # The admin area (ADR 0176): every organization-wide page is under /admin/, and
+    # /admin/ itself opens the first one this person may open.
     path("admin/", admin_area.home, name="admin"),
     path("", include("iki_server.org.urls")),
     path("", include("iki_server.audit.urls")),
@@ -49,22 +49,18 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("iki_server.notifications.urls")),
     path("notifications/", web.app, name="notifications"),
     path("work/", web.app, name="work"),  # My work (ADR 0122)
-    path("costs/", web.app, name="costs"),
+    path("admin/costs/", web.app, name="costs"),
     # The web app's: the organization's webhooks (project ones are in org.urls).
-    path("settings/webhooks/", web.app, name="webhook_settings"),
+    path("admin/webhooks/", web.app, name="webhook_settings"),
     # Outside APIs and the projects each is approved for (ADR 0130).
-    path("settings/outside-apis/", web.app, name="outside_api_settings"),
-    path("compute/", web.app, name="compute"),
-    path("compute/workers/", web.app, name="compute_workers"),
-    path("compute/slurm/", web.app, name="compute_slurm"),
-    path("compute/quotas/", web.app, name="compute_quotas"),
-    path("compute/volumes/", web.app, name="compute_volumes"),
-    path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
-    # What the reader can read across projects (ADR 0176), and one of their saved searches.
-    path("entities/", web.app, name="entities"),
-    path("entities/types/<qualified:name>/", web.app, name="entities_of_type"),
-    path("requests/", web.app, name="requests"),
-    path("runs/", web.app, name="runs"),
+    path("admin/outside-apis/", web.app, name="outside_api_settings"),
+    path("admin/compute/", web.app, name="compute"),
+    path("admin/compute/workers/", web.app, name="compute_workers"),
+    path("admin/compute/slurm/", web.app, name="compute_slurm"),
+    path("admin/compute/quotas/", web.app, name="compute_quotas"),
+    path("admin/compute/volumes/", web.app, name="compute_volumes"),
+    path("admin/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
+    # One of the reader's saved searches, by its own address: the sidebar's saved views.
     path("saved-searches/<uuid:saved_id>/", web.app, name="saved_search"),
     # Entities and their types (a project's entities are in org.urls).
     path("types/", web.app, name="entity_types"),

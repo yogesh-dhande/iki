@@ -59,7 +59,7 @@ def crumbs(html: str) -> list[str]:
     [
         (
             "org_admin",
-            "/settings/sign-in/",
+            "/admin/sign-in/",
             [
                 ("Organization", ORGANIZATION),
                 ("Data", DATA),
@@ -69,7 +69,7 @@ def crumbs(html: str) -> list[str]:
         ),
         (
             "auditor",
-            "/audit/",
+            "/admin/audit/",
             [("Compute and cost", ["Costs and budgets"]), ("Compliance", COMPLIANCE)],
         ),
     ],
@@ -128,9 +128,9 @@ def test_the_sidebars_items_are_pages_and_the_app_routes_those_it_says() -> None
 @pytest.mark.parametrize(
     ("principal", "first"),
     [
-        ("org_admin", "/settings/sign-in/"),
-        ("compute_admin", "/compute/"),
-        ("auditor", "/costs/"),
+        ("org_admin", "/admin/sign-in/"),
+        ("compute_admin", "/admin/compute/"),
+        ("auditor", "/admin/costs/"),
     ],
 )
 def test_admin_opens_the_first_page_someone_may_open(
@@ -148,10 +148,51 @@ def test_admin_is_not_for_someone_who_may_open_none_of_it(world: World) -> None:
     assert anonymous["Location"].startswith("/login/")
 
 
+def test_every_page_of_the_area_is_under_admin() -> None:
+    """The server's and the app's alike: one prefix says which frame a page is in."""
+    hrefs = [item.href for group in admin_area.groups() for item in group.items]
+    assert [h for h in hrefs if not h.startswith("/admin/")] == []
+    app = {item.href for group in admin_area.groups() for item in group.items if item.app}
+    routed = {page for page in routed_pages() if page.startswith("/admin/")}
+    assert app <= routed
+    areas = {page.split("/")[2] for page in routed}
+    assert areas == {"compute", "costs", "outside-apis", "webhooks"}
+
+
+OLD_ADDRESSES = [
+    "/settings/sign-in/",
+    "/settings/apps/",
+    "/settings/email/",
+    "/settings/registries/",
+    "/settings/plugins/",
+    "/settings/outside-apis/",
+    "/settings/webhooks/",
+    "/settings/signatures/",
+    "/settings/legal-holds/",
+    "/people/",
+    "/service-accounts/",
+    "/compute/",
+    "/compute/workers/",
+    "/costs/",
+    "/audit/",
+]
+
+
+@pytest.mark.parametrize("path", OLD_ADDRESSES)
+def test_the_old_addresses_are_gone(world: World, path: str) -> None:
+    """Iki isn't deployed before M1, so nothing links to them: no redirects, no second
+    address for a page."""
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+
+    for role in (OrgRole.AUDITOR, OrgRole.COMPUTE_ADMIN):
+        OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=role)
+    assert world.browser("org_admin").get(path).status_code == 404
+
+
 @pytest.mark.parametrize("path", PAGES)
-def test_server_pages_keep_their_addresses_in_the_admin_frame(world: World, path: str) -> None:
-    """Old links and bookmarks work: each page is where it was, in the admin area's frame,
-    without the main header, and says where it is."""
+def test_server_pages_are_in_the_admin_frame(world: World, path: str) -> None:
+    """Each page is in the admin area's frame, without the main header, and says where it
+    is."""
     from iki_server.org.models import OrgRole, OrgRoleAssignment
 
     OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.AUDITOR)
@@ -168,18 +209,18 @@ def test_server_pages_keep_their_addresses_in_the_admin_frame(world: World, path
 
 def test_a_page_under_an_item_marks_it_and_links_back_to_it(world: World) -> None:
     person = world.users["viewer"]
-    html = world.browser("org_admin").get(f"/people/{person.pk}/").content.decode()
+    html = world.browser("org_admin").get(f"/admin/people/{person.pk}/").content.decode()
     assert current(html) == [("true", "People")]
     assert crumbs(html) == ["Admin", "People"]
-    assert '<li><a href="/people/">People</a></li>' in html
-    service_accounts = world.browser("org_admin").get("/service-accounts/").content.decode()
+    assert '<li><a href="/admin/people/">People</a></li>' in html
+    service_accounts = world.browser("org_admin").get("/admin/service-accounts/").content.decode()
     assert current(service_accounts) == [("true", "People")]
 
 
 def test_admin_pages_share_the_main_pages_head_and_its_search(world: World) -> None:
     """The admin frame's <head> is the main pages': ⌘K opens search everything there too,
     and a link added to one can't be missing from the other."""
-    html = world.browser("org_admin").get("/settings/plugins/").content.decode()
+    html = world.browser("org_admin").get("/admin/plugins/").content.decode()
     scripts = re.findall(r'<script type="module" src="([^"]+)"', html)
     assert scripts == ["/static/app/assets/search-entry-test.js"]
     assert 'id="react-aria-pressable-style"' in html
@@ -189,7 +230,7 @@ def test_admin_pages_share_the_main_pages_head_and_its_search(world: World) -> N
 
 
 def test_the_frame_has_the_account_and_the_narrow_screens_menu(world: World) -> None:
-    html = world.browser("org_admin").get("/settings/plugins/").content.decode()
+    html = world.browser("org_admin").get("/admin/plugins/").content.decode()
     assert re.search(
         r'<a class="admin-user" href="/account/"[^>]*><span class="admin-avatar" '
         r'aria-hidden="true">OA</span><span class="admin-user-name">Org Admin</span></a>',

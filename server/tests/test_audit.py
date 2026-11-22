@@ -86,7 +86,7 @@ def test_deactivation_and_revoked_sessions_are_recorded() -> None:
     world = build_world()
     world.browser("viewer").get("/")
     admin = world.browser("org_admin")
-    admin.submit(f"/people/{world.users['viewer'].pk}/", {"action": "deactivate"})
+    admin.submit(f"/admin/people/{world.users['viewer'].pk}/", {"action": "deactivate"})
     assert actions()[-2:] == ["user.sessions_revoked", "user.deactivated"]
     revoked = AuditEvent.objects.get(action="user.sessions_revoked")
     assert revoked.data == {"sessions": 1, "tokens_revoked": 0, "reason": "deactivated"}
@@ -253,18 +253,18 @@ def test_auditors_read_and_filter_the_log(world: World) -> None:
     services.create_team("Genomics", "", by=world.users["org_admin"])
     services.update_project(world.project, "Kinase Atlas", "x", by=world.users["admin"])
     auditor = world.browser("auditor")
-    page = auditor.get("/audit/").content.decode()
+    page = auditor.get("/admin/audit/").content.decode()
     assert "Created a team: Genomics" in page
     assert "Changed a project: Kinase Atlas" in page
     assert "org_admin@example.com" in page
 
-    filtered = auditor.get("/audit/", {"action": "team.created"}).content.decode()
+    filtered = auditor.get("/admin/audit/", {"action": "team.created"}).content.decode()
     assert "Created a team: Genomics" in filtered
     assert "Changed a project: Kinase Atlas" not in filtered
-    by_project = auditor.get("/audit/", {"project": str(world.project.pk)}).content.decode()
+    by_project = auditor.get("/admin/audit/", {"project": str(world.project.pk)}).content.decode()
     assert "Changed a project: Kinase Atlas" in by_project
     assert "Created a team: Genomics" not in by_project
-    by_person = auditor.get("/audit/", {"person": "admin@ex"}).content.decode()
+    by_person = auditor.get("/admin/audit/", {"person": "admin@ex"}).content.decode()
     assert "Changed a project: Kinase Atlas" in by_person
 
 
@@ -279,27 +279,27 @@ def test_the_log_pages_with_a_stable_cursor(world: World, monkeypatch: pytest.Mo
     for _ in range(4):
         audit.record("encryption.rotated", data={"secrets": 1})
     seen: list[str] = []
-    url = "/audit/"
+    url = "/admin/audit/"
     while url:
         page = auditor.get(url).content.decode()
         ids = re.findall(r"<dt>Event ID</dt><dd><code>([0-9a-f-]{36})</code>", page)
         assert 1 <= len(ids) <= 2
         seen += ids
         older = re.search(r'href="(\?[^"]*before=[^"]+)"', page)
-        url = f"/audit/{html.unescape(older.group(1))}" if older else ""
+        url = f"/admin/audit/{html.unescape(older.group(1))}" if older else ""
     every = [str(pk) for pk in AuditEvent.objects.values_list("pk", flat=True)]
     assert seen == every  # newest first, each exactly once
-    assert auditor.get("/audit/?before=not-a-uuid").status_code == 200
+    assert auditor.get("/admin/audit/?before=not-a-uuid").status_code == 200
 
 
 def test_auditor_link_only_for_auditors(world: World) -> None:
     # In the admin area's sidebar, on its pages, for those who may read it (ADR 0176).
-    on_audit = world.browser("auditor").get("/audit/").content.decode()
-    assert 'href="/audit/"' in on_audit
-    on_settings = world.browser("org_admin").get("/settings/sign-in/").content.decode()
-    assert 'href="/audit/"' not in on_settings
+    on_audit = world.browser("auditor").get("/admin/audit/").content.decode()
+    assert 'href="/admin/audit/"' in on_audit
+    on_settings = world.browser("org_admin").get("/admin/sign-in/").content.decode()
+    assert 'href="/admin/audit/"' not in on_settings
     assert Api(world.browser("auditor")).get("/me").json()["can"]["read_audit"] is True
-    assert path_of(world.browser("anonymous").get("/audit/")).startswith("/login/")
+    assert path_of(world.browser("anonymous").get("/admin/audit/")).startswith("/login/")
 
 
 # --- Times: in the viewer's time zone, always named --------------------------------
@@ -323,7 +323,7 @@ def created_in_the_evening(world: World) -> AuditEvent:
 
 def found_on(auditor: Browser, day: str, **extra: str) -> bool:
     query = {"action": "project.created", "since": day, "until": day, **extra}
-    return "Compute Capacity Study" in auditor.get("/audit/", query).content.decode()
+    return "Compute Capacity Study" in auditor.get("/admin/audit/", query).content.decode()
 
 
 def test_the_log_shows_and_filters_by_dates_in_the_viewers_time_zone(world: World) -> None:
@@ -332,7 +332,7 @@ def test_the_log_shows_and_filters_by_dates_in_the_viewers_time_zone(world: Worl
     created_in_the_evening(world)
     auditor = world.browser("auditor")
     auditor.cookies["iki_time_zone"] = "America/Los_Angeles"
-    page = auditor.get("/audit/").content.decode()
+    page = auditor.get("/admin/audit/").content.decode()
     assert "20 Nov 2026, 19:10:00 PST" in page
     assert '<time datetime="2026-11-20T19:10:00.650000-08:00">' in page
     assert "Times are in America/Los_Angeles, as are the dates you filter by." in page
@@ -340,7 +340,7 @@ def test_the_log_shows_and_filters_by_dates_in_the_viewers_time_zone(world: Worl
     assert found_on(auditor, "2026-11-20")
     assert not found_on(auditor, "2026-11-21")
     # The filter's zone is in its link, so whoever opens it sees the same events.
-    form = auditor.get("/audit/", {"action": "project.created"}).content.decode()
+    form = auditor.get("/admin/audit/", {"action": "project.created"}).content.decode()
     assert '<input type="hidden" name="tz" value="America/Los_Angeles"' in form
     elsewhere = world.browser("auditor")
     elsewhere.cookies["iki_time_zone"] = "Asia/Tokyo"
@@ -357,12 +357,12 @@ def test_without_a_known_time_zone_the_log_is_in_utc_and_says_so(
     auditor = world.browser("auditor")
     if zone is not None:
         auditor.cookies["iki_time_zone"] = zone
-    page = auditor.get("/audit/").content.decode()
+    page = auditor.get("/admin/audit/").content.decode()
     assert "21 Nov 2026, 03:10:00 UTC" in page
     assert "Times are in UTC, as are the dates you filter by." in page
     assert "<dt>In UTC</dt>" not in page
     assert found_on(auditor, "2026-11-21")
-    assert auditor.get("/audit/", {"tz": "Nowhere/Special"}).status_code == 200
+    assert auditor.get("/admin/audit/", {"tz": "Nowhere/Special"}).status_code == 200
 
 
 # --- Details: what changed, before and after --------------------------------------
@@ -455,7 +455,7 @@ def test_details_without_a_change_are_facts_in_order_of_their_labels() -> None:
 
 def test_the_log_shows_a_change_as_a_table_and_keeps_the_data_as_recorded(world: World) -> None:
     audit.record("quota.updated", actor=world.users["compute_admin"], data=QUOTA_CHANGE)
-    page = world.browser("auditor").get("/audit/").content.decode()
+    page = world.browser("auditor").get("/admin/audit/").content.decode()
     table = page[page.index('<table class="table">') : page.index("</table>")]
     assert re.findall(r'<th scope="col">([^<]+)</th>', table) == ["Field", "Before", "After"]
     assert re.findall(

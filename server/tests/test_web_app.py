@@ -339,7 +339,7 @@ def test_the_sidebar_marks_the_section_a_page_is_in(world: World, path: str, sec
 
 def test_the_admin_areas_pages_draw_its_frame_not_the_sidebar(world: World) -> None:
     """Admin is one link, to the admin area, whose pages have a sidebar of their own."""
-    html = world.browser("org_admin").get("/settings/sign-in/").content.decode()
+    html = world.browser("org_admin").get("/admin/sign-in/").content.decode()
     assert 'aria-label="Admin"' in html
     assert 'class="sidebar-nav"' not in html
 

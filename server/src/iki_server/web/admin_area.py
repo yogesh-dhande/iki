@@ -13,9 +13,9 @@ render that one list, so the two can't drift apart. Each group has a ``label`` a
 - ``app``: the web app routes it, so its links there don't load a page;
 - ``icon``: its icon's SVG paths, on a 24-unit grid.
 
-The pages keep the addresses they had, as GitHub's settings keep ``/settings/...``
-inside its settings frame: links and bookmarks keep working. Each page still checks its
-own permission; the sidebar only leaves out what the person can't open.
+Every page of the area is under ``/admin/``, and ``/admin/`` itself opens the first one
+the person may open. Each page still checks its own permission; the sidebar only leaves
+out what the person can't open.
 """
 
 import json
