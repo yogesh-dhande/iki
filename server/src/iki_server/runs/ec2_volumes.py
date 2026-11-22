@@ -14,8 +14,8 @@ Each round, for each build in a region the deployment's EC2 templates use:
 - **Ended otherwise:** its disks, and any snapshots, are deleted.
 - **Succeeded:** only the version machines get now is kept fast to restore, which costs
   by the hour: an older one stops being, and one that's current again (its successor
-  retired) is made fast again. A retired version's snapshots are deleted once no live
-  machine has a copy.
+  retired) is made fast again. A retired version's snapshots are deleted once its last
+  pinned run and machine have ended.
 
 Disks and snapshots carry the tags ``iki.ikisci.org/setup`` (their build's ID) and
 ``iki.ikisci.org/volume``, besides the deployment's own; any whose build is gone are

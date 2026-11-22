@@ -355,8 +355,8 @@ def cancel_setup(request: HttpRequest, ref: str) -> dict[str, Any]:
     summary="Retire a version of an environment's volumes",
 )
 def retire_setup(request: HttpRequest, ref: str) -> dict[str, Any]:
-    """New machines get the newest version that isn't retired (or none, and its runs wait).
-    Machines that have it keep it; its snapshots are deleted once none does."""
+    """Retire this version for new runs. Its data stays available until every run pinned
+    to it has ended and every machine that mounted it has gone."""
     me = caller(request)
     require(me, Action.COMPUTE_MANAGE)
     return _out(_build(str(setups.retire(me, _build(ref).pk).pk)))

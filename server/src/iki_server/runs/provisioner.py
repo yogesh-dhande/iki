@@ -36,9 +36,10 @@ import hashlib
 import json
 import uuid
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import cache
 from typing import Any, TypeGuard
 
 import structlog
@@ -61,7 +62,7 @@ from iki_server.runs.kubernetes import (
 )
 from iki_server.runs.models import Job, JobState, Launch, LaunchState
 from iki_spec.compute import Template
-from iki_spec.model import Resources
+from iki_spec.model import Resources, action_from_dict
 
 __all__ = [
     "PROVISIONERS",
@@ -174,6 +175,10 @@ class Fleet:
         raise NotImplementedError
 
 
+type Mounts = dict[str, dict[str, Any]]
+type GroupKey = tuple[str, str, str, str | None]
+
+
 @dataclass
 class Group:
     """Queued jobs that the same kind of pod can run."""
@@ -182,20 +187,19 @@ class Group:
     plugin_sha: str
     template: Template
     image: str
+    volumes: Mounts
     jobs: list[Job] = field(default_factory=list)
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        return (self.environment, self.plugin_sha, self.template.name)
+    def key(self) -> GroupKey:
+        return self.environment, self.plugin_sha, self.template.name, setups.build_id(self.volumes)
 
     @property
     def once(self) -> bool:
         return self.template.lifecycle == "ephemeral"
 
 
-def spec_of(
-    group: Group, namespace: str, pods: RunPods, volumes: dict[str, Any] | None = None
-) -> str:
+def spec_of(group: Group, namespace: str, pods: RunPods) -> str:
     """A digest of the pod a launch for `group` gets: it changes when its template, how
     Iki starts run pods (the worker's image, say), or the version of the environment's
     volumes it gets (ADR 0075) does."""
@@ -207,7 +211,7 @@ def spec_of(
         image=group.image,
         pods=pods,
         once=group.once,
-        volumes=volumes,
+        volumes=group.volumes,
     )
     canonical = json.dumps([namespace, job], sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -221,19 +225,25 @@ def _resources(job: Job) -> Resources:
 def template_for(
     job: Job,
     provisioners: tuple[str, ...] = PROVISIONERS,
-    ready: dict[tuple[str, str], bool] | None = None,
 ) -> tuple[Template, str] | None:
-    """Which template the provisioner starts a machine on for `job`, and the image; None if
-    none it starts fits (or the action is gone). The first that fits, in the binding's
-    order, where a version of the environment's volumes is ready, if any is (ADR 0077):
-    runs don't wait for one place's data while another's is ready. `ready` remembers
-    which places have one, for a round."""
-    action = catalog.action(job.run.action)
-    if action is None:
+    """The template and image for a machine that can run the job with its pinned volumes."""
+    group = _group_for(job, provisioners, setups.volumes_for)
+    return (group.template, group.image) if group is not None else None
+
+
+def _group_for(
+    job: Job,
+    provisioners: tuple[str, ...],
+    mounts: Callable[[str, str, str], Mounts | None],
+) -> Group | None:
+    """Choose a fitting template in binding order, in the place that has the pinned build."""
+    pins = job.run.volumes
+    if pins is None or catalog.action(job.run.action) is None:
         return None
-    image = catalog.environment(action).image
-    if image is None:
+    environment = setups.environment_of(job.environment)
+    if environment is None or environment.image is None:
         return None
+    action = action_from_dict(job.run.spec)
     wanted = _resources(job)
     first = slurm.first(job)
     if first is not None and first.provisioner == "slurm":
@@ -245,22 +255,25 @@ def template_for(
         and template.fits(wanted)
         and (action.lifecycle is None or template.lifecycle == action.lifecycle)
     ]
-    if len(fitting) > 1:
-        known = ready if ready is not None else {}
-        for template in fitting:
+    build_id = setups.build_id(pins)
+    for template in fitting:
+        data: Mounts = {}
+        if build_id is not None:
             place = setups.place_of(template)
-            if place is None:
+            if place is None or not all(setups.fillable(template, v) for v in pins):
                 continue
-            key = (job.environment, place)
-            if key not in known:
-                known[key] = setups.volumes_for(job.environment, place) is not None
-            if known[key]:
-                return template, image
-    return (fitting[0], image) if fitting else None
+            pinned = mounts(job.environment, place, build_id)
+            if pinned is None or setups.provenance(pinned) != pins:
+                continue
+            data = pinned
+        return Group(job.environment, job.run.plugin_sha, template, environment.image, data)
+    return None
 
 
-def demand(now: datetime, fleet: Fleet | None = None) -> dict[tuple[str, str, str], Group]:
+def demand(now: datetime, fleet: Fleet | None = None) -> dict[GroupKey, Group]:
     """The queued jobs on the fleet's tier that need a machine, by what kind of machine."""
+    from iki_server.runs.services import pin_waiting
+
     tier = fleet.tier if fleet is not None else "container"
     provisioners = fleet.provisioners if fleet is not None else PROVISIONERS
     stop = quotas.blocked(tier)
@@ -275,29 +288,36 @@ def demand(now: datetime, fleet: Fleet | None = None) -> dict[tuple[str, str, st
         .select_related("run")
         .order_by("-priority", "queued_at")[:5000]
     )
-    groups: dict[tuple[str, str, str], Group] = {}
-    ready: dict[tuple[str, str], bool] = {}
+    groups: dict[GroupKey, Group] = {}
+    mounts = cache(setups.volumes_for)
+    waiting: set[tuple[str, str]] = set()
     for job in jobs:
-        chosen = template_for(job, provisioners, ready)
-        if chosen is None:
-            continue
-        template, image = chosen
-        key = (job.environment, job.run.plugin_sha, template.name)
-        group = groups.get(key)
-        if group is None:
-            group = groups[key] = Group(job.environment, job.run.plugin_sha, template, image)
-        group.jobs.append(job)
+        run = job.run
+        if run.volumes is None:
+            # A batch can wait thousands of jobs deep for the same first build. Check
+            # once this round per action revision (local code has no commit).
+            revision = (run.action, run.plugin_sha or json.dumps(run.spec, sort_keys=True))
+            if revision in waiting:
+                continue
+            if setups.environment_of(job.environment) is None or not pin_waiting(
+                run, action_from_dict(run.spec)
+            ):
+                waiting.add(revision)
+                continue
+        group = _group_for(job, provisioners, mounts)
+        if group is not None:
+            groups.setdefault(group.key, group).jobs.append(job)
     return groups
 
 
-def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[tuple[str, str, str], Group]:
+def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[GroupKey, Group]:
     """The machines persistent templates keep running with nothing to do: ``min_warm`` of
     each, for each environment bound to it, at the plugin commit runs launch with now."""
     from iki_server.runs.services import plugin_sha
 
     deployment = catalog.compute()
     plugins = registry.plugins()
-    found: dict[tuple[str, str, str], Group] = {}
+    found: dict[GroupKey, Group] = {}
     for qualified, binding in deployment.bindings.items():
         plugin, _, name = qualified.partition(".")
         environment = plugins[plugin].environments.get(name) if plugin in plugins else None
@@ -309,7 +329,11 @@ def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[tuple[str, str, s
             if template is None or template.provisioner not in provisioners:
                 continue
             if template.min_warm and template.lifecycle == "persistent":
-                group = Group(qualified, sha, template, environment.image)
+                place = setups.place_of(template)
+                data = setups.volumes_for(qualified, place) if place is not None else None
+                if data is None:
+                    continue
+                group = Group(qualified, sha, template, environment.image, data)
                 found[group.key] = group
     return found
 
@@ -358,6 +382,7 @@ def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
     template = templates.get(launch.template)
     return (
         template is not None
+        and launch.volumes == job.run.volumes
         and launch.environment == job.environment
         and launch.plugin_sha == job.run.plugin_sha
         and job.lifecycle in ("", launches.lifecycle(launch))
@@ -365,11 +390,9 @@ def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
     )
 
 
-def _unmet(
-    groups: dict[tuple[str, str, str], Group], provisioners: tuple[str, ...]
-) -> Counter[tuple[str, str, str]]:
+def _unmet(groups: dict[GroupKey, Group], provisioners: tuple[str, ...]) -> Counter[GroupKey]:
     """How many of each group's jobs, still queued, no free machine can take."""
-    unmet: Counter[tuple[str, str, str]] = Counter()
+    unmet: Counter[GroupKey] = Counter()
     jobs = [job for group in groups.values() for job in group.jobs]
     if not jobs:
         return unmet
@@ -405,26 +428,34 @@ def _backing_off(group: Group, now: datetime) -> bool:
     return bool(last + wait > now)
 
 
+def _running() -> Counter[GroupKey]:
+    """Live run machines, counted by the jobs they can serve."""
+    machines = Launch.objects.exclude(state=LaunchState.ENDED).filter(setup__isnull=True)
+    return Counter(
+        (environment, sha, template, setups.build_id(data))
+        for environment, sha, template, data in machines.values_list(
+            "environment", "plugin_sha", "template", "volumes"
+        )
+    )
+
+
 def start(
     fleet: Fleet,
     now: datetime,
-    groups: dict[tuple[str, str, str], Group],
-    kept: dict[tuple[str, str, str], Group],
+    groups: dict[GroupKey, Group],
+    kept: dict[GroupKey, Group],
 ) -> int:
     """Starts the machines queued runs need, and the warm ones persistent templates keep.
     Returns how many."""
-    wanted = {**kept, **groups}
+    # At a template's limit, a queued run's build takes priority over warming a newer one.
+    wanted = {**groups, **kept}
     if not wanted:
         return 0
     unmet = _unmet(groups, fleet.provisioners)
     live = Counter(
         Launch.objects.exclude(state=LaunchState.ENDED).values_list("template", flat=True)
     )
-    running = Counter(
-        Launch.objects.exclude(state=LaunchState.ENDED)
-        .filter(setup__isnull=True)
-        .values_list("environment", "plugin_sha", "template")
-    )
+    running = _running()
     started = 0
     for key, group in wanted.items():
         template = group.template
@@ -448,10 +479,6 @@ def start(
 
 
 def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bool:
-    volumes = setups.volumes_for(group.environment, namespace)
-    if volumes is None:
-        # Its setup fills volumes, and no version is ready here: its runs say so.
-        return False
     launch, token = launches.create(
         template=group.template.name,
         provisioner=group.template.provisioner,
@@ -460,8 +487,8 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         image=group.image,
         namespace=namespace,
         once=group.once,
-        spec=spec_of(group, namespace, pods, volumes),
-        volumes=setups.provenance(volumes),
+        spec=spec_of(group, namespace, pods),
+        volumes=setups.provenance(group.volumes),
     )
     job, secret = job_manifest(
         name=launch.name,
@@ -471,7 +498,7 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         image=group.image,
         pods=pods,
         once=group.once,
-        volumes=volumes,
+        volumes=group.volumes,
     )
     try:
         cluster.create_job(
@@ -745,10 +772,6 @@ def waiting(environments: Iterable[str]) -> dict[str, str]:
     and lately, that there was no capacity to start one."""
     wanted = list(environments)
     found: dict[str, str] = {}
-    for environment in wanted:
-        # No machine starts until its volumes have a version (ADR 0075).
-        if why := setups.missing(environment):
-            found[environment] = why
     for environment, message in (
         Launch.objects.filter(environment__in=wanted, state=LaunchState.STARTING)
         .exclude(message="")
@@ -785,8 +808,8 @@ def _minutes(wait: timedelta) -> str:
 def stop_idle(
     fleet: Fleet,
     now: datetime,
-    groups: dict[tuple[str, str, str], Group],
-    kept: dict[tuple[str, str, str], Group],
+    groups: dict[GroupKey, Group],
+    kept: dict[GroupKey, Group],
 ) -> int:
     """Stops persistent machines with nothing to do that aren't needed: ones started before
     their template, or how Iki starts run pods, changed, and ones idle for their template's
@@ -807,27 +830,51 @@ def stop_idle(
     if not idle:
         return 0
     templates = catalog.compute().templates
-    running = Counter(
-        Launch.objects.exclude(state=LaunchState.ENDED)
-        .filter(once=False)
-        .values_list("environment", "plugin_sha", "template")
+    running = _running()
+    occupied: Counter[str] = Counter()
+    for (_, _, template_name, _), count in running.items():
+        occupied[template_name] += count
+    # A warm machine with another build can occupy the only slot for a pinned run.
+    # Free a slot for each waiting group that has no machine, even inside idle_shutdown.
+    blocked = Counter(
+        group.template.name
+        for key, group in groups.items()
+        if not running[key]
+        and group.template.max_concurrent is not None
+        and occupied[group.template.name] >= group.template.max_concurrent
     )
     # The longest idle go first.
     idle.sort(key=lambda each: each.last or each.registered_at or each.created_at)
     stopped = 0
     for launch in idle:
-        key = (launch.environment, launch.plugin_sha, launch.template)
+        key = (
+            launch.environment,
+            launch.plugin_sha,
+            launch.template,
+            setups.build_id(launch.volumes),
+        )
         template = templates.get(launch.template)
         since = launch.last or launch.registered_at or launch.created_at
         reason = message = ""
         if template is None or not _bound(launch.environment, template.name):
             reason, message = "replaced", "Its template is no longer bound to its environment."
-        elif launch.spec != fleet.spec(
-            Group(launch.environment, launch.plugin_sha, template, launch.image),
-            fleet.place(template) or launch.namespace,
-        ):
-            reason, message = "replaced", f"Its template, or how Iki starts {fleet.kind}, changed."
-        elif key not in groups:
+        else:
+            # Keep an older build while a run needs it. Otherwise compare with the
+            # spec a machine started here now would get, including the current build.
+            place = fleet.place(template) or launch.namespace
+            group = groups.get(key) or kept.get(key)
+            if group is None:
+                data = setups.volumes_for(launch.environment, place) or {}
+                group = Group(launch.environment, launch.plugin_sha, template, launch.image, data)
+            if launch.spec != fleet.spec(group, place):
+                reason = "replaced"
+                message = f"Its template, or how Iki starts {fleet.kind}, changed."
+            elif key not in groups and blocked[launch.template]:
+                reason = "replaced"
+                message = (
+                    "A queued run needs this template with different software or reference data."
+                )
+        if not reason and key not in groups and template is not None:
             wait = (
                 timedelta(seconds=template.idle_shutdown)
                 if template.idle_shutdown is not None
@@ -839,6 +886,8 @@ def stop_idle(
         if reason and launches.stop_if_idle(launch, reason, message):
             fleet.remove(launch)
             running[key] -= 1
+            if blocked[launch.template]:
+                blocked[launch.template] -= 1
             stopped += 1
             logger.info("stopped", launch=str(launch.pk), reason=reason)
     return stopped
@@ -886,7 +935,7 @@ class KubernetesFleet(Fleet):
         return namespace
 
     def spec(self, group: Group, place: str) -> str:
-        return spec_of(group, place, self.pods, setups.volumes_for(group.environment, place))
+        return spec_of(group, place, self.pods)
 
     def launch(self, group: Group, place: str) -> bool:
         return _launch(self.cluster, group, place, self.pods)

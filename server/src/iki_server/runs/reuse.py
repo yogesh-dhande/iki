@@ -3,8 +3,9 @@
 A deterministic action's run gets a :func:`key`: a hash of everything its results
 depend on. That's its plugin's commit, its params (a file param by its content), its
 plugin's settings, and each input's entity at the revision it reads, with that type's
-schema version. A run launched with the key of an earlier run that succeeded, which the
-launcher can read, reuses its results (:func:`find`, :func:`reuse`). It ends at once,
+schema version, and the setup build pinned for each managed volume. If an earlier run
+with that key succeeded and the launcher can read it, the new run reuses its results
+(:func:`find`, :func:`reuse`). It ends at once,
 links the entities that run made into its own project, and runs nothing.
 
 A reproduction runs a run again with all of that the same, and its seed too. It writes
@@ -65,10 +66,13 @@ def key(
     params: Mapping[str, Any],
     settings: Mapping[str, Any],
     pins: Sequence[included.Pin] = (),
+    *,
+    volumes: dict[str, Any] | None,
 ) -> str:
     """The run's reuse key, or ``""`` when its results can't be reused: its action isn't
     deterministic, or its plugin is local code, which may have changed since. What its
-    inputs' references name counts too, at its revisions (ADR 0105)."""
+    inputs' references name counts too, at its revisions (ADR 0105). If its volumes
+    are still pending, keep the digest of the launch inputs for :func:`with_volumes`."""
     if not action.deterministic or not sha:
         return ""
     # A file param counts by its content: the same file uploaded twice is the same. A list
@@ -121,6 +125,15 @@ def key(
         # Only when there are any, so keys made before inputs could include stay the same.
         document["included"] = included.keyed(pins)
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str)
+    return with_volumes(hashlib.sha256(encoded.encode()).hexdigest(), volumes)
+
+
+def with_volumes(launch_key: str, volumes: dict[str, Any] | None) -> str:
+    """Complete the launch digest with the immutable build ID for each managed volume."""
+    if not launch_key or not volumes:
+        return launch_key
+    builds = {name: volume["build"] for name, volume in volumes.items()}
+    encoded = json.dumps([launch_key, builds], sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
@@ -195,6 +208,7 @@ def reuse(
         environment=original.environment,
         params=params,
         plugin_settings=settings,
+        volumes=original.volumes,
         seed=original.seed,
         reuse_key=original.reuse_key,
         reused_from=original,

@@ -25590,7 +25590,7 @@
     },
     "/api/v1/compute/setups/{ref}/retire": {
       "post": {
-        "description": "New machines get the newest version that isn't retired (or none, and its runs wait).\nMachines that have it keep it; its snapshots are deleted once none does.",
+        "description": "Retire this version for new runs. Its data stays available until every run pinned\nto it has ended and every machine that mounted it has gone.",
         "operationId": "iki_server_api_setups_retire_setup",
         "parameters": [
           {

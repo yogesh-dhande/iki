@@ -18,6 +18,7 @@ from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, launch, protein
 from test_workers import LOCAL, WorkerClient, keep_connection, queued, registration, worker
 
+from iki_server.entities import registry
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.files import services as files
 from iki_server.files import storage
@@ -56,6 +57,9 @@ def world(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[World]:
     file.write_text(json.dumps(compute))
     monkeypatch.setenv("IKI_COMPUTE_FILE", str(file))
     catalog.compute.cache_clear()
+    # This fixture exercises result writes with a manually registered VM and no setup build.
+    environment = registry.plugins()["acme/prediction"].environments["alphafold-gpu"]
+    monkeypatch.delitem(environment.volumes, "af-db")
     yield build_world()
     catalog.compute.cache_clear()
 

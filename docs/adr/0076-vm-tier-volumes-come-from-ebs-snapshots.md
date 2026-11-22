@@ -57,7 +57,7 @@ per region by default), the build says why and Iki keeps asking. A build whose s
 day of its script's timeout fails. The build's disks are deleted once it
 succeeds.
 
-**Machines for runs get a new disk from the newest version's snapshot,
+**Machines for runs get a new disk from the pinned version's snapshot,
 mounted read-only.** Each disk is made with the instance and deleted with
 it. The host mounts it read-only (and its journal unreplayed, since it was
 unmounted cleanly), and binds it read-only into the container. The version
@@ -73,7 +73,7 @@ is current, the older one's snapshot stops being fast to restore, which costs
 by the hour; it's kept, at the cost of its storage, to roll back to. If the
 newer one is retired, the older one is current again and is made fast again,
 saying so until it is (runs meanwhile get it, a little slower at first). A
-retired version's snapshot is deleted once no machine has a copy. A
+retired version's snapshot is deleted once its last pinned run and machine end. A
 failed or cancelled build's disks and snapshots are deleted, as are any
 carrying the deployment's tag whose build is gone. Iki looks for these
 every five minutes in each region its templates use.

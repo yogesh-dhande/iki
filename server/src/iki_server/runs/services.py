@@ -48,6 +48,7 @@ from iki_server.runs import (
     queue,
     quotas,
     reuse,
+    setups,
     workers,
 )
 from iki_server.runs import outside as sends
@@ -210,7 +211,14 @@ def launch(
     with transaction.atomic():
         link_into_project(user, project, outside)
         made = _made(
-            user, action, project, entities, values, reuse_results=reuse_results, pins=pins
+            user,
+            action,
+            project,
+            entities,
+            values,
+            setups.pin_for(action),
+            reuse_results=reuse_results,
+            pins=pins,
         )
         step = (workflow, workflow_step) if workflow is not None else None
         if made.original is not None:
@@ -294,6 +302,7 @@ def launch_each(
     chosen = entities.pop(each)
     with transaction.atomic():
         link_into_project(user, project, outside)
+        volumes = setups.pin_for(action)
         made = [
             _made(
                 user,
@@ -301,6 +310,7 @@ def launch_each(
                 project,
                 {**entities, each: [e]},
                 values,
+                volumes,
                 reuse_results=reuse_results,
                 pins=included.of_each(pins, each, position),
             )
@@ -447,7 +457,7 @@ def _queue(
     approval: RunApproval | None = None,
     *,
     batch: RunBatch | None = None,
-    made: _Made | None = None,
+    made: _Made,
     copy_of: ActionRun | None = None,
     step: tuple[WorkflowRun, str] | None = None,
     labels: Sequence[str] = (),
@@ -460,7 +470,6 @@ def _queue(
     environment = catalog.environment(action)
     if approval is None:
         quotas.check_queued(project, action.tier)
-    made = made or _made(None, action, project, entities, values, reuse_results=False)
     run = ActionRun.objects.create(
         status=RunStatus.AWAITING_APPROVAL if approval else RunStatus.QUEUED,
         approval=approval,
@@ -484,6 +493,7 @@ def _queue(
         labels=copy_of.labels if copy_of else sorted({*catalog.labels(action), *labels}),
         params=values,
         plugin_settings=made.settings,
+        volumes=made.volumes,
         seed=copy_of.seed if copy_of and copy_of.seed is not None else _seed(),
         reuse_key="" if copy_of else made.key,
         reproduces=copy_of,
@@ -561,25 +571,43 @@ class _Made:
     original: ActionRun | None
     #: What its inputs' references name, which it reads too (ADR 0105).
     pins: list[included.Pin]
+    volumes: dict[str, Any] | None
 
 
 def _made(
-    user: User | None,
+    user: User,
     action: Action,
     project: Project,
     entities: Mapping[str, Sequence[Entity]],
     values: Mapping[str, Any],
+    volumes: dict[str, Any] | None,
     *,
     reuse_results: bool,
-    pins: list[included.Pin] | None = None,
+    pins: list[included.Pin],
 ) -> _Made:
     sha = plugin_sha(action.plugin)
     settings = plugin_settings(action)
-    if pins is None:
-        pins = _pins(user, action, entities)
-    key = reuse.key(action, sha, entities, values, settings, pins)
-    original = reuse.find(user, key, project) if reuse_results and user is not None else None
-    return _Made(sha, settings, key, original, pins)
+    key = reuse.key(action, sha, entities, values, settings, pins, volumes=volumes)
+    original = reuse.find(user, key, project) if reuse_results and volumes is not None else None
+    return _Made(sha, settings, key, original, pins, volumes)
+
+
+def pin_waiting(run: ActionRun, action: Action) -> bool:
+    """Complete a waiting run's launch key with its first available reference build.
+    A second provisioner observes the winning pin, and a retry keeps it."""
+    with transaction.atomic():
+        volumes = setups.pin_for(action)
+        if not volumes:
+            return False
+        key = reuse.with_volumes(run.reuse_key, volumes)
+        if ActionRun.objects.filter(pk=run.pk, volumes__isnull=True).update(
+            volumes=volumes, reuse_key=key
+        ):
+            run.volumes = volumes
+            run.reuse_key = key
+        else:
+            run.refresh_from_db(fields=["volumes", "reuse_key"])
+        return run.volumes is not None
 
 
 def _pins(
@@ -681,6 +709,15 @@ def reproduce(
     launched = action_from_dict(original.spec)
     sends.check_approved(original.project, launched)
     with transaction.atomic():
+        # A reproduction needs a new pin on the original build, even when another build
+        # has since become current. Hold it through queuing so retirement sees the pin.
+        if original.volumes is None or (
+            setups.pin_for(launched, setups.build_id(original.volumes)) != original.volumes
+        ):
+            raise Refused(
+                f"{original.hrid}'s reference data is retired or unavailable here, "
+                "so it can't be reproduced exactly."
+            )
         budgets.check_launch(original.project, action)
         agreed = _consent(user, launched, original.project, consent, None)
         approval = approvals.ask(user, action, original.project)
@@ -692,7 +729,9 @@ def reproduce(
             dict(original.params),
             reason,
             approval,
-            made=_Made(original.plugin_sha, dict(original.plugin_settings), "", None, []),
+            made=_Made(
+                original.plugin_sha, dict(original.plugin_settings), "", None, [], original.volumes
+            ),
             copy_of=original,
             consent=agreed,
         )

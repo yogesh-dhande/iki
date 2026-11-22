@@ -15,7 +15,7 @@ Each round, for each build in a region the deployment's Compute Engine templates
   number from an image. Once every image is ready, all the build's attempts' disks are
   deleted before the build succeeds.
 - **Ended otherwise:** its disks, and any images, are deleted.
-- **Succeeded:** a retired version's images are deleted once no live machine has a copy.
+- **Succeeded:** a retired version's images are deleted once its last pinned run and machine end.
 
 Disks and images are labelled ``iki-setup`` (their build's ID) and ``iki-volume``, besides
 the deployment's own, and named for the deployment (``<owner>-…``); any whose build is

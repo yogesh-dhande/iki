@@ -137,9 +137,9 @@ here. A run keeps its ID and, unless another run has it, its HRID. What it
 was tied to there that doesn't come (its batch, workflow and approval) is
 kept on it, and its page says where it ran. Artifacts and costs stay
 behind: they're kept for a while where they were made (ADR 0068, ADR
-0070). Imported runs are history: they
-read as they ran, and can be reproduced when this deployment has the
-plugin's commit, as any run can.
+0070). Imported runs keep the volume versions their attempts read. Exact
+reproduction requires the original plugin commit and, for a run that read
+managed volumes, the original setup build on this deployment (ADR 0057).
 
 A project's Admin exports from its settings, or with
 `POST /projects/{id}/bundles`: a collection (a static one with its members,

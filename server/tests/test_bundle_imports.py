@@ -891,11 +891,20 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     )
 
     said = {"kind": "computational", "software": [{"name": "AlphaFold", "version": "2.3.2"}]}
+    reference = {
+        "af-db": {
+            "build": "0197f42c-21ad-7100-8000-000000000001",
+            "hrid": "SETUP-000003",
+            "version": 3,
+            "data_version": "2026-10",
+        }
+    }
 
     def elsewhere() -> list[Any]:
         read = protein(world, "MKREADIN", name="read")
         made = protein(world, "MKMADEBY", name="made")
         run = ran(world, made, read)
+        run.jobs.update(volumes=reference)
         # How it was made (ADR 0106): Iki's record, and its source's word.
         origin = ExternalOrigin.objects.create(
             run=run, entity_id=made.pk, revision=1, source="AlphaFold DB", identifier="AF-1"
@@ -931,6 +940,7 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     assert run.project_id == world.project.pk
     assert run.imported["from"] == "test" and run.imported["inputs"] == []
     (job,) = run.jobs.all()
+    assert run.volumes == job.volumes == reference
     assert JobLog.objects.get(job=job).text == "Weighing ABL1\n"
     assert job.output.document == {"creates": []}
     assert RunInput.objects.filter(run=run).count() == 1

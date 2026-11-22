@@ -65,26 +65,23 @@ every snapshot is ready to use, the build has succeeded and its disks are
 deleted. If a snapshot fails, or isn't ready within six hours of the
 build's timeout, the build fails.
 
-**Machines for the environment's runs get a read-only copy of the newest
-version that isn't retired.** Each run pod gets a new disk made from the
-snapshot (a generic ephemeral volume with the snapshot as its data source),
-mounted read-only, and deleted with the pod. Runs therefore never see data
-change under them, and a new version reaches only machines started after
-it's ready; warm pods with the old version are replaced, since their spec
-includes it. Until a version is ready, the environment's runs wait, saying
-so: "Waiting for its reference data (af-db): setup build SETUP-000012 is
-running."
+**A run pins its reference data at launch.** Iki chooses the newest ready,
+unretired build in the first eligible place that has one. If none is ready,
+the run waits, then pins a build before its first attempt. Every attempt
+leases a machine with that exact version. Each run pod mounts a read-only
+disk made from the pinned snapshot (a generic ephemeral volume with the
+snapshot as its data source). Kubernetes deletes the disk with the pod.
 
 **Each attempt records the version it read**: the build, its HRID, the
 version and the data version, in the job and on the run's page. A result
 can be traced to the exact data, and to who asked for it and who approved
 it.
 
-**Retiring a version stops new machines getting it.** They get the newest
-version that isn't retired, or none, and their runs wait. Machines that
-have it keep it, and its snapshots are deleted once none does. A failed or
-cancelled build's disks and snapshots are deleted at once, as is anything
-labelled `iki.ikisci.org/setup` whose build is gone.
+**Retiring a version stops new runs selecting it.** Runs already pinned to
+the build can still start or retry with its snapshots. Iki deletes them
+once every pinned run has ended and every machine with a copy has gone.
+A failed or cancelled build's disks and snapshots are deleted at once,
+as is anything labelled `iki.ikisci.org/setup` whose build is gone.
 
 **Templates say how their machines get each volume.** In `compute.yaml`,
 a template's `volumes` names a strategy for each volume:
@@ -100,8 +97,8 @@ snapshots; the development cluster uses the CSI host-path driver.
   for each run, and every result says which release of the data it used.
 - Changing reference data is a recorded, approvable act, separate from
   installing or upgrading a plugin.
-- A new version uses as much storage again until the old one is retired and
-  no machine has it. Compute admins retire old versions.
+- A new version uses as much storage again until a Compute admin retires
+  the old one and its last pinned run and machine have ended.
 - Each run pod's disk is a clone of the snapshot. Most CSI drivers make
   these quickly and lazily, but the first reads may be slower than from a
   disk made in advance.

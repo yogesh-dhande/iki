@@ -9,10 +9,9 @@ tier), with a fresh, writable disk for each volume. The machine's worker leases 
 provisioner snapshots the disks, and once every snapshot is ready, the build has
 succeeded: a new version of each volume.
 
-Machines started for the environment's runs then get a read-only copy of the newest
-version that isn't retired, and each job records which it read (its build, version and
-``data_version``), for provenance. A retired version is no longer given to new machines;
-its snapshots are deleted once no machine holds a copy.
+Runs pin the newest ready, unretired version in an eligible place. Their machines mount
+that build, and each job records which it read (its build, version and ``data_version``).
+A retired build's snapshots stay while a pinned run or machine still needs them.
 
 Builds belong to the deployment, not to a project. They have their own log, egress record
 and audit trail, kept as long as runs' are.
@@ -48,6 +47,7 @@ from iki_server.runs.models import (
     Worker,
 )
 from iki_spec.compute import KUBERNETES, TIER, Template
+from iki_spec.model import Action as RunAction
 from iki_spec.model import Environment
 
 __all__ = [
@@ -55,6 +55,7 @@ __all__ = [
     "Place",
     "append_log",
     "approve",
+    "build_id",
     "cancel",
     "current",
     "filled",
@@ -62,6 +63,7 @@ __all__ = [
     "heartbeat",
     "lease",
     "missing",
+    "pin_for",
     "place_of",
     "places",
     "progress",
@@ -213,15 +215,24 @@ def current(qualified: str, place: str) -> SetupBuild | None:
     )
 
 
-def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
+def volumes_for(
+    qualified: str, place: str, build_id: str | None = None
+) -> dict[str, dict[str, Any]] | None:
     """What a machine for the environment's runs in `place` mounts, by volume name: the
     snapshot it gets a copy of, or the claim and directory of a shared file system or
     bucket, and how it's recorded. Empty when its setup fills none; None when it does but no
-    version is ready, so no machine can start for its runs there yet."""
+    version is ready. A pinned build can still serve its runs after it is superseded or
+    retired, but only in the place that holds its volumes."""
     environment = environment_of(qualified)
     if environment is None or not filled(environment):
-        return {}
-    build = current(qualified, place)
+        return {} if build_id is None else None
+    build = (
+        current(qualified, place)
+        if build_id is None
+        else SetupBuild.objects.filter(
+            pk=build_id, environment=qualified, place=place, state=SetupState.SUCCEEDED
+        ).first()
+    )
     if build is None:
         return None
     found: dict[str, dict[str, Any]] = {}
@@ -246,6 +257,44 @@ def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
     if set(found) != set(filled(environment)):
         return None
     return found
+
+
+def build_id(volumes: dict[str, Any]) -> str | None:
+    """The single setup build that supplied all of these volumes, if there are any."""
+    return str(next(iter(volumes.values()))["build"]) if volumes else None
+
+
+def pin_for(action: RunAction, required: str | None = None) -> dict[str, dict[str, Any]] | None:
+    """Pin a complete build in an eligible place. Call inside the run's transaction so
+    retiring the build and collecting its snapshots cannot race with recording the pin.
+    A reproduction asks for its original build, which must still be available."""
+    environment = catalog.environment(action)
+    names = filled(environment)
+    if not names:
+        return {} if required is None else None
+    qualified = f"{action.plugin}.{action.environment}"
+    resources = environment.resources.at_least(action.resources)
+    for template in catalog.availability(action).templates:
+        if not template.fits(resources) or not template.serves(action.lifecycle):
+            continue
+        if not all(fillable(template, name) for name in names):
+            continue
+        place = place_of(template)
+        if place is None:
+            continue
+        mounts = volumes_for(qualified, place, required)
+        if not mounts:
+            continue
+        # Launches may share a build concurrently. Retirement takes an exclusive row
+        # lock, then cleanup can see all the runs that pinned it before retirement.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM iki_setup_build WHERE id = %s AND retired_at IS NULL FOR SHARE",
+                [build_id(mounts)],
+            )
+            if cursor.fetchone() is not None:
+                return provenance(mounts)
+    return None
 
 
 def missing(qualified: str) -> str:
@@ -470,8 +519,7 @@ def cancel(by: Any, build_id: uuid.UUID) -> SetupBuild:  # noqa: ANN401 - a User
 
 
 def retire(by: Any, build_id: uuid.UUID) -> SetupBuild:  # noqa: ANN401 - a User
-    """Stops giving new machines this version. Machines that have it keep it; its
-    snapshots are deleted once none does."""
+    """Stop new runs pinning this build. Existing pins and machines keep their volumes."""
     if not permissions.can(by, Action.COMPUTE_MANAGE):
         raise PermissionError
     with transaction.atomic():

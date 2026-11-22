@@ -1,7 +1,7 @@
 """Environment setup builds and the volumes they fill (ADR 0075): a Compute admin asks for
 one, another approves it, the provisioner starts a machine with a writable disk for each
 volume, its worker runs the setup script, the disks are snapshotted, and machines for the
-environment's runs get a read-only copy of the newest version, which each job records.
+environment's runs get a read-only copy of the pinned version, which each job records.
 Kubernetes is a fake that keeps what it's asked for; the dev cluster's end-to-end checks
 use a real one, with the CSI host-path driver's snapshots."""
 
@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from api_client import problem
@@ -18,7 +19,8 @@ from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
 from test_container_tier import FakeCluster, register
-from test_runs import TEMPLATE, protein
+from test_run_results import done, output
+from test_runs import TEMPLATE, launch, protein
 from test_workers import WorkerClient, worker
 
 from iki_server.accounts.models import User
@@ -26,7 +28,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.core.ids import uuid7
 from iki_server.entities import registry
 from iki_server.org.models import OrgRole, OrgRoleAssignment
-from iki_server.runs import catalog, egress, provisioner, setups
+from iki_server.runs import catalog, egress, provisioner, services, setups
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -169,6 +171,28 @@ def run_setup(world: World, cluster: FakeCluster, *, data_version: str = "2026-1
     return hrid
 
 
+def register_run_pod(cluster: FakeCluster) -> tuple[Launch, WorkerClient]:
+    machine = Launch.objects.get(setup=None, state=LaunchState.STARTING)
+    made = register(cluster.token(machine.name), name=f"{machine.name}-pod")
+    assert made.status_code == 201, made.content
+    return machine, WorkerClient(made.json()["token"])
+
+
+def finish_prediction(cluster: FakeCluster, hrid: str, build: str) -> None:
+    """Run the prediction on its provisioned pod and check what that pod actually mounts."""
+    provisioner.tick(cluster)
+    machine, pod = register_run_pod(cluster)
+    manifest = cluster.made[(machine.namespace, machine.name)]["spec"]["template"]["spec"]
+    volume = next(v for v in manifest["volumes"] if v["name"] == "volume-0")
+    snapshot = volume["ephemeral"]["volumeClaimTemplate"]["spec"]["dataSource"]["name"]
+    assert snapshot == ManagedVolume.objects.get(build__hrid=build, name="af-db").handle
+    job = pod.lease().json()
+    assert job["run"]["hrid"] == hrid
+    assert job["volumes"]["af-db"]["hrid"] == build
+    assert done(pod, job, output(metrics={"score": 0.9}))["run_status"] == "succeeded"
+    cluster.finish(machine.name)
+
+
 # --- Asking for one ----------------------------------------------------------------------------
 
 
@@ -237,9 +261,22 @@ def test_the_environments_volumes_say_what_runs_wait_for(world: World) -> None:
     assert provisioner.tick(cluster) == (0, 0)
     shown = api_as(world, "runner").get(f"/runs/{run['hrid']}").json()
     assert shown["waiting"].startswith("Waiting for its reference data (af-db): no version")
+    # Once it has a version, retiring it doesn't put this run back on the waiting list.
+    build = run_setup(world, cluster)
+    retired = api_as(world, "compute_admin").post(f"/compute/setups/{build}/retire")
+    assert retired.status_code == 200
+    assert api_as(world, "runner").get(f"/runs/{run['hrid']}").json()["waiting"] is None
 
 
 # --- Running it --------------------------------------------------------------------------------
+
+
+def test_jobs_waiting_for_the_same_build_check_once_per_round(world: World) -> None:
+    queue_run(world)
+    queue_run(world, name="ACDEF")
+    with patch.object(setups, "pin_for", wraps=setups.pin_for) as lookup:
+        assert provisioner.demand(timezone.now()) == {}
+        lookup.assert_called_once()
 
 
 def test_its_machine_fills_a_fresh_disk_and_its_worker_runs_only_the_setup(world: World) -> None:
@@ -333,22 +370,61 @@ def test_runs_read_a_copy_of_the_newest_version_and_record_it(world: World) -> N
     assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.RUNNING
 
 
-def test_a_retired_version_is_given_to_no_new_machine_and_deleted_once_unused(
-    world: World,
+def test_reuse_requires_the_same_reference_data_build(
+    world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
+    cluster = FakeCluster()
+    first = run_setup(world, cluster)
+    run = queue_run(world)
+    finish_prediction(cluster, run["hrid"], first)
+
+    runner = api_as(world, "runner")
+    inputs = {"protein": run["inputs"][0]["entity"]}
+    same = launch(runner, world.project, inputs, PREDICT).json()
+    assert same["reused_from"]["hrid"] == run["hrid"]
+    assert same["attempts"] == 0
+
+    # A new build can advertise the same data_version even though its snapshots differ.
+    second = run_setup(world, cluster)
+    changed = launch(runner, world.project, inputs, PREDICT).json()
+    assert changed["reused_from"] is None
+    assert changed["status"] == "queued"
+    finish_prediction(cluster, changed["hrid"], second)
+    same = launch(runner, world.project, inputs, PREDICT).json()
+    assert same["reused_from"]["hrid"] == changed["hrid"]
+
+
+def test_a_queued_run_keeps_its_reference_data_when_a_new_build_finishes(world: World) -> None:
+    cluster = FakeCluster()
+    first = run_setup(world, cluster)
+    run = queue_run(world)
+    # Keep the job in the queue while the setup build gets its machine and publishes.
+    job = Job.objects.get(run_id=run["id"])
+    Job.objects.filter(pk=job.pk).update(queued_at=timezone.now() + timedelta(days=1))
+    run_setup(world, cluster)
+    assert not Launch.objects.filter(setup=None).exists()
+    Job.objects.filter(pk=job.pk).update(queued_at=timezone.now())
+    finish_prediction(cluster, run["hrid"], first)
+    job.refresh_from_db()
+    assert job.volumes["af-db"]["hrid"] == first
+
+
+def test_a_retired_version_is_kept_for_its_pinned_run_and_machine(world: World) -> None:
     cluster = FakeCluster()
     first = run_setup(world, cluster)
     second = run_setup(world, cluster, data_version="2026-11")
     assert SetupBuild.objects.get(hrid=second).version == 2
-    queue_run(world)
+    run = queue_run(world)
+    retired = api_as(world, "compute_admin").post(f"/compute/setups/{second}/retire")
+    assert retired.json()["retired_at"] is not None
+    # The queued run already pinned the second build, even though it has no machine yet.
     provisioner.tick(cluster)
     launch = Launch.objects.get(setup=None)
     assert launch.volumes["af-db"]["hrid"] == second
-    # Both snapshots are kept: the first isn't retired.
     assert len([k for k in cluster.objects if k[0] == "snapshot"]) == 2
-    retired = api_as(world, "compute_admin").post(f"/compute/setups/{second}/retire")
-    assert retired.json()["retired_at"] is not None
-    # A machine has a copy of it, so its snapshot stays until that machine's gone.
+    # Its snapshot stays until the run and the machine holding a copy have both ended.
+    assert api_as(world, "runner").post(f"/runs/{run['id']}/cancel", {}).status_code == 200
     provisioner.tick(cluster)
     assert len([k for k in cluster.objects if k[0] == "snapshot"]) == 2
     cluster.finish(launch.name)
@@ -356,8 +432,12 @@ def test_a_retired_version_is_given_to_no_new_machine_and_deleted_once_unused(
     provisioner.tick(cluster)
     assert len([k for k in cluster.objects if k[0] == "snapshot"]) == 1
     assert ManagedVolume.objects.get(build__hrid=second).state == VolumeState.DELETED
-    # New machines get the first again.
+    # A new run gets the first version again.
     assert setups.current(ALPHAFOLD, "iki-runs").hrid == first  # type: ignore[union-attr]
+    queue_run(world, "GHIK")
+    provisioner.tick(cluster)
+    next_launch = Launch.objects.get(setup=None, state=LaunchState.STARTING)
+    assert next_launch.volumes["af-db"]["hrid"] == first
 
 
 # --- When it doesn't work ------------------------------------------------------------------------
@@ -588,12 +668,13 @@ def test_a_retired_versions_directory_is_removed_once_unused(world: World) -> No
     cluster = FakeCluster()
     first = fill_shared(world, cluster)
     second = fill_shared(world, cluster)
-    queue_run(world)
+    run = queue_run(world)
     provisioner.tick(cluster)
     launch = Launch.objects.get(setup=None)
     assert launch.volumes["af-db"]["hrid"] == second
     api_as(world, "compute_admin").post(f"/compute/setups/{second}/retire")
     # A machine has it mounted, so it stays until that machine's gone.
+    assert api_as(world, "runner").post(f"/runs/{run['id']}/cancel", {}).status_code == 200
     provisioner.tick(cluster)
     assert not removals(cluster)
     cluster.finish(launch.name)
@@ -866,3 +947,138 @@ def test_runs_go_where_a_version_is_ready(world: World, settings: Any) -> None:
     queue_run(world, name="FGHI")
     provisioner.tick(cluster)
     assert Launch.objects.filter(setup=None, namespace="iki-runs", template="gpu-a100").exists()
+
+
+def test_a_worker_can_only_lease_and_pack_runs_on_its_reference_build(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    predict = catalog.action(PREDICT)
+    assert predict is not None
+    monkeypatch.setitem(
+        registry.plugins()[predict.plugin].actions,
+        predict.name,
+        dataclasses.replace(predict, batchable=2),
+    )
+    cluster = FakeCluster()
+    run_setup(world, cluster)
+    older = queue_run(world)
+    second = run_setup(world, cluster)
+    runner = api_as(world, "runner")
+    entity = protein(runner, world.project, name="FGHI")
+    batch = runner.post(
+        f"/actions/{PREDICT}/runs/batch",
+        {"project": str(world.project.pk), "each": "protein", "entities": [entity["id"]]},
+    ).json()
+    # Two batch members whose reference data became available at different times.
+    ActionRun.objects.filter(pk=older["id"]).update(batch_id=batch["batch"]["id"])
+    provisioner.tick(cluster)
+    machine = Launch.objects.get(setup=None, volumes__contains={"af-db": {"hrid": second}})
+    pod = WorkerClient(register(cluster.token(machine.name), name=machine.name).json()["token"])
+    job = pod.lease().json()
+    assert job["run"]["id"] == batch["runs"][0]["id"]
+    assert [e["id"] for e in job["inputs"]["protein"]] == [entity["id"]]
+    assert ActionRun.objects.get(pk=older["id"]).status == RunStatus.QUEUED
+
+
+def test_exact_reproduction_mounts_the_original_build_until_retired(world: World) -> None:
+    cluster = FakeCluster()
+    first = run_setup(world, cluster)
+    run = queue_run(world)
+    finish_prediction(cluster, run["hrid"], first)
+    run_setup(world, cluster)
+
+    runner = api_as(world, "runner")
+    path = f"/runs/{run['hrid']}/reproduce"
+    assert runner.get(f"/runs/{run['hrid']}").json()["can"]["reproduce"] is True
+    reproduced = runner.post(path, {"reason": "Audit"})
+    assert reproduced.status_code == 201, reproduced.content
+    again = reproduced.json()
+    finish_prediction(cluster, again["hrid"], first)
+    assert runner.get(f"/runs/{again['hrid']}").json()["reproduction"]["matches"]
+
+    retired = api_as(world, "compute_admin").post(f"/compute/setups/{first}/retire")
+    assert retired.status_code == 200, retired.content
+    assert runner.get(f"/runs/{run['hrid']}").json()["can"]["reproduce"] is False
+    problem(runner.post(path, {"reason": "Audit"}), 409, "refused")
+
+
+def test_waiting_for_reference_data_reuses_only_after_a_build_is_pinned(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
+    cluster = FakeCluster()
+    first = run_setup(world, cluster)
+    run = queue_run(world)
+    finish_prediction(cluster, run["hrid"], first)
+    retired = api_as(world, "compute_admin").post(f"/compute/setups/{first}/retire")
+    assert retired.status_code == 200, retired.content
+
+    runner = api_as(world, "runner")
+    inputs = {"protein": run["inputs"][0]["entity"]}
+    waiting = launch(runner, world.project, inputs, PREDICT).json()
+    assert waiting["status"] == "queued"
+    assert waiting["reused_from"] is None
+    second = run_setup(world, cluster)
+    finish_prediction(cluster, waiting["hrid"], second)
+    same = launch(runner, world.project, inputs, PREDICT).json()
+    assert same["reused_from"]["hrid"] == waiting["hrid"]
+    assert same["attempts"] == 0
+
+
+@pytest.mark.parametrize("warm_environment", [ALPHAFOLD, "acme/prediction.colabfold"])
+def test_a_single_warm_slot_can_run_an_older_reference_build(
+    world: World, monkeypatch: pytest.MonkeyPatch, warm_environment: str
+) -> None:
+    predict = catalog.action(PREDICT)
+    assert predict is not None
+    monkeypatch.setitem(
+        registry.plugins()[predict.plugin].actions,
+        predict.name,
+        dataclasses.replace(predict, lifecycle=None),
+    )
+    cluster = FakeCluster()
+    first = run_setup(world, cluster)
+    run = queue_run(world)
+    finish_prediction(cluster, run["hrid"], first)
+    second = run_setup(world, cluster)
+
+    templates = catalog.compute().templates
+    template = templates["gpu-a100"]
+    monkeypatch.setitem(
+        templates,
+        template.name,
+        dataclasses.replace(
+            template,
+            provisioner="k8s_deployment",
+            lifecycle="persistent",
+            min_warm=1,
+            max_concurrent=1,
+        ),
+    )
+    bindings = catalog.compute().bindings
+    binding = bindings[ALPHAFOLD]
+    if warm_environment != ALPHAFOLD:
+        # The other environment has the slot already when this one joins the pool.
+        monkeypatch.delitem(bindings, ALPHAFOLD)
+        monkeypatch.setitem(
+            bindings, warm_environment, dataclasses.replace(binding, environment=warm_environment)
+        )
+    provisioner.tick(cluster)
+    warm, _ = register_run_pod(cluster)
+    assert warm.environment == warm_environment
+    if warm_environment == ALPHAFOLD:
+        assert warm.volumes["af-db"]["hrid"] == second
+    else:
+        monkeypatch.setitem(bindings, ALPHAFOLD, binding)
+
+    again = api_as(world, "runner").post(f"/runs/{run['hrid']}/reproduce", {"reason": "Audit"})
+    assert again.status_code == 201, again.content
+    provisioner.tick(cluster)
+    warm.refresh_from_db()
+    assert warm.state == LaunchState.ENDED
+    replacement, pod = register_run_pod(cluster)
+    assert replacement.volumes["af-db"]["hrid"] == first
+    leased = pod.lease().json()
+    assert leased["run"]["hrid"] == again.json()["hrid"]
+    assert leased["volumes"]["af-db"]["hrid"] == first
+    assert done(pod, leased, output(metrics={"score": 0.9}))["run_status"] == "succeeded"
