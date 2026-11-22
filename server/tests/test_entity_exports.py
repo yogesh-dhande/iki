@@ -80,9 +80,17 @@ def test_a_type_says_which_files_it_exports(world: World) -> None:
                     "its header. FASTA holds no features.",
                 },
             ],
+            "sequence": "bases",
+            "features": "features",
         }
     ]
-    assert types["acme/dna.Vector"]["exports"][0]["export"] == "sequence"
+    # A vector's sequence is its plasmid's, by reference, with its own features added.
+    vector = types["acme/dna.Vector"]["exports"][0]
+    assert (vector["export"], vector["sequence"], vector["features"]) == (
+        "sequence",
+        "plasmid",
+        "annotated_features",
+    )
     assert types["acme/dna.DNASequence"]["exports"] == []
 
 

@@ -121,6 +121,31 @@ revision with its before and after, its signatures and its reasons, filtered
 by person and field, with a By field view and an export for inspection. A
 record in several projects has a project picker for its project values.
 
+- **A list of objects never reads as JSON.** A plasmid's annotated features
+  are a small table of the keys its objects hold plain values in (name, type,
+  start to end as one position, strand); keys holding objects, such as a
+  feature's qualifiers, are in the audit trail and the record's export. A
+  grid's cell, which has one line, says how many and names them: "3 · tet
+  promoter, TcR, ori". One reading serves both, so a value reads the same on
+  the page, in the grid and in the trail's By field view.
+- **Its rail draws its features as a map,** from its own sequence viewer, or,
+  for a record whose sequence is another's by reference (a plasmid's is its DNA
+  sequence's, ADR 0163), from that record's bases and its own features field,
+  as its sequence export (ADR 0171) names them: the type list says which
+  fields an export writes from. Its features are then listed in a Features
+  card, and their field says how many. The map links to where it's drawn in
+  full: its viewer's tab, or its plugin's tab called Map.
+- **The rail is 300 pixels wide,** its facts a label beside a value, and the
+  long ones (how it was made, where it was imported from, its signatures) under
+  their labels, so a run and its action read whole.
+- **A record and its registry entry are one linked record,** listed once in the
+  rail and counted once on the Lineage tab, with the reference fields that link
+  them: "via Sequence". The Audit trail tab's count is the record's revisions
+  and its entry's, and says so: on the tab, beside each list's heading, and in
+  the rail's Revision.
+- **Each revision exports as it was,** the latest too, from an icon button in
+  its row.
+
 **Administration has its own area,** with its own sidebar and a way back to
 Iki. Its groups are:
 

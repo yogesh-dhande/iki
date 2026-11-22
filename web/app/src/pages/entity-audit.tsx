@@ -37,8 +37,9 @@ import {
   type RevisionDetail,
 } from "../entities";
 import { usePageTitle } from "../layout";
+import { objectList, objectListText } from "../object-lists";
 import { entryRevisionQuery } from "../registries";
-import { ExportButton } from "./entity-export";
+import { DownloadIcon, ExportButton } from "./entity-export";
 import { trailCsvUrl } from "./entity-header";
 import { signaturesQuery } from "./entity-signatures";
 import { EntityTabs, shownIn, useEntity, Value } from "./entity";
@@ -171,9 +172,7 @@ function TrailToolbar({
           download
           aria-describedby={`${ids}-export`}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
-          </svg>
+          <DownloadIcon />
           Export for inspection
         </a>
         <span className="visually-hidden" id={`${ids}-export`}>
@@ -200,10 +199,14 @@ function Timeline({
   const project = entity.owner_project?.name ?? "This project";
   return (
     <>
+      {/* Its tab counts both lists: each says how many are its. */}
       {entry ? (
-        <h2 className="section-title" id="record-history-title">
-          {project}’s record
-        </h2>
+        <div className="trail-heading">
+          <h2 className="section-title" id="record-history-title">
+            {project}’s record
+          </h2>
+          <span className="trail-heading-count">{revisionsText(entity.revision)}</span>
+        </div>
       ) : null}
       <Revisions
         query={revisions}
@@ -213,6 +216,11 @@ function Timeline({
       {entry ? <EntryTimeline entity={entity} type={type} filter={filter} /> : null}
     </>
   );
+}
+
+/** "3 revisions": how many a list of them holds, beside its heading. */
+function revisionsText(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? "revision" : "revisions"}`;
 }
 
 /** The record's registry entry's revisions: its values are every holding project's. */
@@ -230,9 +238,12 @@ function EntryTimeline({
   if (!entry) return null;
   return (
     <section aria-labelledby="entry-history-title">
-      <h2 className="section-title" id="entry-history-title">
-        Registry entry {entry.hrid}
-      </h2>
+      <div className="trail-heading">
+        <h2 className="section-title" id="entry-history-title">
+          Registry entry {entry.hrid}
+        </h2>
+        <span className="trail-heading-count">{revisionsText(entry.revision)}</span>
+      </div>
       <p className="muted">
         Its values are every holding project’s: its identity, what’s derived from it, and the facts
         its registrars curate. Changes made through projects you can’t read say only what they set.
@@ -389,17 +400,22 @@ function TrailRow({
           <span className="row-title">
             Revision {revision.number}: {what}
           </span>
-          {revision.changed_fields.length ? (
-            <Button
-              variant="quiet"
-              label={`${open ? "Hide" : "Show"} changes in ${which}`}
-              onClick={() => {
-                setOpen(!open);
-              }}
-            >
-              {open ? "Hide changes" : `Show changes (${String(changed.length)})`}
-            </Button>
-          ) : null}
+          <span className="trail-actions">
+            {revision.changed_fields.length ? (
+              <Button
+                variant="quiet"
+                label={`${open ? "Hide" : "Show"} changes in ${which}`}
+                onClick={() => {
+                  setOpen(!open);
+                }}
+              >
+                {open ? "Hide changes" : `Show changes (${String(changed.length)})`}
+              </Button>
+            ) : null}
+            {/* Each of the record's revisions as it was, as a file (ADR 0171): the latest
+                too, as every revision is. An entry's revisions export as its records do. */}
+            {entry ? null : <ExportButton entity={entity} type={type} revision={revision.number} />}
+          </span>
         </div>
         <p className="trail-meta">
           {revision.created_at ? (
@@ -433,12 +449,6 @@ function TrailRow({
           ) : (
             <Changes number={revision.number} type={type} entity={entity} />
           )
-        ) : null}
-        {/* The latest is exported from the page's ⋯ menu. */}
-        {!entry && revision.number < entity.revision ? (
-          <div className="row-actions">
-            <ExportButton entity={entity} type={type} revision={revision.number} />
-          </div>
         ) : null}
       </div>
     </li>
@@ -642,7 +652,10 @@ function ShortValue({
       );
     }
   }
-  // A list of JSON, such as a sequence's features, by how many: its revisions have it whole.
+  // A list of objects, such as a sequence's features, by how many and their names; other
+  // lists of JSON by how many: its revisions have them whole.
+  const objects = objectList(value);
+  if (objects) return <span>{objectListText(objects)}</span>;
   if (Array.isArray(value) && (field.type === "json" || field.items === "json")) {
     return (
       <span className="muted">

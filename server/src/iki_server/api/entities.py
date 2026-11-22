@@ -411,6 +411,14 @@ class FileExportOut(Schema):
         description="What it writes. `sequence`: a DNA or RNA sequence, with its features."
     )
     formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    sequence: str = Field(
+        description="The field it's written from: a string field with a DNA or RNA format, "
+        "or a reference to a record of a type that exports a sequence."
+    )
+    features: str | None = Field(
+        description="A json field of features (type, start, end, name, strand) it adds "
+        "along the sequence, or null. A record page draws them as a map."
+    )
 
 
 class TypeNotificationOut(Schema):
@@ -1246,7 +1254,12 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
         "exports": [
-            {"export": e.export, "formats": [asdict(f) for f in exports.FORMATS[e.export]]}
+            {
+                "export": e.export,
+                "formats": [asdict(f) for f in exports.FORMATS[e.export]],
+                "sequence": e.sequence,
+                "features": e.features or None,
+            }
             for e in registry.exports(entity_type)
         ],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
