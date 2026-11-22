@@ -9,9 +9,7 @@
   <meta name="referrer" content="same-origin">
   {% if user.is_authenticated %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
   <title>{% block title %}Admin{% endblock %}{% if organization_name %} · {{ organization_name }}{% endif %}</title>
-  <link rel="icon" href="{% static 'iki/favicon.svg' %}" type="image/svg+xml">
-  <link rel="stylesheet" href="{% static 'iki/iki.css' %}">
-  <script src="{% static 'iki/iki.js' %}" defer></script>
+  {% include "_head_links.html" %}
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>

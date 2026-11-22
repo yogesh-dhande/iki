@@ -176,6 +176,18 @@ def test_a_page_under_an_item_marks_it_and_links_back_to_it(world: World) -> Non
     assert current(service_accounts) == [("true", "People")]
 
 
+def test_admin_pages_share_the_main_pages_head_and_its_search(world: World) -> None:
+    """The admin frame's <head> is the main pages': ⌘K opens search everything there too,
+    and a link added to one can't be missing from the other."""
+    html = world.browser("org_admin").get("/settings/plugins/").content.decode()
+    scripts = re.findall(r'<script type="module" src="([^"]+)"', html)
+    assert scripts == ["/static/app/assets/search-entry-test.js"]
+    assert 'id="react-aria-pressable-style"' in html
+    main = world.browser("org_admin").get("/teams/").content.decode()
+    head = re.compile(r'<link rel="icon".*?(?=</head>)', re.S)
+    assert head.search(html)[0] == head.search(main)[0]  # type: ignore[index]
+
+
 def test_the_frame_has_the_account_and_the_narrow_screens_menu(world: World) -> None:
     html = world.browser("org_admin").get("/settings/plugins/").content.decode()
     assert re.search(
