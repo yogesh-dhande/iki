@@ -1542,6 +1542,7 @@ class Files(_Part):
         project: str | Mapping[str, Any],
         name: str | None = None,
         media_type: str | None = None,
+        acquired: date | str | None = None,
         timeout: float | None = None,
         poll: float = 2.0,
     ) -> FileOut:
@@ -1550,12 +1551,23 @@ class Files(_Part):
         A stream is read from its current position, which is restored if it can seek.
         Give an unnamed stream a ``name``.
         The media type defaults to a guess from the filename, then application/octet-stream.
+        ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
+        as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
+        it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
         ``timeout`` limits the wait for Iki to check the upload, in seconds.
         """
         from iki._uploads import upload
 
+        given = acquired.isoformat() if isinstance(acquired, date) else (acquired or "")
         return upload(
-            self._client, source, self._client._project_id(project), name, media_type, timeout, poll
+            self._client,
+            source,
+            self._client._project_id(project),
+            name,
+            media_type,
+            timeout,
+            poll,
+            given,
         )
 
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:

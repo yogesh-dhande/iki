@@ -6822,3 +6822,27 @@ input[type="file"]::file-selector-button {
 .run-files-link {
   margin: 0.5rem 0 0;
 }
+
+/* Files from this computer, before and while they're sent, and when they were acquired. */
+.file-upload-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(16rem, 40dvh);
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.file-upload-name {
+  font-weight: 500;
+}
+
+.file-acquired-input {
+  width: auto;
+  max-width: 100%;
+}

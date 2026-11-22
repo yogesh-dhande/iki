@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { problemOf } from "../api";
 import { formatSize, typeLabel, typesQuery } from "../entities";
 import { FileTable } from "../file-table";
+import { UploadFiles } from "../file-upload";
 import {
   acquiredText,
   downloadHref,
@@ -52,6 +53,9 @@ export function ProjectFiles() {
         void navigate({ search: searchOf(filter), replace: true });
       }}
       caption={`Files in ${project.name}`}
+      actions={
+        project.can.edit ? <UploadFiles projectId={project.id} projectName={project.name} /> : null
+      }
     />
   );
 }

@@ -3,7 +3,7 @@
 import hashlib
 import io
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -728,6 +728,34 @@ class _Pipe(io.BytesIO):
     def read(self, size: int | None = -1, /) -> bytes:
         assert size is not None and size >= 0
         return super().read(min(size, 2))
+
+
+@pytest.mark.parametrize(
+    ("acquired", "sent"),
+    [
+        (date(2026, 3, 14), "2026-03-14"),
+        (
+            datetime(2026, 3, 14, 9, 21, tzinfo=timezone(timedelta(hours=1))),
+            "2026-03-14T09:21:00+01:00",
+        ),
+        ("2026-03-14T09:21", "2026-03-14T09:21"),
+    ],
+)
+def test_an_upload_says_when_its_data_was_acquired(
+    fake: FakeIki, client: Client, tmp_path: Path, acquired: date | str, sent: str
+) -> None:
+    # For a file whose format doesn't record it, such as a plate reader's CSV (ADR 0177).
+    path = tmp_path / "plate-7.csv"
+    path.touch()
+    record = {"id": "f1", "name": path.name, "size": 0, "sha256": hashlib.sha256().hexdigest()}
+    fake.on(
+        "POST",
+        "/api/v1/uploads",
+        {"id": "u1", "state": "ready", "file": record, "parts": [], "part_count": 0},
+    )
+
+    assert client.files.upload(path, project=PROJECT, acquired=acquired) == record
+    assert fake.body("POST", "/api/v1/uploads")["acquired_at"] == sent
 
 
 def test_upload_sends_parts_to_storage_and_renews_an_expired_part(

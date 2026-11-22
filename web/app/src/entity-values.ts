@@ -19,6 +19,8 @@ export interface Picked {
   uploading?: boolean;
   /** A file chosen from this computer with others, which its input starts uploading. */
   file?: File;
+  /** When that file's data was acquired, if the person said: a day, or "" (ADR 0177). */
+  acquiredAt?: string;
   /** A file's size in bytes, where it's known, said beside its name. */
   size?: number;
 }

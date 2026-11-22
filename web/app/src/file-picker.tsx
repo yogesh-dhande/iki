@@ -10,6 +10,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { formatSize } from "./entities";
 import { FileTable } from "./file-table";
+import { UploadStep } from "./file-upload";
 import { NO_FILTER, type FileFilter, type FileRow, type Takes } from "./files";
 import { media } from "./media";
 import { Button } from "./ui";
@@ -29,8 +30,9 @@ export interface FilePickerProps {
   /** What's already chosen, which shows as chosen. */
   chosen?: readonly string[];
   onChoose: (files: FileRow[]) => void;
-  /** Files from this computer instead: the field uploads them as it does its own. */
-  onUpload?: ((files: File[]) => void) | undefined;
+  /** Files from this computer instead, acquired `acquiredAt` if the person said (a day, or
+   * ""): the field uploads them as it does its own. */
+  onUpload?: ((files: File[], acquiredAt: string) => void) | undefined;
 }
 
 /** What a field takes, as a sentence: "It takes PDF files, up to 10.0 MiB." */
@@ -75,6 +77,8 @@ function PickerBody({
 }: FilePickerProps) {
   const [filter, setFilter] = useState<FileFilter>(NO_FILTER);
   const [chosen, setChosen] = useState<Map<string, FileRow>>(new Map());
+  // Files from this computer, before they're sent: the picker asks when they were acquired.
+  const [pending, setPending] = useState<File[] | null>(null);
   const held = new Set(already);
   const input = useRef<HTMLInputElement>(null);
   const rules = takesText(takes);
@@ -82,6 +86,25 @@ function PickerBody({
     onChoose(files);
     onClose();
   };
+  if (pending && onUpload) {
+    return (
+      <>
+        <Heading slot="title" className="section-title">
+          {pending.length === 1 ? `Upload a file for ${label}` : `Upload files for ${label}`}
+        </Heading>
+        <UploadStep
+          files={pending}
+          onUpload={(acquiredAt) => {
+            onUpload(pending, acquiredAt);
+            onClose();
+          }}
+          onBack={() => {
+            setPending(null);
+          }}
+        />
+      </>
+    );
+  }
   return (
     <>
       <Heading slot="title" className="section-title">
@@ -143,9 +166,7 @@ function PickerBody({
                 onChange={(event) => {
                   const files = [...(event.target.files ?? [])];
                   event.target.value = "";
-                  if (!files.length) return;
-                  onUpload(files);
-                  onClose();
+                  if (files.length) setPending(files);
                 }}
               />
             </>

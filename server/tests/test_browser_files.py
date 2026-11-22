@@ -1,7 +1,7 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
 """A project's Files (ADR 0177) in real browsers: found by part of a name, format and when
-their data was acquired; Used by links to the records and revisions that held a file; the
-file picker in an entity form. Each passes axe in both themes and fits a phone's width."""
+their data was acquired; Used by links to the records and revisions that held a file;
+uploading files with when their data was acquired; the file picker in an entity form. Each passes axe in both themes and fits a phone's width."""
 
 import re
 from typing import Any
@@ -174,6 +174,39 @@ def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
     expect(found).to_have_count(1)
     found.click()
     page.get_by_role("heading", level=1, name="B02_clone-18-R.ab1").wait_for()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    a_plate(world)
+    page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
+    page.get_by_role("table", name="Files in Kinase Atlas").get_by_role(
+        "link", name="1abc.pdb"
+    ).wait_for()
+    # A plate reader's export says nothing of when it was read: whoever adds it says.
+    page.locator("input[type=file][aria-label='Upload files']").set_input_files(
+        {"name": "plate-7.csv", "mimeType": "text/csv", "buffer": b""}
+    )
+    dialog = page.get_by_role("dialog", name="Upload a file to Kinase Atlas")
+    dialog.get_by_text("plate-7.csv").wait_for()
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    # Found by its type, not its label: Firefox crashes on labels after axe.
+    dialog.locator("input[type=date]").fill("2026-03-14")
+    dialog.get_by_role("button", name="Upload it").click()
+    page.get_by_text("Added plate-7.csv.").wait_for()
+    expect(dialog).to_be_hidden()
+    row = page.get_by_role("table", name="Files in Kinase Atlas").get_by_role(
+        "row", name=re.compile(r"^plate-7\.csv")
+    )
+    expect(row).to_contain_text("2026-03-14")
+    stored = File.objects.get(name="plate-7.csv")
+    assert (stored.acquired_at, stored.acquired_from) == ("2026-03-14", "given")
+    assert_clean(page)
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

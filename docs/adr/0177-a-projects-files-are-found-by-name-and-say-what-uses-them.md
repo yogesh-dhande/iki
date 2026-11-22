@@ -91,7 +91,11 @@ It's never the time the file was added. That's another fact, shown apart.
 
 - **Given when it's added**: `acquired_at` on an upload or a registration, a
   day or a moment in ISO 8601, not after tomorrow. The file's own wins, since
-  it's the instrument's record.
+  it's the instrument's record. In the app, a project's Files tab has Upload
+  files, and the picker's upload asks too: the files are listed, with an
+  optional day their data was acquired, before they're sent. A field's own
+  upload control sends at once, without asking. The SDK's `files.upload` takes
+  `acquired`.
 - **Kept as precisely as its source gave it**: a day, or a time to the second or
   to the fraction recorded, with an offset only if the source stated one. Most
   instruments record their local time without a zone, and Iki doesn't invent

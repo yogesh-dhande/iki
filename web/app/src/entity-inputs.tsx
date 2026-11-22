@@ -49,6 +49,7 @@ import {
   type QuantityDraft,
 } from "./entity-values";
 import { FilePicker } from "./file-picker";
+import { UploadStatus } from "./file-upload";
 import { FILES } from "./files";
 import { optionLabel } from "./filters";
 import { describeHelm, isProblem, useHelmReading } from "./helm";
@@ -1053,7 +1054,7 @@ function FileInput({
   const shownError = problem ?? error;
   const label = itemLabel ?? field.label;
 
-  async function send(file: File) {
+  async function send(file: File, acquiredAt = "") {
     setProblem(null);
     const refused = media.refusal(file, allowed);
     if (refused) {
@@ -1078,6 +1079,7 @@ function FileInput({
         setProgress,
         controller.signal,
         media.of(file, allowed),
+        acquiredAt,
       );
       onChange({ id: made.id, hrid: "", title: made.name, size: made.size });
       void client.invalidateQueries({ queryKey: FILES });
@@ -1104,7 +1106,7 @@ function FileInput({
   useEffect(() => {
     if (given && started.current !== given) {
       started.current = given;
-      void send(given);
+      void send(given, picked.acquiredAt);
     }
     // send is this render's; the file is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1240,22 +1242,11 @@ function FileInput({
           setProblem(null);
           onChange({ id: file.id, hrid: "", title: file.name, size: file.size });
         }}
-        onUpload={([file]) => {
-          if (file) void send(file);
+        onUpload={([file], acquiredAt) => {
+          if (file) void send(file, acquiredAt);
         }}
       />
     </fieldset>
-  );
-}
-
-export function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
-  if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
-  const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
-  return (
-    <>
-      {progress.phase === "hashing" ? "Reading" : "Uploading"} {name}: {percent}% (
-      {formatSize(progress.done)} of {formatSize(progress.total)})
-    </>
   );
 }
 
@@ -1287,7 +1278,7 @@ function ListInput(props: InputProps) {
   const [tooMany, setTooMany] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   /** Files chosen from this computer: each item's input uploads its own. */
-  const addFiles = (chosen: File[]) => {
+  const addFiles = (chosen: File[], acquiredAt = "") => {
     const room = most == null ? chosen.length : most - latest.current.length;
     if (chosen.length > room) {
       setTooMany(
@@ -1300,7 +1291,14 @@ function ListInput(props: InputProps) {
     setTooMany(null);
     change([
       ...latest.current,
-      ...chosen.map((f) => ({ id: "", hrid: "", title: f.name, uploading: true, file: f })),
+      ...chosen.map((f) => ({
+        id: "",
+        hrid: "",
+        title: f.name,
+        uploading: true,
+        file: f,
+        acquiredAt,
+      })),
     ]);
   };
   const shownError = tooMany ?? error;

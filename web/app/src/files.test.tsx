@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { field, KINASE, PROTEIN, renderApp, STRUCTURE } from "./entity-fixtures";
 import { acquiredText, filterOf, searchOf, spanText, usedByText } from "./files";
-import { answer, calls, page, signedIn } from "./test-server";
+import { answer, calls, page, project, signedIn } from "./test-server";
 
 type Row = Schemas["FileRowOut"];
 
@@ -34,6 +34,28 @@ function file(id: string, name: string, overrides: Partial<Row> = {}): Row {
 const A = file("1", "1abc.pdb", { used_by: { records: 2, runs: 1 } });
 const B = file("2", "2xyz.pdb");
 const C = file("3", "3def.pdb");
+
+const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/** An empty file is a file as soon as it's started: no parts to send or check. */
+function answerUpload(name: string) {
+  answer("POST /api/v1/uploads", {
+    id: "00000000-0000-7000-8000-0000000a0001",
+    project: KINASE.id,
+    name,
+    media_type: "text/csv",
+    size: 0,
+    sha256: EMPTY,
+    state: "ready",
+    file: { ...file("9", name, { media_type: "text/csv", size: 0, sha256: EMPTY }) },
+    parts: [],
+    part_size: 0,
+    part_count: 0,
+    error: "",
+    created_at: "2026-03-14T09:00:00Z",
+    expires_at: "2026-03-15T09:00:00Z",
+  });
+}
 
 function answerFiles(items: Row[]) {
   answer("GET /api/v1/files", page(items));
@@ -134,6 +156,44 @@ describe("the file picker", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
   });
+  it("uploads a new one from the picker, saying when its data was acquired", async () => {
+    signedIn();
+    const plate: Schemas["EntityTypeOut"] = {
+      ...STRUCTURE,
+      fields: [field({ name: "reading", label: "Reading", type: "file" })],
+      values_schema: { properties: { reading: { type: "string" } } },
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, plate]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answerFiles([A]);
+    answerUpload("plate-7.csv");
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure",
+    );
+    const group = screen.getByRole("group", { name: /^Reading/ });
+    await user.click(within(group).getByRole("button", { name: "Or choose one already here" }));
+    const picker = await screen.findByRole("dialog", { name: "Choose a file for Reading" });
+    await user.upload(
+      within(picker).getByLabelText("Upload a new one"),
+      new File([], "plate-7.csv", { type: "text/csv" }),
+    );
+    // Before it's sent, the picker asks when its data was acquired: a plate reader's CSV
+    // doesn't say.
+    const step = await screen.findByRole("dialog", { name: "Upload a file for Reading" });
+    expect(within(step).getByText("plate-7.csv")).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/uploads")).toEqual([]);
+    await user.type(within(step).getByLabelText(/When its data was acquired/), "2026-03-14");
+    await user.click(within(step).getByRole("button", { name: "Upload it" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(await within(group).findByRole("status")).toHaveTextContent("Chosen: plate-7.csv");
+    expect(calls("POST", "/api/v1/uploads")[0]?.body).toMatchObject({
+      name: "plate-7.csv",
+      acquired_at: "2026-03-14",
+    });
+  });
 });
 
 describe("a project's Files", () => {
@@ -206,6 +266,48 @@ describe("a project's Files", () => {
       expect(router.state.location.search).toMatchObject({ run: "RUN-000007" });
     });
     expect(screen.getByRole("button", { name: /Filters/ })).toHaveTextContent("Filters2");
+  });
+
+  it("uploads files to the project, each said to be acquired on the day given", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answerFiles([A]);
+    answerUpload("plate-7.csv");
+    const { user } = await renderApp("/projects/kinase-atlas/files/");
+    await screen.findByRole("table", { name: "Files in Kinase Atlas" });
+    await user.upload(screen.getByLabelText("Upload files"), [
+      new File([], "plate-7.csv", { type: "text/csv" }),
+      new File([], "plate-8.csv", { type: "text/csv" }),
+    ]);
+    const dialog = await screen.findByRole("dialog", { name: "Upload files to Kinase Atlas" });
+    expect(
+      within(dialog).getByText(/AB1, FCS, mzML, JCAMP-DX, EXIF images, OME-TIFF, SAM and BAM/),
+    ).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/When their data was acquired/), "2026-03-14");
+    const asked = calls("GET", "/api/v1/files").length;
+    await user.click(within(dialog).getByRole("button", { name: "Upload 2 files" }));
+    expect(await screen.findByText("Added 2 files.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls("POST", "/api/v1/uploads").map((c) => c.body)).toEqual([
+      expect.objectContaining({ name: "plate-7.csv", acquired_at: "2026-03-14" }),
+      expect.objectContaining({ name: "plate-8.csv", acquired_at: "2026-03-14" }),
+    ]);
+    // The list is asked again, with them in it.
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/files").length).toBeGreaterThan(asked);
+    });
+  });
+
+  it("offers no upload to someone who can only read the project", async () => {
+    signedIn();
+    const reader = project({ can: { ...KINASE.can, edit: false } });
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([reader]));
+    answerFiles([A]);
+    await renderApp("/projects/kinase-atlas/files/");
+    await screen.findByRole("table", { name: "Files in Kinase Atlas" });
+    expect(screen.queryByRole("button", { name: "Upload files" })).toBeNull();
   });
 
   it("shows a file: what it is, when its data was acquired, and what uses it", async () => {
