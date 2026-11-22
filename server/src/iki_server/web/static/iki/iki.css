@@ -3327,7 +3327,8 @@ input[type="file"]::file-selector-button {
   max-width: 100%;
   border: 1px solid var(--accent);
   border-radius: 6px;
-  background: var(--surface);
+  /* A tint of the accent, from the theme's own tokens, so it holds in both themes. */
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   overflow: hidden;
   font-size: 0.8125rem;
 }
@@ -3340,7 +3341,7 @@ input[type="file"]::file-selector-button {
 .filter-chip-remove {
   border: 0;
   background: none;
-  color: var(--text);
+  color: var(--accent);
   font: inherit;
   cursor: pointer;
 }
@@ -3360,7 +3361,7 @@ input[type="file"]::file-selector-button {
 
 .filter-chip-words:hover,
 .filter-chip-remove:hover {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
 }
 
 .filter-chip-words:focus-visible,

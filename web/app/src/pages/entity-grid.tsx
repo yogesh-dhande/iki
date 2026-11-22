@@ -1050,19 +1050,18 @@ function TypePills({
       type="button"
       className="type-pill"
       aria-pressed={(chosen?.name ?? "") === value}
-      // Named outright: the label and count are separate spans, which a name runs together.
-      aria-label={
-        n === null || n === undefined
-          ? undefined
-          : `${label}, ${n.toLocaleString()} ${n === 1 ? "record" : "records"}`
-      }
       onClick={() => {
         onPick(value);
       }}
     >
       {label}
       {n === null || n === undefined ? null : (
-        <span className="type-pill-count">{n.toLocaleString()}</span>
+        // Spaces between, as text, so a screen reader's name for it reads as it's seen.
+        <>
+          {" "}
+          <span className="type-pill-count">{n.toLocaleString()}</span>{" "}
+          <span className="visually-hidden">{n === 1 ? "record" : "records"}</span>
+        </>
       )}
     </button>
   );

@@ -130,16 +130,16 @@ describe("all entities", () => {
     everywhere();
     const { router, user } = await renderApp("/entities/");
     const pills = await screen.findByRole("group", { name: "Type" });
-    await within(pills).findByRole("button", { name: "Protein, 2 records" });
-    expect(within(pills).getByRole("button", { name: "All types, 3 records" })).toHaveAttribute(
+    await within(pills).findByRole("button", { name: "Protein 2 records" });
+    expect(within(pills).getByRole("button", { name: "All types 3 records" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    await user.click(within(pills).getByRole("button", { name: "Protein, 2 records" }));
+    await user.click(within(pills).getByRole("button", { name: "Protein 2 records" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: PROTEIN.name });
     });
-    expect(within(pills).getByRole("button", { name: "Protein, 2 records" })).toHaveAttribute(
+    expect(within(pills).getByRole("button", { name: "Protein 2 records" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );

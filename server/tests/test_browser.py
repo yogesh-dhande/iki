@@ -743,7 +743,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     grid = page.get_by_role("table", name="1 protein match")
     grid.get_by_role("cell", name="ABL1", exact=True).wait_for()
     filters = page.get_by_role("group", name="Filters")
-    filters.get_by_role("button", name="Filter 1: Host is Homo sapiens").wait_for()
+    filters.get_by_role("button", name="Filter 1: Host is Homo sapiens", exact=True).wait_for()
     assert_clean(page)
 
     # The address keeps it: a reload, or a shared link, shows the same.
@@ -807,8 +807,8 @@ def test_the_lists_across_projects_hold_only_what_you_can_read(
     grid = page.get_by_role("table", name="2 entities")
     grid.wait_for()
     pills = page.get_by_role("group", name="Type")
-    pills.get_by_role("button", name="DNA sequence, 2 records").wait_for()
-    pills.get_by_role("button", name="All types, 2 records").wait_for()
+    pills.get_by_role("button", name="DNA sequence 2 records").wait_for()
+    pills.get_by_role("button", name="All types 2 records").wait_for()
     assert grid.get_by_role("link", name=hidden_hrid).count() == 0
     # The forward primer is in Vector Reference QC too, which the viewer isn't in.
     assert page.get_by_text("Vector Reference QC").count() == 0
@@ -825,9 +825,9 @@ def test_the_lists_across_projects_hold_only_what_you_can_read(
     page.set_viewport_size({"width": 1440, "height": 900})
 
     # A type's table: its fields as columns, a sequence found by a motif (IUPAC: N is any).
-    pills.get_by_role("button", name="DNA sequence, 2 records").click()
+    pills.get_by_role("button", name="DNA sequence 2 records").click()
     page.wait_for_url(re.compile(r"type=acme"))
-    page.goto(page.url.split("/entities/")[0] + f"/entities/types/{dna}/")
+    page.goto(f"/entities/types/{dna}/")
     page.get_by_role("heading", level=1, name="DNA sequences").wait_for()
     table = page.get_by_role("table", name="2 DNA sequences")
     table.wait_for()
@@ -844,7 +844,7 @@ def test_the_lists_across_projects_hold_only_what_you_can_read(
     page.set_viewport_size({"width": 1440, "height": 900})
 
     for path, heading in (("/requests/", "Requests"), ("/runs/", "Runs")):
-        page.goto(page.url.split("/entities/")[0] + path)
+        page.goto(path)
         page.get_by_role("heading", level=1, name=heading).wait_for()
         page.get_by_role("combobox", name="Project").wait_for()
         assert_clean(page)
@@ -853,11 +853,13 @@ def test_the_lists_across_projects_hold_only_what_you_can_read(
     # Someone in both projects sees both, and the linked primer once, in each.
     page = open_as("mixed", "/entities/", color_scheme)
     page.get_by_role("group", name="Type").get_by_role(
-        "button", name="DNA sequence, 3 records"
+        "button", name="DNA sequence 3 records"
     ).wait_for()
     grid = page.get_by_role("table", name="3 entities")
     row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=forward.hrid))
-    row.get_by_role("cell", name=re.compile(r"^Kinase Atlas\+1")).wait_for()
+    row.get_by_role(
+        "cell", name=re.compile(r"^Kinase Atlas.*also in Vector Reference QC")
+    ).wait_for()
     page.context.close()
 
 
