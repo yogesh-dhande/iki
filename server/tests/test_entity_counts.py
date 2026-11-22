@@ -188,8 +188,7 @@ def test_counting_reads_each_readable_project_by_its_links_index(
         plan = grouped.explain()
     # By either of the links' indexes: Postgres 18 can skip-scan the (entity, project) one
     # for a project, and on a test's few rows it may. What matters is that neither table is
-    # read whole, and that the links are found by their project.
+    # read whole (an index or bitmap scan, never a sequential one), and that the links are
+    # found by their project.
     assert "Seq Scan on iki_entity" not in plan, plan
-    links = [line for line in plan.splitlines() if "on iki_entity_project" in line]
-    assert links and all("Index" in line for line in links), plan
     assert re.search(r"Index Cond: \(project_id = ", plan), plan
