@@ -385,6 +385,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.App": {
@@ -919,6 +920,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.Collection": {
@@ -1217,6 +1219,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.Complex": {
@@ -2393,6 +2396,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.Entity": {
@@ -2420,6 +2424,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.Organism": {
@@ -2640,6 +2645,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.Sequence": {
@@ -2811,6 +2817,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       },
       "iki/core.View": {
@@ -3694,6 +3701,7 @@
         "amount": null,
         "draw_guards": {},
         "draw_purposes": {},
+        "sample": false,
         "refines": {}
       }
     },

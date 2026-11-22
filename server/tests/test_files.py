@@ -280,7 +280,7 @@ def test_without_storage_the_files_api_says_so(world: World) -> None:
     assert "IKI_FILES_BUCKET" in body["detail"]
 
 
-def test_files_can_be_listed_newest_first(world: World) -> None:
+def test_files_are_listed_newest_first_or_oldest(world: World) -> None:
     from iki_server.files.models import Blob, File
 
     blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
@@ -294,8 +294,9 @@ def test_files_can_be_listed_newest_first(world: World) -> None:
     ]
     viewer = api_as(world, "viewer")
     query = {"project": str(world.project.pk), "limit": 2}
-    first = viewer.get("/files", newest_first="true", **query).json()
+    first = viewer.get("/files", **query).json()
     assert [f["id"] for f in first["items"]] == made[:0:-1]
-    rest = viewer.get("/files", newest_first="true", cursor=first["next_cursor"], **query).json()
+    rest = viewer.get("/files", cursor=first["next_cursor"], **query).json()
     assert [f["id"] for f in rest["items"]] == made[:1]
-    assert [f["id"] for f in viewer.get("/files", **query).json()["items"]] == made[:2]
+    oldest = viewer.get("/files", sort="oldest", **query).json()
+    assert [f["id"] for f in oldest["items"]] == made[:2]

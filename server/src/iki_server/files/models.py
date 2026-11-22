@@ -8,6 +8,9 @@
   project it was added to, who added it and when. Two files can share a blob.
 - A **use** records that an entity refers to a file, so that the entity's
   readers can read the file too.
+- A file may say when its data was **acquired** (ADR 0177): as the file's own
+  format records it, such as an AB1 trace's run date, or as whoever added it
+  said. Otherwise it's unknown, never the time it was added.
 - An **upload** sends a file's bytes straight to object storage, in parts,
   and is checked before it becomes a file (ADR 0036).
 - A **registration** makes a file of an object where it already is, in an
@@ -19,9 +22,10 @@ Blobs, files and uses never change: the app may only add and read them.
 from typing import ClassVar
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
-from django.db.models import Q
-from django.db.models.functions import Now
+from django.db.models import F, Q
+from django.db.models.functions import Collate, Lower, Now, Upper
 
 from iki_server.core.ids import uuid7
 from iki_server.org.models import Project
@@ -29,6 +33,12 @@ from iki_server.org.models import Project
 SHA256 = r"^[0-9a-f]{64}$"
 #: A media type, lowercased and without parameters (RFC 6838's restricted names).
 MEDIA_TYPE = r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
+#: When a file's data was acquired, in ISO 8601, no more precise than its source: a date, or
+#: a date and time, with an offset only when the source stated one.
+ACQUIRED = (
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}"
+    r"(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,9})?)?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
+)
 
 
 class Blob(models.Model):
@@ -84,18 +94,68 @@ class File(models.Model):
         "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     created_at = models.DateTimeField(db_default=Now())
+    #: When its data was acquired (ADR 0177): the day, for finding it by date, and the
+    #: moment as precisely as its source gave it.
+    acquired_on = models.DateField(
+        null=True,
+        blank=True,
+        db_comment="The day its data was acquired, as its source said; null if unknown.",
+    )
+    acquired_at = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        db_comment="When its data was acquired, in ISO 8601, as precisely as its source said.",
+    )
+    acquired_from = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        db_comment="Where that came from: the file's own format (such as abif or fcs), given "
+        "by whoever added it, or empty if unknown.",
+    )
 
     class Meta:
         db_table = "iki_file"
         db_table_comment = "Files people added: a name and media type for a blob's bytes."
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["project", "id"], name="iki_file_by_project"),
+            # A project's Files (ADR 0177): found by any part of their names, of a format,
+            # by when acquired, and sorted by name.
+            # On the names in upper case: a case-insensitive match compares them so.
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="iki_file_name_trgm"),
+            models.Index(fields=["project", "media_type", "id"], name="iki_file_by_format"),
+            models.Index(fields=["project", "acquired_on", "id"], name="iki_file_by_acquired"),
+            # The latest acquired first, those not known last.
+            models.Index(
+                F("project"),
+                F("acquired_on").desc(nulls_last=True),
+                F("id").desc(),
+                name="iki_file_by_last_acquired",
+            ),
+            # By name, as Python compares them (bytes), so pages merge in Postgres's order.
+            models.Index(
+                F("project"), Collate(Lower("name"), "C"), F("id"), name="iki_file_by_name"
+            ),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(condition=~Q(name=""), name="iki_file_name"),
             models.CheckConstraint(
                 condition=Q(media_type__regex=MEDIA_TYPE),
                 name="iki_file_media_type",
+            ),
+            # Known, it says when and how it's known, and its day is its moment's; unknown,
+            # it says nothing.
+            models.CheckConstraint(
+                condition=Q(acquired_on__isnull=True, acquired_at="", acquired_from="")
+                | Q(
+                    acquired_on__isnull=False,
+                    acquired_at__regex=ACQUIRED,
+                    acquired_from__regex=r"^[a-z][a-z0-9-]{0,15}$",
+                ),
+                name="iki_file_acquired",
             ),
         ]
 
@@ -174,6 +234,9 @@ class Upload(models.Model):
     )
     name = models.CharField(max_length=255)
     media_type = models.CharField(max_length=255)
+    #: When its data was acquired, as whoever added it said (ADR 0177): its file's, unless
+    #: the file's own format says.
+    acquired_at = models.CharField(max_length=40, blank=True, default="", db_default="")
     size = models.BigIntegerField(db_comment="Bytes, as declared.")
     sha256 = models.CharField(max_length=64, db_comment="As declared; checked when complete.")
     part_size = models.BigIntegerField(db_comment="Bytes per part; the last part may be smaller.")
@@ -255,6 +318,8 @@ class Registration(models.Model):
     )
     name = models.CharField(max_length=255)
     media_type = models.CharField(max_length=255)
+    #: When its data was acquired, as whoever registered it said (ADR 0177).
+    acquired_at = models.CharField(max_length=40, blank=True, default="", db_default="")
     storage_uri = models.TextField(db_comment="Such as s3://lab-data/runs/plate-7.csv.")
     object_version = models.CharField(max_length=1024, db_comment="The version it's pinned to.")
     size = models.BigIntegerField(db_comment="Bytes, as the store reported them.")

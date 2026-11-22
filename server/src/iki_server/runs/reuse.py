@@ -26,7 +26,7 @@ from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files.models import File
-from iki_server.runs import included, live
+from iki_server.runs import included, input_files, live
 from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
     ActionRun,
@@ -231,6 +231,7 @@ def reuse(
         for index, entity in enumerate(chosen)
     )
     included.record(run, pins)
+    input_files.record_given(run)
     made = list(
         RunEffect.objects.filter(
             run=original, kind__in=[EffectKind.CREATED, EffectKind.REUSED]

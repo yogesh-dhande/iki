@@ -132,7 +132,7 @@ web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (nee
 	$(PNPM) --filter @ikisci/app dev
 
 .PHONY: check-scale
-check-scale: check-scale-import check-scale-grid check-scale-queue ## Load tests: an import of 10M entities, the grid at 100M rows, and the queue
+check-scale: check-scale-import check-scale-grid check-scale-queue check-scale-files ## Load tests: an import of 10M entities, the grid at 100M rows, the queue, and 1M files
 
 .PHONY: check-scale-import
 check-scale-import: ## Load test: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
@@ -145,6 +145,10 @@ check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets 
 .PHONY: check-scale-queue
 check-scale-queue: ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
+
+.PHONY: check-scale-files
+check-scale-files: ## Load test: a project's Files at 1M files (IKI_SCALE_FILES sets how many)
+	uv run pytest server/tests/test_scale_files.py --scale -s
 
 .PHONY: check-slurm
 check-slurm: ## iki-worker on a Slurm cluster in a container (deploy/dev/slurm) against the real server: builds both (and iki-wasm, for plugins' rules), then runs server/tests/test_slurm_e2e.py

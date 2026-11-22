@@ -769,11 +769,8 @@ describe("file fields", () => {
       // As browsers give it: they don't know the type.
       new File(["ATOM 1 N ALA"], "1abc.pdb"),
     );
-    await waitFor(() => {
-      expect(
-        within(structure).getByRole("combobox", { name: /already in the project/ }),
-      ).toHaveValue(MADE);
-    });
+    // Once it's checked, it's the field's file.
+    expect(await within(structure).findByRole("status")).toHaveTextContent("Chosen: 1abc.pdb");
     expect(Storage.sent).toBe(12);
     expect(calls("POST", "/api/v1/uploads")[0]?.body).toMatchObject({
       name: "1abc.pdb",
@@ -871,9 +868,9 @@ describe("file fields", () => {
         // The stand-in storage names every file it makes a.pdb.
       ).toEqual(["Remove a.pdb", "Remove Traces, item 2", "Remove a.pdb"]);
     });
-    expect(within(group).getAllByRole("combobox", { name: /already in the project/ })).toHaveLength(
-      1,
-    );
+    expect(
+      within(group).getAllByRole("button", { name: "Or choose one already here" }),
+    ).toHaveLength(1);
     expect(group).toHaveAccessibleDescription("It takes PDB (.pdb or .ent) files.");
     expect(within(group).getAllByText("It takes", { exact: false })).toHaveLength(1);
     expect(calls("POST", "/api/v1/uploads")).toHaveLength(2);

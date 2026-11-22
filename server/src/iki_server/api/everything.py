@@ -14,6 +14,8 @@ nothing its caller couldn't open there:
   the people on the members pages of the projects they can see, and of their teams.
 - **saved views**: saved searches of projects the caller can read, their own and those
   shared with the project.
+- **files**: those the caller can read, by part of their name, as ``GET /files`` finds
+  them (ADR 0177).
 
 Each group says how many it found, up to :data:`TOTAL_CAP`, and links to its full list.
 A count that runs out of time is left out, not estimated.
@@ -54,9 +56,9 @@ from iki_spec import titles
 router = Router(tags=["search"])
 
 #: The kinds of thing searched, in the order they're shown.
-KINDS = ("entities", "requests", "runs", "projects", "saved_views", "people")
-SearchKind = Literal["entities", "requests", "runs", "projects", "saved_views", "people"]
-ResultKind = Literal["entity", "request", "run", "project", "saved_view", "person"]
+KINDS = ("entities", "requests", "runs", "files", "projects", "saved_views", "people")
+SearchKind = Literal["entities", "requests", "runs", "files", "projects", "saved_views", "people"]
+ResultKind = Literal["entity", "request", "run", "file", "project", "saved_view", "person"]
 
 #: Counts stop here: past it, a group says "1,000+". Counting further reads more rows.
 TOTAL_CAP = 1000
@@ -73,6 +75,7 @@ _LABELS = {
     "entities": "Entities",
     "requests": "Requests",
     "runs": "Runs",
+    "files": "Files",
     "projects": "Projects",
     "saved_views": "Saved views",
     "people": "People",
@@ -125,8 +128,8 @@ class SearchEverythingOut(Schema):
     q: str
     groups: list[SearchGroupOut] = Field(description="Each kind searched, in order, even if empty.")
     searched_records: bool = Field(
-        description="Whether records, requests and runs were searched: text needs three "
-        "characters, or the start of an HRID."
+        description="Whether records, requests, runs and files were searched: text needs "
+        "three characters, or the start of an HRID."
     )
     recent: list[SearchResultOut] = Field(
         description="With no text: what you changed or ran lately, newest first."
@@ -164,12 +167,13 @@ def search_everything(
             "entities": _entities,
             "requests": _requests,
             "runs": _runs,
+            "files": _files,
             "projects": _projects,
             "saved_views": _saved_views,
             "people": _people,
         }
         for kind in kinds:
-            if kind in ("entities", "requests", "runs") and not records:
+            if kind in ("entities", "requests", "runs", "files") and not records:
                 groups.append(_Group(kind))
                 continue
             groups.append(_timed(kind, finders[kind], me, q, limit))
@@ -331,6 +335,34 @@ def _runs_out(runs: Iterable[ActionRun]) -> list[dict[str, Any]]:
         )
         for run in runs
     ]
+
+
+# --- Files ------------------------------------------------------------------------------------
+
+
+def _files(me: User, q: str, limit: int) -> _Group:
+    from iki_server.core.sizes import human_size
+    from iki_server.files import listing
+
+    group = _Group("files", href=_list_href("/files/", q))
+    wanted = listing.Filters(q=q)
+    found, _ = listing.page(me, None, wanted, limit=limit)
+    group.total, group.more = listing.count(me, None, wanted)
+    readable = {
+        p.pk: p for p in access.readable_projects(me).filter(pk__in={f.project_id for f in found})
+    }
+    group.items = [
+        _result(
+            "file",
+            f.pk,
+            f.name,
+            detail=f"{f.media_type}, {human_size(f.blob.size)}",
+            projects=[readable[f.project_id]] if f.project_id in readable else [],
+            href=f"/files/{f.pk}/",
+        )
+        for f in found
+    ]
+    return group
 
 
 # --- Projects, saved views and people -----------------------------------------------------------

@@ -705,6 +705,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         description=body.get("description"),
         extends=qualify(body["extends"], plugin) if "extends" in body else None,
         abstract=bool(body.get("abstract", False)),
+        sample=bool(body.get("sample", False)),
         hrid_prefix=hrid.get("prefix"),
         hrid_digits=hrid.get("digits", 6),
         identity=tuple(body.get("identity", ())),

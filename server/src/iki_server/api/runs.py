@@ -81,6 +81,21 @@ Tier = Literal["self_hosted", "backend", "container", "vm"]
 # --- Actions -----------------------------------------------------------------------------------
 
 
+# A run's status, as the API names it: one list, for every schema that says it.
+RunStatusName = Literal[
+    "awaiting_approval",
+    "queued",
+    "running",
+    "parked",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "timed_out",
+    "rejected",
+    "declined",
+]
+
+
 class InputOut(Schema):
     name: str
     label: str
@@ -700,18 +715,7 @@ class RunOut(Schema):
     files: dict[str, RunFileOut] = Field(
         description="The files its file params name, by ID, that you can read."
     )
-    status: Literal[
-        "awaiting_approval",
-        "queued",
-        "running",
-        "parked",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "timed_out",
-        "rejected",
-        "declined",
-    ]
+    status: RunStatusName
     attempts: int
     created_at: datetime
     started_at: datetime | None

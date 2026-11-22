@@ -4,6 +4,8 @@ kind: EntityType
 name: Aliquot
 label: Aliquot
 schema_version: 2
+# Its records are samples (ADR 0177): a project's Files finds files by them.
+sample: true
 description: >-
   A portion of a sample, in a tube or well of its own, which an assay uses.
   One on hold mustn't be used, until someone takes it off hold, saying why.

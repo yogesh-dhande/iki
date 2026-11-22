@@ -310,9 +310,13 @@ describe("starting a run", () => {
       created_by: null,
       created_at: "2026-11-11T09:00:00Z",
       external: false,
+      agent: null,
+      acquired: null,
+      used_by: { records: 0, runs: 0 },
     };
-    const notes = { ...fasta, id: SECOND_ID, name: "notes.txt", media_type: "text/plain" };
-    answer("GET /api/v1/files", page([fasta, notes]));
+    answer("GET /api/v1/files", page([fasta]));
+    answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
+    answer("GET /api/v1/files/formats", [{ media_type: "chemical/seq-aa-fasta", count: 1 }]);
     answer("POST /api/v1/actions/iki/protein.import_proteins/runs", () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
     answer("GET /api/v1/runs/RUN-000001/attempts", []);
@@ -329,18 +333,24 @@ describe("starting a run", () => {
       "It gets UNIPROT_TOKEN from this deployment’s secrets, which its log never shows.",
     );
     const file = screen.getByRole("group", { name: /FASTA file/ });
-    const existing = within(file).getByRole("combobox", { name: /already in the project/ });
-    // Only files the param takes are offered.
-    await waitFor(() => {
-      expect(
-        within(existing)
-          .getAllByRole("option")
-          .map((o) => o.textContent),
-      ).toEqual(["No file", "kinases.fasta (2.0 KiB)"]);
-    });
     await user.click(screen.getByRole("button", { name: "Start run" }));
     expect(await within(file).findByText("Choose FASTA file.")).toBeInTheDocument();
-    await user.selectOptions(existing, FILE_ID);
+    // The picker: the project's files, as its Files tab finds them, held to what the
+    // param takes.
+    await user.click(within(file).getByRole("button", { name: "Or choose one already here" }));
+    const picker = await screen.findByRole("dialog", { name: "Choose a file for FASTA file" });
+    expect(
+      within(picker).getByText("It takes protein FASTA (.fasta, .fa or .faa) files."),
+    ).toBeInTheDocument();
+    await user.click(await within(picker).findByRole("radio", { name: "kinases.fasta" }));
+    expect(calls("GET", "/api/v1/files").at(-1)?.query.getAll("accepts")).toEqual([
+      "chemical/seq-aa-fasta",
+    ]);
+    expect(calls("GET", "/api/v1/files").at(-1)?.query.get("project")).toBe(KINASE.id);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(within(file).getByRole("status")).toHaveTextContent("Chosen: kinases.fasta");
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
     await waitFor(() => {

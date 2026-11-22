@@ -407,6 +407,18 @@ def open_object(storage_uri: str, version: str = "", offset: int = 0) -> Any:  #
     return reader
 
 
+def read_range(storage_uri: str, version: str, offset: int, length: int) -> bytes:
+    from iki_server.files import storage
+
+    if length <= 0:
+        return b""
+    bucket_name, key = storage.split_uri(storage_uri)
+    blob = _blob(bucket_name, key, version)
+    if blob is None:
+        raise StorageError(404, "NoSuchVersion", f"{key} has no version {version!r}.")
+    return bytes(blob.download_as_bytes(start=offset, end=offset + length - 1))
+
+
 def exists(key: str) -> bool:
     return bool(_ours().blob(key).exists())
 
@@ -514,6 +526,7 @@ FUNCTIONS: dict[str, Callable[..., Any]] = {
         put_empty,
         digest_object,
         open_object,
+        read_range,
         exists,
         versioned,
         head,

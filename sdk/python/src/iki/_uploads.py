@@ -31,6 +31,7 @@ def upload(
     media_type: str | None,
     timeout: float | None,
     poll: float,
+    acquired_at: str = "",
 ) -> FileOut:
     if poll < 0 or (timeout is not None and timeout < 0):
         raise ValueError("poll and timeout must be nonnegative.")
@@ -71,6 +72,7 @@ def upload(
                         or "application/octet-stream",
                         "size": size,
                         "sha256": sha256,
+                        **({"acquired_at": acquired_at} if acquired_at else {}),
                     },
                 ),
             )

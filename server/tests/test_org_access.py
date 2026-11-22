@@ -158,6 +158,7 @@ CASES: list[Case] = [
     ("project_requests", "GET", project_url("requests/"), row(OK)),
     ("project_runs", "GET", project_url("runs/"), row(OK)),
     ("project_run_new", "GET", project_url("runs/new/"), row(OK)),
+    ("project_files", "GET", project_url("files/"), row(OK)),
     ("project_workflows", "GET", project_url("automation/workflows/"), row(OK)),
     ("project_workflow_new", "GET", project_url("automation/workflows/new/"), row(OK)),
     ("project_triggers", "GET", project_url("automation/triggers/"), row(OK)),

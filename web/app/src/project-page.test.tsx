@@ -139,7 +139,7 @@ describe("a project's page", () => {
       within(tabs)
         .getAllByRole("link")
         .map((a) => a.textContent),
-    ).toEqual(["Overview", "Entities", "Runs", "Automation", "Members 3", "Settings"]);
+    ).toEqual(["Overview", "Entities", "Runs", "Files", "Automation", "Members 3", "Settings"]);
     const members = screen.getByRole("list", { name: "Members" });
     expect(
       within(members)
