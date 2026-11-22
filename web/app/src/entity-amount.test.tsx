@@ -125,7 +125,14 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     title: "SMP-000001",
     values: { label: "S-1", custody: "in_lab" },
     amount: amount("250"),
-    can: { edit: true, edit_amount: true, draw_purposes: ["routine"], states: {}, sign: [] },
+    can: {
+      edit: true,
+      correct: false,
+      edit_amount: true,
+      draw_purposes: ["routine"],
+      states: {},
+      sign: [],
+    },
     draw_refusals: {},
     ...overrides,
   });
@@ -312,7 +319,7 @@ describe("a record's amount", () => {
     onSample(
       sample({
         amount: null,
-        can: { edit: false, edit_amount: false, states: {}, sign: [] },
+        can: { edit: false, correct: false, edit_amount: false, states: {}, sign: [] },
         draw_refusals: { routine: expired, qa_sampling: expired },
       }),
     );

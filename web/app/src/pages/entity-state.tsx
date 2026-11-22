@@ -11,6 +11,7 @@ import { useId, useState } from "react";
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import {
   ENTITIES,
+  editReturns,
   entityQuery,
   NOT_SENT,
   stateFields,
@@ -22,6 +23,7 @@ import {
 } from "../entities";
 import { Badge, Button, ConfirmDialog, RadioField, TextField, useMessages } from "../ui";
 import { WORK } from "../people";
+import { listed } from "../requests";
 
 type StateCan = Schemas["StateCan"];
 
@@ -76,6 +78,10 @@ function and(words: string[]): string {
 /** Why a locked record can't change: the fields whose states lock it, and the states that
  * would unlock each. */
 export function lockedWhy(entity: Entity, type: EntityType | undefined): string {
+  const returns = editReturns(entity, type);
+  if (entity.can.correct && returns.length) {
+    return `Locked. Correcting a value will return ${listed(returns.map((r) => r.description))}. Each correction needs a reason.`;
+  }
   const fields = stateFields(type).filter((f) => entity.locked_by.includes(f.name));
   const held = fields.map((f) => `its ${f.label} is ${stateLabel(f, stateOf(entity, f))}`);
   const until = fields

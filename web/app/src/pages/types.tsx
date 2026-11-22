@@ -6,7 +6,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
+import { stateLabel, typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
 import { Badge, PageHeader } from "../ui";
@@ -117,6 +117,7 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
           const notes = [
             ...(st.name === field.initial ? ["new records start here"] : []),
             ...(st.locks ? ["locks it"] : []),
+            ...(st.on_edit ? [`a correction returns it to ${stateLabel(field, st.on_edit)}`] : []),
           ];
           return notes.length ? `${st.label} (${notes.join(", ")})` : st.label;
         });

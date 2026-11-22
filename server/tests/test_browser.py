@@ -3954,6 +3954,37 @@ def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> Non
     page.context.close()
 
 
+def test_edit_warns_before_returning_an_approved_batch(open_as: Any, world: World) -> None:
+    """A correction shows the return from approval before saving the new measurement."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.states import set_state
+
+    _lab_roles(world, editor=("analyst",), admin=("reviewer",))
+    editor = world.users["editor"]
+    batch = cast(
+        "Entity",
+        entities.create(editor, BATCH, world.project, {"name": "Lot 9", "purity": 95}).entity,
+    )
+    submitted = set_state(editor, batch, "status", "in_review", expected_revision=batch.revision)
+    approved = set_state(
+        world.users["admin"], batch, "status", "approved", expected_revision=submitted.number
+    )
+
+    page: Page = open_as("editor", f"/entities/{batch.hrid}/")
+    page.get_by_role("link", name="Edit", exact=True).click()
+    page.get_by_role("textbox", name=re.compile("^Purity")).fill("96")
+    page.get_by_role("alert").get_by_text(
+        "Saving these changes will return Status from Approved to In testing."
+    ).wait_for()
+    assert Entity.objects.get(pk=batch.pk).revision == approved.number
+    assert_clean(page)
+    page.get_by_role("textbox", name="Reason", exact=True).fill("Corrected the purity reading.")
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text(f"Saved revision {approved.number + 2} of {batch.hrid}.").wait_for()
+    page.get_by_text("Status: In testing", exact=True).wait_for()
+    page.context.close()
+
+
 def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, world: World) -> None:
     """People in records (ADR 0122): open work taken from My work, a reviewer named with
     the picker, their work once its Status is In review (ADR 0125), and reassigning from
