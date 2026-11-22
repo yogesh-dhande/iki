@@ -764,8 +764,9 @@ export function EntityGrid({
   return (
     <>
       <div className="list-toolbar">
+        {/* Keyed apart from the filters beside it: two siblings keyed "" are one to React. */}
         <SearchBox
-          key={search.q ?? ""}
+          key={`q:${search.q ?? ""}`}
           value={search.q ?? ""}
           placeholder={
             type?.fields.some((f) => f.assignment)
@@ -807,7 +808,7 @@ export function EntityGrid({
           />
         )}
         <FilterBar
-          key={type?.name ?? ""}
+          key={`filters:${type?.name ?? ""}`}
           type={type}
           types={types}
           fields={fields}

@@ -951,7 +951,7 @@ def test_the_grids_toolbar_is_one_row_above_one_row_of_types(open_as: Any) -> No
         page.get_by_role("button", name="Filter", exact=True),
         page.get_by_role("button", name=re.compile(r"^Sort")),
         page.get_by_role("button", name="Columns"),
-        page.get_by_role("button", name="Download CSV"),
+        page.get_by_role("link", name="Download CSV"),
     ]
     middles = []
     for control in controls:
@@ -997,7 +997,7 @@ def test_a_runs_id_is_never_cut_short(open_as: Any, world: World) -> None:
     (run,) = services.launch_each(admin, action, world.project, "protein", [made.entity.pk], {}, {})
     page = open_as("admin", "/runs/")
     table = page.get_by_role("table")
-    table.get_by_role("link", name=run.hrid).wait_for()
+    table.get_by_role("cell", name=run.hrid, exact=True).wait_for()
     for width in (1440, 390):
         page.set_viewport_size({"width": width, "height": 844})
         cells = page.locator("table td:first-child")

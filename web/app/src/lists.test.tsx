@@ -282,6 +282,20 @@ describe("all entities", () => {
     expect(await screen.findByRole("table", { name: "1 entity, archived" })).toBeVisible();
   });
 
+  it("keeps one search box as a search finds nothing, beside the filters", async () => {
+    everywhere();
+    const { router, user } = await renderApp("/entities/");
+    await screen.findByRole("table", { name: "3 entities" });
+    answer("POST /api/v1/entities/search", page([]));
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "ZZZ-9");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ q: "ZZZ-9" });
+    });
+    expect(await screen.findByText("No entities you can read match.")).toBeVisible();
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Filter" })).toHaveLength(1);
+  });
+
   it("sorts newest changes first unless the address says otherwise", async () => {
     everywhere();
     const { router, user } = await renderApp("/entities/");
