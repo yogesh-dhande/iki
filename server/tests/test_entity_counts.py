@@ -6,6 +6,7 @@ The sequences are real ones: the M13 forward (-20) and reverse sequencing primer
 T7 promoter.
 """
 
+import re
 from typing import Any, cast
 
 import pytest
@@ -185,4 +186,10 @@ def test_counting_reads_each_readable_project_by_its_links_index(
         cursor.execute("ANALYZE iki_entity, iki_entity_project")
         cursor.execute("SET LOCAL enable_seqscan = off")
         plan = grouped.explain()
-    assert "iki_entity_project_by_project" in plan, plan
+    # By either of the links' indexes: Postgres 18 can skip-scan the (entity, project) one
+    # for a project, and on a test's few rows it may. What matters is that neither table is
+    # read whole, and that the links are found by their project.
+    assert "Seq Scan on iki_entity" not in plan, plan
+    links = [line for line in plan.splitlines() if "on iki_entity_project" in line]
+    assert links and all("Index" in line for line in links), plan
+    assert re.search(r"Index Cond: \(project_id = ", plan), plan

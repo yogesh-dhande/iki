@@ -272,8 +272,6 @@ class _Writer:
         )
         self.counts["breaking"] = sum(checked.broken.values())
         self.counts["held"] = sum(checked.held.values())
-        for name, number in self.kept.items():
-            _advance(name, number)
         return {
             "created": self.counts["created"],
             "registered": self.counts["registered"],
@@ -982,7 +980,11 @@ class _Writer:
         if prefix is None or head != prefix or not number.isdigit():
             return
         name = hrids.sequence_name(prefix)
-        self.kept[name] = max(self.kept.get(name, 0), int(number))
+        if int(number) > self.kept.get(name, 0):
+            # At once, not when the import ends: a record renumbered later in this import
+            # takes the sequence's next number, which mustn't be one kept before it.
+            self.kept[name] = int(number)
+            _advance(name, int(number))
 
     def _requester(self, line: dict[str, Any]) -> User:
         user = self._user(line["requested_by"])
