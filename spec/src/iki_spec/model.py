@@ -785,6 +785,8 @@ class EntityType:
     amount: Amount | None = None
     #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
     draw_guards: dict[str, Guard] = field(default_factory=dict)
+    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
+    draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: What each list of rows it inherits takes, by the list's name (ADR 0164): every role
     #: its rows may have, each with how many and what its references may refer to, within
     #: what its ancestor's say. Its subtypes have these unless they name their own.
@@ -1569,6 +1571,9 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # ...or amounts (ADR 0139).
                         "amount": Amount(**v["amount"]) if v.get("amount") else None,
                         "draw_guards": _guards(v.get("draw_guards") or {}),
+                        "draw_purposes": {
+                            n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
+                        },
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}

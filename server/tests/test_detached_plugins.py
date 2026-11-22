@@ -402,6 +402,7 @@ def test_the_api_says_what_a_detached_plugin_keeps(
     assert editor.get(f"/entities/{abl['id']}").json()["can"] == {
         "edit": True,
         "edit_amount": False,
+        "draw_purposes": [],
         "states": {},
         "sign": [],
         "take": [],
@@ -419,6 +420,7 @@ def test_the_api_says_what_a_detached_plugin_keeps(
     assert editor.get(f"/entities/{abl['id']}").json()["can"] == {
         "edit": False,
         "edit_amount": False,
+        "draw_purposes": [],
         "states": {},
         "sign": [],
         "take": [],

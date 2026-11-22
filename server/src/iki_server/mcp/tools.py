@@ -734,7 +734,10 @@ def build() -> MCPServer:
         reason: Reason,
         purpose: Annotated[
             DrawPurpose,
-            Field(description="Use qa_sampling when the material was drawn for quality testing."),
+            Field(
+                description="Use qa_sampling for quality testing. The person needs a role "
+                "the type designates in the source record's project."
+            ),
         ] = DrawPurpose.ROUTINE,
     ) -> CallToolResult:
         """Records that some of a sample, aliquot or other record with an amount was used

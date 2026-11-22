@@ -632,6 +632,10 @@ class EntityCan(Schema):
     edit_amount: bool = Field(
         description="Change its amount, including while a state locks the record's values."
     )
+    draw_purposes: list[DrawPurpose] = Field(
+        default_factory=list,
+        description="The purposes you may draw for. State holds and draw guards still apply.",
+    )
     states: dict[str, list[StateCan]] = Field(
         description="For each of its state fields (ADR 0125), the states it could be set to: "
         "every one but the one it's in, each with whether you may set it and why not. Empty "
@@ -1538,14 +1542,24 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     from iki_server.amounts import services as amounts
 
     amounts_held = amounts.amounts_of(entities)
+    restricted_projects = {
+        e.owner_project_id for e in entities if eligibility.purpose_roles(e.type)
+    }
+    permissions.remember_roles(user, [p for p in projects.values() if p.pk in restricted_projects])
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
+        owner = (
+            projects.get(entity.owner_project_id) if entity.owner_project_id is not None else None
+        )
         editable_record = (
             bool(asked[entity.pk]["yours"])
             if entity.pk in asked
             else entity.owner_project_id in editable
         ) and entity.type not in frozen
+        edit_amount = (
+            editable_record and entity.archived_at is None and amounts.spec(entity.type) is not None
+        )
         mine = _ids_in(fields, values[entity.pk])
         shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
         out.append(
@@ -1555,9 +1569,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "title": _title(entity, shown),
                 "type": entity.type,
                 "revision": entity.revision,
-                "owner_project": projects.get(entity.owner_project_id)
-                if entity.owner_project_id is not None
-                else None,
+                "owner_project": owner,
                 "projects": belongs.get(entity.pk, []),
                 "created_by": entity.created_by,
                 "created_at": entity.created_at,
@@ -1586,9 +1598,14 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ),
                 "can": {
                     "edit": editable_record and not entity.locked,
-                    "edit_amount": editable_record
-                    and entity.archived_at is None
-                    and amounts.spec(entity.type) is not None,
+                    "edit_amount": edit_amount,
+                    "draw_purposes": [
+                        purpose
+                        for purpose in DrawPurpose
+                        if eligibility.purpose_refusal(user, entity.type, owner, purpose) is None
+                    ]
+                    if edit_amount
+                    else [],
                     "states": _states_can(user, entity, values[entity.pk]),
                     "sign": _sign_can(user, entity, values[entity.pk], signing),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
@@ -2427,11 +2444,12 @@ def get_entity(
     ``project`` to say whose, when you read more than one."""
     me = caller(request)
     entity = _find(me, ref, project)
-    # The clock can change draw eligibility without a revision.
+    # The clock or a project role grant can change draw eligibility without a revision.
     if (
         if_none_match is not None
         and _etag(entity) in _etags(if_none_match)
         and not eligibility.draw_guards(entity.type)
+        and not eligibility.purpose_roles(entity.type)
     ):
         unchanged = HttpResponse(status=304)  # no body, as RFC 9110 says
         unchanged["ETag"] = _etag(entity)

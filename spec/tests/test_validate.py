@@ -2848,3 +2848,43 @@ def test_an_abstract_types_state_holds_each_subtypes_own_amount(tmp_path: Path) 
         "`acme/lab.Lot`'s `on_hold` holds the record's amount, and `ProteinLot`, which "
         "extends it, has none.",
     )
+
+
+def test_draw_purposes_require_declared_roles_and_can_narrow_an_inherited_list(
+    tmp_path: Path,
+) -> None:
+    parent = TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
+    parent += "draw_purposes: {qa_sampling: {by: [qa, analyst]}}\n"
+    child = """
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Tube
+schema_version: 1
+extends: Assay
+hrid: { prefix: TUB }
+amount: { unit: mg }
+draw_purposes: {qa_sampling: {by: [qa]}}
+"""
+    result = make(tmp_path, parent + child, ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    built = plugin_from_dict(plugin_to_dict(result.plugin))
+    assert built.types["acme/lab.Assay"].draw_purposes == {
+        "qa_sampling": ("acme/lab.qa", "acme/lab.analyst")
+    }
+    assert built.types["acme/lab.Tube"].draw_purposes == {"qa_sampling": ("acme/lab.qa",)}
+    wider = make(tmp_path, parent.replace("[qa, analyst]", "[analyst]") + child, ROLES)
+    assert "acme/lab.qa" in only(wider, "draw-purpose-widens-roles")
+    missing_role = make(tmp_path, parent.replace("[qa, analyst]", "[missing]"), ROLES)
+    assert "missing" in only(missing_role, "unknown-role")
+    missing_amount = make(tmp_path, parent + child.replace("amount: { unit: mg }", ""), ROLES)
+    assert "has no amount" in only(missing_amount, "draw-purposes-without-amount")
+
+
+@pytest.mark.parametrize(
+    "policy", ["{qa_sampling: {by: []}}", "{qa_sampling: {}}", "{qc: {by: [qa]}}"]
+)
+def test_invalid_draw_purpose_declarations_are_rejected(tmp_path: Path, policy: str) -> None:
+    result = make(tmp_path, TYPE + f"amount: {{ unit: mg }}\ndraw_purposes: {policy}\n", ROLES)
+    assert codes(result) == ["schema"]

@@ -886,21 +886,53 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         refusal(lambda: amounts.draw(eve, retest, one), "retest")
         refusal(lambda: amounts.transfer(eve, retest, available, one), "retest")
         refusal(lambda: amounts.split(eve, expired, 1, one), "expir")
-        amounts.draw(quinn, retest, one, purpose="qa_sampling")
-        amounts.draw(eve, available, one)
+        from api_client import Api
         from iki_server.amounts.models import Movement
+
+        # QA is a grant in the owning project. Even an editor with QA elsewhere or
+        # the owner project's admin cannot withdraw a sample by changing its purpose.
+        other_project = Project.objects.create(team=team, name="Other")
+        remote = ProjectMembership.objects.create(project=other_project, user=eve,
+                                                  role=ProjectRole.EDITOR)
+        LabRoleGrant.objects.create(membership=remote, role="iki/lots.qa")
+        admin = User.objects.create_user("project-admin@example.com")
+        ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+        sample_body = {{"amount": {{"value": 1, "unit": "nmol"}}, "purpose": "qa_sampling"}}
+        qa_lots = (quarantined, retest, available)
+        balances = amounts.amounts_of(qa_lots)
+        before = {{e.pk: (balances[e.pk].value, Movement.objects.filter(entity=e).count())
+                  for e in qa_lots}}
+        api = Api()
+        for user in (eve, admin):
+            api.browser.force_login(user)
+            for source in qa_lots:
+                denied = api.post(f"/entities/{{source.hrid}}/amount/draw", sample_body)
+                assert denied.status_code == 403, denied.content
+                assert "QA" in denied.json()["detail"], denied.content
+        for source in qa_lots:
+            assert amounts.amounts_of([source])[source.pk].value == before[source.pk][0]
+            assert Movement.objects.filter(entity=source).count() == before[source.pk][1]
+
+        api.browser.force_login(quinn)
+        for source in (quarantined, retest):
+            page = api.get(f"/entities/{{source.hrid}}").json()
+            assert page["can"]["draw_purposes"] == ["routine", "qa_sampling"]
+            sampled = api.post(f"/entities/{{source.hrid}}/amount/draw", sample_body)
+            assert sampled.status_code == 200, sampled.content
+            entry = Movement.objects.get(pk=sampled.json()["movement"]["id"])
+            assert (entry.user_id, entry.purpose, entry.change) == (quinn.pk, "qa_sampling", -1)
+        amounts.draw(eve, available, one)
         for dated, purposes in ((expired, []), (retest, ["qa_sampling"]), (available, ["routine"])):
             assert list(Movement.objects.filter(entity=dated, kind="drawn")
                         .values_list("purpose", flat=True)) == purposes
             assert amounts.amounts_of([dated])[dated.pk].value == 50 - len(purposes)
 
-        from api_client import Api
-        api = Api()
         api.browser.force_login(eve)
         detail_response = api.get(f"/entities/{{retest.hrid}}")
         assert detail_response.status_code == 200, detail_response.content
         detail = detail_response.json()
         assert detail["locked"] and not detail["can"]["edit"] and detail["can"]["edit_amount"]
+        assert detail["can"]["draw_purposes"] == ["routine"]
         assert list(detail["draw_refusals"]) == ["routine"]
         assert "retest" in detail["draw_refusals"]["routine"].lower()
         clock_dependent = api.call("GET", f"/entities/{{retest.hrid}}",

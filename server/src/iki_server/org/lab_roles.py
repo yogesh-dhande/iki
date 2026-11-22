@@ -1,8 +1,8 @@
 """Lab roles (ADR 0116): named roles such as Analyst, Reviewer and QA, which plugins declare and
 a project's Admins give with memberships, beside their project role.
 
-A lab role grants nothing by itself. A workflow step's approval can require one, and each of
-a state field's states names those that set it (ADR 0125), which is what they're for.
+A lab role grants nothing by itself. A workflow approval, state change, signature or draw
+purpose can require one, as can a field naming a person.
 :mod:`iki_server.org.permissions` decides who holds one; this module knows which exist and
 what needs them.
 """
@@ -62,11 +62,12 @@ class Use:
 
     #: ``approval``, a workflow step's; ``field``, a type's field naming people, who
     #: must hold it (ADR 0122); ``state``, a state field some of whose states its
-    #: holders set (ADR 0125); or ``signature``, one setting a state needs (ADR 0126).
+    #: holders set (ADR 0125); ``signature``, one setting a state needs (ADR 0126);
+    #: or ``draw``, an amount draw for a particular purpose (ADR 0139).
     kind: str
     #: The workflow or type it's in, qualified.
     owner: str
-    #: The step or field it's for: for a signature, its state field.
+    #: The step, field or draw purpose it's for. A signature names its state field.
     name: str
     #: What it lets them do, in a sentence's words: "approve “Weigh” in Review, then weigh".
     description: str
@@ -74,6 +75,7 @@ class Use:
 
 def uses(role: str) -> list[Use]:
     """What a lab role lets its holders do, in the installed plugins."""
+    from iki_server.amounts.models import DrawPurpose
     from iki_server.entities import registry
 
     out: list[Use] = []
@@ -137,4 +139,15 @@ def uses(role: str) -> list[Use]:
                     for wanted in state.signatures
                     if role in ((wanted.role,) if wanted.role else state.set_by)
                 )
+            for purpose, allowed in entity_type.draw_purposes.items():
+                if role in allowed:
+                    purpose_label = DrawPurpose(purpose).label
+                    out.append(
+                        Use(
+                            kind="draw",
+                            owner=entity_type.qualified_name,
+                            name=purpose,
+                            description=f"record draws from {plural} as “{purpose_label}”",
+                        )
+                    )
     return out

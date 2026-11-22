@@ -7,9 +7,12 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connection, transaction
 from org_world import World
 from test_api_entities import api_as, create
+from test_delegation import Bot, delegate
+from test_oauth import bearer
 from test_runs import world
 from test_states import roles, set_
 from test_webhooks import deliveries, make
@@ -21,6 +24,8 @@ from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
+from iki_server.org import permissions
+from iki_server.org.models import LabRoleGrant, ProjectMembership
 
 pytestmark = pytest.mark.django_db
 
@@ -61,6 +66,13 @@ def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
         "held_by": None,
         "updated_at": made["amount"]["updated_at"],
     }
+    # Declaring a sampling purpose never grants its lab role to an ordinary editor.
+    denied = api.post(
+        f"/entities/{made['hrid']}/amount/draw",
+        {"amount": {"value": 1, "unit": "uL"}, "purpose": "qa_sampling"},
+    )
+    assert denied.status_code == 403, denied.content
+    roles(world, editor=("acme/protein.qa",))
     drawn = api.post(
         f"/entities/{made['hrid']}/amount/draw",
         {"amount": {"value": "12.5", "unit": "uL"}, "purpose": "qa_sampling", "reason": "SEC"},
@@ -114,6 +126,51 @@ def test_a_records_amount_is_recorded_and_drawn(world: World) -> None:
         cursor.execute("UPDATE iki_amount SET value = -1 WHERE entity_id = %s", [made["id"]])
     with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
         cursor.execute("UPDATE iki_amount_movement SET change = 0")
+
+
+def test_delegated_sampling_needs_the_lab_role_for_both_principals(world: World) -> None:
+    made = sample(world, "QA-1", {"value": 5, "unit": "uL"})
+    path = f"/entities/{made['hrid']}"
+    bot = Bot(world)
+    token = bot.token(delegate(world, bot).grant)
+    body = {"amount": {"value": 1, "unit": "uL"}, "purpose": "qa_sampling"}
+    qa = "acme/protein.qa"
+    roles(world, editor=(qa,))
+    person_only = bearer(token, "GET", path)
+    assert person_only.json()["can"]["draw_purposes"] == ["routine"]
+    assert bearer(token, "POST", path + "/amount/draw", body).status_code == 403
+    roles(world, editor=())
+    LabRoleGrant.objects.create(
+        membership=ProjectMembership.objects.get(project=world.project, user=bot.account), role=qa
+    )
+    assert bearer(token, "POST", path + "/amount/draw", body).status_code == 403
+    roles(world, editor=(qa,))
+    both = bearer(token, "GET", path, headers={"If-None-Match": person_only["ETag"]})
+    assert both.status_code == 200
+    assert both.json()["can"]["draw_purposes"] == ["routine", "qa_sampling"]
+    sampled = bearer(token, "POST", path + "/amount/draw", body)
+    assert sampled.status_code == 200, sampled.content
+    assert sampled.json()["amount"]["value"] == "4"
+    movement = Movement.objects.get(entity_id=made["id"], kind="drawn")
+    assert movement.purpose == "qa_sampling" and movement.user == world.users["editor"]
+    assert movement.agent is not None and movement.agent.client_id == bot.client.client_id
+
+
+def test_a_token_cannot_use_a_sampling_grant_outside_its_projects(world: World) -> None:
+    # A caller able to edit via a request's service side cannot use the owner's QA
+    # grant through a token restricted to that service.
+    made = sample(world, "QA-2", {"value": 2, "unit": "uL"})
+    roles(world, editor=("acme/protein.qa",))
+    editor = world.users["editor"]
+    limits = permissions.TokenLimits(
+        scopes=frozenset({"read", "write"}), projects=frozenset({world.archived.pk})
+    )
+    permissions.limit_to(editor, limits)
+    entity = Entity.objects.get(pk=made["id"])
+    with pytest.raises(PermissionDenied):
+        services.draw(editor, entity, services.Given(Decimal(1), "uL"), purpose="qa_sampling")
+    assert Amount.objects.get(entity=entity).value == 2
+    assert not Movement.objects.filter(entity=entity, kind="drawn").exists()
 
 
 def test_a_mass_given_when_its_made_is_its_volume_at_its_concentration(world: World) -> None:
@@ -291,6 +348,14 @@ def test_a_lot_splits_into_samples_each_naming_it(world: World) -> None:
     assert made.status_code == 201, made.content
     lot = made.json()
     assert (lot["amount"]["value"], lot["amount"]["display"]) == ("1500", "1.5 L")
+    # This type hasn't declared a role for sampling. Even QA may only draw for routine use.
+    roles(world, editor=("acme/protein.qa",))
+    assert lot["can"]["draw_purposes"] == ["routine"]
+    undeclared = api.post(
+        f"/entities/{lot['hrid']}/amount/draw",
+        {"amount": {"value": 1, "unit": "mL"}, "purpose": "qa_sampling"},
+    )
+    assert undeclared.status_code == 403, undeclared.content
     split = api.post(
         f"/entities/{lot['hrid']}/aliquots",
         {

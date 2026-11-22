@@ -83,6 +83,7 @@ export function EntityAmount({
       }, so none of it can be drawn, transferred or split off until that changes.`
     : null;
   const editing = entity.can.edit_amount && !entity.archived;
+  const canDraw = !!entity.can.draw_purposes?.length;
   const routineRefusal = entity.draw_refusals?.["routine"];
   const taking = editing && amount != null && !held;
   const why = `${id}-held`;
@@ -113,13 +114,20 @@ export function EntityAmount({
           {held}
         </p>
       ) : null}
+      {editing && !canDraw ? (
+        <p className="muted" id={`${id}-no-purpose`}>
+          You don’t have permission to draw from this record.
+        </p>
+      ) : null}
       {editing ? (
         <div className="actions">
           {(["draw", "transfer", "split"] as const).map((what) => (
             <Button
               key={what}
-              disabled={!taking}
-              {...(held ? { describedBy: why } : {})}
+              disabled={!taking || (what === "draw" && !canDraw)}
+              describedBy={
+                held ? why : what === "draw" && !canDraw ? `${id}-no-purpose` : undefined
+              }
               onClick={() => {
                 setDoing(what);
               }}
@@ -179,8 +187,10 @@ function AmountDialog({
   const [to, setTo] = useState("");
   const [count, setCount] = useState("2");
   const [reason, setReason] = useState("");
-  const [purpose, setPurpose] = useState<NonNullable<Movement["purpose"]>>("routine");
-  const refusal = doing === "draw" ? entity.draw_refusals?.[purpose] : undefined;
+  const purposes = DRAW_PURPOSES.filter((p) => entity.can.draw_purposes?.includes(p.value));
+  const [purpose, setPurpose] = useState<Schemas["DrawPurpose"]>(purposes[0]?.value ?? "routine");
+  const purposeAllowed = purposes.some((p) => p.value === purpose);
+  const refusal = doing === "draw" && purposeAllowed ? entity.draw_refusals?.[purpose] : undefined;
   const own = ownFields(aliquotType, kept);
   const [names, setNames] = useState<Record<string, string>>({});
   const { say } = useMessages();
@@ -273,12 +283,17 @@ function AmountDialog({
       title={titles[doing]}
       confirmLabel={confirm[doing]}
       confirmVariant="primary"
-      confirmDisabled={!!refusal}
+      confirmDisabled={doing === "draw" && (!purposeAllowed || !!refusal)}
       busy={move.isPending}
       problem={shownProblem}
       onCancel={onClose}
       onConfirm={() => {
         move.mutate(undefined, {
+          onError: (error) => {
+            if (doing === "draw" && error.status === 403) {
+              void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
+            }
+          },
           onSuccess: ({ moved, aliquots }) => {
             onClose();
             const left = `${moved.amount.value} ${moved.amount.unit}`;
@@ -301,10 +316,20 @@ function AmountDialog({
       {doing === "draw" ? (
         <SelectField
           label="Purpose"
-          options={DRAW_PURPOSES}
-          value={purpose}
+          options={
+            purposeAllowed
+              ? purposes
+              : [
+                  {
+                    value: "",
+                    label: purposes.length ? "Choose a purpose" : "No draw purposes available",
+                  },
+                  ...purposes,
+                ]
+          }
+          value={purposeAllowed ? purpose : ""}
           onChange={(selected) => {
-            setPurpose(selected);
+            if (selected) setPurpose(selected);
             if (move.isError) move.reset();
           }}
           error={errors["purpose"]}

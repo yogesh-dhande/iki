@@ -77,9 +77,10 @@ and refuses a concrete type that inherits such a state without one
 (`holds-without-amount`).
 
 **A release is subject to the lot's dates.** Every kind inherits the Lot's
-draw guards (ADR 0139). Starting on `expires_on`, all draws, transfers out
-and splits are refused. Starting on `retest_on`, only a draw recorded for
-QA sampling is allowed, so the lab can take the sample it needs to retest.
+draw guards and its QA sampling policy (ADR 0139). Starting on `expires_on`,
+all draws, transfers out and splits are refused. Starting on `retest_on`,
+only a QA sampling draw is allowed. The person taking that sample must be
+able to draw from the lot and hold `iki/lots.qa` in the lot's owning project.
 Expiry takes precedence when both dates are due. An absent date imposes no
 restriction of its own. Quarantined lots also require the QA sampling purpose
 for a draw. The lot's page shows why routine use is restricted even while

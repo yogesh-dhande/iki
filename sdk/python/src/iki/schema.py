@@ -1041,6 +1041,8 @@ class EntityAppOut(TypedDict):
 
 
 class EntityCan(TypedDict):
+    #: The purposes you may draw for. State holds and draw guards still apply.
+    draw_purposes: NotRequired[list[DrawPurpose]]
     #: Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
     edit: bool
     #: Change its amount, including while a state locks the record's values.
@@ -2063,9 +2065,9 @@ class LabRoleOut(TypedDict):
 class LabRoleUseOut(TypedDict):
     #: What it lets them do: approve “Weigh” in Review, set Status to Approved or Released on samples, …
     description: str
-    #: approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.
-    kind: Literal['approval', 'field', 'state', 'signature']
-    #: The step or field.
+    #: approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field. draw: a purpose for which the role permits taking material (ADR 0139).
+    kind: Literal['approval', 'field', 'state', 'signature', 'draw']
+    #: The step, field or draw purpose.
     name: str
     #: The workflow or type it's in, by name.
     owner: str

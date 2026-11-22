@@ -113,6 +113,30 @@
       "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
     },
+    "draw_purposes": {
+      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
+      "type": "object",
+      "propertyNames": {
+        "enum": ["routine", "qa_sampling"]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["by"],
+        "additionalProperties": false,
+        "properties": {
+          "by": {
+            "description": "One of these project lab roles is required in addition to permission to draw.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+            }
+          }
+        }
+      }
+    },
     "due": {
       "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"

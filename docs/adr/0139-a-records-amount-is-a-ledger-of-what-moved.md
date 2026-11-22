@@ -57,17 +57,29 @@ sides and a split's movements, and who did it, via what, with which agent
 (ADR 0072), and why. Each is an audit event and a webhook
 event, `entity.amount_moved`.
 
-Each draw also records its `purpose`, either `routine` (the default) or
-`qa_sampling`. The optional reason can name the assay or test. Both purposes
-require the usual permission to draw.
+Each draw records its `purpose`, either `routine` (the default) or
+`qa_sampling`. The optional reason can name the assay or test.
 
-**Concurrency is a row lock, not a retry.** An operation locks the amounts
-it changes, `SELECT … FOR UPDATE` in ID order so that two transfers in
-opposite directions can't deadlock, then checks and writes. A second draw
-waits for the first to commit, then sees what's left. It succeeds if
-there's enough, and is refused if there isn't. Never below zero holds twice:
-the service refuses, and the database check would refuse anything that
-didn't.
+**A type says who can draw for a purpose.** For example,
+`draw_purposes: {qa_sampling: {by: [qa]}}` allows QA sampling for a caller
+who can draw from the source record and holds the declared lab role in its
+owning project (ADR 0116). One role in the list suffices, granted directly
+or through a team. Admins need the same grant. For a delegated token, the
+person and the service account must each qualify (ADR 0073). Each purpose
+inherits its nearest ancestor's declaration. A subtype may narrow the list
+of roles.
+Routine use is available to anyone with draw permission unless a role list
+restricts it. QA sampling is refused unless the type or an ancestor declares
+who can perform it. All purposes are subject to the record's holds and
+draw guards.
+
+**A withdrawal locks the record and its amount.** The server locks the
+records involved in ID order, then locks their amounts in the same order.
+That keeps the values used to check eligibility stable through the movement
+and lets transfers in opposite directions finish without deadlocking. A
+second draw waits for the first to commit, then sees what's left. The
+service refuses a draw above the balance, and the database checks that
+the amount stays at or above zero.
 
 **Conversion is exact.** An amount given in another unit is converted with
 the UCUM factors as fractions, then rounded once, half to even, to 12
@@ -104,7 +116,8 @@ It can read the source `record`, `now`, `today` (midnight UTC),
 the `operation` (`draw`, `transfer` or `split`) and the `purpose`.
 References are their stored IDs, so showing a refusal on the source record
 doesn't disclose fields from another project.
-Transfers out and splits count as routine use. The draw dialog shows the
+Transfers out and splits use their usual permissions. For the guard checks
+they count as routine use. The draw dialog shows the
 reason a purpose is blocked. The server checks eligibility again when it
 takes the material. If a state holds the amount, or an applicable check
 is false or cannot be evaluated, the server refuses the operation before

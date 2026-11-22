@@ -1143,9 +1143,9 @@ export interface paths {
         put?: never;
         /**
          * Draw from its amount
-         * @description Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
-         *     much, a state holds it, or a draw guard refuses its purpose. Two people drawing at
-         *     once take turns.
+         * @description Takes some of it for the given purpose. A purpose you cannot use answers 403.
+         *     An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
+         *     Two people drawing at once take turns.
          */
         post: operations["iki_server_api_amounts_draw"];
         delete?: never;
@@ -6509,6 +6509,11 @@ export interface components {
         /** EntityCan */
         EntityCan: {
             /**
+             * Draw Purposes
+             * @description The purposes you may draw for. State holds and draw guards still apply.
+             */
+            draw_purposes?: components["schemas"]["DrawPurpose"][];
+            /**
              * Edit
              * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
              */
@@ -8718,13 +8723,13 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.
+             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field. draw: a purpose for which the role permits taking material (ADR 0139).
              * @enum {string}
              */
-            kind: "approval" | "field" | "state" | "signature";
+            kind: "approval" | "field" | "state" | "signature" | "draw";
             /**
              * Name
-             * @description The step or field.
+             * @description The step, field or draw purpose.
              */
             name: string;
             /**

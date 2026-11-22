@@ -62,6 +62,7 @@ from iki_spec.model import (
     TypeNotification,
     Viewer,
     Workflow,
+    lab_role_name,
     matches_format,
     names_people,
     qualify,
@@ -716,6 +717,10 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         rules=rules.read(body.get("rules"), plugin),
         draw_guards={
             n: Guard.from_manifest(n, g) for n, g in (body.get("draw_guards") or {}).items()
+        },
+        draw_purposes={
+            n: tuple(lab_role_name(role, plugin) for role in policy["by"])
+            for n, policy in (body.get("draw_purposes") or {}).items()
         },
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
@@ -1700,9 +1705,34 @@ class _Semantics:
             if s.holds_amount and not s.removed
         ]
         amount = next((t.amount for t in lineage if t.amount is not None), None)
+        for purpose, roles in entity_type.draw_purposes.items():
+            inherited = next(
+                (t.draw_purposes[purpose] for t in lineage[1:] if purpose in t.draw_purposes),
+                (),
+            )
+            for index, role in enumerate(roles):
+                path: Path = ("draw_purposes", purpose, "by", index)
+                known = self.lab_role(role, source, path)
+                if known and inherited and role not in inherited:
+                    self.add(
+                        "draw-purpose-widens-roles",
+                        f"`{role}` is outside the inherited lab roles for `{purpose}` draws.",
+                        source,
+                        path,
+                        hint="Keep the inherited roles or declare a subset.",
+                    )
         if amount is None:
             if entity_type.abstract:
                 return
+            if any(t.draw_purposes for t in lineage):
+                self.add(
+                    "draw-purposes-without-amount",
+                    f"`{entity_type.name}` has draw purposes but has no amount to take.",
+                    source,
+                    ("draw_purposes",) if entity_type.draw_purposes else ("name",),
+                    key=True,
+                    hint="Give the type an `amount`.",
+                )
             if any(t.draw_guards for t in lineage):
                 self.add(
                     "draw-guards-without-amount",

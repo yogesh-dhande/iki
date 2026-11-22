@@ -2011,6 +2011,20 @@ PUC19 = (
 POLYLINKER = PUC19[389:455]
 
 
+def give_lab_roles(alice: requests.Session, project: dict[str, Any], *roles: str) -> None:
+    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
+    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
+    held = {r["role"] for r in grant["lab_roles"]}
+    given = api_call(
+        alice,
+        "PUT",
+        f"/projects/{project['id']}/members/{grant['id']}/lab-roles",
+        {"roles": sorted(held.union(roles))},
+    )
+    if given.status_code != 200:
+        fail(f"giving alice {', '.join(roles)} answered HTTP {given.status_code}")
+
+
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
     2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
@@ -2021,15 +2035,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
     which its construct states then follow, up to the four-eyes guard that won't let
     whoever built it verify it (ADR 0128)."""
-    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
-    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    held = {held["role"] for held in grant.get("lab_roles") or []}
-    roles = sorted(held | {"iki/plasmid.cloner", "iki/plasmid.construct_reviewer"})
-    given = api_call(
-        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", {"roles": roles}
-    )
-    if given.status_code != 200:
-        fail(f"giving alice the plasmid plugin's lab roles answered HTTP {given.status_code}")
+    give_lab_roles(alice, project, "iki/plasmid.cloner", "iki/plasmid.construct_reviewer")
     # A trigger is off until a project Admin turns it on, and then its runs are launched as
     # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
     # before alice turns these on herself.
@@ -2423,6 +2429,7 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     if (got.get("expected_mass"), got.get("mass_error")) != (7183.08, -0.88):
         fail(f"{run['hrid']} checked {lot['hrid']}'s mass as {got}, not -0.88 Da from 7183.08")
     # The lot is in quarantine. A 50 uL sample for testing at 100 uM is 5 nmol.
+    give_lab_roles(alice, project, "iki/lots.qa")
     drawn = api_call(
         alice,
         "POST",
@@ -2431,8 +2438,9 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     if drawn.status_code != 200:
         fail(f"drawing from {lot['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
-    if drawn.json()["movement"]["purpose"] != "qa_sampling":
-        fail(f"{lot['hrid']}'s ledger did not record the QA sample")
+    movement = drawn.json()["movement"]
+    if movement["purpose"] != "qa_sampling" or movement["user"]["email"] != "alice@iki.test":
+        fail(f"{lot['hrid']}'s ledger did not record who took the QA sample and why")
     left = api_call(alice, "GET", f"/entities/{lot['id']}/amount").json()
     if Decimal(left["value"]) != 495:
         fail(f"{lot['hrid']} has {left} left, not 495 nmol")

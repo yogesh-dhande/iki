@@ -674,6 +674,7 @@ class Entities(_Part):
         reason: str = "",
     ) -> AmountMovedOut:
         """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
+        QA sampling requires a role the type designates in the source record's project.
         Give the amount in its own unit or one that converts to it. A recorded
         concentration also permits a mass to be drawn by volume or vice versa.
         The server checks the record is eligible for this purpose and has enough left."""

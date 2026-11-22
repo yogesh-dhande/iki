@@ -39,8 +39,10 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   volume: 50 µL of a 100 µM oligonucleotide lot is 5 nmol, 2 µg of a
   420 ng/µL plasmid prep is 4.76 µL. Every draw, transfer and split is a
   movement of its ledger. A draw records its purpose (routine use or QA
-  sampling), who took the material and why. A transfer into a lot pools its
-  concentration (ADR 0157). Its amount is of what it's a lot of
+  sampling), who took the material and why. Routine use is the default.
+  Taking a QA sample also requires Lot QA (`iki/lots.qa`) in the project
+  that owns the lot. A transfer into a lot pools its concentration (ADR 0157).
+  Its amount is of what it's a lot of
   (`amount.material`), so a transfer into it takes only another lot of the
   same molecule, and an aliquot of it is of that molecule too. A released lot
   takes only released material, whatever its concentration.

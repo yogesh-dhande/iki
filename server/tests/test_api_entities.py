@@ -114,7 +114,14 @@ def test_creating_answers_201_with_its_etag_and_location(world: World) -> None:
     assert body["values"]["name"] == "pUC19"
     assert body["owner_project"]["id"] == str(world.project.pk)
     assert body["created_by"]["email"] == "editor@example.com"
-    assert body["can"] == {"edit": True, "edit_amount": False, "states": {}, "sign": [], "take": []}
+    assert body["can"] == {
+        "edit": True,
+        "edit_amount": False,
+        "draw_purposes": [],
+        "states": {},
+        "sign": [],
+        "take": [],
+    }
     assert not body["reused"] and not body["archived"]
 
 
@@ -207,6 +214,7 @@ def test_entities_are_found_by_id_or_hrid_and_cached_by_etag(world: World) -> No
     assert by_hrid.json()["can"] == {
         "edit": False,
         "edit_amount": False,
+        "draw_purposes": [],
         "states": {},
         "sign": [],
         "take": [],
@@ -256,6 +264,7 @@ def test_an_owner_project_you_cant_see_is_null(world: World, other: Project) -> 
     assert seen["owner_project"] is None and seen["can"] == {
         "edit": False,
         "edit_amount": False,
+        "draw_purposes": [],
         "states": {},
         "sign": [],
         "take": [],

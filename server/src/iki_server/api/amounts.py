@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
 
@@ -224,15 +225,17 @@ def list_movements(request: HttpRequest, ref: str, params: Query[PageParams]) ->
 
 @router.post("/entities/{ref}/amount/draw", response=AmountMovedOut, summary="Draw from its amount")
 def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
-    """Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
-    much, a state holds it, or a draw guard refuses its purpose. Two people drawing at
-    once take turns."""
+    """Takes some of it for the given purpose. A purpose you cannot use answers 403.
+    An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
+    Two people drawing at once take turns."""
     me = caller(request)
     entity = _record(me, ref)
     try:
         movement = services.draw(
             me, entity, _given(payload.amount), purpose=payload.purpose, reason=payload.reason
         )
+    except PermissionDenied as denied:
+        raise Problem(403, str(denied)) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _moved(entity, movement)

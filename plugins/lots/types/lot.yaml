@@ -184,6 +184,8 @@ fields:
               (record.expires_on != null && record.expires_on <= today) ||
               (record.retest_on != null && record.retest_on <= today)
             message: Its expiry and retest dates haven't come, so it hasn't expired.
+draw_purposes:
+  qa_sampling: { by: [qa] }
 draw_guards:
   expiry_date:
     check: record.expires_on == null || record.expires_on > today

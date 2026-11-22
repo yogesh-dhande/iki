@@ -31,6 +31,7 @@ from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Any
 
+from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.db.models.functions import Now
 
@@ -259,6 +260,11 @@ def draw(
         raise Wrong({"purpose": ["Choose routine use or QA sampling."]})
     with transaction.atomic():
         _lock_records([entity])
+        refused = eligibility.purpose_refusal(
+            user, entity.type, entity.owner_project, DrawPurpose(purpose)
+        )
+        if refused is not None:
+            raise PermissionDenied(refused)
         (amount,) = _locked([entity])
         change = _taking(entity, amount, given, operation="draw", purpose=purpose)
         return _change(
