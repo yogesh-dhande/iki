@@ -903,6 +903,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many records you can read
+         * @description How many current records of each type you can read, by the rules that read one: a
+         *     record in a project you aren't in counts for nothing (ADR 0176). With ``project``, only
+         *     those in it, its own and those linked into it.
+         *
+         *     It's one grouped query. When Postgres expects it to read more than a million records,
+         *     nothing is counted, and every type that can have records is listed with a null count:
+         *     a count is left out rather than made slow, or estimated.
+         */
+        get: operations["iki_server_api_entities_count_entities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/lookup": {
         parameters: {
             query?: never;
@@ -3384,8 +3410,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A project's saved searches
-         * @description Yours, and those shared with the project, by name.
+         * Saved searches
+         * @description Yours, and those shared with the project, by name. Without a project: every one you
+         *     see, your searches of every project among them.
          */
         get: operations["iki_server_api_searches_list_saved_searches"];
         put?: never;
@@ -5990,6 +6017,19 @@ export interface components {
              */
             seconds: number;
         };
+        /** CountsOut */
+        CountsOut: {
+            /**
+             * Total
+             * @description Every current record you can read. Null as `count`.
+             */
+            total: number | null;
+            /**
+             * Types
+             * @description Each type you can read current records of, by label: the type itself, not its parents, which count nothing of their own.
+             */
+            types: components["schemas"]["TypeCountOut"][];
+        };
         /** CreatedOut */
         CreatedOut: {
             /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
@@ -6055,6 +6095,11 @@ export interface components {
             people?: {
                 [key: string]: components["schemas"]["PersonOut"];
             };
+            /**
+             * Projects
+             * @description The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.
+             */
+            projects?: components["schemas"]["ProjectRef"][];
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -6558,6 +6603,11 @@ export interface components {
             people?: {
                 [key: string]: components["schemas"]["PersonOut"];
             };
+            /**
+             * Projects
+             * @description The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.
+             */
+            projects?: components["schemas"]["ProjectRef"][];
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -8926,6 +8976,11 @@ export interface components {
             people?: {
                 [key: string]: components["schemas"]["PersonOut"];
             };
+            /**
+             * Projects
+             * @description The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.
+             */
+            projects?: components["schemas"]["ProjectRef"][];
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -12179,9 +12234,9 @@ export interface components {
         SavedSearchFilters: {
             /**
              * Project
-             * Format: uuid
+             * @description Only this project's. Without one, every search you see: your own, and those shared with projects you can read.
              */
-            project: string;
+            project?: string | null;
         };
         /** SavedSearchIn */
         SavedSearchIn: {
@@ -12189,9 +12244,9 @@ export interface components {
             name: string;
             /**
              * Project
-             * Format: uuid
+             * @description The project it searches. Without one, it searches every project you can read, and is yours alone: it can't be shared.
              */
-            project: string;
+            project?: string | null;
             query: components["schemas"]["QueryIn"];
             /**
              * Shared
@@ -12218,9 +12273,9 @@ export interface components {
             name: string;
             /**
              * Project
-             * Format: uuid
+             * @description The project it searches; null for every project you can read.
              */
-            project: string;
+            project: string | null;
             /**
              * Query
              * @description The search, ready for POST /entities/search.
@@ -14084,6 +14139,24 @@ export interface components {
              * @description The UCUM unit it's kept in, such as uL, mg or {vial}.
              */
             unit: string;
+        };
+        /** TypeCountOut */
+        TypeCountOut: {
+            /**
+             * Count
+             * @description How many current records of it you can read. Null when counting would be slow: then every type that can have records is listed, uncounted.
+             */
+            count: number | null;
+            /**
+             * Label
+             * @description What the type calls one of its records, such as Plasmid.
+             */
+            label: string;
+            /**
+             * Type
+             * @description The type, qualified, such as `iki/dna.Plasmid`.
+             */
+            type: string;
         };
         /**
          * TypeNotificationOut
@@ -16575,6 +16648,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssignOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_count_entities: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsOut"];
                 };
             };
         };
@@ -19965,8 +20060,9 @@ export interface operations {
     };
     iki_server_api_searches_list_saved_searches: {
         parameters: {
-            query: {
-                project: string;
+            query?: {
+                /** @description Only this project's. Without one, every search you see: your own, and those shared with projects you can read. */
+                project?: string | null;
             };
             header?: never;
             path?: never;

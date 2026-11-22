@@ -26,7 +26,7 @@ import {
 import { Loading } from "../ui";
 import { useProject } from "./project-overview";
 import { takesWhat } from "./project-intake";
-import { EntityGrid } from "./project-entities";
+import { EntityGrid } from "./entity-grid";
 
 const REQUESTS = { one: "request", many: "requests" };
 
