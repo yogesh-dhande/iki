@@ -282,6 +282,42 @@ No page loads fonts or scripts from outside the deployment.
   is its color's dot, and a person's is their initials on their color. Each
   is worked out the same way by the server's pages and the app.
 
+### The lists, in detail
+
+- **Newest changes first.** All entities, each type's table, Requests and a
+  project's tabs list what changed most recently first, unless a heading or
+  the Sort menu picks another order. An index on when records changed, of
+  every type, lets Postgres read a page of them backwards and stop, without
+  sorting, at millions of rows. A search across projects also names the
+  reader's projects by ID, up to 500, so Postgres can tell from its statistics
+  when they hold only a few records and read those instead of everyone's
+  newest first. The default isn't written into the address;
+  a saved search made before it, with no order of its own, opens oldest
+  first, as it was saved.
+- **One row of controls, one row of types.** Search, Project, Filter and
+  Sort sit on one row, with the count, Columns and the CSV download at its
+  end. The type pills sit on a row of their own beneath, scrolling across on
+  a narrow screen rather than wrapping. Archived records are a choice in the
+  Filter menu, shown as a chip while they're included, not a select of
+  their own. `/` puts the cursor in the list's search box.
+- **Columns:** ID, a name, up to four of the type's key fields, Project,
+  any states, Made by and Changed. A type's key fields are those that make
+  it what it is (its identity fields), then those worked out from them,
+  then its other facts, then short text; fields another plugin adds come
+  last. A request's sides count among its key fields, and say which project
+  it's in and who it's from, so Project and Made by wait under Columns.
+  Every column stays under Columns, and the choice is remembered.
+- **Widths:** an ID is never cut short. Other columns are sized to most of
+  their values, so one long value doesn't widen a column for every row, and
+  long text gives way first; a value cut short shows whole when pointed at.
+- **Counts say what they know.** A list the counts cover shows the exact
+  number, "1,204 entities"; searched or filtered, it says how many of them
+  match, "2 of 1,204 entities". A list they don't cover (a request's side,
+  a collection, archived records) counts the rows it has loaded, with "+"
+  when there are more.
+- **Same labels, told apart.** When two types share a label, each shows its
+  plugin after it, in muted text, in the lists and the sidebar alike.
+
 ## Consequences
 
 - People who used the header's links find them in the sidebar or under

@@ -10,21 +10,24 @@ within the grid's budget. ``make check-scale`` runs it; a thousand rows run with
 check, so the copies are known to load before the nightly run copies millions.
 """
 
+import datetime as dt
 import os
 import statistics
 import time
 import uuid
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, cast
 
 import pytest
 from api_client import Api
 from django.db import connection, models, transaction
+from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
 
 from iki_server.entities import identity, registry, search
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity, ProjectLink
-from iki_server.org.models import registry_of
+from iki_server.org.models import Project, ProjectMembership, ProjectRole, registry_of
 from iki_spec.identity import encode
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -88,9 +91,12 @@ def _identity_hash() -> str:
     )
 
 
+#: When each copy changed, a second apart, as records edited over years are: its entry with
+#: its record.
+UPDATED_AT = "timestamptz '2020-01-01 00:00:00+00' + n * interval '1 second'"
 #: What each copy's entry has of its own, by column, with its identity hash; the rest is the
 #: template's entry's.
-ENTRY_OWN = {"hrid": HRID, "sequence": SEQUENCE}
+ENTRY_OWN = {"hrid": HRID, "sequence": SEQUENCE, "updated_at": UPDATED_AT}
 #: What each copy's record has of its own; the rest is the template's. Its HRID is its
 #: entry's, and its identity hash stays the template's, which a record hasn't got.
 RECORD_OWN = {
@@ -100,6 +106,7 @@ RECORD_OWN = {
     "molecular_weight": "1100 + (n * 7919) %% 100000",
     "lims_id": "'LIMS-' || n",
     "temperature_optimum": "20 + (n * 104729) %% 6000 / 100.0",
+    "updated_at": UPDATED_AT,
 }
 
 
@@ -224,6 +231,29 @@ def _timed(client: Api, body: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     return statistics.median(took), answer.json()
 
 
+def _plan_of(client: Api, body: dict[str, Any], order: str) -> dict[str, Any]:
+    """How Postgres plans the page ``body`` asks for, as the search runs it: the statement
+    that reads its rows (ordered by ``order``), explained in the search's own settings
+    (ADR 0103)."""
+    with CaptureQueriesContext(connection) as ran:
+        answer = client.call("POST", "/entities/search", body)
+    assert answer.status_code == 200, answer.content[:300]
+    (statement,) = [q["sql"] for q in ran.captured_queries if f"ORDER BY {order}" in q["sql"]]
+    with search.time_limit(), connection.cursor() as cursor:
+        cursor.execute(f"EXPLAIN (FORMAT JSON) {statement}")
+        plan: dict[str, Any] = cursor.fetchone()[0][0]["Plan"]
+        # And as it ran, for the load test's report.
+        cursor.execute(f"EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) {statement}")
+        print("\n".join(row[0] for row in cursor.fetchall()))  # noqa: T201 - the report
+    return plan
+
+
+def _nodes(plan: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    yield plan
+    for child in plan.get("Plans", []):
+        yield from _nodes(child)
+
+
 def _check_copies(world: World, rows: int) -> None:
     """Each copy is an identity of the project's registry, which Iki finds as it would
     one registered through it: a registration of its sequence is the project's record."""
@@ -324,5 +354,56 @@ def test_the_grid_stays_responsive(rows: int) -> None:
     else:
         assert unindexed.status_code == 200, unindexed.content[:300]
     print(f"by an unindexed field: {took['by an unindexed field'] * 1000:.0f} ms")  # noqa: T201
+
+    # The lists' default order (ADR 0176): every type the reader can read, last changed
+    # first. No type is named, so the index on when records changed reads the page, backwards,
+    # and nothing is sorted.
+    newest = {"limit": LIMIT, "sort": {"field": "updated_at", "descending": True}}
+    took["every type's, last changed first"], answer = _timed(client, newest)
+    assert answer["items"][0]["hrid"] == template.hrid
+    took["every type's, last changed first, the next page"], after = _timed(
+        client, newest | {"cursor": answer["next_cursor"]}
+    )
+    assert len(after["items"]) == LIMIT
+    plan = _plan_of(client, newest, '"iki_entity"."updated_at" DESC')
+    used = {n.get("Index Name") for n in _nodes(plan)}
+    # Records sorted, that is: a reader's role in each project, picked from its few
+    # memberships, is sorted too, and costs nothing.
+    sorts = [
+        n
+        for n in _nodes(plan)
+        if n["Node Type"] in ("Sort", "Incremental Sort")
+        and any("iki_entity." in key for key in n.get("Sort Key", []))
+    ]
+    print(  # noqa: T201 - the load test's report
+        f"every type's, last changed first, planned as {plan['Node Type']} "
+        f"by {sorted(i for i in used if i)}; sorts: {len(sorts)}"
+    )
+    if rows > SMALL:
+        # At a handful of rows, reading them all and sorting is as good.
+        assert "iki_entity_changed" in used, plan
+        assert not sorts, plan
+    # Someone in a small project alone: their few records, newest first, though millions of
+    # others changed since. Postgres finds theirs through their project, not by reading
+    # everyone's newest first.
+    small = Project.objects.create(team=world.other_team, name="Assay Development")
+    ProjectMembership.objects.create(
+        project=small, user=world.users["team_member"], role=ProjectRole.EDITOR
+    )
+    theirs = [
+        cast(
+            "Entity",
+            entities.create(
+                world.users["team_member"], TYPE, small, {"sequence": f"MKV{s}", "name": f"S{s}"}
+            ).entity,
+        ).hrid
+        for s in ("A", "C", "D", "E", "F")
+    ]
+    Entity.objects.filter(hrid__in=theirs).update(updated_at=dt.datetime(2019, 1, 1, tzinfo=dt.UTC))
+    outsider = Api(world.browser("team_member"))
+    took["a small project's, last changed first"], answer = _timed(outsider, newest)
+    assert sorted(e["hrid"] for e in answer["items"]) == sorted(theirs)
+    for name in ("every type's, last changed first", "a small project's, last changed first"):
+        print(f"{name}: {took[name] * 1000:.0f} ms")  # noqa: T201 - the load test's report
     slow = {name: f"{s:.2f}s" for name, s in took.items() if s > BUDGET}
     assert not slow, slow

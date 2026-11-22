@@ -89,7 +89,7 @@ function builtIn(name: string, label: string, type: string): FieldDef {
 
 export const HRID = builtIn("hrid", "ID", "string");
 export const CREATED = builtIn("created_at", "Created", "datetime");
-export const UPDATED = builtIn("updated_at", "Last changed", "datetime");
+export const UPDATED = builtIn("updated_at", "Changed", "datetime");
 /** How it was made (ADR 0106): the software, the kind and who says so, of one making. */
 export const MADE: FieldDef = { ...builtIn("made", "How it was made", "making"), required: false };
 /** The software a making's filter names, typed as a string field is. */

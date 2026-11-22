@@ -726,7 +726,7 @@ describe("a project's Requests tab", () => {
       screen.getByText(/^Protein Core takes assay requests from every project in the Main/),
     ).toBeInTheDocument();
     const grid = await screen.findByRole("table", { name: "1 assay request" });
-    expect(headings(grid).slice(0, 4)).toEqual(["", "ID", "Asked by", "Status"]);
+    expect(headings(grid).slice(0, 4)).toEqual(["", "ID", "Title", "Asked by"]);
     expect(within(grid).getAllByRole("row")[1]).toHaveTextContent("Kinase Atlas");
     const queue = [{ field: "sent_to", op: "eq", value: CORE.id }];
     expect(lastSearch()).toMatchObject({
@@ -761,7 +761,7 @@ describe("a project's Requests tab", () => {
     searching({ owns: true, rows: [request({}, SENT)] });
     const { user } = await renderApp("/projects/kinase-atlas/requests/");
     const grid = await screen.findByRole("table", { name: "1 assay request" });
-    expect(headings(grid).slice(0, 4)).toEqual(["", "ID", "Sent to", "Status"]);
+    expect(headings(grid).slice(0, 4)).toEqual(["", "ID", "Title", "Sent to"]);
     expect(lastSearch()).toMatchObject({
       project: KINASE.id,
       where: {

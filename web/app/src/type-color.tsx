@@ -8,6 +8,7 @@
  */
 
 import { swatchOf } from "./project-color";
+import { TypeName } from "./ui";
 
 /** Which swatch a type takes, from 1 to 8, from its name (`iki/dna.Plasmid`). */
 export function typeSwatch(type: string): number {
@@ -36,12 +37,21 @@ export function TypeDot({
   );
 }
 
-/** A type's name with its dot before it, as a cell or a list shows it. */
-export function TypeName({ type, label }: { type: string; label: string }) {
+/** A type's name with its dot before it, as a cell shows it: `shown` is its label, and its
+ * plugin when another type shares the label (`typeDisplayName`). */
+export function TypeWithDot({
+  type,
+  shown,
+}: {
+  type: string;
+  shown: { label: string; plugin?: string | undefined };
+}) {
   return (
     <span className="type-name">
       <TypeDot type={type} />
-      {label}
+      <span>
+        <TypeName shown={shown} />
+      </span>
     </span>
   );
 }

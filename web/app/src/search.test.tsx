@@ -368,7 +368,8 @@ describe("the shortcut", () => {
 describe("where results open", () => {
   it("opens a saved view in its project's grid as it was saved", () => {
     expect(resultHref(SAVED)).toBe(
-      "/projects/kinase-atlas/entities/?type=acme%2Fprotein.Protein&show=all&q=lysozyme",
+      // Saved without a sort: oldest first, as the database runs it.
+      "/projects/kinase-atlas/entities/?type=acme%2Fprotein.Protein&show=all&q=lysozyme&sort=created_at",
     );
     // One the grid can't show opens the grid.
     expect(

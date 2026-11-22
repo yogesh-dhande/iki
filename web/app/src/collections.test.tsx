@@ -188,6 +188,7 @@ describe("collections", () => {
       collection: "COL-000001",
       type: "iki/protein.Protein",
       archived: false,
+      sort: { field: "updated_at", descending: true },
     });
   });
 });

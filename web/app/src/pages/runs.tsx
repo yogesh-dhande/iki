@@ -55,12 +55,12 @@ import {
   PageHeader,
   ProblemAlert,
   RelativeTime,
-  SelectField,
   TextField,
   Time,
   useMessages,
   useNow,
 } from "../ui";
+import { ToolbarSelect } from "./entity-filters";
 import { useProject } from "./project-overview";
 import { ParkedNote, RunOutsideApis } from "./run-outside-apis";
 
@@ -160,7 +160,7 @@ export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }
 const metricNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 
 const STATUS_CHOICES = [
-  { value: "all", label: "Every status" },
+  { value: "all", label: "Any" },
   ...Object.entries(STATUS).map(([value, label]) => ({ value, label })),
 ] as const;
 
@@ -286,21 +286,19 @@ function RunList({
     <>
       <div className="list-toolbar">
         {across ? (
-          <SelectField
+          <ToolbarSelect
             label="Project"
-            compact
             value={across.slug ?? ""}
             options={[
-              { value: "", label: "Any project" },
+              { value: "", label: "Any" },
               ...(across.slug && !project ? [{ value: across.slug, label: across.slug }] : []),
               ...across.projects.map((p) => ({ value: p.slug, label: p.name })),
             ]}
             onChange={across.onProject}
           />
         ) : null}
-        <SelectField
+        <ToolbarSelect
           label="Status"
-          compact
           value={status ?? "all"}
           options={STATUS_CHOICES}
           onChange={(value) => {
@@ -329,8 +327,10 @@ function RunList({
             </caption>
             <thead>
               <tr>
-                <th scope="col">Action</th>
                 <th scope="col">ID</th>
+                <th scope="col" className="list-fill">
+                  Action
+                </th>
                 {across && !project ? <th scope="col">Project</th> : null}
                 <th scope="col">Status</th>
                 <th scope="col">Asked by</th>
@@ -342,13 +342,7 @@ function RunList({
             <tbody>
               {items.map((run) => (
                 <tr key={run.id}>
-                  <td>
-                    <Link className="list-name" to="/runs/$ref/" params={{ ref: run.hrid }}>
-                      {actionLabel(actionsList, run.action)}
-                    </Link>
-                    {run.reason ? <span className="cell-meta">“{run.reason}”</span> : null}
-                  </td>
-                  <td>
+                  <td className="list-id">
                     <span className="grid-id">{run.hrid}</span>
                     {run.batch ? (
                       <span className="cell-meta">
@@ -366,6 +360,23 @@ function RunList({
                         </Link>
                       </span>
                     ) : null}
+                  </td>
+                  {/* The room that's left: a long reason is cut short, and whole when
+                      pointed at. */}
+                  <td
+                    className="list-fill"
+                    title={
+                      run.reason
+                        ? `${actionLabel(actionsList, run.action)}: “${run.reason}”`
+                        : undefined
+                    }
+                  >
+                    <span className="list-fill-text">
+                      <Link className="list-name" to="/runs/$ref/" params={{ ref: run.hrid }}>
+                        {actionLabel(actionsList, run.action)}
+                      </Link>
+                      {run.reason ? <span className="cell-meta">“{run.reason}”</span> : null}
+                    </span>
                   </td>
                   {across && !project ? (
                     <td className="muted">{names.get(run.project)?.name ?? ""}</td>

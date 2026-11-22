@@ -30,6 +30,24 @@ export function countsQuery(projectId?: string) {
   });
 }
 
+/** How many current records of `names` the counts say the reader can read: every type's
+ * if `names` is null. Null when they don't know, as when counting would be slow. Types
+ * with none aren't listed, and count nothing. */
+export function countOf(
+  counts: Counts | undefined,
+  names: ReadonlySet<string> | null,
+): number | null {
+  if (counts?.total == null) return null;
+  if (names === null) return counts.total;
+  let n = 0;
+  for (const c of counts.types) {
+    if (!names.has(c.type)) continue;
+    if (c.count === null) return null;
+    n += c.count;
+  }
+  return n;
+}
+
 /** Every saved search the reader sees: their own, of a project or of every project, and
  * those shared with projects they read. */
 export const everySavedSearchQuery = queryOptions({

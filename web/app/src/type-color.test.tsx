@@ -7,7 +7,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { swatchOf } from "./project-color";
-import { TypeDot, TypeName, typeSwatch } from "./type-color";
+import { TypeDot, TypeWithDot, typeSwatch } from "./type-color";
 
 describe("a type's color", () => {
   it("is one of the swatches, from its name, as a project's is from its ID", () => {
@@ -53,11 +53,27 @@ describe("a type's color", () => {
   });
 
   it("draws a dot named by its swatch, which screen readers skip", () => {
-    const { container } = render(<TypeName type="iki/dna.Plasmid" label="Plasmid" />);
+    const { container } = render(
+      <TypeWithDot type="iki/dna.Plasmid" shown={{ label: "Plasmid" }} />,
+    );
     const dot = container.querySelector(".type-dot");
     expect(dot).toHaveAttribute("data-swatch", String(typeSwatch("iki/dna.Plasmid")));
     expect(dot).toHaveAttribute("aria-hidden", "true");
     expect(container).toHaveTextContent("Plasmid");
+  });
+
+  it("names a type's plugin after it when another type shares its label", () => {
+    const { container } = render(
+      <TypeWithDot
+        type="acme/example.Sample"
+        shown={{ label: "Sample", plugin: "acme/example" }}
+      />,
+    );
+    expect(container.querySelector(".type-dot")).toHaveAttribute(
+      "data-swatch",
+      String(typeSwatch("acme/example.Sample")),
+    );
+    expect(container.querySelector(".type-plugin")).toHaveTextContent("acme/example");
   });
 
   it("keeps its own color in a neighbour's place", () => {

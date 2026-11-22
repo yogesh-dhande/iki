@@ -282,6 +282,8 @@ describe("the grid's results", () => {
         type: "iki/protein.Protein",
         archived: false,
         q: "abl",
+        // The grid's own order: newest changes first (ADR 0176).
+        sort: { field: "updated_at", descending: true },
       },
       limit: 3,
     });

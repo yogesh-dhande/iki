@@ -27,18 +27,20 @@ import { problemOf, type Project } from "../api";
 import { usePlaceEntities } from "../component-entities";
 import { componentsQuery, gridViews, type GridView, type PlaceSearch } from "../components";
 import {
+  DEFAULT_SORT,
   entitiesQuery,
   gridSearch,
   inSentence,
   recordSearch,
   searchCsvUrl,
   stateFields,
+  typeDisplayName,
+  typeDisplayText,
   typeLabel,
   valueText,
   type Entity,
   type EntityType,
   type FieldDef,
-  type Showing,
 } from "../entities";
 import {
   asksWhatRulesCaught,
@@ -51,6 +53,7 @@ import {
   type Filter,
 } from "../filters";
 import {
+  countOf,
   countsQuery,
   hiddenColumns,
   keepHiddenColumns,
@@ -58,10 +61,17 @@ import {
   type ListSearch,
 } from "../lists";
 import { MAX_BATCH } from "../runs";
-import { TypeDot, TypeName } from "../type-color";
-import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
+import { TypeDot, TypeWithDot } from "../type-color";
+import { buttonClass, Loading, ProblemAlert, RelativeTime, TypeName } from "../ui";
 import { CollectionBanner, SaveAsCollection } from "./collections";
-import { FilterBar, SearchBox, SortHeading, type Direction } from "./entity-filters";
+import {
+  FilterBar,
+  SearchBox,
+  SortHeading,
+  ToolbarSelect,
+  ToolIcon,
+  type Direction,
+} from "./entity-filters";
 import { PluginPlace } from "./plugin-place";
 import { ReassignDialog } from "./reassign";
 import { SavedSearches } from "./saved-searches";
@@ -81,12 +91,20 @@ interface Column {
   sort?: string | undefined;
   /** Its heading, when it's more than the label. */
   header?: ReactNode;
-  /** Its width, when it isn't a field's. */
+  /** Its width, when it's fixed: otherwise it's sized to what it holds. */
   width?: string;
   /** Hidden until someone shows it. */
   hidden?: boolean;
   /** Its column in the grid's download (ADR 0175), if it has one. */
   csv?: string;
+  /** A cell's text, by which the column is sized, and which a cell cut short shows whole
+   * when pointed at. */
+  text?: (entity: Entity) => string;
+  /** How it's sized: "id" never cut short; "long" text (a name) takes the room that's
+   * left, and may be cut short; anything else is as wide as most of what it holds. */
+  fit?: "id" | "long" | undefined;
+  /** Its text is drawn in pills, as a record's state is: their padding takes room too. */
+  pills?: boolean;
 }
 
 /** Entities picked in the grid, for the list they were picked in. */
@@ -176,6 +194,8 @@ function columnsFor(
     label: "ID",
     sort: HRID.name,
     csv: "hrid",
+    fit: "id",
+    text: (e) => e.hrid,
     cell: (e) => (
       // A registry entry's record opens as its project's: other projects have its HRID too.
       <Link
@@ -192,7 +212,16 @@ function columnsFor(
     key: "type",
     label: "Type",
     csv: "type",
-    cell: (e) => <TypeName type={e.type} label={typeLabel(types, e.type)} />,
+    text: (e) => {
+      const t = types.find((x) => x.name === e.type);
+      return t ? typeDisplayText(t, types) : e.type;
+    },
+    cell: (e) => {
+      const t = types.find((x) => x.name === e.type);
+      return (
+        <TypeWithDot type={e.type} shown={t ? typeDisplayName(t, types) : { label: e.type }} />
+      );
+    },
   };
   const projects: Column = {
     key: "project",
@@ -200,6 +229,10 @@ function columnsFor(
     csv: "project",
     // A project's own tab lists its records: their other projects are there to show.
     hidden: !across,
+    text: (e) => {
+      const [first, ...more] = e.projects ?? [];
+      return first ? `${first.name}${more.length ? ` +${String(more.length)}` : ""}` : "";
+    },
     cell: (e) => <ProjectsCell entity={e} />,
   };
   // A request between projects (ADR 0132): who asked, and the service it went to.
@@ -210,12 +243,14 @@ function columnsFor(
             key: "asked_by",
             label: "Asked by",
             csv: "asked_by",
+            text: (e: Entity) => e.request?.asking_project?.name ?? "",
             cell: (e: Entity) => e.request?.asking_project?.name ?? "",
           },
           {
             key: "sent_to",
             label: "Sent to",
             csv: "sent_to",
+            text: (e: Entity) => e.request?.service?.name ?? "Not sent yet",
             cell: (e: Entity) =>
               e.request?.service?.name ?? <span className="muted">Not sent yet</span>,
           },
@@ -224,27 +259,34 @@ function columnsFor(
   ).filter((c) => c.key !== shown.omit);
   const updated: Column = {
     key: "updated",
-    label: "Last changed",
+    label: UPDATED.label,
     cell: (e) => <RelativeTime value={e.updated_at} />,
     sort: UPDATED.name,
     csv: "updated_at",
+    // As long as the longest it says: "12 hours ago".
+    text: () => "12 hours ago",
+  };
+  const name: Column = {
+    key: "title",
+    label: "Name",
+    csv: "title",
+    fit: "long",
+    text: (e) => (e.title === e.hrid ? "" : e.title),
+    cell: (e) => (e.title === e.hrid ? "" : e.title),
+  };
+  const made: Column = {
+    key: "created_by",
+    label: "Made by",
+    text: (e) => e.created_by?.name ?? "",
+    cell: (e) => e.created_by?.name ?? "",
   };
   if (!type) {
-    const name: Column = {
-      key: "title",
-      label: "Name",
-      csv: "title",
-      cell: (e) => (e.title === e.hrid ? "" : e.title),
-    };
     const status: Column = {
       key: "status",
       label: "Status",
+      pills: true,
+      text: (e) => statusText(e, types),
       cell: (e) => <StatusCell entity={e} types={types} />,
-    };
-    const made: Column = {
-      key: "created_by",
-      label: "Made by",
-      cell: (e) => e.created_by?.name ?? "",
     };
     return [id, name, kind, projects, ...sides, status, made, updated];
   }
@@ -253,6 +295,13 @@ function columnsFor(
     label: f.type === "quantity" ? `${f.label} (${unitOf(f)})` : f.label,
     sort: sortable(f) ? f.name : undefined,
     csv: f.name,
+    fit: LONG_FIELDS.has(f.type) && !f.format ? "long" : undefined,
+    text: (e) => {
+      const value = e.values[f.name];
+      const said = valueText(f, value, e);
+      if (f.type === "state" && e.locked_by.includes(f.name)) return `${said} Locked`;
+      return said;
+    },
     cell: (e) => {
       const value = e.values[f.name];
       if (f.type === "quantity" && typeof value === "number") {
@@ -280,18 +329,96 @@ function columnsFor(
       return valueText(f, value, e);
     },
   }));
-  // A record's state fields (ADR 0125), beside its ID: the first thing a lab asks of it.
+  // Shown at first, as the mockups of ADR 0176 order them: its name, a few of its key
+  // fields, its project, its states (ADR 0125), who made it and when it changed. The rest
+  // are a click away, under Columns.
   const states = fields.filter((_, index) => type.fields[index]?.type === "state");
   const rest = fields.filter((_, index) => type.fields[index]?.type !== "state");
+  const restDefs = type.fields.filter((f) => f.type !== "state");
+  // Its name: its own name field, which sorts, or else its title.
+  const named = restDefs.find((f) => NAME_FIELDS.has(f.name));
+  const nameColumn = (named && rest.find((c) => c.key === `field:${named.name}`)) ?? name;
+  // A request's sides (ADR 0132) are among its key facts: who asked, and the service it
+  // went to. They say which projects it's in and who it's from, so those wait under
+  // Columns. Each state past the first takes a key field's place too.
+  const room = KEY_FIELDS - sides.length - Math.max(states.length - 1, 0);
+  const keyFields = new Set(
+    keyFieldsOf(type, types, restDefs, named)
+      .slice(0, Math.max(room, 1))
+      .map((f) => `field:${f.name}`),
+  );
+  const besides = sides.length > 0;
   return [
     id,
+    { ...nameColumn, fit: "long" as const },
     ...(type.subtypes.length ? [kind] : []),
     ...sides,
+    ...rest
+      .filter((c) => c !== nameColumn)
+      .map((c) => (keyFields.has(c.key) ? c : { ...c, hidden: true })),
+    besides ? { ...projects, hidden: true } : projects,
     ...states,
-    ...rest,
-    projects,
+    besides ? { ...made, hidden: true } : made,
     updated,
   ];
+}
+
+/** How many of a type's own fields its table shows at first, besides its name and states. */
+const KEY_FIELDS = 4;
+/** Fields too long, or too structured, to be one of a table's first columns. */
+const NOT_KEY_FIELDS = new Set(["text", "json", "list", "file"]);
+/** Fields that are the record's name, which its Name column already shows. */
+const NAME_FIELDS = new Set(["name", "title"]);
+/** Fields of free text, which take the room a table has left. */
+const LONG_FIELDS = new Set(["string", "text"]);
+
+/**
+ * A type's fields that say most about a record, best first: those that make it what it is
+ * (its identity, ADR 0115); then what's worked out from them (a length, a GC content);
+ * then its other facts, by kind; plain text and yes-or-no after; and last what other
+ * plugins add to it, or text a plugin writes (which software found something). Long text,
+ * lists, JSON and files are never among them, nor its name.
+ */
+export function keyFieldsOf(
+  type: EntityType,
+  types: readonly EntityType[],
+  fields: readonly FieldDef[],
+  name?: FieldDef,
+): FieldDef[] {
+  // The plugins of the type and its parents: their fields are its own, not extensions'.
+  const lineage = new Set<string>(["iki/core"]);
+  let parent: string | null = type.extends;
+  lineage.add(type.plugin);
+  for (let depth = 0; parent && depth < 16; depth += 1) {
+    const found = types.find((x) => x.name === parent);
+    if (!found) break;
+    lineage.add(found.plugin);
+    parent = found.extends;
+  }
+  const FACTS = new Set(["enum", "quantity", "int", "float", "ref", "date", "datetime", "person"]);
+  const rank = (f: FieldDef): number => {
+    if (!lineage.has(f.plugin)) return 5;
+    if (type.identity.includes(f.name)) return 0;
+    if (f.computed && FACTS.has(f.type)) return 1;
+    if (FACTS.has(f.type)) return 2;
+    if (f.type === "string" && !f.computed) return 3;
+    if (f.type === "bool") return 4;
+    return 5;
+  };
+  const eligible = fields.filter((f) => !NOT_KEY_FIELDS.has(f.type) && f !== name);
+  const order = new Map(eligible.map((f, index) => [f, index]));
+  return [...eligible].sort(
+    (a, b) => rank(a) - rank(b) || (order.get(a) ?? 0) - (order.get(b) ?? 0),
+  );
+}
+
+/** A record's state as a row of any type says it: its first state, and whether it's locked. */
+function statusText(entity: Entity, types: EntityType[]): string {
+  const field = stateFields(types.find((t) => t.name === entity.type))[0];
+  const value = field ? entity.values[field.name] : undefined;
+  const said =
+    field && value !== null && value !== undefined ? valueText(field, value, entity) : "";
+  return [said, entity.locked ? "Locked" : ""].filter(Boolean).join(" ");
 }
 
 /** Why a record is in a search of what rules caught (ADR 0127): the rules holding it for
@@ -407,8 +534,18 @@ export function EntityGrid({
 
   const fields = filterable(type, extra);
   const filters = search.filters ?? [];
-  const sortFields = [CREATED, ...fields.filter((f) => sortable(f) && f.name !== CREATED.name)];
-  const sort = fields.some((f) => f.name === search.sort && sortable(f)) ? search.sort : undefined;
+  const sortFields = [
+    UPDATED,
+    CREATED,
+    ...fields.filter((f) => sortable(f) && f.name !== CREATED.name && f.name !== UPDATED.name),
+  ];
+  // The address's sort, if it names one; without one, the default: last changed, newest
+  // first (ADR 0176), so recent work is at the top. An index serves it across types.
+  const chosenSort = fields.some((f) => f.name === search.sort && sortable(f))
+    ? search.sort
+    : undefined;
+  const sort = chosenSort ?? DEFAULT_SORT.field;
+  const descending = chosenSort ? Boolean(search.desc) : DEFAULT_SORT.descending;
   const narrowed = Boolean(search.q) || filters.length > 0;
   const filter = {
     project: project?.id,
@@ -417,7 +554,7 @@ export function EntityGrid({
     q: search.q,
     filters: [...fixed, ...filters],
     sort,
-    descending: sort ? search.desc : undefined,
+    descending,
     collection: library ? search.collection : undefined,
   };
   // A project named in the address that isn't one the reader can read finds nothing, as
@@ -431,7 +568,10 @@ export function EntityGrid({
     ...entitiesQuery(filter),
     enabled: !shownAs && !unknownProject,
   });
-  const counts = useQuery({ ...countsQuery(project?.id), enabled: pills && !unknownProject });
+  // How many there are, when the counts know: of the types it shows, current ones, with no
+  // search or filter. The sidebar asks the same, so it's usually there already.
+  const countable = !unknownProject && !search.collection && show === "current";
+  const counts = useQuery({ ...countsQuery(project?.id), enabled: countable });
   const applyFilters = (next: Filter[]) => {
     navigate({
       search: (prev) => ({ ...prev, filters: next.length ? next : undefined }),
@@ -439,11 +579,15 @@ export function EntityGrid({
     });
   };
   const sortBy = (field: string, direction: Direction) => {
+    // The default order is kept as no sort, so the address stays short.
+    const byDefault =
+      direction === "none" ||
+      (field === DEFAULT_SORT.field && (direction === "descending") === DEFAULT_SORT.descending);
     navigate({
       search: (prev) => ({
         ...prev,
-        sort: direction === "none" ? undefined : field,
-        desc: direction === "descending" ? true : undefined,
+        sort: byDefault ? undefined : field,
+        desc: !byDefault && direction === "descending" ? true : undefined,
       }),
     });
   };
@@ -468,7 +612,7 @@ export function EntityGrid({
     search.q,
     filters,
     sort,
-    search.desc,
+    descending,
     search.collection,
     project?.id,
   ]);
@@ -571,59 +715,83 @@ export function EntityGrid({
   }, [last, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const captionId = useId();
-  // In pixels at the stylesheet's 13px rem (ADR 0176), so they scale with the reader's size.
-  const template = columns.map((c) => c.width ?? "minmax(calc(128rem / 13), 1fr)").join(" ");
-  const minWidth = `calc(${String(columns.filter((c) => !c.width).length * 128 + (selectable ? 40 : 0) + (caught ? 256 : 0))}rem / 13)`;
+  const sized = sizeColumns(columns, rows.slice(0, PAGE));
+  const { template, minWidth } = sized;
   // The types it offers and their subtypes, an abstract one as any of its kinds.
   const typeOptions = [
     { value: "", label: `All ${plural.many}` },
     ...types
       .filter((t) => offered.has(t.name) && (!t.abstract || t.subtypes.length))
-      .map((t) => ({ value: t.name, label: t.abstract ? `${t.label} (any kind)` : t.label }))
+      .map((t) => {
+        const label = typeDisplayText(t, types);
+        return { value: t.name, label: t.abstract ? `${label} (any kind)` : label };
+      })
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
-  const count = list.hasNextPage ? `${String(rows.length)}+` : String(rows.length);
-  const one = rows.length === 1 && !list.hasNextPage;
+  // The types it lists, for their count: its type's, or those its fixed conditions hold it
+  // to; null for every type. Any other fixed condition (a request's side, say) leaves it
+  // uncounted: the counts know types, not sides.
+  const onlyTypes = fixed.every(
+    (f) => f.field === "type" && f.op === "in" && Array.isArray(f.value),
+  );
+  const covered: ReadonlySet<string> | null | undefined = !onlyTypes
+    ? undefined
+    : type
+      ? new Set([type.name, ...type.subtypes])
+      : fixed.length === 0
+        ? null
+        : new Set(fixed.flatMap((f) => (Array.isArray(f.value) ? f.value.map(String) : [])));
+  const exact = countable && covered !== undefined ? countOf(counts.data, covered) : null;
+  const loaded = list.hasNextPage ? `${String(rows.length)}+` : String(rows.length);
+  // Unnarrowed, the count the counts know, if they do; narrowed, how many of them match.
+  const shown = !narrowed && exact !== null ? exact : rows.length;
+  const one = (narrowed && exact !== null ? exact : shown) === 1 && !list.hasNextPage;
   const noun = type
     ? inSentence(one ? type.label : type.label_plural)
     : one
       ? plural.one
       : plural.many;
+  const count =
+    exact === null
+      ? `${loaded} ${noun}${show === "archived" ? ", archived" : ""}${narrowed ? " match" : ""}`
+      : narrowed
+        ? `${loaded} of ${exact.toLocaleString()} ${noun}`
+        : `${exact.toLocaleString()} ${noun}`;
   const many = type ? inSentence(type.label_plural) : plural.many;
   const makeable = type && !type.abstract && !type.detached ? type : undefined;
-  const sortedBy = sortFields.find((f) => f.name === (sort ?? CREATED.name)) ?? CREATED;
-  const sortKey = `${sortedBy.name}:${sort && search.desc ? "desc" : "asc"}`;
+  const sortedBy = sortFields.find((f) => f.name === sort) ?? UPDATED;
+  const sortKey = `${sortedBy.name}:${descending ? "desc" : "asc"}`;
   // A project's own tab says "this project"; across projects, the one picked, by name.
   const where = fixedProject ? "in this project" : project ? `in ${project.name}` : "you can read";
 
   return (
     <>
       <div className="list-toolbar">
+        {/* Keyed apart from the filters beside it: two siblings keyed "" are one to React. */}
         <SearchBox
-          key={search.q ?? ""}
+          key={`q:${search.q ?? ""}`}
           value={search.q ?? ""}
           placeholder={
             type?.fields.some((f) => f.assignment)
-              ? `ID, name, or assigned:me`
+              ? `Search by ID, name, or assigned:me`
               : type?.rules?.some((r) => r.hold)
-                ? `ID, name, or is:held`
+                ? `Search by ID, name, or is:held`
                 : type
-                  ? `ID or ${inSentence(type.label)} name`
+                  ? `Search ${inSentence(type.label_plural)} by ID or name`
                   : across
                     ? "Search your projects by ID or name"
-                    : "ID or name"
+                    : "Search by ID or name"
           }
           onSearch={(q) => {
             navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
           }}
         />
         {across ? (
-          <SelectField
+          <ToolbarSelect
             label="Project"
-            compact
             value={chosen?.slug ?? search.project ?? ""}
             options={[
-              { value: "", label: "Any project" },
+              { value: "", label: "Any" },
               ...(search.project && !chosen
                 ? [{ value: search.project, label: search.project }]
                 : []),
@@ -635,27 +803,29 @@ export function EntityGrid({
           />
         ) : null}
         {only || pills ? null : (
-          <SelectField
+          <ToolbarSelect
             label="Type"
-            compact
             value={type?.name ?? ""}
             options={typeOptions}
             onChange={pickType}
           />
         )}
-        <SelectField<Showing>
-          label="Show"
-          compact
-          value={show}
-          options={[
-            { value: "current", label: "Current" },
-            { value: "archived", label: "Archived" },
-            { value: "all", label: "Current and archived" },
-          ]}
-          onChange={(value) => {
-            navigate({
-              search: (prev) => ({ ...prev, show: value === "current" ? undefined : value }),
-            });
+        <FilterBar
+          key={`filters:${type?.name ?? ""}`}
+          type={type}
+          types={types}
+          fields={fields}
+          applied={filters}
+          projectId={project?.id}
+          noun={many}
+          onApply={applyFilters}
+          show={{
+            value: show,
+            onChange: (value) => {
+              navigate({
+                search: (prev) => ({ ...prev, show: value === "current" ? undefined : value }),
+              });
+            },
           }}
         />
         <MenuTrigger>
@@ -663,7 +833,7 @@ export function EntityGrid({
             className={buttonClass()}
             aria-label={`Sort: ${sortLabel(sortedBy, sortKey)}`}
           >
-            <span aria-hidden="true">⇅ </span>
+            <ToolIcon name="sort" />
             {sortLabel(sortedBy, sortKey)}
           </AriaButton>
           <Popover className="menu-popover" placement="bottom start" offset={4}>
@@ -674,31 +844,28 @@ export function EntityGrid({
               selectedKeys={[sortKey]}
               onAction={(key) => {
                 const [name = "", direction] = String(key).split(":");
-                // Oldest first is how a search reads without a sort: by when it was made.
-                if (name === CREATED.name && direction === "asc") {
-                  sortBy(name, "none");
-                } else {
-                  sortBy(name, direction === "desc" ? "descending" : "ascending");
-                }
+                sortBy(name, direction === "desc" ? "descending" : "ascending");
               }}
             >
               {sortFields.flatMap((f) =>
-                [false, true].map((descending) => {
-                  const key = `${f.name}:${descending ? "desc" : "asc"}`;
-                  return (
-                    <MenuItem key={key} id={key} className="menu-item">
-                      {f.label}, {directionWords(f, descending)}
-                    </MenuItem>
-                  );
-                }),
+                // Times newest first first: that's how people look for recent work.
+                (f.type === "datetime" || f.type === "date" ? [true, false] : [false, true]).map(
+                  (desc) => {
+                    const key = `${f.name}:${desc ? "desc" : "asc"}`;
+                    return (
+                      <MenuItem key={key} id={key} className="menu-item">
+                        {f.label}, {directionWords(f, desc)}
+                      </MenuItem>
+                    );
+                  },
+                ),
               )}
             </Menu>
           </Popover>
         </MenuTrigger>
         {views.length ? (
-          <SelectField
+          <ToolbarSelect
             label="Show as"
-            compact
             value={shownAs?.component.name ?? ""}
             options={[
               { value: "", label: "Grid" },
@@ -712,9 +879,7 @@ export function EntityGrid({
         <div className="list-toolbar-end" hidden={unknownProject}>
           {!shownAs && list.isSuccess && rows.length ? (
             <p className="muted list-count" id={captionId}>
-              {count} {noun}
-              {show === "archived" ? ", archived" : ""}
-              {narrowed ? " match" : ""}
+              {count}
             </p>
           ) : null}
           <ColumnsMenu
@@ -733,6 +898,7 @@ export function EntityGrid({
             download
             aria-describedby={rows.length ? captionId : undefined}
           >
+            <ToolIcon name="download" />
             Download CSV
           </a>
           {library && project?.can.edit && !project.archived && !search.collection ? (
@@ -750,16 +916,6 @@ export function EntityGrid({
           ) : null}
         </div>
       </div>
-      <FilterBar
-        key={type?.name ?? ""}
-        type={type}
-        types={types}
-        fields={fields}
-        applied={filters}
-        projectId={project?.id}
-        noun={many}
-        onApply={applyFilters}
-      />
       {pills ? (
         <TypePills
           counts={counts.data?.types}
@@ -901,10 +1057,13 @@ export function EntityGrid({
                   {columns.map((c) => {
                     const sorted = c.sort !== undefined && c.sort === sort;
                     const direction: Direction = sorted
-                      ? search.desc
+                      ? descending
                         ? "descending"
                         : "ascending"
                       : "none";
+                    // Sorted by default (newest first), a click turns it round: going on to no
+                    // sort would leave it as it is.
+                    const byDefault = sorted && !chosenSort;
                     return (
                       <div
                         role="columnheader"
@@ -917,6 +1076,7 @@ export function EntityGrid({
                             <SortHeading
                               label={c.label}
                               direction={direction}
+                              next={byDefault ? "ascending" : undefined}
                               onSort={(next) => {
                                 if (c.sort) sortBy(c.sort, next);
                               }}
@@ -950,8 +1110,13 @@ export function EntityGrid({
                         transform: `translateY(${String(item.start)}px)`,
                       }}
                     >
-                      {columns.map((c) => (
-                        <div role="cell" key={c.key} className="data-grid-cell">
+                      {columns.map((c, index) => (
+                        <div
+                          role="cell"
+                          key={c.key}
+                          className="data-grid-cell"
+                          title={cutShort(c, entity, sized.widths[index])}
+                        >
                           {c.cell(entity)}
                         </div>
                       ))}
@@ -971,6 +1136,96 @@ export function EntityGrid({
       ) : null}
     </>
   );
+}
+
+/** About how wide an ID's monospace characters are, in pixels at the stylesheet's 13px rem
+ * (ADR 0176); and a cell's padding, both sides. */
+const MONO_CHAR = 7.3;
+const PADDING = 22;
+
+/** About how wide `text` is in the grid's 13px Inter, in pixels: capitals and digits are
+ * wider than lower case, and spaces narrower. Near enough to size a column by. */
+function textWidth(text: string): number {
+  let width = 0;
+  for (const c of text) {
+    if (c === " ") width += 3.6;
+    else if (/[A-Z0-9%]/.test(c)) width += 8.4;
+    else if (/[a-z]/.test(c)) width += 7;
+    else width += 6;
+  }
+  return width;
+}
+/** The narrowest a column is, and the widest one sized to what it holds; long text may be
+ * cut to this, and takes what room is left. */
+const NARROWEST = 56;
+const WIDEST = 260;
+const LONG_AT_LEAST = 180;
+const LONG_AT_MOST = 420;
+/** Rows the columns are sized by: the first page, so they don't shift as more load. */
+const PAGE = 100;
+
+/**
+ * Each column's width, from what it holds (ADR 0176): an ID as wide as the longest; long
+ * text as wide as it can be, given the room, and cut short past that; anything else as
+ * wide as its heading or most of its values. Columns grow, in proportion, to fill a wide
+ * screen. Widths are in pixels at the stylesheet's 13px rem, so they scale with the
+ * reader's text size. `widths` is each column's narrowest, in those pixels.
+ */
+export function sizeColumns(
+  columns: readonly Pick<Column, "label" | "sort" | "width" | "text" | "fit" | "pills">[],
+  rows: readonly Entity[],
+): { template: string; minWidth: string; widths: number[] } {
+  const px = (n: number) => `calc(${String(Math.round(n))}rem / 13)`;
+  const grows = (min: number, grow: number) => `minmax(${px(min)}, ${(grow / 100).toFixed(2)}fr)`;
+  const tracks: string[] = [];
+  const widths: number[] = [];
+  for (const c of columns) {
+    if (c.width) {
+      // Only the selection column and the rules caught are fixed: theirs, as they set.
+      const fixed = /calc\((\d+)rem/.exec(c.width);
+      tracks.push(c.width);
+      widths.push(fixed ? Number(fixed[1]) : NARROWEST);
+      continue;
+    }
+    // A heading is 12px, a little narrower than the cells' text.
+    const heading = textWidth(c.label) * 0.93 + PADDING + (c.sort ? 16 : 0);
+    const texts = c.text ? rows.map((e) => c.text?.(e) ?? "") : [];
+    if (c.fit === "id") {
+      const longest = Math.max(10, ...texts.map((t) => t.length));
+      const width = Math.max(heading, longest * MONO_CHAR + PADDING);
+      tracks.push(px(width));
+      widths.push(width);
+      continue;
+    }
+    // Most of its values: one long outlier doesn't widen a column for every row.
+    const sorted = texts.map(textWidth).sort((x, y) => x - y);
+    const most = sorted.length ? (sorted[Math.ceil((sorted.length - 1) * 0.9)] ?? 0) : 0;
+    // A pill's padding, and the gap between two (a state, and "Locked").
+    const natural = Math.max(heading, most + PADDING + (c.pills ? 34 : 0));
+    if (c.fit === "long") {
+      const min = Math.min(natural, Math.max(heading, LONG_AT_LEAST));
+      tracks.push(grows(min, Math.min(Math.max(natural, LONG_AT_LEAST), LONG_AT_MOST)));
+      widths.push(min);
+      continue;
+    }
+    const width = Math.min(Math.max(natural, NARROWEST), WIDEST);
+    tracks.push(grows(width, width));
+    widths.push(width);
+  }
+  return {
+    template: tracks.join(" "),
+    minWidth: px(widths.reduce((sum, w) => sum + w, 0)),
+    widths,
+  };
+}
+
+/** A cell's whole text, to show when pointed at, if it may be cut short: when it's wider
+ * than its column's narrowest. A long sequence's is shown in part. */
+function cutShort(column: Column, entity: Entity, width: number | undefined): string | undefined {
+  if (!column.text || column.fit === "id" || width === undefined) return undefined;
+  const text = column.text(entity);
+  if (!text || textWidth(text) + PADDING <= width) return undefined;
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
 }
 
 /** The sort button's words: what it's sorted by, and which way. */
@@ -996,7 +1251,10 @@ function ColumnsMenu({
   const legendId = useId();
   return (
     <DialogTrigger>
-      <AriaButton className={buttonClass()}>Columns</AriaButton>
+      <AriaButton className={buttonClass()}>
+        <ToolIcon name="columns" />
+        Columns
+      </AriaButton>
       <Popover className="menu-popover" placement="bottom end" offset={4}>
         <Dialog className="columns-dialog" aria-labelledby={legendId}>
           <fieldset className="columns-choice">
@@ -1026,7 +1284,9 @@ function ColumnsMenu({
 }
 
 /** The types with records its reader can read, as pills: each with how many, unless
- * counting would be slow (ADR 0176). The one picked is pressed. */
+ * counting would be slow (ADR 0176). The one picked is pressed. One row, which scrolls
+ * across when there are more than fit, with the pressed one scrolled into view. Two types
+ * with the same label each say their plugin. */
 function TypePills({
   counts,
   total,
@@ -1040,18 +1300,30 @@ function TypePills({
   chosen: EntityType | undefined;
   onPick: (type: string) => void;
 }) {
+  const row = useRef<HTMLDivElement>(null);
   const listed = counts ?? [];
   // A type picked that has nothing counted (an abstract one, say) still shows, pressed.
   const all =
     chosen && !listed.some((c) => c.type === chosen.name)
       ? [...listed, { type: chosen.name, label: typeLabel(types, chosen.name), count: null }]
       : listed;
-  const pill = (value: string, label: string, n: number | null | undefined) => (
+  const picked = chosen?.name ?? "";
+  useEffect(() => {
+    const pressed = row.current?.querySelector<HTMLElement>("[aria-pressed=true]");
+    const box = row.current;
+    if (!pressed || !box) return;
+    // Scrolled within the row alone: the page doesn't move.
+    const left = pressed.offsetLeft - box.offsetLeft;
+    if (left < box.scrollLeft || left + pressed.offsetWidth > box.scrollLeft + box.clientWidth) {
+      box.scrollLeft = left - box.clientWidth / 2 + pressed.offsetWidth / 2;
+    }
+  }, [picked, all.length]);
+  const pill = (value: string, label: ReactNode, n: number | null | undefined) => (
     <button
       key={value || "all"}
       type="button"
       className="type-pill"
-      aria-pressed={(chosen?.name ?? "") === value}
+      aria-pressed={picked === value}
       onClick={() => {
         onPick(value);
       }}
@@ -1069,9 +1341,13 @@ function TypePills({
     </button>
   );
   return (
-    <div className="type-pills" role="group" aria-label="Type">
+    <div className="type-pills" role="group" aria-label="Type" ref={row}>
       {pill("", "All types", total)}
-      {all.map((c) => pill(c.type, c.label, c.count))}
+      {all.map((c) => {
+        const t = types.find((x) => x.name === c.type);
+        const shown = t ? typeDisplayName(t, types) : { label: c.label };
+        return pill(c.type, <TypeName shown={shown} />, c.count);
+      })}
     </div>
   );
 }

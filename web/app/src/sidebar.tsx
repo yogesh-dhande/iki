@@ -15,11 +15,12 @@ import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
 import { useDrawer } from "./drawer";
 import { adminNavigation } from "./admin";
-import { entityQuery } from "./entities";
+import { entityQuery, typeDisplayName } from "./entities";
 import { countsQuery } from "./lists";
 import { swatchOf } from "./project-color";
 import { openSearch } from "./search";
 import { TypeDot } from "./type-color";
+import { TypeName } from "./ui";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
 export interface NavItem {
@@ -303,12 +304,20 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
   const allEntities = shown(SPEC.entities.all);
   // Each type with records the reader can read, which only the counts say: if they can't
   // be read, All entities alone.
-  const types: (Shown & { type: string; count: number | null })[] =
-    counts.data?.types.map((t) => ({
-      ...shown({ label: t.label, href: `${SPEC.entities.type}${t.type}/`, app: allEntities.app }),
-      type: t.type,
+  const counted = (counts.data?.types ?? []).map((t) => ({
+    name: t.type,
+    label: t.label,
+    plugin: t.type.slice(0, t.type.lastIndexOf(".")),
+    count: t.count,
+  }));
+  const types: (Shown & { type: string; count: number | null; plugin?: string | undefined })[] =
+    counted.map((t) => ({
+      ...shown({ label: t.label, href: `${SPEC.entities.type}${t.name}/`, app: allEntities.app }),
+      type: t.name,
       count: t.count,
-    })) ?? [];
+      // Two types of one label are told apart by their plugins (ADR 0176).
+      plugin: typeDisplayName(t, counted).plugin,
+    }));
   const work = SPEC.work.map((item) => shown(item));
 
   const here = pathname.startsWith(SPEC.projects.href)
@@ -418,7 +427,9 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
         {types.map((link) => (
           <NavLink key={link.key} link={link} current={current === link.key}>
             <TypeDot type={link.type} />
-            <span className="nav-label">{link.label}</span>
+            <span className="nav-label">
+              <TypeName shown={link} />
+            </span>
             {link.count !== null ? <Count n={link.count} /> : null}
           </NavLink>
         ))}
