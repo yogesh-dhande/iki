@@ -280,8 +280,8 @@ def test_server_pages_load_the_search_palette_for_those_signed_in(
     assert "search-entry" not in signed_out
     # Through the dev server, from its modules.
     settings.IKI_WEB_DEV_SERVER = True
-    html = world.browser("viewer").get("/teams/", headers={frontend.DEV_HEADER: "1"})
-    assert re.findall(r'<script type="module" src="([^"]+)"', html.content.decode()) == [
+    dev = world.browser("viewer").get("/teams/", headers={frontend.DEV_HEADER: "1"})
+    assert re.findall(r'<script type="module" src="([^"]+)"', dev.content.decode()) == [
         "/static/app/@vite/client",
         "/static/app/dev-preamble.js",
         "/static/app/src/search-entry.tsx",

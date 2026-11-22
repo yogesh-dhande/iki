@@ -54,7 +54,7 @@ _SEQUENCES = ("MK" + "".join(r) for r in itertools.product("ACDEFGHIKLMNPQRSTVWY
 
 def protein(user: User, project: Project, name: str) -> Entity:
     values = {"sequence": next(_SEQUENCES), "name": name}
-    return entities.create(user, PROTEIN, project, values).entity
+    return Entity.objects.get(pk=entities.create(user, PROTEIN, project, values).entity.pk)
 
 
 def run_on(user: User, project: Project, target: Entity) -> Any:
@@ -272,9 +272,10 @@ def test_archived_records_arent_searched(world: World) -> None:
 
 
 def test_a_record_of_no_registry_entry_opens_by_its_hrid_alone(world: World) -> None:
-    sample = entities.create(
+    made = entities.create(
         world.users["editor"], "acme/protein.Sample", world.project, {"label": "S1"}
-    ).entity
+    )
+    sample = Entity.objects.get(pk=made.entity.pk)
     found = group(searched(Api(world.browser("editor")), q=sample.hrid), "entities")["items"]
     assert [(r["title"], r["detail"], r["href"]) for r in found] == [
         (sample.hrid, "Sample", f"/entities/{sample.hrid}/")
