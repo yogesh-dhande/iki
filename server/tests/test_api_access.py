@@ -1023,6 +1023,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
+    # Its audit trail (ADR 0176): who it can be narrowed to, and all of it as CSV.
+    ("GET", "/entities/{ref}/contributors", entity("/contributors"), readers(200)),
+    ("GET", "/entities/{ref}/revisions.csv", entity("/revisions.csv"), readers(200)),
     ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),

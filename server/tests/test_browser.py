@@ -1701,7 +1701,8 @@ def test_a_records_page_and_its_audit_trail(
         page.get_by_role("link", name="Export for inspection").click()
     saved = tmp_path / downloading.value.suggested_filename
     downloading.value.save_as(saved)
-    assert saved.name == f"{hrid} Kinase Atlas audit trail.csv"
+    # WebKit on Linux suggests it with underscores for its spaces.
+    assert saved.name.replace("_", " ") == f"{hrid} Kinase Atlas audit trail.csv"
     rows = list(csv.DictReader(saved.read_text(encoding="utf-8-sig").splitlines()))
     # The whole trail, whatever the page was narrowed to.
     assert {r["Revision"] for r in rows} == {"1", "2"}
