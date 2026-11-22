@@ -329,17 +329,24 @@ def test_saved_views_are_your_own_and_those_shared(world: World) -> None:
     assert titles(body, "saved_views") == ["Kinases mine", "Kinases shared"]
     body = searched(Api(world.browser("viewer")), q="kinases", kind="saved_views")
     assert titles(body, "saved_views") == ["Kinases shared", "Kinases viewer's"]
-    # A search of every project (ADR 0176) is its owner's, and opens on All entities.
-    saved_searches.create(viewer, None, name="Kinases everywhere", query={"q": "kinase"})
-    body = searched(Api(world.browser("viewer")), q="kinases", kind="saved_views")
-    everywhere = group(body, "saved_views")["items"][0]
-    assert (everywhere["title"], everywhere["href"], everywhere["projects"]) == (
+
+
+def test_a_view_of_every_project_is_its_owners_and_opens_in_all_entities(world: World) -> None:
+    """A saved search with no project (ADR 0176) searches every project its owner reads, and
+    is theirs alone: search finds it for them, in All entities, and for no one else."""
+    editor = world.users["editor"]
+    saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
+    body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
+    [view] = group(body, "saved_views")["items"]
+    assert (view["title"], view["detail"], view["href"], view["projects"]) == (
         "Kinases everywhere",
+        "Yours, across your projects",
         "/entities/",
         [],
     )
-    body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
-    assert titles(body, "saved_views") == ["Kinases mine", "Kinases shared"]
+    body = searched(Api(world.browser("viewer")), q="kinases", kind="saved_views")
+    assert titles(body, "saved_views") == []
+    assert group(body, "saved_views")["total"] == 0
 
 
 def test_with_no_text_recent_is_what_you_changed_or_ran(world: World, second: Project) -> None:
