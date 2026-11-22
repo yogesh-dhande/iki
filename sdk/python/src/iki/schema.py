@@ -1394,8 +1394,12 @@ class FieldOut(TypedDict):
 class FileExportOut(TypedDict):
     #: What it writes. `sequence`: a DNA or RNA sequence, with its features.
     export: Literal['sequence']
+    #: A json field of features (type, start, end, name, strand) it adds along the sequence, or null. A record page draws them as a map.
+    features: str | None
     #: The files it's written as.
     formats: list[FileFormatOut]
+    #: The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.
+    sequence: str
 
 
 class FileFilters(TypedDict):

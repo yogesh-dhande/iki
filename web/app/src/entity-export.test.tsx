@@ -47,6 +47,8 @@ const SEQUENCE_TYPE = {
           description: "The bases, with the record's ID, name and topology in its header.",
         },
       ],
+      sequence: "bases",
+      features: null,
     },
   ],
 };
@@ -177,6 +179,9 @@ describe("exporting a record", () => {
     );
     answer(`GET /api/v1/entities/${ID}/export`, file("pOld (revision 1).gb"));
     const { user } = await renderApp("/entities/DNA-000001/audit/");
+    // Every revision has one, the latest too: an icon button in its title's row.
+    const latest = await screen.findByRole("button", { name: "Export revision 2" });
+    expect(latest.closest(".trail-title")).not.toBeNull();
     await user.click(await screen.findByRole("button", { name: "Export revision 1" }));
     const dialog = await screen.findByRole("dialog", { name: "Export pTest, revision 1" });
     await user.click(within(dialog).getByRole("button", { name: "Download" }));
