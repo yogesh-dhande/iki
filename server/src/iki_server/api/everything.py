@@ -358,9 +358,12 @@ def _projects(me: User, q: str, limit: int) -> _Group:
 
 def _saved_views(me: User, q: str, limit: int) -> _Group:
     group = _Group("saved_views")
+    # Your own and those shared, in projects you read; and your own of every project you
+    # read, which have no project and are never shared.
     found = SavedSearch.objects.filter(
-        Q(created_by=me) | Q(shared=True),
-        project__in=access.readable_projects(me).values("pk"),
+        (Q(created_by=me) | Q(shared=True))
+        & Q(project__in=access.readable_projects(me).values("pk"))
+        | Q(created_by=me, project__isnull=True),
         name__icontains=q,
     )
     group.total, group.more = _counted(found)
@@ -370,10 +373,17 @@ def _saved_views(me: User, q: str, limit: int) -> _Group:
             "saved_view",
             s.pk,
             s.name,
-            detail="Shared with the project" if s.shared else "Yours",
-            projects=[s.project],
-            # The app opens it in the project's grid, as its saved searches do.
-            href=f"/projects/{s.project.slug}/entities/",
+            detail=(
+                "Shared with the project"
+                if s.shared
+                else "Yours"
+                if s.project
+                else "Yours, across your projects"
+            ),
+            projects=[s.project] if s.project else [],
+            # The app opens it in the project's grid, as its saved searches do; one of every
+            # project in All entities.
+            href=f"/projects/{s.project.slug}/entities/" if s.project else "/entities/",
             query=dict(s.query),
         )
         for s in shown
