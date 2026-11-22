@@ -881,6 +881,9 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
 
     # Its counts open All entities held to it, by its slug; its Entities tab has the same pills.
     page = open_as("admin", f"/projects/{world.project.slug}/")
+    # Once its cards have loaded: until then they grow, and the link moves under the click.
+    page.get_by_role("list", name="Recent changes").get_by_role("link", name=hrid).wait_for()
+    page.get_by_role("list", name="Members").get_by_role("listitem").first.wait_for()
     page.get_by_role("link", name="Open in Entities, filtered to this project").click()
     page.wait_for_url(re.compile(rf"/entities/\?project={world.project.slug}$"))
     pills = page.get_by_role("group", name="Type")
