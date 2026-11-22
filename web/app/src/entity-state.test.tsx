@@ -254,7 +254,7 @@ describe("a record's state fields", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows state changes in its history", async () => {
+  it("shows state changes in its audit trail", async () => {
     onSample();
     answer(
       "GET /api/v1/entities/SMP-000001/revisions",
@@ -274,7 +274,7 @@ describe("a record's state fields", () => {
         revision({ number: 1, changed_fields: ["name"] }),
       ]),
     );
-    await renderApp("/entities/SMP-000001/history/");
+    await renderApp("/entities/SMP-000001/audit/");
     expect(
       await screen.findByText(
         "Revision 2: Status set to In testing, from Received by Rosalind Franklin",
