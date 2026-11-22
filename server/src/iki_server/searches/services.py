@@ -1,8 +1,10 @@
 """Saving searches, sharing them, and who may change them.
 
 - **Anyone who can read a project** can save searches of it, for themselves.
+- **Anyone** can save a search of every project they can read, for themselves (ADR
+  0176): it has no project, and finds what its owner reads wherever they run it.
 - **Sharing** one with everyone who can read the project takes Editor there,
-  so viewers can't fill a project's list.
+  so viewers can't fill a project's list. A search of every project isn't shared.
 - **Changing** a search is its owner's. A project's Admins can remove a shared
   one, to keep the project's list tidy, but not change it.
 
@@ -20,13 +22,13 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import search
+from iki_server.entities import access, search
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.searches.models import SavedSearch
 
-#: Per person per project, and shared ones per project.
+#: Per person per project (or of every project), and shared ones per project.
 MAX_OWN = 100
 MAX_SHARED = 100
 
@@ -46,9 +48,22 @@ class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
         self.errors = errors or []
 
 
-def visible(user: User, project: Project) -> QuerySet[SavedSearch]:
-    """The project's searches the user sees: their own, and shared ones."""
+def visible(user: User, project: Project | None) -> QuerySet[SavedSearch]:
+    """The project's searches the user sees: their own, and shared ones. Without a project,
+    their own searches of every project."""
+    if project is None:
+        return SavedSearch.objects.filter(project__isnull=True, created_by=user)
     return SavedSearch.objects.filter(project=project).filter(Q(created_by=user) | Q(shared=True))
+
+
+def everywhere(user: User) -> QuerySet[SavedSearch]:
+    """Every search the user sees: their own, of a project they can still read or of every
+    project, and those shared with a project they can read."""
+    readable = access.readable_projects(user).values("pk")
+    return SavedSearch.objects.filter(
+        Q(project__isnull=True, created_by=user)
+        | Q(project__in=readable) & (Q(created_by=user) | Q(shared=True))
+    )
 
 
 def can_change(user: User, saved: SavedSearch) -> bool:
@@ -57,11 +72,13 @@ def can_change(user: User, saved: SavedSearch) -> bool:
 
 def can_delete(user: User, saved: SavedSearch) -> bool:
     return can_change(user, saved) or (
-        saved.shared and permissions.can(user, Action.PROJECT_MANAGE, saved.project)
+        saved.shared
+        and saved.project is not None
+        and permissions.can(user, Action.PROJECT_MANAGE, saved.project)
     )
 
 
-def clean(user: User, project: Project, query: Mapping[str, Any]) -> dict[str, Any]:
+def clean(user: User, project: Project | None, query: Mapping[str, Any]) -> dict[str, Any]:
     """The query as it's kept, once it's been checked as ``user``. Raises :class:`Refused`."""
     kept = {
         k: query[k]
@@ -71,7 +88,9 @@ def clean(user: User, project: Project, query: Mapping[str, Any]) -> dict[str, A
         and not (k in ("exact_type", "descending") and query[k] is False)
     }
     try:
-        search.queryset(user, search.Search(project=project.pk, **kept))
+        search.queryset(
+            user, search.Search(project=project.pk if project is not None else None, **kept)
+        )
     except search.SearchError as error:
         raise Refused(
             422,
@@ -81,12 +100,18 @@ def clean(user: User, project: Project, query: Mapping[str, Any]) -> dict[str, A
     return kept
 
 
-def _may_share(user: User, project: Project) -> None:
+def _may_share(user: User, project: Project | None) -> None:
+    if project is None:
+        raise Refused(
+            422,
+            "A search of every project is yours alone: save it in a project to share it.",
+            [("#/shared", "needs a project.")],
+        )
     if not permissions.can(user, Action.PROJECT_EDIT, project):
         raise Refused(403, "Sharing a search with the project takes the Editor role there.")
 
 
-def _check_room(user: User, project: Project, *, shared: bool) -> None:
+def _check_room(user: User, project: Project | None, *, shared: bool) -> None:
     if SavedSearch.objects.filter(project=project, created_by=user).count() >= MAX_OWN:
         raise Refused(409, f"You have {MAX_OWN} saved searches here. Delete one first.")
     if shared and SavedSearch.objects.filter(project=project, shared=True).count() >= MAX_SHARED:
@@ -106,16 +131,29 @@ def _taken(error: IntegrityError) -> Refused:
     raise error
 
 
+def _lock(user: User, project: Project | None) -> None:
+    """One at a time per project, or per person for searches of every project, so the
+    limits hold."""
+    if project is not None:
+        Project.objects.select_for_update().get(pk=project.pk)
+    else:
+        User.objects.select_for_update().get(pk=user.pk)
+
+
 def create(
-    user: User, project: Project, *, name: str, query: Mapping[str, Any], shared: bool = False
+    user: User,
+    project: Project | None,
+    *,
+    name: str,
+    query: Mapping[str, Any],
+    shared: bool = False,
 ) -> SavedSearch:
     name = _named(name)
     kept = clean(user, project, query)
     if shared:
         _may_share(user, project)
     with transaction.atomic():
-        # One at a time per project, so the limits hold.
-        Project.objects.select_for_update().get(pk=project.pk)
+        _lock(user, project)
         _check_room(user, project, shared=shared)
         try:
             with transaction.atomic():
@@ -147,7 +185,7 @@ def update(
         raise Refused(403, "Only the person who saved a search can change it.")
     project = saved.project
     with transaction.atomic():
-        Project.objects.select_for_update().get(pk=project.pk)
+        _lock(user, project)
         saved = SavedSearch.objects.select_for_update().get(pk=saved.pk)
         changes: dict[str, Any] = {}
         if name is not None and _named(name) != saved.name:

@@ -1,6 +1,7 @@
-"""Saved searches of a project's entities: your own, and those shared with the project.
+"""Saved searches of entities: your own, and those shared with a project.
 
-Run one by sending its ``query`` to ``POST /entities/search`` with its project.
+Run one by sending its ``query`` to ``POST /entities/search`` with its project, or with
+none for a search of every project you can read (ADR 0176).
 """
 
 from datetime import datetime
@@ -34,7 +35,11 @@ class QueryIn(Schema):
 
 
 class SavedSearchIn(Schema):
-    project: UUID
+    project: UUID | None = Field(
+        None,
+        description="The project it searches. Without one, it searches every project you can "
+        "read, and is yours alone: it can't be shared.",
+    )
     name: str = Field(max_length=100)
     query: QueryIn
     shared: bool = Field(False, description="Show it to everyone who can read the project.")
@@ -53,7 +58,9 @@ class SavedSearchCan(Schema):
 
 class SavedSearchOut(Schema):
     id: UUID
-    project: UUID
+    project: UUID | None = Field(
+        description="The project it searches; null for every project you can read."
+    )
     name: str
     query: dict[str, Any] = Field(description="The search, ready for POST /entities/search.")
     shared: bool
@@ -64,7 +71,11 @@ class SavedSearchOut(Schema):
 
 
 class SavedSearchFilters(Schema):
-    project: UUID
+    project: UUID | None = Field(
+        None,
+        description="Only this project's. Without one, every search you see: your own, and "
+        "those shared with projects you can read.",
+    )
 
 
 def _query(query: QueryIn) -> dict[str, Any]:
@@ -115,7 +126,7 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
         .filter(pk=saved_id)
         .first()
     )
-    if saved is not None:
+    if saved is not None and saved.project_id is not None:
         try:
             project(user, saved.project_id, Action.PROJECT_READ)
         except Problem:
@@ -125,12 +136,16 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
     return saved
 
 
-@router.get("/saved-searches", response=list[SavedSearchOut], summary="A project's saved searches")
+@router.get("/saved-searches", response=list[SavedSearchOut], summary="Saved searches")
 def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]) -> Any:  # noqa: ANN401
-    """Yours, and those shared with the project, by name."""
+    """Yours, and those shared with the project, by name. Without a project: every one you
+    see, your searches of every project among them."""
     me = caller(request)
-    found = project(me, filters.project, Action.PROJECT_READ)
-    searches = services.visible(me, found).select_related("project__team", "created_by")
+    if filters.project is None:
+        searches = services.everywhere(me)
+    else:
+        searches = services.visible(me, project(me, filters.project, Action.PROJECT_READ))
+    searches = searches.select_related("project__team", "created_by")
     return [_out(me, s) for s in searches.order_by("name", "pk")]
 
 
@@ -139,7 +154,9 @@ def create_saved_search(request: HttpRequest, payload: SavedSearchIn) -> Any:  #
     """Checked as you, now. Sharing it with the project takes Editor there."""
     me = caller(request)
     require_scope(me, "write")
-    found = project(me, payload.project, Action.PROJECT_READ)
+    found = (
+        project(me, payload.project, Action.PROJECT_READ) if payload.project is not None else None
+    )
     try:
         saved = services.create(
             me, found, name=payload.name, query=_query(payload.query), shared=payload.shared

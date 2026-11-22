@@ -151,3 +151,76 @@ def test_only_people_who_can_read_the_project(world: World) -> None:
     problem(outsider.get("/saved-searches", project=str(world.project.pk)), 404, "not_found")
     problem(outsider.get(f"/saved-searches/{mine['id']}"), 404, "not_found")
     problem(outsider.delete(f"/saved-searches/{mine['id']}"), 404, "not_found")
+
+
+def test_a_search_of_every_project_is_its_owners_alone(world: World) -> None:
+    """Saved with no project (ADR 0176), it finds records in every project its reader can
+    read; nobody else sees it, and it can't be shared, having nobody to share it with."""
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+    editor = api_as(world, "editor")
+    other = Project.objects.create(team=world.other_team, name="Vector Reference QC")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["viewer"], role=ProjectRole.EDITOR
+    )
+    create(
+        editor,
+        world.project,
+        {"sequence": "MKVL", "name": "abl1", "host": "Homo sapiens"},
+        "acme/protein.Protein",
+    )
+    create(
+        api_as(world, "viewer"),
+        other,
+        {"sequence": "MSTK", "name": "src", "host": "Homo sapiens"},
+        "acme/protein.Protein",
+    )
+    viewer = api_as(world, "viewer")
+    made = viewer.post("/saved-searches", {"name": "Human", "query": HUMAN})
+    assert made.status_code == 201, made.content
+    saved = made.json()
+    assert saved["project"] is None
+    found = viewer.post("/entities/search", saved["query"]).json()["items"]
+    assert [e["values"]["name"] for e in found] == ["src", "abl1"]
+
+    # Listed without a project, beside the project searches the viewer sees.
+    shared = save(editor, world, "Shared", shared=True).json()
+    save(editor, world, "Editor's own")
+    everywhere = viewer.get("/saved-searches").json()
+    assert [(s["name"], s["project"]) for s in everywhere] == [
+        ("Human", None),
+        ("Shared", shared["project"]),
+    ]
+    # Not in a project's list, and nobody else's.
+    assert names(viewer, world) == ["Shared"]
+    assert [s["name"] for s in editor.get("/saved-searches").json()] == ["Editor's own", "Shared"]
+    problem(editor.get(f"/saved-searches/{saved['id']}"), 404, "not_found")
+    problem(editor.delete(f"/saved-searches/{saved['id']}"), 404, "not_found")
+
+    refused = problem(
+        viewer.patch(f"/saved-searches/{saved['id']}", {"shared": True}), 422, "validation_failed"
+    )
+    assert refused["errors"] == [{"pointer": "#/shared", "detail": "needs a project."}]
+    problem(
+        viewer.post("/saved-searches", {"name": "Shared", "query": HUMAN, "shared": True}),
+        422,
+        "validation_failed",
+    )
+    # One name each among them, as in a project.
+    taken = viewer.post("/saved-searches", {"name": "Human", "query": HUMAN})
+    assert problem(taken, 409, "conflict")["detail"] == (
+        "You already have a saved search with this name here."
+    )
+    assert viewer.patch(f"/saved-searches/{saved['id']}", {"name": "Humans"}).json()["name"] == (
+        "Humans"
+    )
+    assert viewer.delete(f"/saved-searches/{saved['id']}").status_code == 204
+    assert not AuditEvent.objects.filter(action__startswith="saved_search.", project=None).exists()
+
+
+def test_searches_in_projects_no_longer_read_arent_listed(world: World) -> None:
+    viewer = api_as(world, "viewer")
+    save(viewer, world, "Mine")
+    assert [s["name"] for s in viewer.get("/saved-searches").json()] == ["Mine"]
+    world.project.memberships.filter(user=world.users["viewer"]).delete()
+    assert viewer.get("/saved-searches").json() == []
