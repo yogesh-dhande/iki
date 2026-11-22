@@ -61,10 +61,53 @@ def verify(bundle: reading.Bundle, keys: Mapping[str, str] | None = None) -> lis
             trusted.setdefault(item["key"], item["deployment"])
     records = {line["id"]: line for line in bundle.lines("entities.ndjson")}
     files = {line["id"]: line["sha256"] for line in bundle.lines("files.ndjson")}
-    return [
-        _one(line, trusted, records.get(line["record"]), files)
-        for line in bundle.lines("signatures.ndjson")
-    ]
+    lines: dict[str, dict[str, Any]] = {}
+    for line in bundle.lines("signatures.ndjson"):
+        if line["id"] in lines:
+            raise reading.BundleError(f"Signature {line['id']} appears twice in the bundle.")
+        lines[line["id"]] = line
+    verified = {
+        sid: _one(line, trusted, records.get(line["record"]), files) for sid, line in lines.items()
+    }
+    # A QA signature additionally vouches for an earlier review. Check earlier revisions
+    # first so every referenced signature has already had all of its own checks.
+    for line in sorted(lines.values(), key=lambda item: item["revision"]):
+        document = _parsed(line["document"])
+        if "reviewed" not in document:
+            continue
+        record = records.get(line["record"]) or {}
+        number = line["revision"]
+        revisions = {r["number"]: r for r in record.get("revisions", [])}
+        review = revisions.get(number, {})
+        state = review.get("state") or {}
+        carried = review.get("signatures") or []
+        change = document.get("change") or {}
+        reference = None
+        if (
+            review.get("kind") == "state_changed"
+            and state.get("field") == change.get("field")
+            and state.get("to") == change.get("from")
+            and review.get("changed_fields") == [line["field"]]
+            and all(sid in verified and verified[sid].valid for sid in carried)
+            and _only_state_changed(record, number, line["field"])
+        ):
+            reference = proof.review_reference(
+                line["record"],
+                line["revision"],
+                line["field"],
+                state["to"],
+                [_parsed(lines[sid]["document"]) for sid in carried],
+            )
+        if verified[line["id"]].status == "carried":
+            delivered = revisions.get(number + 1, {})
+            if (
+                delivered.get("kind") != "state_changed"
+                or delivered.get("changed_fields") != [line["field"]]
+                or not _only_state_changed(record, number + 1, line["field"])
+            ):
+                reference = None
+        verified[line["id"]].checks.append(proof.review_check(document["reviewed"], reference))
+    return list(verified.values())
 
 
 def _one(
@@ -120,13 +163,7 @@ def _one(
     )
 
 
-def _history_check(
-    line: Mapping[str, Any],
-    record: Mapping[str, Any],
-    files: Mapping[str, str],
-    trusted: Mapping[str, str],
-) -> proof.Check:
-    revision = int(line["revision"])
+def _values_at(record: Mapping[str, Any], revision: int) -> dict[str, Any]:
     latest: dict[str, tuple[int, dict[str, Any]]] = {}
     for h in record.get("history", []):
         number = int(h["revision"])
@@ -135,6 +172,24 @@ def _history_check(
     own: dict[str, Any] = {}
     for _, values in latest.values():
         own.update(values)
+    return own
+
+
+def _only_state_changed(record: Mapping[str, Any], number: int, field: str) -> bool:
+    before, after = _values_at(record, number - 1), _values_at(record, number)
+    before.pop(field, None)
+    after.pop(field, None)
+    return proof.canonical(before) == proof.canonical(after)
+
+
+def _history_check(
+    line: Mapping[str, Any],
+    record: Mapping[str, Any],
+    files: Mapping[str, str],
+    trusted: Mapping[str, str],
+) -> proof.Check:
+    revision = int(line["revision"])
+    own = _values_at(record, revision)
     try:
         since = proof.vouched(line.get("since"), line, trusted)
         signed = proof.migrated(_parsed(line["content"]), since)

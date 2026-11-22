@@ -52,7 +52,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import breaches, hrids, registry, states
+from iki_server.entities import breaches, hrids, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -541,6 +541,8 @@ class _Writer:
         revisions = sorted(line["revisions"], key=lambda r: int(r["number"]))
         instance = form.model._default_manager.select_for_update().get(pk=line["id"])
         had = instance.revision
+        if instance.released_review_revision is not None:
+            raise reading.BundleError(f"{instance.hrid} has been released and cannot be changed.")
         # The source's revisions come with its state changes (ADR 0125): its state fields
         # are values like any, and whether they lock it is set again once they're written.
         Entity.objects.filter(pk=instance.pk).update(locked_by=[])
@@ -665,13 +667,24 @@ class _Writer:
         if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
             signing_keys.current()
         entities = {line["id"]: line["type"] for line in self.bundle.lines("entities.ndjson")}
+        reviews: dict[str, tuple[str, int, str, str]] = {}
         for line in self.bundle.lines("signatures.ndjson"):
-            if line["record"] not in planned or Signature.objects.filter(pk=line["id"]).exists():
+            if line["record"] not in planned:
+                continue
+            document = proof_document(line["document"])
+            if "reviewed" in document:
+                reviews[line["id"]] = (
+                    line["record"],
+                    line["revision"] + 1,
+                    line["field"],
+                    line["state"],
+                )
+            if Signature.objects.filter(pk=line["id"]).exists():
                 continue
             raw = proof.unb64(line["signature"])
             checks = [
                 *proof.check_document(line["document"], raw, trusted),
-                proof.check_content(proof_document(line["document"]), line["content"]),
+                proof.check_content(document, line["content"]),
             ]
             if failed := [c for c in checks if not c.ok]:
                 raise reading.BundleError(
@@ -684,7 +697,6 @@ class _Writer:
                 raise reading.BundleError(
                     f"Signature {line['id']} in it doesn't verify: {unexplained}"
                 ) from None
-            document = proof_document(line["document"])
             signer = self._user(line["signer"])
             if signer is None:
                 raise reading.BundleError(f"Signature {line['id']} names nobody in it.")
@@ -725,6 +737,59 @@ class _Writer:
                     withdrawn_at=w["at"],
                 )
             self.counts["signatures"] += 1
+        self._released_reviews(planned, reviews, trusted)
+
+    def _released_reviews(
+        self,
+        planned: dict[str, Any],
+        reviews: dict[str, tuple[str, int, str, str]],
+        trusted: dict[str, str],
+    ) -> None:
+        """A carried QA release retains its reviewed revision here without sharing the
+        imported record. Verify the evidence against the bundle's history before commit."""
+        from iki_server.signatures import offline
+        from iki_server.signatures import services as signature_services
+        from iki_server.signatures.models import Signature
+
+        if reviews:
+            for verified in offline.verify(self.bundle, trusted):
+                if verified.id in reviews and not verified.valid:
+                    why = next(c.detail for c in verified.checks if not c.ok)
+                    raise reading.BundleError(f"Signature {verified.id} doesn't verify: {why}")
+            # A prefix of the record's history may already have been here. Verify the
+            # complete chain as imported, with this deployment's field and ID mappings.
+            for signed in Signature.objects.filter(pk__in=reviews):
+                for check in signature_services.verify(signed):
+                    if not check.ok:
+                        raise reading.BundleError(
+                            f"Signature {signed.pk} doesn't verify: {check.detail}"
+                        )
+        for row in planned.values():
+            spec = requests.result_spec(row.type)
+            if spec is None:
+                continue
+            field = states.state_fields(row.type)[spec.released_field]
+            targets = [s for s in spec.released_states if spec.requires_review(field, s)]
+            if not targets:
+                continue
+            delivered = (
+                Revision.objects.filter(
+                    entity_id=row.entity_id, state_field=field.name, state_to__in=targets
+                )
+                .order_by("number")
+                .first()
+            )
+            if delivered is None:
+                continue
+            expected = (str(row.entity_id), delivered.number, field.name, delivered.state_to)
+            if not delivered.signatures or any(
+                reviews.get(str(s)) != expected for s in delivered.signatures
+            ):
+                raise reading.BundleError(f"{row.hrid}'s release is missing its signed review.")
+            if not Entity.objects.filter(pk=row.entity_id, revision=delivered.number).update(
+                released_review_revision=delivered.number - 2
+            ):
+                raise reading.BundleError(f"{row.hrid} has further revisions after release.")
 
     # HRIDs named in values --------------------------------------------------------------
 

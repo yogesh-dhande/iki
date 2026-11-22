@@ -692,6 +692,12 @@ class _Planner:
         if mine == theirs:
             return EntityPlan.SKIP, 0, "Here already, as it is."
         if theirs[: len(mine)] == mine:
+            if here.released_review_revision is not None:
+                return (
+                    EntityPlan.CONFLICT,
+                    0,
+                    f"{here.hrid} has been released and cannot be changed.",
+                )
             sent = sent_request(here)
             if sent:
                 return EntityPlan.CONFLICT, 0, sent
