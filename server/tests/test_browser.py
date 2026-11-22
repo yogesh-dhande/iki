@@ -13,6 +13,7 @@ import itertools
 import os
 import re
 import time
+import urllib.parse
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -246,7 +247,20 @@ def watch(page: Page) -> Page:
             errors.append(str(error))
 
     page.on("pageerror", thrown)
-    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+
+    def logged(message: Any) -> None:
+        if message.type != "error":
+            return
+        # WebKit says this of a request a navigation cancelled. A request of the page's own
+        # origin isn't checked as a cross-origin one is, so for one of those it can't mean a
+        # check failed: only that the person moved on before it was answered.
+        origin = "{0.scheme}://{0.netloc}/".format(urllib.parse.urlsplit(page.url))
+        text = message.text
+        if text.endswith(" due to access control checks.") and f"load {origin}" in text:
+            return
+        errors.append(text)
+
+    page.on("console", logged)
     page.on("request", lambda r: waiting.__setitem__(r, (time.monotonic(), f"{r.method} {r.url}")))
     page.on("requestfinished", done)
     page.on("requestfailed", fail)
