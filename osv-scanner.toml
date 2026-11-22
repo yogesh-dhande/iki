@@ -22,6 +22,15 @@ checkout, never input from outside, so the attack isn't reachable, and nothing t
 includes it. Remove this once a fixed picomatch is out and the tools take it."""
 
 [[IgnoredVulns]]
+id = "RUSTSEC-2026-0592"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = """url (a stack overflow in Url::origin() on nested blob: URLs) is in \
+worker/Cargo.lock only as a dependency of cookie_store, which ureq's cookies feature would \
+pull in; that feature is off, and `cargo tree --target all` finds url in no build. Its fix, \
+url 2.5.9, came out on 2026-11-20 and can be locked from 2026-11-23 under the three-day \
+rule: lock it then, and remove this."""
+
+[[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 ignoreUntil = 2027-02-18T00:00:00Z
 reason = """chrono: an unmaintained-crate advisory, not a vulnerability, with no fixed \
