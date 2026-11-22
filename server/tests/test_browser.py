@@ -560,7 +560,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     open_as: Any, world: World, color_scheme: str, browser_name: str
 ) -> None:
     """Its sidebar leads to its pages, the app's and the server's alike, and back to Iki;
-    a keyboard reaches it all; and on a phone its pages fold under a menu (ADR 0176)."""
+    a keyboard reaches it all; and on a phone it's a drawer, as the main sidebar is, over
+    the page and holding the focus until it closes (ADR 0176)."""
     from iki_server.org.models import OrgRole, OrgRoleAssignment
     from iki_server.web import admin_area
 
@@ -606,23 +607,47 @@ def test_the_admin_area_has_a_frame_of_its_own(
         == "page"
     )
 
-    # On a phone: no sideways scrolling, and the pages under a menu, on either kind of page.
+    # On a phone, on either kind of page: no sideways scrolling, and the sidebar a drawer,
+    # opened from the bar above the page. Its close button has the focus; Escape, the
+    # backdrop and going somewhere close it.
     page.set_viewport_size({"width": 390, "height": 844})
     for path, heading in (("/admin/compute/workers/", "Compute"), ("/admin/sign-in/", None)):
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
         admin = page.get_by_role("navigation", name="Admin")
-        menu = admin.get_by_role("button", name="Menu")
-        menu.wait_for()
+        admin.wait_for(state="hidden")
+        menu = page.get_by_role("button", name="Menu", exact=True)
         assert menu.get_attribute("aria-expanded") == "false"
-        assert not admin.get_by_role("link", name="People").is_visible()
+        bar = menu.bounding_box()
+        assert bar and bar["y"] < 10, path
+        main = page.get_by_role("main").bounding_box()
+        assert main and main["y"] < 120, (path, main)
         assert page.evaluate(NO_SIDEWAYS_SCROLL), path
         menu.click()
+        drawer = page.get_by_role("dialog", name="Menu")
+        close = drawer.get_by_role("button", name="Close menu")
+        page.wait_for_function("() => document.activeElement?.closest('[role=dialog]') !== null")
+        assert _focused(close), path
         assert menu.get_attribute("aria-expanded") == "true"
-        admin.get_by_role("link", name="People").wait_for()
+        drawer.get_by_role("link", name="People").wait_for()
+        # The page under it doesn't move, and is out of reach.
+        assert page.get_by_role("main").bounding_box() == main, path
+        assert page.evaluate("document.getElementById('main').closest('[inert]') !== null")
         assert page.evaluate(NO_SIDEWAYS_SCROLL), path
         assert_clean(page)
+        page.keyboard.press("Escape")
+        drawer.wait_for(state="hidden")
+        assert _focused(menu), path
+        menu.click()
+        page.mouse.click(380, 400)  # The backdrop, beside the drawer.
+        drawer.wait_for(state="hidden")
+        assert _focused(menu), path
+    menu.click()
+    page.get_by_role("dialog", name="Menu").get_by_role("link", name="Compute").click()
+    page.get_by_role("heading", name="Compute", level=1).wait_for()
+    page.get_by_role("dialog", name="Menu").wait_for(state="hidden")
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
 
     # And back to Iki, in its own frame.
     page.set_viewport_size({"width": 1440, "height": 900})

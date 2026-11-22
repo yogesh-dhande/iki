@@ -28,7 +28,7 @@ def world() -> World:
 
 def sidebar(html: str) -> list[tuple[str, list[str]]]:
     """The admin sidebar's groups, each with its links' labels."""
-    nav = re.search(r'<nav class="admin-side" aria-label="Admin"[^>]*>(.*?)</nav>', html, re.S)
+    nav = re.search(r'<nav class="admin-nav" aria-label="Admin"[^>]*>(.*?)</nav>', html, re.S)
     assert nav, "no admin sidebar"
     groups = re.findall(
         r'<p class="admin-group" id="([^"]+)">([^<]+)</p>\s*'
@@ -246,10 +246,20 @@ def test_the_frame_has_the_account_and_the_narrow_screens_menu(world: World) -> 
         html,
     )
     assert re.search(r'<form class="admin-account" method="post" action="/logout/">', html)
-    # Hidden until iki.js runs, so without it the pages stay listed.
+    # On a narrow screen the sidebar is a drawer, as the main one is: iki.js's, from the
+    # menu button in the bar above the page, with a close button and a backdrop.
     assert re.search(
-        r'<button class="button admin-menu-button" type="button" aria-expanded="true" '
-        r'aria-controls="admin-menu" data-admin-menu hidden>Menu</button>',
+        r'<button class="topbar-menu" type="button" aria-controls="admin-sidebar" '
+        r'aria-expanded="false" data-drawer-open>\s*<svg class="icon"[^>]*>.*?</svg>\s*'
+        r'<span class="visually-hidden">Menu</span>',
         html,
+        re.S,
     )
-    assert '<div class="admin-menu" id="admin-menu">' in html
+    assert '<div class="admin-side" id="admin-sidebar" data-sidebar>' in html
+    assert re.search(
+        r'<button class="sidebar-close" type="button" data-drawer-close>\s*<svg[^>]*>.*?</svg>\s*'
+        r'<span class="visually-hidden">Close menu</span>',
+        html,
+        re.S,
+    )
+    assert '<div class="sidebar-backdrop" data-drawer-close hidden></div>' in html
