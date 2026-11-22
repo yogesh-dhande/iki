@@ -95,13 +95,13 @@ export function SearchPalette({ navigate }: { navigate: (href: string) => void }
   }, []);
   return (
     <ModalOverlay
-      className="dialog-overlay search-overlay"
+      className="dialog-overlay palette-overlay"
       isOpen={open}
       onOpenChange={setOpen}
       isDismissable
     >
-      <Modal className="search-modal">
-        <Dialog className="search-dialog" aria-label="Search everything">
+      <Modal className="palette-modal">
+        <Dialog className="palette-dialog" aria-label="Search everything">
           <Palette
             onOpen={(href) => {
               setOpen(false);
@@ -202,8 +202,8 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
 
   return (
     <>
-      <div className="search-box">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="search-icon">
+      <div className="palette-box">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="palette-icon">
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
         </svg>
@@ -233,7 +233,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
         />
         <button
           type="button"
-          className="search-esc kbd"
+          className="palette-esc kbd"
           onClick={onClose}
           aria-label="Esc: close the search"
         >
@@ -241,13 +241,13 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
         </button>
       </div>
       {q !== "" ? (
-        <div className="search-kinds">
-          <div className="search-pills" role="group" aria-label="Kind">
+        <div className="palette-kinds">
+          <div className="palette-pills" role="group" aria-label="Kind">
             {pills.map((p) => (
               <button
                 key={p.kind ?? "all"}
                 type="button"
-                className="search-pill"
+                className="palette-pill"
                 aria-pressed={kind === p.kind}
                 onClick={() => {
                   setKind(p.kind);
@@ -255,15 +255,15 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
                 }}
               >
                 {p.label}
-                <span className="search-pill-count">{p.shown}</span>
+                <span className="palette-pill-count">{p.shown}</span>
               </button>
             ))}
           </div>
-          {readable !== undefined ? <span className="search-where">{where(readable)}</span> : null}
+          {readable !== undefined ? <span className="palette-where">{where(readable)}</span> : null}
         </div>
       ) : null}
       <div
-        className="search-results"
+        className="palette-results"
         ref={list}
         role="listbox"
         id={listbox}
@@ -291,7 +291,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
           />
         ))}
       </div>
-      <div className="search-note" id={`${id}-hint`}>
+      <div className="palette-note" id={`${id}-hint`}>
         {q === "" && !recent.length && answer.isSuccess ? (
           <p>Type to search everything you can read.</p>
         ) : null}
@@ -311,8 +311,8 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
             : `Nothing matches ${q}`
           : ""}
       </div>
-      <div className="search-footer">
-        <span className="search-keys" aria-hidden="true">
+      <div className="palette-footer">
+        <span className="palette-keys" aria-hidden="true">
           <span>
             <kbd className="kbd">↑</kbd> <kbd className="kbd">↓</kbd> move
           </span>
@@ -323,7 +323,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
             <kbd className="kbd">{onMac() ? "⌘↵" : "Ctrl+↵"}</kbd> open in a new tab
           </span>
         </span>
-        <span className="search-promise">
+        <span className="palette-promise">
           Only what you can read. Records in other projects never appear, not even as a count.
         </span>
       </div>
@@ -372,8 +372,8 @@ function ResultGroup({
   const mine = rows.filter((r) => r.id.startsWith(`${id}-`));
   if (!mine.length) return null;
   return (
-    <div role="group" aria-labelledby={`${id}-title`} className="search-group">
-      <div role="presentation" id={`${id}-title`} className="search-group-title">
+    <div role="group" aria-labelledby={`${id}-title`} className="palette-group">
+      <div role="presentation" id={`${id}-title`} className="palette-group-title">
         {title}
       </div>
       {mine.map((row) => (
@@ -384,7 +384,7 @@ function ResultGroup({
           aria-selected={row === active}
           tabIndex={-1}
           href={row.href}
-          className={row.result ? "search-option" : "search-option search-all"}
+          className={row.result ? "palette-option" : "palette-option palette-all"}
           onMouseMove={() => {
             if (row !== active) setActive(rows.indexOf(row));
           }}
@@ -407,20 +407,23 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
   const [first, ...others] = result.projects;
   return (
     <>
-      <span className={record ? "search-dot" : "search-dot search-dot-round"} aria-hidden="true" />
-      {result.hrid ? <span className="search-hrid">{result.hrid}</span> : null}
-      <span className="search-title">{result.title}</span>
-      <span className="search-meta">
-        <span className="search-detail">
+      <span
+        className={record ? "palette-dot" : "palette-dot palette-dot-round"}
+        aria-hidden="true"
+      />
+      {result.hrid ? <span className="palette-hrid">{result.hrid}</span> : null}
+      <span className="palette-title">{result.title}</span>
+      <span className="palette-meta">
+        <span className="palette-detail">
           {record || result.kind === "run"
             ? result.detail
             : `${RESULT_LABELS[result.kind]} · ${result.detail}`}
         </span>
         {first ? (
-          <span className="search-project">
-            <span className="search-project-mark" aria-hidden="true" />
+          <span className="palette-project">
+            <span className="palette-project-mark" aria-hidden="true" />
             {first.name}
-            {others.length ? <span className="search-project-more"> +{others.length}</span> : null}
+            {others.length ? <span className="palette-project-more"> +{others.length}</span> : null}
             {others.length ? (
               <span className="visually-hidden">
                 {`, and ${others.map((p) => p.name).join(", ")}`}
@@ -429,7 +432,7 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
           </span>
         ) : null}
         {active ? (
-          <kbd className="kbd search-enter" aria-hidden="true">
+          <kbd className="kbd palette-enter" aria-hidden="true">
             ↵
           </kbd>
         ) : null}
