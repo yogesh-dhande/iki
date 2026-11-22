@@ -411,6 +411,49 @@ def check_content(document: Mapping[str, Any], content_text: str) -> Check:
     return Check("content", True, "The content kept with it is what was signed.")
 
 
+def review_reference(
+    record_id: str,
+    revision: int,
+    field: str,
+    state: str,
+    documents: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """The evidence for a signed release, from the signatures that set the preceding
+    review state. Every signature on that transition must name the same record, source
+    revision and content. A reviewer's meaning identifies the reviews among them."""
+    digest = None
+    reviews = []
+    for document in documents:
+        record = document.get("record") or {}
+        change = document.get("change") or {}
+        if (
+            (record.get("id"), record.get("revision"), change.get("field"), change.get("to"))
+            != (record_id, revision - 1, field, state)
+            or not record.get("content_sha256")
+            or (digest is not None and record["content_sha256"] != digest)
+        ):
+            return None
+        digest = record["content_sha256"]
+        if (document.get("signature") or {}).get("meaning") == "review":
+            if not isinstance(document.get("id"), str):
+                return None
+            reviews.append(document["id"])
+    if not reviews:
+        return None
+    return {"revision": revision - 1, "content_sha256": digest, "signatures": reviews}
+
+
+def review_check(claim: Any, reference: Mapping[str, Any] | None) -> Check:  # noqa: ANN401 - JSON
+    ok = reference is not None and claim == reference
+    return Check(
+        "review",
+        ok,
+        "The release identifies the revision, content and signatures of the preceding review."
+        if ok
+        else "The release's reviewed revision, content or signatures do not match its review.",
+    )
+
+
 def differences(signed: Mapping[str, Any], now: Mapping[str, Any]) -> list[str]:
     """The fields whose values, or units, differ between two contents, sorted."""
     out = set()

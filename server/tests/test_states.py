@@ -126,6 +126,7 @@ def test_a_type_says_its_state_fields_and_their_states(world: World) -> None:
         "set_by": [QA],
         "locks": True,
         "holds_amount": False,
+        "on_edit": None,
         "reason": "optional",
         "signatures": [],
         "guards": [],
@@ -169,6 +170,22 @@ def test_a_record_starts_in_its_initial_states(world: World) -> None:
     # Records of types without state fields have none.
     protein = create(api_as(world), world.project, {"sequence": "MKV"}, "acme/protein.Protein")
     assert protein.json()["can"]["states"] == {}
+
+
+def test_correctability_is_refreshed_after_a_role_change(world: World) -> None:
+    from test_rules import made
+
+    roles(world, editor=(ANALYST,), admin=(REVIEWER,))
+    ref = made(world, {"purity": 95})["id"]
+    set_(world, "editor", ref, "status", "in_review")
+    set_(world, "admin", ref, "status", "approved")
+    api = api_as(world, "editor")
+    first = api.get(f"/entities/{ref}")
+    assert first.json()["can"]["correct"]
+    roles(world, editor=())
+    refreshed = api.call("GET", f"/entities/{ref}", headers={"If-None-Match": first["ETag"]})
+    assert refreshed.status_code == 200
+    assert not refreshed.json()["can"]["correct"]
 
 
 def test_a_state_field_is_set_on_its_own(world: World) -> None:

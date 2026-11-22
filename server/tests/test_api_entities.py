@@ -116,6 +116,7 @@ def test_creating_answers_201_with_its_etag_and_location(world: World) -> None:
     assert body["created_by"]["email"] == "editor@example.com"
     assert body["can"] == {
         "edit": True,
+        "correct": False,
         "edit_amount": False,
         "draw_purposes": [],
         "states": {},
@@ -213,6 +214,7 @@ def test_entities_are_found_by_id_or_hrid_and_cached_by_etag(world: World) -> No
     assert by_hrid.status_code == 200 and by_hrid.json()["id"] == made["id"]
     assert by_hrid.json()["can"] == {
         "edit": False,
+        "correct": False,
         "edit_amount": False,
         "draw_purposes": [],
         "states": {},
@@ -263,6 +265,7 @@ def test_an_owner_project_you_cant_see_is_null(world: World, other: Project) -> 
     seen = api_as(world, "outsider").get(f"/entities/{made['id']}").json()
     assert seen["owner_project"] is None and seen["can"] == {
         "edit": False,
+        "correct": False,
         "edit_amount": False,
         "draw_purposes": [],
         "states": {},

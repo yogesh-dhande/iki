@@ -32,6 +32,7 @@ from iki_server.api.entities import (
 )
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import ProjectRef, UserOut
+from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, registry, requests, services
 from iki_server.entities.models import Entity, ProjectLink, Request
 from iki_server.entities.values import Invalid, shape
@@ -89,6 +90,17 @@ class SubmitIn(Schema):
     reason: str = Field("", max_length=2000)
 
 
+class ResultReleaseOut(Schema):
+    """Receive the exact versions at GET /entities/{entity}/revisions/{number}."""
+
+    entity: UUID
+    reviewed_revision: int | None = Field(
+        description="The revision the reviewer signed, if required."
+    )
+    signed_revision: int | None = Field(description="The revision signed for release, if signed.")
+    released_revision: int = Field(description="The revision that released the result.")
+
+
 class RequestOut(Schema):
     """A request's two sides (ADR 0132)."""
 
@@ -100,6 +112,9 @@ class RequestOut(Schema):
     sent: list[EntityOut] = Field(
         description="What it sent the service with it, that you can read: the records its "
         "`sends` fields named, now or when they were sent."
+    )
+    result_releases: list[ResultReleaseOut] = Field(
+        description="The revisions delivered to this request."
     )
     results: list[EntityOut] = Field(
         description="Its results that you can read: for the asking project, those the service "
@@ -327,6 +342,19 @@ def get_request(request: HttpRequest, ref: str, project: UUID | None = None) -> 
         "submitted_by": sent.submitted_by if sent is not None else None,
         "sent": _out(me, [shown[i] for i in sent_ids if i in shown]),
         "results": _out(me, results),
+        "result_releases": [
+            {"entity": ref, **data}
+            for ref, data in AuditEvent.objects.filter(
+                action="request.result_released",
+                target_type="entity",
+                target_id__in=[str(result.pk) for result in results],
+                project_id=entity.owner_project_id,
+                data__request=str(entity.pk),
+                data__has_key="released_revision",
+            )
+            .order_by("id")
+            .values_list("target_id", "data")
+        ],
     }
 
 
