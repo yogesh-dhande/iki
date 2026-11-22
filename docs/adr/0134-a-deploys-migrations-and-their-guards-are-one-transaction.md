@@ -5,6 +5,8 @@
 - Refines: [0025](0025-append-only-audit-log-and-database-roles.md),
   [0033](0033-plugin-codegen-and-migrations.md),
   [0034](0034-deployment-lockfile-and-plugin-builds.md)
+- Refined by: [0181](0181-check-a-proposed-plugin-against-existing-records.md),
+  on the read-only preflight before migrations and the baseline kept at sync.
 
 ## Context
 

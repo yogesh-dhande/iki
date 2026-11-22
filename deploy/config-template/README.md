@@ -44,6 +44,39 @@ worker.Dockerfile       # Iki's worker image plus the plugins and their environm
 **Promote** a change from staging to production by copying the lockfile
 lines, or the `iki.yaml` change for an Iki upgrade, in a pull request.
 
+**Check the target's records before promoting a plugin.** From the
+proposed configuration, build the pinned plugins. Sign in to the target
+deployment as an Org Admin with access to all projects and run the check
+against that deployment. For example, to review `iki/dna` for production,
+use the production URL and the manifest from the proposed production build.
+
+```sh
+iki deploy build deployments/production --output build/plugins
+iki plugin preflight build/plugins/iki_plugin_iki__dna/manifest.json --url https://iki.example.org
+```
+
+Under **Admin → Plugins**, upload that `manifest.json` on the plugin's
+detail page or use the Plugins list for a new installation. Both let you
+download the report. Compare the configuration
+revision with the deployed lockfile's digest. Read each type's affected
+counts and example record IDs. A sampled type gives a lower bound on
+affected records, even if the sample had no conflicts. Pass `--json` to
+the CLI to save the report for the review.
+
+The migrate Job repeats the check before it writes. Fix blocking findings
+or, if the review accepts them or the sample's incomplete coverage, put
+the report's `candidate_revision` in the target's `values.yaml` in the
+promotion pull request. Remove the acknowledgement after the rollout.
+
+```yaml
+migrate:
+  acknowledgePreflight:
+    - "<candidate_revision>"
+```
+
+An acknowledgement applies to that candidate manifest. Database
+constraints and the checks on reversing migrations still apply.
+
 **Roll back** by reverting the pull request that changed `image.yaml`. The
 migrate Job reverses the plugin migrations the older image doesn't have.
 If reversing could lose data entered since, it refuses and changes nothing,
