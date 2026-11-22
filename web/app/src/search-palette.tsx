@@ -22,6 +22,8 @@ import {
 } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 
+import { swatchOf } from "./project-color";
+
 import {
   bindSearchShortcut,
   DEBOUNCE_MS,
@@ -407,10 +409,11 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
   const [first, ...others] = result.projects;
   return (
     <>
-      <span
-        className={record ? "palette-dot" : "palette-dot palette-dot-round"}
-        aria-hidden="true"
-      />
+      {record ? (
+        <TypeDot type={result.type} />
+      ) : (
+        <span className="palette-dot palette-dot-round" aria-hidden="true" />
+      )}
       {result.hrid ? <span className="palette-hrid">{result.hrid}</span> : null}
       <span className="palette-title">{result.title}</span>
       <span className="palette-meta">
@@ -421,7 +424,11 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
         </span>
         {first ? (
           <span className="palette-project">
-            <span className="palette-project-mark" aria-hidden="true" />
+            <span
+              className="swatch palette-project-mark"
+              data-swatch={swatchOf(first.id)}
+              aria-hidden="true"
+            />
             {first.name}
             {others.length ? <span className="palette-project-more"> +{others.length}</span> : null}
             {others.length ? (
@@ -439,4 +446,14 @@ function ResultRow({ result, active }: { result: SearchResult; active: boolean }
       </span>
     </>
   );
+}
+
+/**
+ * A record's or request's type, as a square in its type's color: the hook for the type
+ * color helper (ADR 0176), which gives each type a swatch from its name as projects get
+ * one from their ID. Until it lands, every type is the accent; `data-type` names the
+ * type for it.
+ */
+function TypeDot({ type }: { type: string | null }) {
+  return <span className="palette-dot" data-type={type ?? undefined} aria-hidden="true" />;
 }
