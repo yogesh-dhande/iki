@@ -564,7 +564,7 @@ def make_jcamp(date_lines: list[str], points: int = 1800) -> bytes:
         "##DATA TYPE=INFRARED SPECTRUM",
         "##DATA CLASS=XYDATA",
         "##ORIGIN=QC lab 2",
-        "##OWNER=Example Pharma",
+        "##OWNER= Example Pharma",
         *date_lines,
         "##SPECTROMETER/DATA SYSTEM=FT-IR",
         "##XUNITS=1/CM",

@@ -1373,7 +1373,11 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/registrations/locations", fixed("/registrations/locations"), row(200)),
     ("GET", "/registrations/{registration_id}", registration(), row(404, editor=200)),
     ("GET", "/files", fixed("/files"), row(200)),
+    ("GET", "/files/count", fixed("/files/count"), row(200)),
+    ("GET", "/files/formats", fixed("/files/formats"), row(200)),
     ("GET", "/files/{file_id}", file(), readers(200)),
+    ("GET", "/files/{file_id}/records", file("/records"), readers(200)),
+    ("GET", "/files/{file_id}/runs", file("/runs"), readers(200)),
     ("GET", "/files/{file_id}/content", file("/content"), readers(302)),
     ("GET", "/files/{file_id}/content-url", file("/content-url"), readers(200)),
     # Notifications are each person's own: nobody else's are found.
