@@ -10,11 +10,12 @@ import {
   createRouter,
   lazyRouteComponent,
   Outlet,
+  Navigate,
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { meQuery, projectQuery, queryClient, rolesQuery, watchQuery } from "./api";
+import { meQuery, projectQuery, projectsQuery, queryClient, rolesQuery, watchQuery } from "./api";
 import { outsideApisQuery } from "./outside-apis";
 import { Layout } from "./layout";
 import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
@@ -29,6 +30,7 @@ import {
   validateNewEntitySearch,
 } from "./entities";
 import { validateLineageSearch } from "./lineage";
+import { validateListSearch } from "./lists";
 import { validateRequestsSearch } from "./requests";
 import { validateWorkSearch, Work } from "./pages/work";
 import { entryQuery } from "./registries";
@@ -43,6 +45,7 @@ import { validateNewRunSearch } from "./pages/new-run-search";
 import {
   actionsQuery,
   batchQuery,
+  validateRunsSearch,
   runQuery,
   STATUS,
   workflowRunQuery,
@@ -88,6 +91,11 @@ const ProjectRequestsPage = lazyRouteComponent(
 const entityFormPages = () => import("./pages/entity-form");
 const runPages = () => import("./pages/runs");
 const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
+const AllRuns = lazyRouteComponent(runPages, "AllRuns");
+const listPages = () => import("./pages/lists");
+const AllEntities = lazyRouteComponent(listPages, "AllEntities");
+const TypeTable = lazyRouteComponent(listPages, "TypeTable");
+const AllRequests = lazyRouteComponent(listPages, "AllRequests");
 const RunPage = lazyRouteComponent(runPages, "RunPage");
 const NewRun = lazyRouteComponent(() => import("./pages/new-run"), "NewRun");
 const BatchPage = lazyRouteComponent(() => import("./pages/batches"), "BatchPage");
@@ -387,9 +395,68 @@ const typeRoute = createRoute({
   component: TypeDetail,
 });
 
-const entityRoute = createRoute({
+// Every record its reader can read, across projects (ADR 0176); a type's table; a record.
+const entitiesRoute = createRoute({ getParentRoute: () => rootRoute, path: "entities" });
+
+/** What the lists across projects read before they draw: the types, and the projects their
+ * Project filter offers, so nothing in the toolbar arrives late. */
+const listLoader = ({ context }: { context: { queryClient: QueryClient } }) =>
+  Promise.all([
+    context.queryClient.query(typesQuery),
+    context.queryClient.query(projectsQuery),
+    context.queryClient.query(componentsQuery).catch(() => undefined),
+  ]);
+
+const allEntitiesRoute = createRoute({
+  getParentRoute: () => entitiesRoute,
+  path: "/",
+  // ?type=, ?project=atlas, ?q=, ?filters=, ?sort=: as a project's Entities tab, across them.
+  validateSearch: validateListSearch,
+  loader: listLoader,
+  component: AllEntities,
+});
+
+const typeTablesRoute = createRoute({ getParentRoute: () => entitiesRoute, path: "types" });
+
+const typeTablesIndexRoute = createRoute({
+  getParentRoute: () => typeTablesRoute,
+  path: "/",
+  component: () => <Navigate to="/entities/" replace />,
+});
+
+// A type's name is `namespace/plugin.Type`: the rest of the path, `/` and all (ADR 0113).
+const typeTableRoute = createRoute({
+  getParentRoute: () => typeTablesRoute,
+  path: "$",
+  validateSearch: validateListSearch,
+  loader: listLoader,
+  component: TypeTable,
+});
+
+const requestsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "entities/$ref",
+  path: "requests",
+  validateSearch: validateListSearch,
+  loader: listLoader,
+  component: AllRequests,
+});
+
+const runsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "runs",
+  // ?status=failed, ?project=atlas.
+  validateSearch: validateRunsSearch,
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.query(projectsQuery),
+      context.queryClient.query(actionsQuery),
+    ]),
+  component: AllRuns,
+});
+
+const entityRoute = createRoute({
+  getParentRoute: () => entitiesRoute,
+  path: "$ref",
   // ?project=atlas: that project's record, when the HRID is a registry entry's (ADR 0115).
   validateSearch: validateEntityPageSearch,
   loaderDeps: ({ search }) => ({ project: search.project }),
@@ -582,15 +649,21 @@ const routeTree = rootRoute.addChildren([
     ]),
   ]),
   typesRoute.addChildren([typeListRoute, typeRoute]),
-  entityRoute.addChildren([
-    entityOverviewRoute,
-    entityEditRoute,
-    entityHistoryRoute,
-    entityLineageRoute,
-    entityViewerRoute,
-    entityComponentRoute,
-    entityAppRoute,
+  entitiesRoute.addChildren([
+    allEntitiesRoute,
+    typeTablesRoute.addChildren([typeTablesIndexRoute, typeTableRoute]),
+    entityRoute.addChildren([
+      entityOverviewRoute,
+      entityEditRoute,
+      entityHistoryRoute,
+      entityLineageRoute,
+      entityViewerRoute,
+      entityComponentRoute,
+      entityAppRoute,
+    ]),
   ]),
+  requestsRoute,
+  runsRoute,
   registryEntriesRoute,
   entryRoute,
   runRoute,

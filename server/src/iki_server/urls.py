@@ -60,6 +60,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Entities and their types (a project's entities are in org.urls).
     path("types/", web.app, name="entity_types"),
     path("types/<qualified:name>/", web.app, name="entity_type"),
+    # Every record its reader can read, across projects, and one type's table (ADR 0176).
+    path("entities/", web.app, name="entities"),
+    path("entities/types/<qualified:name>/", web.app, name="entity_type_table"),
     path("entities/<str:ref>/", web.app, name="entity"),
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
@@ -83,7 +86,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
         components.module,
         name="component_module",
     ),
-    # Runs (a project's runs are in org.urls).
+    # Requests and runs across projects (ADR 0176); a project's are in org.urls.
+    path("requests/", web.app, name="requests"),
+    path("runs/", web.app, name="runs"),
     path("runs/<str:ref>/", web.app, name="run"),
     path("batches/<str:ref>/", web.app, name="batch"),
     path("workflow-runs/<str:ref>/", web.app, name="workflow_run"),

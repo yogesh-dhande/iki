@@ -3256,7 +3256,10 @@ input[type="file"]::file-selector-button {
 }
 
 .list-toolbar select {
+  height: 28px;
   max-width: 14rem;
+  padding-top: 0;
+  padding-bottom: 0;
   padding-right: 1.75rem;
 }
 
@@ -3285,8 +3288,9 @@ input[type="file"]::file-selector-button {
 }
 
 .search-box input[type="search"] {
-  min-height: 30px;
-  padding: 0.2rem 0.65rem 0.2rem 2rem;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 0.65rem 0 2rem;
   font-size: 0.875rem;
   border-width: 1px;
   border-radius: 6px;
