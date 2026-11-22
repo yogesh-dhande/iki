@@ -92,7 +92,7 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
   return {
     list: (children: ReactNode) =>
       scope === "project" && project ? (
-        <Link to="/projects/$slug/webhooks/" params={{ slug: project.slug }}>
+        <Link to="/projects/$slug/automation/webhooks/" params={{ slug: project.slug }}>
           {children}
         </Link>
       ) : (
@@ -100,7 +100,10 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
       ),
     one: (webhookId: string, children: ReactNode) =>
       scope === "project" && project ? (
-        <Link to="/projects/$slug/webhooks/$webhookId/" params={{ slug: project.slug, webhookId }}>
+        <Link
+          to="/projects/$slug/automation/webhooks/$webhookId/"
+          params={{ slug: project.slug, webhookId }}
+        >
           {children}
         </Link>
       ) : (
@@ -423,7 +426,7 @@ function SecretHelp() {
 
 export function ProjectWebhook() {
   const project = useProject();
-  const { webhookId } = useParams({ from: "/projects/$slug/webhooks/$webhookId" });
+  const { webhookId } = useParams({ from: "/projects/$slug/automation/webhooks/$webhookId" });
   if (!project.can.manage_webhooks) {
     return (
       <section className="card">
@@ -852,7 +855,7 @@ function Delete({
               };
               if (scope === "project" && project) {
                 void navigate({
-                  to: "/projects/$slug/webhooks/",
+                  to: "/projects/$slug/automation/webhooks/",
                   params: { slug: project.slug },
                 }).then(done);
               } else {

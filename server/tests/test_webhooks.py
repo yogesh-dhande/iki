@@ -596,7 +596,7 @@ def test_webhooks_failing_for_days_are_turned_off_and_their_admins_told(
     assert hook.disabled_reason == DisabledReason.FAILING
     told = Notification.objects.filter(kind="webhook.disabled")
     assert {n.recipient.email for n in told} == {"admin@example.com"}
-    assert told[0].path == f"/projects/kinase-atlas/webhooks/{hook.pk}/"
+    assert told[0].path == f"/projects/kinase-atlas/automation/webhooks/{hook.pk}/"
     assert "127.0.0.1" in told[0].title
     event = AuditEvent.objects.get(action="webhook.disabled")
     assert event.actor is None and event.project == world.project
