@@ -615,9 +615,10 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
         assert_clean(page)
         page.keyboard.press("Escape")
         menu.wait_for(state="detached")
-        for size in ({"width": 1440, "height": 900}, {"width": 390, "height": 844}):
-            page.set_viewport_size(size)
-            assert page.evaluate(width), size
+        page.set_viewport_size({"width": 1440, "height": 900})
+        assert page.evaluate(width)
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.evaluate(width)
         page.context.close()
 
     page = open_as("admin", f"/projects/{world.project.slug}/")
