@@ -12,14 +12,15 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, meQuery, problemOf, projectByIdQuery, useApiMutation } from "../api";
+import { iki, meQuery, problemOf, projectByIdQuery, useApiMutation, type Project } from "../api";
 import { capacityText, slurmRequestText, type AttemptSlurm } from "../compute";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { useReadableProjects } from "../lists";
 import { media } from "../media";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
@@ -52,6 +53,7 @@ import {
   ConfirmDialog,
   Loading,
   PageHeader,
+  PageTitle,
   ProblemAlert,
   RelativeTime,
   SelectField,
@@ -195,86 +197,197 @@ export function ProjectRuns() {
   usePageTitle(`Runs · ${project.name}`);
   const { status } = useSearch({ from: "/projects/$slug/runs" });
   const navigate = useNavigate();
-  const actions = useQuery(actionsQuery).data;
+  return (
+    <RunList
+      project={project}
+      status={status}
+      onStatus={(value) => {
+        void navigate({
+          to: "/projects/$slug/runs/",
+          params: { slug: project.slug },
+          search: value ? { status: value } : {},
+        });
+      }}
+      actions={
+        project.can.run.length ? (
+          <Link
+            to="/projects/$slug/runs/new/"
+            params={{ slug: project.slug }}
+            className={buttonClass("primary")}
+          >
+            New run
+          </Link>
+        ) : null
+      }
+    />
+  );
+}
+
+/** Every run its reader can read, across their projects (ADR 0176). */
+export function AllRuns() {
+  usePageTitle("Runs");
+  const search = useSearch({ from: "/runs" });
+  const navigate = useNavigate({ from: "/runs" });
+  const { projects } = useReadableProjects();
+  const chosen = projects.find((p) => p.slug === search.project);
+  return (
+    <>
+      <div className="list-header">
+        <div className="list-title">
+          <PageTitle>Runs</PageTitle>
+          <p className="muted">
+            Every run in the projects you belong to, newest first. Runs in projects you aren’t in
+            never appear.
+          </p>
+        </div>
+      </div>
+      <RunList
+        project={chosen}
+        across={{
+          projects,
+          slug: search.project,
+          onProject: (slug) => {
+            void navigate({ search: (prev) => ({ ...prev, project: slug || undefined }) });
+          },
+        }}
+        status={search.status}
+        onStatus={(value) => {
+          void navigate({ search: (prev) => ({ ...prev, status: value }) });
+        }}
+      />
+    </>
+  );
+}
+
+/** A list of runs, newest first: a project's, or across projects every one its reader can
+ * read, with a Project filter and column. One table for both (ADR 0176). */
+function RunList({
+  project,
+  across,
+  status,
+  onStatus,
+  actions,
+}: {
+  project: Project | undefined;
+  /** Across projects: those the reader can read, the one picked, and picking another. */
+  across?: { projects: Project[]; slug: string | undefined; onProject: (slug: string) => void };
+  status: RunStatus | undefined;
+  onStatus: (status: RunStatus | undefined) => void;
+  actions?: React.ReactNode;
+}) {
+  const actionsList = useQuery(actionsQuery).data;
+  const unknown = Boolean(across?.slug && !project);
   const runs = useInfiniteQuery({
-    ...projectRunsQuery(project.id, status),
+    ...projectRunsQuery(project?.id, status),
+    enabled: !unknown,
     refetchInterval: (query) =>
       query.state.data?.pages.some((p) => p.items.some((r) => !finished(r.status)))
         ? LIST_REFRESH_MS
         : false,
   });
   const items = runs.data?.pages.flatMap((p) => p.items) ?? [];
+  const names = new Map((across?.projects ?? []).map((p) => [p.id, p]));
+  const captionId = useId();
   return (
     <>
-      <div className="toolbar">
+      <div className="list-toolbar">
+        {across ? (
+          <SelectField
+            label="Project"
+            compact
+            value={across.slug ?? ""}
+            options={[
+              { value: "", label: "Any project" },
+              ...(across.slug && !project ? [{ value: across.slug, label: across.slug }] : []),
+              ...across.projects.map((p) => ({ value: p.slug, label: p.name })),
+            ]}
+            onChange={across.onProject}
+          />
+        ) : null}
         <SelectField
           label="Status"
           compact
           value={status ?? "all"}
           options={STATUS_CHOICES}
           onChange={(value) => {
-            void navigate({
-              to: "/projects/$slug/runs/",
-              params: { slug: project.slug },
-              search: value === "all" ? {} : { status: value as RunStatus },
-            });
+            onStatus(value === "all" ? undefined : (value as RunStatus));
           }}
         />
-        {project.can.run.length ? (
-          <Link
-            to="/projects/$slug/runs/new/"
-            params={{ slug: project.slug }}
-            className={`${buttonClass("primary")} toolbar-end`}
-          >
-            New run
-          </Link>
-        ) : null}
+        {actions ? <div className="list-toolbar-end">{actions}</div> : null}
       </div>
-      {runs.isPending ? <Loading label="Loading runs…" /> : null}
+      {unknown ? <p className="empty">There’s no project {across?.slug} you can read.</p> : null}
+      {runs.isPending && !unknown ? <Loading label="Loading runs…" /> : null}
       {runs.error ? <ProblemAlert problem={problemOf(runs.error)} /> : null}
       {runs.isSuccess && items.length === 0 ? (
         <p className="muted empty">
           {status
             ? `No runs are ${STATUS[status].toLowerCase()}.`
-            : "No runs yet. When someone runs an action in this project, it’s listed here."}
+            : project
+              ? `No runs yet. When someone runs an action in ${across ? project.name : "this project"}, it’s listed here.`
+              : "No runs you can read yet. When someone runs an action in one of your projects, it’s listed here."}
         </p>
       ) : null}
       {items.length ? (
-        <ul className="rows">
-          {items.map((run) => (
-            <li className="row" key={run.id}>
-              <div className="row-main">
-                <Link className="row-title" to="/runs/$ref/" params={{ ref: run.hrid }}>
-                  {actionLabel(actions, run.action)}
-                </Link>
-                <span className="row-meta">
-                  {run.hrid}
-                  {run.batch ? (
-                    <>
-                      {" in "}
-                      <Link to="/batches/$ref/" params={{ ref: run.batch.hrid }}>
-                        {run.batch.hrid}
-                      </Link>
-                    </>
+        <div className="list-table-box">
+          <table className="list-table" aria-labelledby={captionId}>
+            <caption id={captionId} className="visually-hidden">
+              {project ? `Runs in ${project.name}` : "Runs you can read"}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">ID</th>
+                {across && !project ? <th scope="col">Project</th> : null}
+                <th scope="col">Status</th>
+                <th scope="col">Asked by</th>
+                <th scope="col" className="list-table-end">
+                  Started
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((run) => (
+                <tr key={run.id}>
+                  <td>
+                    <Link className="list-name" to="/runs/$ref/" params={{ ref: run.hrid }}>
+                      {actionLabel(actionsList, run.action)}
+                    </Link>
+                    {run.reason ? <span className="cell-meta">“{run.reason}”</span> : null}
+                  </td>
+                  <td>
+                    <span className="grid-id">{run.hrid}</span>
+                    {run.batch ? (
+                      <span className="cell-meta">
+                        in{" "}
+                        <Link to="/batches/$ref/" params={{ ref: run.batch.hrid }}>
+                          {run.batch.hrid}
+                        </Link>
+                      </span>
+                    ) : null}
+                    {run.workflow ? (
+                      <span className="cell-meta">
+                        in{" "}
+                        <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
+                          {run.workflow.hrid}
+                        </Link>
+                      </span>
+                    ) : null}
+                  </td>
+                  {across && !project ? (
+                    <td className="muted">{names.get(run.project)?.name ?? ""}</td>
                   ) : null}
-                  {run.workflow ? (
-                    <>
-                      {" in "}
-                      <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
-                        {run.workflow.hrid}
-                      </Link>
-                    </>
-                  ) : null}{" "}
-                  · {run.requested_by.name} · <RelativeTime value={run.created_at} />
-                  {run.reason ? ` · “${run.reason}”` : ""}
-                </span>
-              </div>
-              <div className="row-tags">
-                <StatusBadge status={run.status} />
-              </div>
-            </li>
-          ))}
-        </ul>
+                  <td>
+                    <StatusBadge status={run.status} />
+                  </td>
+                  <td>{run.requested_by.name}</td>
+                  <td className="list-table-end muted">
+                    <RelativeTime value={run.created_at} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       {runs.hasNextPage ? (
         <div className="actions">

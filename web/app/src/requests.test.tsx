@@ -8,7 +8,17 @@ import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import {
+  addFilter,
+  entity,
+  field,
+  filterFields,
+  KINASE,
+  nth,
+  PROTEIN,
+  renderApp,
+  withTypes,
+} from "./entity-fixtures";
 import { answer, calls, MAIN_REGISTRY, page, problem, project, respond } from "./test-server";
 
 const CORE = project({
@@ -724,16 +734,12 @@ describe("a project's Requests tab", () => {
       where: { all: queue },
     });
 
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    const field = within(panel).getByRole("combobox", { name: "Filter 1: field" });
-    for (const name of ["Asked by", "Status", "Assigned to", "Technician"]) {
-      expect(within(field).getByRole("option", { name })).toBeInTheDocument();
-    }
-    await user.selectOptions(field, "Asked by");
+    expect(await filterFields(user)).toEqual(
+      expect.arrayContaining(["Asked by", "Status", "Assigned to", "Technician"]),
+    );
+    const editor = await addFilter(user, "Asked by");
     await user.selectOptions(
-      within(panel).getByRole("combobox", { name: "Filter 1: value" }),
+      within(editor).getByRole("combobox", { name: "Filter 1: value" }),
       "Kinase Atlas",
     );
     const asked = [{ field: "owner_project", op: "eq", value: KINASE.id }];
@@ -744,7 +750,9 @@ describe("a project's Requests tab", () => {
     await waitFor(() => {
       expect(lastSearch()).toMatchObject({ where: { all: [...queue, ...asked] } });
     });
-    expect(within(panel).getAllByRole("listitem")).toHaveLength(1);
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
+    const chips = screen.getByRole("group", { name: "Filters" });
+    expect(within(chips).getAllByRole("button", { name: /^Filter \d/ })).toHaveLength(1);
   });
 
   it("is the requests an asking project sent, filtered by status and service", async () => {
@@ -764,17 +772,11 @@ describe("a project's Requests tab", () => {
     });
     expect(screen.getByRole("link", { name: "New assay request" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(
-      within(panel).getByRole("combobox", { name: "Filter 1: field" }),
-      "Sent to",
-    );
+    const editor = await addFilter(user, "Sent to");
     // Each is sent: it's to one service or another.
-    const condition = within(panel).getByRole("combobox", { name: "Filter 1: condition" });
+    const condition = within(editor).getByRole("combobox", { name: "Filter 1: condition" });
     expect(within(condition).queryByRole("option", { name: /not sent/ })).toBeNull();
-    const value = within(panel).getByRole("combobox", { name: "Filter 1: value" });
+    const value = within(editor).getByRole("combobox", { name: "Filter 1: value" });
     expect(within(value).getByRole("option", { name: "Protein Core" })).toBeInTheDocument();
   });
 
