@@ -127,15 +127,21 @@ describe("the type browser", () => {
 });
 
 describe("a project's entities", () => {
-  function onProject(): void {
+  /** The project's records, uncounted as a large project's are unless `counted`: then 4
+   * proteins and a structure, and the grid's count is theirs, not its rows'. */
+  function onProject(counted = false): void {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities/counts", {
       types: [
-        { type: "iki/protein.Protein", label: "Protein", count: 4 },
-        { type: "iki/protein.ProteinStructure", label: "Protein structure", count: 1 },
+        { type: "iki/protein.Protein", label: "Protein", count: counted ? 4 : null },
+        {
+          type: "iki/protein.ProteinStructure",
+          label: "Protein structure",
+          count: counted ? 1 : null,
+        },
       ],
-      total: 5,
+      total: counted ? 5 : null,
     });
   }
 
@@ -181,10 +187,11 @@ describe("a project's entities", () => {
   });
 
   it("filters by type and by archived, in the address", async () => {
-    onProject();
+    onProject(true);
     answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp("/projects/kinase-atlas/entities/");
-    await screen.findByRole("table", { name: "1 entity" });
+    // The project's count, not the rows loaded so far.
+    await screen.findByRole("table", { name: "5 entities" });
     expect(screen.getByRole("link", { name: /^Entities\b/ })).toHaveAttribute(
       "aria-current",
       "page",
@@ -380,7 +387,7 @@ describe("a project's entities", () => {
   });
 
   it("opens with the address's filters, and changing type clears them", async () => {
-    onProject();
+    onProject(true);
     answer("POST /api/v1/entities/search", page([entity()]));
     const filters = encodeURIComponent(
       JSON.stringify([{ field: "name", op: "contains", value: "abl" }]),

@@ -567,7 +567,7 @@ export function EntityGrid({
   });
   // How many there are, when the counts know: of the types it shows, current ones, with no
   // search or filter. The sidebar asks the same, so it's usually there already.
-  const countable = !unknownProject && !library && show === "current";
+  const countable = !unknownProject && !search.collection && show === "current";
   const counts = useQuery({ ...countsQuery(project?.id), enabled: countable });
   const applyFilters = (next: Filter[]) => {
     navigate({
@@ -738,8 +738,7 @@ export function EntityGrid({
       : fixed.length === 0
         ? null
         : new Set(fixed.flatMap((f) => (Array.isArray(f.value) ? f.value.map(String) : [])));
-  const exact =
-    countable && !search.collection && covered !== undefined ? countOf(counts.data, covered) : null;
+  const exact = countable && covered !== undefined ? countOf(counts.data, covered) : null;
   const loaded = list.hasNextPage ? `${String(rows.length)}+` : String(rows.length);
   // Unnarrowed, the count the counts know, if they do; narrowed, how many of them match.
   const shown = !narrowed && exact !== null ? exact : rows.length;
