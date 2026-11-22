@@ -139,7 +139,9 @@ def service_provider_config(request: HttpRequest) -> HttpResponse:
                 {
                     "type": "oauthbearertoken",
                     "name": "Bearer token",
-                    "description": "The SCIM token from Iki's sign-in settings page.",
+                    "description": (
+                        "The SCIM token from Iki's Admin → Sign-in and provisioning page."
+                    ),
                     "primary": True,
                 }
             ],

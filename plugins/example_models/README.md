@@ -13,7 +13,7 @@ It shows what such a plugin needs
   (the deployment's `fold_api_host` setting), why data goes there, the key
   it needs, where its answers say which model and version answered, and how
   to poll and cancel its jobs. An Org Admin approves it for each project in
-  Settings → Outside APIs; until then, runs in that project are refused.
+  Admin → Outside APIs; until then, runs in that project are refused.
 - **`predict_structure`** says what it sends: each protein's sequence and the
   `model` and `num_recycles` params. People see that before they launch it,
   and agree to it; an agent's runs wait for their person to.

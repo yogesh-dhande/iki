@@ -758,7 +758,7 @@ def oauth(admin: requests.Session) -> None:
     apps = admin.get(f"{IKI}/admin/apps/")
     link = re.search(r'href="(/admin/apps/\d+/)">' + re.escape(client["client_name"]), apps.text)
     if not link:
-        fail("the new app isn't on Settings → Apps")
+        fail("the new app isn't on Admin → Apps")
     page_post(admin, urljoin(IKI, link.group(1)), {"action": "approve"})
     consent_page = alice.get(f"{IKI}/oauth/authorize/", params=query)
     if consent_page.status_code != 200:

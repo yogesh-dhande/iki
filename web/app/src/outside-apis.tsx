@@ -110,7 +110,7 @@ export function SendsOutside({
           <p>
             {destinations(missing)} {missing.length > 1 ? "aren’t" : "isn’t"} approved for{" "}
             {projectName}, so this can’t start. An Org Admin approves outside APIs for each project,
-            in Settings → Outside APIs.
+            in Admin → Outside APIs.
           </p>
         </div>
       ) : (
