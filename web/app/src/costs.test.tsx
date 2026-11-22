@@ -84,8 +84,8 @@ describe("the organization's costs", () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary());
     await renderApp("/costs/");
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("link", { name: "Costs" })).toHaveAttribute(
+    const nav = screen.getByRole("navigation", { name: "Admin" });
+    expect(within(nav).getByRole("link", { name: "Costs and budgets" })).toHaveAttribute(
       "aria-current",
       "page",
     );

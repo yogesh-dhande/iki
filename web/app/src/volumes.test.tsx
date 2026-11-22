@@ -125,14 +125,15 @@ describe("how setups read", () => {
 });
 
 describe("Compute → Volumes", () => {
-  it("is in the navigation only for Compute admins", async () => {
+  it("is in the admin area's navigation only for Compute admins", async () => {
     onVolumes(() => []);
     await renderApp("/compute/volumes/");
     await loaded();
-    const nav = screen.getByRole("navigation", { name: "Main" });
+    const nav = screen.getByRole("navigation", { name: "Admin" });
+    // Under Compute, rather than its own page.
     expect(within(nav).getByRole("link", { name: "Compute" })).toHaveAttribute(
       "aria-current",
-      "page",
+      "true",
     );
   });
 

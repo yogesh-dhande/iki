@@ -191,9 +191,10 @@ def test_local_account_pages_do_not_exist(client: Browser, path: str) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["/accounts/password/reset/", "/accounts/email/", "/accounts/3rdparty/", "/admin/"],
+    ["/accounts/password/reset/", "/accounts/email/", "/accounts/3rdparty/", "/admin/login/"],
 )
 def test_allauth_and_admin_pages_are_not_mounted(client: Browser, path: str) -> None:
+    # /admin/ is Iki's admin area (ADR 0176), behind Iki's own sign-in; Django's isn't there.
     assert client.get(path).status_code == 404
 
 

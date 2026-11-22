@@ -117,7 +117,7 @@ function Bell() {
 }
 
 /** Shown when Iki found out, in the background, that the session ended. */
-function SignedOut() {
+export function SignedOut() {
   const signedOut = useSyncExternalStore(onSignedOutChange, isSignedOut);
   if (!signedOut) return null;
   return (

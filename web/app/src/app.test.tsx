@@ -1711,13 +1711,8 @@ describe("webhooks", () => {
       return { ...HOOK, active: false, disabled_reason: "org_admin" };
     });
     const { user } = await renderApp("/settings/webhooks/");
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    const tabs = screen.getByRole("navigation", { name: "Settings" });
-    expect(within(tabs).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
+    const nav = screen.getByRole("navigation", { name: "Admin" });
+    expect(within(nav).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
       "aria-current",
       "page",
     );

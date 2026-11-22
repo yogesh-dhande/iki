@@ -32,14 +32,13 @@ import {
   Button,
   ConfirmDialog,
   Loading,
-  PageHeader,
   ProblemAlert,
   RadioField,
   RelativeTime,
   TextField,
   useMessages,
 } from "../ui";
-import { ComputeTabs } from "./compute";
+import { ComputeHeader } from "./compute";
 import { NotFound } from "./errors";
 
 export function ComputeSlurmPage() {
@@ -49,8 +48,7 @@ export function ComputeSlurmPage() {
   if (!me.can.manage_compute) return <NotFound />;
   return (
     <>
-      <PageHeader title="Slurm" eyebrow="Compute" />
-      <ComputeTabs />
+      <ComputeHeader />
       <p className="muted">
         Container-tier runs can run on a Slurm cluster: a worker on its login node submits each one
         with <code>sbatch</code>, sized to what its action needs, and reports what Slurm says of it.

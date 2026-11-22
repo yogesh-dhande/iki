@@ -7,7 +7,7 @@
 
 import { unwrap } from "@ikisci/sdk";
 import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
@@ -35,14 +35,13 @@ import {
   ConfirmDialog,
   CopyValue,
   Loading,
-  PageHeader,
   ProblemAlert,
   RelativeTime,
   SelectField,
   TextField,
   useMessages,
 } from "../ui";
-import { ComputeTabs } from "./compute";
+import { ComputeHeader } from "./compute";
 import { NotFound } from "./errors";
 
 export function ComputeWorkersPage() {
@@ -51,8 +50,7 @@ export function ComputeWorkersPage() {
   if (!me.can.manage_compute) return <NotFound />;
   return (
     <>
-      <PageHeader title="Workers" eyebrow="Compute" />
-      <ComputeTabs />
+      <ComputeHeader />
       <div className="stack">
         <Workers />
         <Registrations />
@@ -78,7 +76,12 @@ const STATUS = {
 } as const;
 
 function Workers() {
-  const [tier, setTier] = useState<WorkerFilter["tier"]>("all");
+  // The tier is in the address, so the overview's "Manage" links open it filtered.
+  const tier: WorkerFilter["tier"] = useSearch({ from: "/compute/workers" }).tier ?? "all";
+  const navigate = useNavigate({ from: "/compute/workers" });
+  const setTier = (next: WorkerFilter["tier"]) => {
+    void navigate({ search: next === "all" ? {} : { tier: next }, replace: true });
+  };
   const [revoked, setRevoked] = useState(false);
   const found = useInfiniteQuery(workersQuery({ tier, revoked }));
   const [revoking, setRevoking] = useState<Worker | undefined>();
