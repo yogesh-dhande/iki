@@ -1,6 +1,6 @@
 # 0018. Collaboration and the in-app assistant stay out of core
 
-- Status: Accepted
+- Status: Accepted (amended 2026-11-22: no assistant of Iki's own)
 - Date: 2026-11-09
 
 ## Context
@@ -14,9 +14,13 @@ that can add types, UI and actions (ADR 0006).
 
 ## Decision
 
-- **Collaboration** (comments, tags, notes, watch) and an **in-app
-  assistant** are not part of core. They are planned as future plugins
-  (`collab`, `assistant`).
+- **Collaboration** (comments, tags, notes, watch) is not part of core. It's
+  planned as a future plugin (`collab`).
+- **Iki builds no assistant of its own,** in core or as a plugin. People
+  bring the agent they already use, such as Claude, and connect it through
+  the MCP server (ADR 0013). It acts with the same checks, approvals and
+  attribution as the person it acts for (ADRs 0050, 0072). Iki's job is to
+  make those tools and their answers good, not to compete with the agents.
 - Core provides the hooks those plugins need:
   - **polymorphic refs** (a `ref` field to `core.Entity` can point at any
     entity type), so a comment can attach to anything;
@@ -34,6 +38,7 @@ that can add types, UI and actions (ADR 0006).
   hooks are good enough for real use.
 - Positive: enterprises that do not want them, or want their own, can
   leave them out.
-- Negative: M1 ships without comments, tags or an in-app assistant.
+- Negative: M1 ships without comments or tags, and with no assistant inside
+  the app; someone without an agent of their own has none.
 - Negative: the hooks must be designed now, before their main consumers
   exist, so some may need revision later.
