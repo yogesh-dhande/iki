@@ -331,6 +331,25 @@ def test_saved_views_are_your_own_and_those_shared(world: World) -> None:
     assert titles(body, "saved_views") == ["Kinases shared", "Kinases viewer's"]
 
 
+def test_a_saved_view_of_every_project_is_found_by_its_owner_alone(world: World) -> None:
+    """A saved search that names no project (ADR 0176) opens All entities, and is its
+    owner's alone, as it is everywhere else."""
+    editor = world.users["editor"]
+    saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
+    body = searched(Api(world.browser("editor")), q="kinases everywhere", kind="saved_views")
+    [view] = group(body, "saved_views")["items"]
+    assert (view["title"], view["href"], view["projects"]) == (
+        "Kinases everywhere",
+        "/entities/",
+        [],
+    )
+    assert view["query"] == {"q": "kinase"}
+    assert view["detail"] == "Yours, of every project"
+    for other in ("viewer", "admin"):
+        body = searched(Api(world.browser(other)), q="kinases everywhere", kind="saved_views")
+        assert body["groups"] == [] or titles(body, "saved_views") == [], other
+
+
 def test_with_no_text_recent_is_what_you_changed_or_ran(world: World, second: Project) -> None:
     editor = world.users["editor"]
     older = protein(editor, world.project, "Older")
