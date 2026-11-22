@@ -12,6 +12,7 @@ import {
   ALICE,
   entity,
   field,
+  fieldHistory,
   FILE_ID,
   KINASE,
   nth,
@@ -686,9 +687,9 @@ describe("an entity's page", () => {
     ]);
   }
 
-  it("shows each value with who set it, how and when", async () => {
+  it("shows each value, and who set it, how and when on asking", async () => {
     onStructure();
-    await renderApp("/entities/PST-000001/");
+    const { user } = await renderApp("/entities/PST-000001/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PST-000001");
     const values = screen.getByRole("region", { name: "Values" });
     const file = within(values).getByRole("link", { name: "1abc.pdb" });
@@ -701,13 +702,25 @@ describe("an entity's page", () => {
       "/entities/PRT-000001/?project=kinase-atlas",
     );
     expect(within(values).getByText("An entity you can’t read")).toBeInTheDocument();
+    // No value says who set it (ADR 0176): its history does, on asking.
+    expect(values).not.toHaveTextContent(/Rosalind Franklin/);
     // An agent's change names the person it acted for and the app it came through.
-    expect(await within(values).findByText(/Claude Code/)).toHaveTextContent(
-      /^Set by Rosalind Franklin .+ by an AI assistant \(MCP\), through Claude Code \(revision 1\)$/,
+    const structure = await fieldHistory(user, "Structure");
+    expect(structure).toHaveTextContent(
+      /^Last change to StructureWhoRosalind FranklinHowby an AI assistant \(MCP\), through Claude CodeWhen\d+ \w+ \d{4}, \d\d:\d\d UTCRevision1/,
     );
-    expect(within(values).getByText(/Refined/)).toHaveTextContent(
-      /^Changed by Rosalind Franklin .+ in the web app: “Refined” \(revision 2\)$/,
-    );
+    expect(
+      within(structure).getByRole("link", { name: "Structure in the audit trail" }),
+    ).toHaveAttribute("href", "/entities/PST-000001/audit/?field=structure");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "History of Structure" })).toHaveFocus();
+    });
+    const resolution = await fieldHistory(user, "Resolution");
+    expect(resolution).toHaveTextContent("Howin the web app");
+    expect(resolution).toHaveTextContent("“Refined”");
+    await user.keyboard("{Escape}");
     const details = screen.getByRole("region", { name: "Details" });
     expect(await within(details).findByRole("link", { name: "Imatinib" })).toHaveAttribute(
       "href",
@@ -722,8 +735,17 @@ describe("an entity's page", () => {
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
     answer("GET /api/v1/entities/PRT-000001/projects", []);
     await renderApp("/entities/PRT-000001/");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      /^ABL1 kinase\s*PRT-000001$/,
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^ABL1 kinase$/);
+    // Its ID, beside its title and in its breadcrumb.
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByText("PRT-000001")).toHaveAttribute("aria-current", "page");
+    expect(within(crumbs).getByRole("link", { name: "Entities" })).toHaveAttribute(
+      "href",
+      "/entities/",
+    );
+    expect(within(crumbs).getByRole("link", { name: "Proteins" })).toHaveAttribute(
+      "href",
+      "/entities/types/iki/protein.Protein/",
     );
     expect(screen.getByText("52.3415 ku")).toBeInTheDocument();
     expect(screen.getByText("(52,341.5 u)")).toBeInTheDocument();
@@ -940,7 +962,7 @@ describe("an entity's page", () => {
     );
   });
 
-  it("shows its history, and what each revision changed", async () => {
+  it("shows its audit trail, and what each revision changed", async () => {
     onStructure();
     answer(
       "GET /api/v1/entities/PST-000001/revisions",
@@ -954,10 +976,17 @@ describe("an entity's page", () => {
       values: {},
       changes: { resolution: { before: 2.4, after: 2.1 } },
     });
-    const { user } = await renderApp("/entities/PST-000001/history/");
+    const { user } = await renderApp("/entities/PST-000001/audit/");
     expect(await screen.findByText("Revision 2: Edited by Rosalind Franklin")).toBeInTheDocument();
     expect(screen.getByText("Revision 1: Created by Rosalind Franklin")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "History" })).toHaveAttribute("aria-current", "page");
+    // Its tab counts the revisions, in words to screen readers.
+    const tab = screen.getByRole("link", { name: /^Audit trail,\s*2\s*revisions$/ });
+    expect(tab).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("“Refined”")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Export for inspection/ })).toHaveAttribute(
+      "href",
+      "/api/v1/entities/00000000-0000-7000-8000-00000000e002/revisions.csv",
+    );
     await user.click(screen.getByRole("button", { name: "Show changes in revision 2" }));
     const table = await screen.findByRole("table");
     expect(
@@ -1085,7 +1114,7 @@ describe("an entity's page", () => {
         }),
       ]),
     );
-    await renderApp("/entities/PST-000001/history/");
+    await renderApp("/entities/PST-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
     expect(within(first).getByRole("listitem")).toHaveTextContent(
@@ -1143,7 +1172,7 @@ describe("an entity's page", () => {
       "GET /api/v1/entities/PRT-000001/revisions",
       page([revision({ number: 1, submitted: { sequence: "mkwv*" } })]),
     );
-    await renderApp("/entities/PRT-000001/history/");
+    await renderApp("/entities/PRT-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const given = document.querySelector(".row-submitted");
     expect(given).toHaveTextContent(

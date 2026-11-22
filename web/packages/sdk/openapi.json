@@ -20218,6 +20218,39 @@
         "title": "TrackOut",
         "type": "object"
       },
+      "TrailFilter": {
+        "description": "What a record's audit trail is narrowed to (ADR 0176): the revisions a person made,\nor that set a field. Both together find those that did both.",
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the revisions that set this field, by its name.",
+            "title": "Field"
+          },
+          "person": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the revisions this person made.",
+            "title": "Person"
+          }
+        },
+        "title": "TrailFilter",
+        "type": "object"
+      },
       "TransferIn": {
         "properties": {
           "amount": {
@@ -27016,6 +27049,68 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/contributors": {
+      "get": {
+        "description": "Everyone who made one of its revisions, by name: whom its audit trail can be\nnarrowed to (``person``). For a record of a registry entry, also who made the entry's\nrevisions, of those you're told who made. ``project`` says whose record, as for\nreading it.",
+        "operationId": "iki_server_api_trails_list_contributors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Who changed it",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/downstream": {
       "get": {
         "description": "Everything that depends on it that you can read: what refers to it, what runs made\nfrom it, what was made from its files, and what depends on those, nearest first: what a\nrecall, a consent withdrawal or a correction affects. Each result says how it was\nreached.",
@@ -27972,7 +28067,7 @@
     },
     "/api/v1/entities/{ref}/revisions": {
       "get": {
-        "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it.",
+        "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it. ``person`` and ``field`` narrow it to the revisions\na person made, or that set a field, as its audit trail's filters do (ADR 0176).",
         "operationId": "iki_server_api_entities_list_revisions",
         "parameters": [
           {
@@ -28017,6 +28112,44 @@
             }
           },
           {
+            "description": "Only the revisions this person made.",
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions this person made.",
+              "title": "Person"
+            }
+          },
+          {
+            "description": "Only the revisions that set this field, by its name.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 63,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions that set this field, by its name.",
+              "title": "Field"
+            }
+          },
+          {
             "in": "query",
             "name": "project",
             "required": false,
@@ -28055,6 +28188,60 @@
           }
         ],
         "summary": "An entity's revisions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/revisions.csv": {
+      "get": {
+        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
+        "operationId": "iki_server_api_trails_trail_csv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download its audit trail, for inspection",
         "tags": [
           "entities"
         ]
@@ -29174,7 +29361,7 @@
     },
     "/api/v1/entries/{ref}/revisions": {
       "get": {
-        "description": "Newest first. Its registrars see each in full, without the project it came through.\nA holder sees who and when for its own projects' and registrars' changes; for others,\nonly what was set.",
+        "description": "Newest first. Its registrars see each in full, without the project it came through.\nA holder sees who and when for its own projects' and registrars' changes; for others,\nonly what was set. ``person`` finds only those you're told they made.",
         "operationId": "iki_server_api_registries_list_entry_revisions",
         "parameters": [
           {
@@ -29216,6 +29403,44 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only the revisions this person made.",
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions this person made.",
+              "title": "Person"
+            }
+          },
+          {
+            "description": "Only the revisions that set this field, by its name.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 63,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions that set this field, by its name.",
+              "title": "Field"
             }
           }
         ],

@@ -750,7 +750,7 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
     assert_clean(page)
 
 
-def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> None:
+def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
 
@@ -770,10 +770,18 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
     grid.get_by_role("cell", name="ABL1 kinase").wait_for()
     assert_clean(page)
     grid.get_by_role("link", name=entity.hrid).click()
-    page.get_by_role("heading", level=1, name=f"ABL1 kinase {entity.hrid}").wait_for()
-    page.get_by_text("Changed by").first.wait_for()
+    page.get_by_role("heading", level=1, name="ABL1 kinase").wait_for()
+    # Who changed a value is in its history, on asking (ADR 0176), not under every value.
+    assert page.get_by_text("Changed by").count() == 0
+    page.get_by_role("button", name="History of Name").click()
+    history = page.get_by_role("dialog", name="History of Name")
+    history.get_by_text("Last change to Name").wait_for()
+    history.get_by_text("“Full name”").wait_for()
     assert_clean(page)
-    page.get_by_role("link", name="History").click()
+    history.get_by_role("link", name="Name in the audit trail").click()
+    page.wait_for_url(
+        re.compile(rf"/entities/{entity.hrid}/audit/\?project=kinase-atlas&field=name$")
+    )
     page.get_by_role("button", name="Show changes in revision 2").click()
     page.get_by_role("cell", name="ABL1", exact=True).wait_for()
     assert_clean(page)
@@ -1194,7 +1202,8 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     page.get_by_role("button", name="Save changes").click()
     page.get_by_text(f"Saved revision 2 of {made.hrid}.").wait_for()
 
-    page.get_by_role("button", name="Archive").click()
+    page.get_by_role("button", name=f"More actions for {made.hrid}").click()
+    page.get_by_role("menuitem", name="Archive…").click()
     dialog = page.get_by_role("alertdialog", name=f"Archive {made.hrid}?")
     dialog.get_by_role("textbox", name="Reason (optional)").fill("Duplicate of another")
     assert_clean(page)
@@ -1894,6 +1903,100 @@ def test_a_plasmids_coding_sequences_read_as_genbank_translates_them(
     assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_records_page_and_its_audit_trail(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """A record's page as ADR 0176 lays it out: its values without who set each, a history
+    button beside each with its last change, a rail with its map, and an Audit trail tab
+    that narrows by field, shows each field's last change, and downloads whole as CSV for
+    an inspector. At a phone's width nothing scrolls across. axe checks it in Chromium and
+    WebKit: Firefox's content process crashes running it here (see assert_clean)."""
+    import csv
+
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    hrid, _ = _record(
+        world, tmp_path, "J01749.1", Path(__file__).parent / "data" / "plasmids" / "J01749.1.gb"
+    )
+    # A plasmid is a registry type (ADR 0115): Kinase Atlas's record of its entry.
+    record = Entity.objects.get(hrid=hrid, owner_project=world.project)
+    entities.update(
+        world.users["admin"],
+        record,
+        {"name": "pBR322"},
+        expected_revision=1,
+        reason="Its common name",
+    )
+    page = open_as("admin", f"/entities/{hrid}/?project=kinase-atlas", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", level=1, name="pBR322").wait_for()
+    rail = page.get_by_role("complementary", name="About this record")
+    rail.get_by_role("img", name=re.compile(r"^Circular map of pBR322, 4,361 bp: ")).wait_for()
+    rail.get_by_role("region", name="Details").get_by_text("Last changed").wait_for()
+    tabs = page.get_by_role("navigation", name="Record")
+    # Its record's revisions, and its entry's.
+    record.refresh_from_db()
+    assert record.entry is not None
+    count = record.revision + record.entry.revision
+    tabs.get_by_role(
+        "link", name=re.compile(rf"^Audit trail\s*,\s*{count}\s*revisions$")
+    ).wait_for()
+    assert page.get_by_text("Changed by").count() == 0
+    assert_clean(page, axe_in_firefox=False)
+
+    page.get_by_role("button", name="History of Name").click()
+    history = page.get_by_role("dialog", name="History of Name")
+    history.get_by_text("“Its common name”").wait_for()
+    history.get_by_text(re.compile(r"\d\d:\d\d UTC$")).wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.keyboard.press("Escape")
+    history.wait_for(state="hidden")
+
+    # The ⋯ menu has the rest of its actions, the audit trail's CSV among them.
+    page.get_by_role("button", name=f"More actions for {hrid}").click()
+    page.get_by_role("menuitem", name="Download audit trail (CSV)").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.keyboard.press("Escape")
+
+    tabs.get_by_role("link", name=re.compile("^Audit trail")).click()
+    page.get_by_text("Revision 2: Edited by Admin").wait_for()
+    page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.get_by_role("combobox", name="Field").select_option("name")
+    page.wait_for_url(re.compile(r"[?&]field=name"))
+    page.get_by_role("button", name="By field").click()
+    table = page.get_by_role("table", name="Each field’s last change")
+    table.get_by_role("row", name=re.compile(r"^Name pBR322 Admin")).wait_for()
+    assert table.get_by_role("row").count() == 2
+    assert_clean(page, axe_in_firefox=False)
+
+    with page.expect_download() as downloading:
+        page.get_by_role("link", name="Export for inspection").click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    # WebKit on Linux suggests it with underscores for its spaces.
+    assert saved.name.replace("_", " ") == f"{hrid} Kinase Atlas audit trail.csv"
+    rows = list(csv.DictReader(saved.read_text(encoding="utf-8-sig").splitlines()))
+    # The whole trail, whatever the page was narrowed to.
+    assert {r["Revision"] for r in rows} == {"1", "2"}
+    renamed = next(r for r in rows if r["Revision"] == "2")
+    assert (renamed["Field"], renamed["Before"], renamed["After"]) == ("Name", "J01749.1", "pBR322")
+    assert renamed["Reason"] == "Its common name" and renamed["Who"] == "Admin"
+
+    # On a phone, its rail goes under its values, and nothing scrolls across.
+    wide = "() => document.documentElement.scrollWidth - innerWidth <= 1"
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(wide)
+    assert_clean(page, axe_in_firefox=False)
+    page.goto(f"/entities/{hrid}/?project=kinase-atlas")
+    page.get_by_role("heading", level=1, name="pBR322").wait_for()
+    rail.get_by_role("img", name=re.compile("^Circular map")).wait_for()
+    assert page.evaluate(wide)
+    assert_clean(page, axe_in_firefox=False)
+
+
 def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
     """A file in the project, its bytes put straight into the store the server reads."""
     import hashlib
@@ -2221,7 +2324,7 @@ def test_an_alignment_in_its_viewer(
     )
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
-    page.get_by_role("navigation", name="Entity").get_by_role("link", name="Alignment").click()
+    page.get_by_role("navigation", name="Record").get_by_role("link", name="Alignment").click()
     grid = page.get_by_role("application", name="Alignment of abl.afa")
     grid.wait_for()
     page.get_by_text("3 rows, 311 columns").wait_for()
@@ -2660,7 +2763,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
     page.get_by_role("main").get_by_role("link", name="Antigens", exact=True).click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/\?project=antigens$"))
     page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
-    page.get_by_role("heading", name="Antigens’s values").wait_for()
+    page.get_by_role("heading", name="Project values").wait_for()
     page.get_by_text("ABL1 antigen").first.wait_for()
     assert_clean(page)
 
@@ -2673,7 +2776,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
 
     # Someone in only one of them reads its record, and nothing of the other's.
     viewer = open_as("viewer", f"/entities/{hrid}/")
-    viewer.get_by_role("heading", name="Kinase Atlas’s values").wait_for()
+    viewer.get_by_role("heading", name="Project values").wait_for()
     assert viewer.get_by_text("ABL1 antigen").count() == 0
     assert_clean(viewer)
 
@@ -2842,7 +2945,7 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     assert page.get_by_role("link", name="Edit", exact=True).count() == 0
     assert card.get_by_role("button", name="Set Status").get_attribute("aria-disabled") is None
     assert_clean(page)
-    page.get_by_role("link", name="History").click()
+    page.get_by_role("link", name=re.compile("^Audit trail")).click()
     page.get_by_text("Status set to Reviewed, from In testing by Editor").wait_for()
     page.get_by_text("“Bench 4”").wait_for()
     assert_clean(page)
@@ -3321,8 +3424,8 @@ def test_signing_a_record_signs_in_again_and_shows_the_signature(
     section.get_by_role("button", name="Dismiss").click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/$"))
     assert fake_idp.authorizations[-1]["prompt"] == "login"
-    # Its history shows the revision it set the state in, with the signature.
-    page.get_by_role("link", name="History").click()
+    # Its audit trail shows the revision it set the state in, with the signature.
+    page.get_by_role("link", name=re.compile("^Audit trail")).click()
     signed = page.get_by_role("list", name="Signatures of revision 2")
     signed.get_by_text(re.compile(r"^Authored by Editor on ")).wait_for()
     assert_clean(page)

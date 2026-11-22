@@ -30,7 +30,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError
@@ -2668,6 +2668,29 @@ def review_hold(
 # --- History -------------------------------------------------------------------------------------
 
 
+class TrailFilter(Schema):
+    """What a record's audit trail is narrowed to (ADR 0176): the revisions a person made,
+    or that set a field. Both together find those that did both."""
+
+    person: UUID | None = Field(None, description="Only the revisions this person made.")
+    field: str | None = Field(
+        None, max_length=63, description="Only the revisions that set this field, by its name."
+    )
+
+    def applied(
+        self, revisions: QuerySet[Revision], *, disclosed: Q | None = None
+    ) -> QuerySet[Revision]:
+        """``revisions``, narrowed. A person is matched only among those ``disclosed``
+        says who made, so narrowing by them tells no more than reading each would."""
+        if self.field:
+            revisions = revisions.filter(changed_fields__contains=[self.field])
+        if self.person:
+            revisions = revisions.filter(user_id=self.person)
+            if disclosed is not None:
+                revisions = revisions.filter(disclosed)
+        return revisions
+
+
 @router.get(
     "/entities/{ref}/revisions",
     response=Page[RevisionOut],
@@ -2675,13 +2698,20 @@ def review_hold(
     by_alias=True,
 )
 def list_revisions(
-    request: HttpRequest, ref: str, params: Query[PageParams], project: UUID | None = None
+    request: HttpRequest,
+    ref: str,
+    params: Query[PageParams],
+    trail: Query[TrailFilter],
+    project: UUID | None = None,
 ) -> dict[str, Any]:
     """Newest first: who changed what, how, when and why. ``project`` says whose record of a
-    registry entry, as for reading it."""
+    registry entry, as for reading it. ``person`` and ``field`` narrow it to the revisions
+    a person made, or that set a field, as its audit trail's filters do (ADR 0176)."""
     me = caller(request)
     entity = _find(me, ref, project)
-    revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
+    revisions = trail.applied(Revision.objects.filter(entity=entity)).select_related(
+        "user", "agent"
+    )
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
     states = revision_states(result["items"])

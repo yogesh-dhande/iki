@@ -1236,6 +1236,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/contributors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who changed it
+         * @description Everyone who made one of its revisions, by name: whom its audit trail can be
+         *     narrowed to (``person``). For a record of a registry entry, also who made the entry's
+         *     revisions, of those you're told who made. ``project`` says whose record, as for
+         *     reading it.
+         */
+        get: operations["iki_server_api_trails_list_contributors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/downstream": {
         parameters: {
             query?: never;
@@ -1514,9 +1537,38 @@ export interface paths {
         /**
          * An entity's revisions
          * @description Newest first: who changed what, how, when and why. ``project`` says whose record of a
-         *     registry entry, as for reading it.
+         *     registry entry, as for reading it. ``person`` and ``field`` narrow it to the revisions
+         *     a person made, or that set a field, as its audit trail's filters do (ADR 0176).
          */
         get: operations["iki_server_api_entities_list_revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/revisions.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download its audit trail, for inspection
+         * @description Every revision, oldest first, a row for each field it set with that field's value
+         *     before and after: who made it, how (the web app, the API, a run, …), when in UTC, why,
+         *     the electronic signatures that set a state (ADR 0126) and the holds it opened (ADR
+         *     0127). For a record of a registry entry, its entry's revisions follow, as you're told
+         *     them: one made through a project you can't read says what it set, not who, how or when.
+         *
+         *     Anyone who can read the record may download it, and each download is in the audit
+         *     log (``entity.trail_exported``) before its first row is sent. No cell starts as a
+         *     formula would (OWASP's CSV injection guidance): one that would starts with a quote.
+         */
+        get: operations["iki_server_api_trails_trail_csv"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1809,7 +1861,7 @@ export interface paths {
          * A registry entry's revisions
          * @description Newest first. Its registrars see each in full, without the project it came through.
          *     A holder sees who and when for its own projects' and registrars' changes; for others,
-         *     only what was set.
+         *     only what was set. ``person`` finds only those you're told they made.
          */
         get: operations["iki_server_api_registries_list_entry_revisions"];
         put?: never;
@@ -13853,6 +13905,23 @@ export interface components {
              */
             min: number | null;
         };
+        /**
+         * TrailFilter
+         * @description What a record's audit trail is narrowed to (ADR 0176): the revisions a person made,
+         *     or that set a field. Both together find those that did both.
+         */
+        TrailFilter: {
+            /**
+             * Field
+             * @description Only the revisions that set this field, by its name.
+             */
+            field?: string | null;
+            /**
+             * Person
+             * @description Only the revisions this person made.
+             */
+            person?: string | null;
+        };
         /** TransferIn */
         TransferIn: {
             /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
@@ -16923,6 +16992,30 @@ export interface operations {
             };
         };
     };
+    iki_server_api_trails_list_contributors: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_graph_downstream: {
         parameters: {
             query?: {
@@ -17283,6 +17376,10 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Only the revisions this person made. */
+                person?: string | null;
+                /** @description Only the revisions that set this field, by its name. */
+                field?: string | null;
                 project?: string | null;
             };
             header?: never;
@@ -17300,6 +17397,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_RevisionOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_trails_trail_csv: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
         };
@@ -17730,6 +17851,10 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Only the revisions this person made. */
+                person?: string | null;
+                /** @description Only the revisions that set this field, by its name. */
+                field?: string | null;
             };
             header?: never;
             path: {
