@@ -493,7 +493,9 @@ def test_text_searches_use_their_indexes(world: World, where: search.Search, ind
     [
         ({"sort": "hrid"}, "iki_entity_hrid_sorted"),
         ({"sort": "hrid", "descending": True}, "iki_entity_hrid_sorted"),
-        ({"sort": "updated_at", "descending": True}, "iki_entity_updated"),
+        # By type and when it changed, or when it changed across types (ADR 0176): on a test's
+        # few rows Postgres may read either in order, filtering the other types out.
+        ({"sort": "updated_at", "descending": True}, "iki_entity_updated|iki_entity_changed"),
     ],
 )
 def test_a_page_sorted_by_a_built_in_field_reads_it_in_order_from_an_index(
@@ -515,5 +517,5 @@ def test_a_page_sorted_by_a_built_in_field_reads_it_in_order_from_an_index(
             cursor.execute(f"SET LOCAL enable_{kind} = off")
         cursor.execute("EXPLAIN " + sql.replace("%", "%%"))
         plan = "\n".join(row[0] for row in cursor.fetchall())
-    assert index in plan, plan
+    assert re.search(index, plan), plan
     assert not re.search(rf"Sort Key: .*\b{sort['sort']}\b", plan), plan
