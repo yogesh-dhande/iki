@@ -107,11 +107,18 @@ It shows the parts of Iki such a plugin needs:
   its Requests tab ("Sent to us"), by status, assignee and the project that
   asked, and on its people's My work; the project asking follows what it
   sent there too ("We sent"), by status and core.
-- An **`AnalysisResult`** (`ANR-…`) is what the core measured, the core's
-  own: its analyst records it as a Draft, a reviewer sets it Reviewed, and
-  QA Released, signing for it (21 CFR Part 11). Released, it goes back to
-  the project that asked, locked, and stays there; until then that project
-  can't see it.
+- An **`AnalysisResult`** (`ANR-…`) starts as a Draft in the core. To submit
+  it, the analyst names the sample, records pass or fail, and enters the
+  measurement for the chosen analysis. SEC purity and peptide map sequence
+  coverage are percentages, intact mass is in atomic mass units, and
+  endotoxin is in EU per mg of protein. The analyst signs for authorship,
+  which locks the values and puts the result In review. A reviewer other
+  than the creator and submitting analyst signs to set it Reviewed.
+  Before release, an Analyst, Reviewer or QA can return the result to
+  Draft with a reason. A correction then needs fresh submission and review.
+  To release the Reviewed revision, the QA signer must be a different
+  person from the creator, submitting analyst, and reviewer. The project
+  that asked receives the locked result, and Released is final.
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
   a sample's volume, in µL (shown in mL), and each aliquot's. A sample is
