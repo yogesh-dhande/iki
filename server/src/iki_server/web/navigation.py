@@ -91,15 +91,27 @@ class Link:
     current: bool = False
     #: The inbox's unread count, if it's the inbox.
     badge: int | None = None
-
-    @property
-    def initial(self) -> str:
-        """A project's mark, as the app draws it: the first letter of its name."""
-        return self.label[:1].upper()
+    #: A project's color, one of the stylesheet's eight swatches (:func:`swatch_of`).
+    swatch: int = 0
 
     @property
     def badge_text(self) -> str:
         return "99+" if self.badge is not None and self.badge > 99 else str(self.badge)
+
+
+#: The stylesheet's project colors, ``--swatch-1`` to ``--swatch-8``.
+SWATCHES = 8
+
+
+def swatch_of(pk: str) -> int:
+    """Which swatch a project's ID takes, from 1 to :data:`SWATCHES`, as the app's
+    ``project-color.ts`` works it out (FNV-1a over its characters): the same color for a
+    project on every page, server or app, and for everyone."""
+    hashed = 0x811C9DC5
+    for char in pk:
+        hashed ^= ord(char)
+        hashed = (hashed * 0x01000193) & 0xFFFFFFFF
+    return hashed % SWATCHES + 1
 
 
 def initials(name: str) -> str:
@@ -226,13 +238,18 @@ def _projects(user: Any, path: str, raw: dict[str, Any]) -> list[Link]:  # noqa:
         access.readable_projects(user)
         .filter(archived_at__isnull=True)
         .order_by("team__name", "name", "pk")
-        .values_list("name", "slug")
+        .values_list("name", "slug", "pk")
     )
     shown = list(found[: raw["shown"]])
     here = path.removeprefix(raw["href"]).split("/", 1)[0] if path.startswith(raw["href"]) else ""
-    if here and here not in {slug for _, slug in shown}:
+    if here and here not in {slug for _, slug, _ in shown}:
         shown.extend(found.filter(slug=here))
     return [
-        Link(name, f"{raw['href']}{slug}/", prefixes=(f"{raw['href']}{slug}/",))
-        for name, slug in shown
+        Link(
+            name,
+            f"{raw['href']}{slug}/",
+            prefixes=(f"{raw['href']}{slug}/",),
+            swatch=swatch_of(str(pk)),
+        )
+        for name, slug, pk in shown
     ]

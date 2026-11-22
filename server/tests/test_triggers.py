@@ -467,6 +467,7 @@ def test_an_admin_who_loses_their_role_turns_it_off(world: World) -> None:
     told = Notification.objects.get(kind="trigger.turned_off")
     assert told.recipient == world.users["admin"]
     assert told.title == f"“Weigh new proteins” was turned off in {world.project.name}"
+    assert told.path == f"/projects/{world.project.slug}/automation/triggers/"
     assert listed(world)[NEW]["disabled_reason"] == row.disabled_reason
     # Another Admin may turn it on again: its runs are then theirs.
     ProjectMembership.objects.filter(project=world.project, user=world.users["admin"]).update(

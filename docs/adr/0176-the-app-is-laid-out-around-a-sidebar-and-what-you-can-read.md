@@ -94,6 +94,26 @@ Workflows, triggers and webhooks go under Automation, so they no longer take
 three tabs. Its Entities, Requests and Runs tabs are the top-level lists,
 filtered to the project.
 
+- **Its heading** says where it is (Projects / its name), its first line of
+  description, how many members it has and the reader's role. **Watch** chooses
+  how the reader is told of what happens in it, as GitHub's does; **New** makes a
+  record, a run or a workflow run there, for those who may.
+- **Automation's three are under it.** Workflows, triggers and webhooks are at
+  `/projects/<slug>/automation/workflows/`, `triggers/` and `webhooks/`, with
+  their new and detail pages, as a row of their own under the Automation tab.
+  `/projects/<slug>/automation/` opens the first of them the reader may see:
+  workflows, or webhooks for an Admin who can't read the project. Their old
+  addresses are gone, with no redirect: Iki wasn't deployed anywhere yet.
+- **The Overview** counts its records by type, each opening that type's table
+  held to the project; lists its latest changes (`GET /projects/{id}/changes`:
+  its records' revisions, read by the same rules as its Entities tab); and
+  beside them says what it is, its latest requests, its members and its
+  automation.
+- **Each project has a color,** a small square beside its name. Projects have
+  no color to choose, so each takes one of eight from its ID: the same
+  everywhere and for everyone, at 3:1 or more against the page in both themes.
+  People's initials take theirs the same way.
+
 **A record shows its values. Who changed them is on demand.** The line under
 each field goes. Each field has a small history button that shows its last
 change and links to the trail. The record has an **Audit trail** tab: every
@@ -193,7 +213,8 @@ No page loads fonts or scripts from outside the deployment.
   1.4.11 asks of a control's edge. Borders that only divide are lighter.
 - **The Inter subsets** are Latin, Latin Extended and Greek; other scripts
   fall back to the system's font.
-- **Marks:** a project's mark is its first letter.
+- **Marks:** a project's mark in the sidebar is its color's square, worked
+  out the same way by the server's pages and the app.
 
 ## Consequences
 
@@ -217,7 +238,8 @@ No page loads fonts or scripts from outside the deployment.
   so across projects a person field filters by "is me", set or empty.
 - **A project's tabs are the same tables.** Its Entities, Requests and Runs
   tabs are the lists above, held to the project, so there is one table of
-  each, not two.
+  each, not two. Its Entities tab has the same type pills as All entities,
+  each counting the project's records, in place of a Type select.
 - **Audit stays complete.** The audit trail tab reads the same history as
   before; only where it is shown changes. Part 11's requirement that the
   trail be available for review and copying (§11.10(b), (e)) is met by the

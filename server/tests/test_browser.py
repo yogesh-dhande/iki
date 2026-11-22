@@ -400,7 +400,8 @@ PAGES = [
     ("admin", "/account/apps/"),
     ("admin", "/account/notifications/"),
     ("org_admin", "/admin/email/"),
-    ("admin", "/projects/kinase-atlas/webhooks/"),
+    ("admin", "/projects/kinase-atlas/automation/webhooks/"),
+    ("admin", "/projects/kinase-atlas/automation/triggers/"),
     ("org_admin", "/admin/webhooks/"),
     ("compute_admin", "/admin/compute/"),
     ("compute_admin", "/admin/compute/workers/"),
@@ -743,7 +744,7 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
         chosen=["project.updated"],
         by=world.users["admin"],
     )
-    page = open_as("admin", "/projects/kinase-atlas/webhooks/")
+    page = open_as("admin", "/projects/kinase-atlas/automation/webhooks/")
     page.get_by_role("link", name="eln.example.com").click()
     page.get_by_role("button", name="Details of ping").click()
     page.get_by_text("Message ID").wait_for()
@@ -755,6 +756,80 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
     page.get_by_text("eln.example.com").wait_for()
     assert "s3cret" not in page.content()
     assert_clean(page)
+
+
+def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world: World) -> None:
+    """A project's page (ADR 0176): where it is, who's in it, what changed lately, the New
+    menu by keyboard, Automation's three, and a phone's width. By role, never by label
+    (Firefox; see above)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    made = entities.create(
+        world.users["editor"],
+        "acme/dna.DNASequence",
+        world.project,
+        {"bases": "ACGT", "name": "pUC19c"},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    width = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+    for scheme in ("light", "dark"):
+        page: Page = open_as("admin", f"/projects/{world.project.slug}/", scheme)
+        crumbs = page.get_by_role("navigation", name="Breadcrumb")
+        crumbs.get_by_role("link", name="Projects", exact=True).wait_for()
+        changes = page.get_by_role("list", name="Recent changes")
+        changes.get_by_role("link", name=hrid).wait_for()
+        changes.get_by_text("Editor created").wait_for()
+        page.get_by_role("list", name="Members").get_by_role("listitem").first.wait_for()
+        assert_clean(page)
+        # New, from the keyboard: it opens, its first item has focus, Escape closes it.
+        page.get_by_role("button", name=f"New in {world.project.name}").focus()
+        page.keyboard.press("Enter")
+        menu = page.get_by_role("menu", name=f"New in {world.project.name}")
+        item = menu.get_by_role("menuitem", name="Entity", exact=True)
+        item.wait_for()
+        assert item.evaluate("e => e === document.activeElement")
+        assert_clean(page)
+        page.keyboard.press("Escape")
+        menu.wait_for(state="detached")
+        page.set_viewport_size({"width": 1440, "height": 900})
+        assert page.evaluate(width)
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.evaluate(width)
+        page.context.close()
+
+    # Its counts open All entities held to it, by its slug; its Entities tab has the same pills.
+    page = open_as("admin", f"/projects/{world.project.slug}/")
+    page.get_by_role("link", name="Open in Entities, filtered to this project").click()
+    page.wait_for_url(re.compile(rf"/entities/\?project={world.project.slug}$"))
+    pills = page.get_by_role("group", name="Type")
+    pills.get_by_role("button", name=re.compile(r"^DNA sequence \d+ records?$")).wait_for()
+    assert_clean(page)
+    page.goto(f"/projects/{world.project.slug}/entities/")
+    pills.get_by_role("button", name=re.compile(r"^DNA sequence \d+ records?$")).click()
+    page.wait_for_url(re.compile(r"\?type=acme%2Fdna\.DNASequence$|\?type=acme/dna\.DNASequence$"))
+    assert (
+        pills.get_by_role("button", name=re.compile("^DNA sequence")).get_attribute("aria-pressed")
+        == "true"
+    )
+    assert page.get_by_role("combobox", name="Type").count() == 0
+    assert_clean(page)
+    page.context.close()
+
+    page = open_as("admin", f"/projects/{world.project.slug}/")
+    tabs = page.get_by_role("navigation", name="Project")
+    tabs.get_by_role("link", name="Automation").click()
+    page.wait_for_url(re.compile(r"/automation/workflows/$"))
+    automation = page.get_by_role("navigation", name="Automation")
+    automation.get_by_role("link", name="Triggers").click()
+    page.wait_for_url(re.compile(r"/automation/triggers/$"))
+    assert automation.get_by_role("link", name="Triggers").get_attribute("aria-current") == "page"
+    assert tabs.get_by_role("link", name="Automation").get_attribute("aria-current") == "page"
+    assert_clean(page)
+    # Its own address opens the first of the three.
+    page.goto(f"/projects/{world.project.slug}/automation/")
+    page.wait_for_url(re.compile(r"/automation/workflows/$"))
+    shown(page)
 
 
 def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
@@ -3038,7 +3113,7 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
         "link", name="Requests sent to Protein Core"
     ).click()
     tabs = page.get_by_role("navigation", name="Project")
-    tab = tabs.get_by_role("link", name="Requests", exact=True)
+    tab = tabs.get_by_role("link", name=re.compile(r"^Requests\b"))
     tab.wait_for()
     assert tab.get_attribute("aria-current") == "page"
     assert tabs.get_by_role("link", name="Entities").get_attribute("aria-current") is None
@@ -3102,8 +3177,8 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
 
     page: Page = open_as("editor", f"/projects/{world.project.slug}/")
     tabs = page.get_by_role("navigation", name="Project")
-    tabs.get_by_role("link", name="Requests", exact=True).click()
-    tab = tabs.get_by_role("link", name="Requests", exact=True)
+    tabs.get_by_role("link", name=re.compile(r"^Requests\b")).click()
+    tab = tabs.get_by_role("link", name=re.compile(r"^Requests\b"))
     page.wait_for_url(re.compile(r"/requests/"))
     assert tab.get_attribute("aria-current") == "page"
     # Only what it sent: not the request it hasn't sent yet.

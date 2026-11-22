@@ -67,15 +67,29 @@ export function ProjectNotifications({ project }: { project: Project }) {
   const here = chosenHere(found, project.id);
   return (
     <>
+      {/* As GitHub's Watch: how you're told of what happens in the project (ADR 0176). */}
       <Button
-        variant="quiet"
-        label={`Notifications in ${project.name}`}
+        label={`Watch ${project.name}`}
         onClick={() => {
           setDraft(here);
           setOpen(true);
         }}
       >
-        Notifications
+        <svg
+          className="icon"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+        Watch
       </Button>
       <ConfirmDialog
         isOpen={open}

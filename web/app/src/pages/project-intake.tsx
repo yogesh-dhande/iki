@@ -10,15 +10,35 @@ import { Link } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
 import { fieldErrors, iki, problemOf, projectsQuery, useApiMutation, type Project } from "../api";
-import { inSentence, typesQuery, type EntityType } from "../entities";
+import {
+  inSentence,
+  NOT_SENT,
+  recordSearch,
+  stateFields,
+  stateLabel,
+  typesQuery,
+  unsentState,
+  type Entity,
+  type EntityType,
+} from "../entities";
+import { latestRequestsQuery } from "../project-page";
 import {
   intakeQuery,
   listed,
-  queuedQuery,
   requestTypes,
+  useRequestSides,
   type Intake as IntakeSettings,
 } from "../requests";
-import { Button, CheckboxesField, Loading, ProblemAlert, RadioField, useMessages } from "../ui";
+import {
+  Badge,
+  Button,
+  CheckboxesField,
+  Loading,
+  ProblemAlert,
+  RadioField,
+  useMessages,
+} from "../ui";
+import { Box } from "./project-cards";
 
 type From = "registry" | "projects";
 
@@ -219,38 +239,84 @@ function IntakeForm({
   );
 }
 
-/** On the project's page, for a project that takes requests or was sent some: what it
- * takes, and its queue, the requests sent to it. */
+/** On the project's page, for a project that takes requests, was sent some, or sent its own:
+ * what it takes, its latest requests with their status, and its queue. */
 export function ProjectRequests({ project }: { project: Project }) {
-  const found = useQuery(intakeQuery(project.id));
-  const queued = useQuery(queuedQuery(project.id));
+  const sides = useRequestSides(project);
   const types = useQuery(typesQuery).data;
-  const intake = found.data;
-  if (!intake || (!intake.types.length && !queued.data)) return null;
+  const any = sides.received || sides.sent;
+  const latest = useQuery({
+    ...latestRequestsQuery(project.id, { received: sides.received, sent: sides.sent }),
+    enabled: sides.ready && any,
+  });
+  if (!any) return null;
   return (
-    <section className="card" aria-labelledby="requests-title">
-      <h2 className="section-title" id="requests-title">
-        Requests
-      </h2>
-      <p>{takesWhat(project, intake, types)}</p>
-      <p>
-        {/* A shortcut to its Requests tab, as the service sees it. */}
-        <Link
-          to="/projects/$slug/requests/"
-          params={{ slug: project.slug }}
-          search={{ side: "received" }}
-        >
-          Requests sent to {project.name}
+    <Box
+      id="requests-title"
+      title="Requests"
+      aside={
+        <Link to="/projects/$slug/requests/" params={{ slug: project.slug }}>
+          All requests
         </Link>
-        {project.can.manage && !project.archived ? (
-          <>
-            {" · "}
+      }
+    >
+      {sides.intake?.types.length ? (
+        <p className="box-body">{takesWhat(project, sides.intake, types)}</p>
+      ) : null}
+      {latest.isError ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
+      {latest.data?.length ? (
+        <ul className="changes" aria-label="Latest requests">
+          {latest.data.map((request) => (
+            <li key={request.id} className="change change-plain">
+              <span className="change-what">
+                <Link
+                  className="hrid"
+                  to="/entities/$ref/"
+                  params={{ ref: request.hrid }}
+                  search={recordSearch(request)}
+                >
+                  {request.hrid}
+                </Link>
+                {request.title !== request.hrid ? ` ${request.title}` : ""}
+              </span>
+              <RequestStatus request={request} type={types?.find((t) => t.name === request.type)} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {sides.received || (project.can.manage && !project.archived) ? (
+        <p className="box-body">
+          {sides.received ? (
+            // A shortcut to its Requests tab, as the service sees it.
+            <Link
+              to="/projects/$slug/requests/"
+              params={{ slug: project.slug }}
+              search={{ side: "received" }}
+            >
+              Requests sent to {project.name}
+            </Link>
+          ) : null}
+          {sides.received && project.can.manage && !project.archived ? " · " : null}
+          {project.can.manage && !project.archived ? (
             <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
               Choose what it takes
             </Link>
-          </>
-        ) : null}
-      </p>
-    </section>
+          ) : null}
+        </p>
+      ) : null}
+    </Box>
   );
+}
+
+/** A request's status: its type's first state field, or that it isn't sent yet. */
+function RequestStatus({ request, type }: { request: Entity; type: EntityType | undefined }) {
+  const field = stateFields(type)[0];
+  if (!field) return null;
+  const value = request.values[field.name];
+  const label = unsentState(request, field)
+    ? NOT_SENT
+    : typeof value === "string"
+      ? stateLabel(field, value)
+      : null;
+  return label ? <Badge muted>{label}</Badge> : null;
 }

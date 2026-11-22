@@ -96,7 +96,7 @@ function progress(run: WorkflowRun): string {
 export function ProjectWorkflows() {
   const project = useProject();
   usePageTitle(`Workflows · ${project.name}`);
-  const { status } = useSearch({ from: "/projects/$slug/workflows" });
+  const { status } = useSearch({ from: "/projects/$slug/automation/workflows" });
   const navigate = useNavigate();
   const runs = useInfiniteQuery({
     ...projectWorkflowRunsQuery(project.id, status),
@@ -116,7 +116,7 @@ export function ProjectWorkflows() {
           options={STATUS_CHOICES}
           onChange={(value) => {
             void navigate({
-              to: "/projects/$slug/workflows/",
+              to: "/projects/$slug/automation/workflows/",
               params: { slug: project.slug },
               search: value === "all" ? {} : { status: value as WorkflowStatus },
             });
@@ -124,7 +124,7 @@ export function ProjectWorkflows() {
         />
         {project.can.run.length ? (
           <Link
-            to="/projects/$slug/workflows/new/"
+            to="/projects/$slug/automation/workflows/new/"
             params={{ slug: project.slug }}
             className={`${buttonClass("primary")} toolbar-end`}
           >
@@ -190,8 +190,8 @@ interface Start {
 
 export function NewWorkflowRun() {
   const project = useProject();
-  const search = useSearch({ from: "/projects/$slug/workflows/new" });
-  const navigate = useNavigate({ from: "/projects/$slug/workflows/new" });
+  const search = useSearch({ from: "/projects/$slug/automation/workflows/new" });
+  const navigate = useNavigate({ from: "/projects/$slug/automation/workflows/new" });
   const types = useSuspenseQuery(typesQuery).data;
   const workflows = useQuery(workflowsQuery).data;
   const actions = useQuery(actionsQuery).data;
@@ -270,7 +270,7 @@ export function NewWorkflowRun() {
       ) : (
         <div className="actions">
           <Link
-            to="/projects/$slug/workflows/"
+            to="/projects/$slug/automation/workflows/"
             params={{ slug: project.slug }}
             className={buttonClass("quiet")}
           >
@@ -487,7 +487,7 @@ function WorkflowForm({
           Start workflow
         </Button>
         <Link
-          to="/projects/$slug/workflows/"
+          to="/projects/$slug/automation/workflows/"
           params={{ slug: project.slug }}
           className={buttonClass("quiet")}
         >

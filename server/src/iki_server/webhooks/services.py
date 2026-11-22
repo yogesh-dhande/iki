@@ -412,7 +412,7 @@ def _disable(webhook: Webhook, reason: DisabledReason, why: str, data: dict[str,
     )
     where = webhook.project.name if webhook.project else "your organization"
     path = (
-        f"/projects/{webhook.project.slug}/webhooks/{webhook.pk}/"
+        f"/projects/{webhook.project.slug}/automation/webhooks/{webhook.pk}/"
         if webhook.project
         else f"/admin/webhooks/{webhook.pk}/"
     )

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Schemas } from "@ikisci/sdk";
 
 import { queryClient } from "./api";
+import { swatchOf } from "./project-color";
 import { createAppRouter } from "./router";
 import { adminLink, currentOf, ENTITIES_COOKIE, initials } from "./sidebar";
 import { answer, calls, ME, page, project, respond, signedIn } from "./test-server";
@@ -129,6 +130,9 @@ describe("what it lists", () => {
     await renderApp("/projects/variant-calls/");
     const here = within(nav()).getByRole("link", { name: "Variant Calls" });
     expect(here).toHaveAttribute("aria-current", "page");
+    // Its color, as the server's sidebar draws it for the same ID (test_web_app.py).
+    expect(here.querySelector(".swatch")).toHaveAttribute("data-swatch", "8");
+    expect(swatchOf("00000000-0000-7000-8000-000000000001")).toBe(2);
     expect(within(nav()).getByRole("link", { name: "All projects" })).not.toHaveAttribute(
       "aria-current",
     );

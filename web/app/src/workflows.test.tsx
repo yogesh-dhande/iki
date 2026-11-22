@@ -38,7 +38,7 @@ describe("a project's workflows", () => {
   it("lists its workflow runs, newest first", async () => {
     onProject();
     answer("GET /api/v1/workflow-runs", page([workflowRun({ reason: "Kinase panel" })]));
-    await renderApp("/projects/kinase-atlas/workflows/");
+    await renderApp("/projects/kinase-atlas/automation/workflows/");
     const runs = await screen.findByRole("list", { name: "Workflow runs" });
     const link = within(runs).getByRole("link", { name: "Translate and characterize" });
     expect(link).toHaveAttribute("href", "/workflow-runs/WF-000001/");
@@ -48,14 +48,14 @@ describe("a project's workflows", () => {
     expect(calls("GET", "/api/v1/workflow-runs").at(-1)?.query.get("project")).toBe(KINASE.id);
     expect(screen.getByRole("link", { name: "Run a workflow" })).toHaveAttribute(
       "href",
-      "/projects/kinase-atlas/workflows/new/",
+      "/projects/kinase-atlas/automation/workflows/new/",
     );
   });
 
   it("says when there are none", async () => {
     onProject({ run: [] });
     answer("GET /api/v1/workflow-runs", page([]));
-    await renderApp("/projects/kinase-atlas/workflows/");
+    await renderApp("/projects/kinase-atlas/automation/workflows/");
     expect(await screen.findByText(/No workflow runs yet/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Run a workflow" })).not.toBeInTheDocument();
   });
@@ -64,7 +64,7 @@ describe("a project's workflows", () => {
     onProject();
     answer(`POST /api/v1/workflows/${WORKFLOW.name}/runs`, () => workflowRun());
     answer("GET /api/v1/workflow-runs/WF-000001", workflowRun());
-    const { user, router } = await renderApp("/projects/kinase-atlas/workflows/new/");
+    const { user, router } = await renderApp("/projects/kinase-atlas/automation/workflows/new/");
     const chooser = await screen.findByRole("combobox", { name: "Workflow" });
     // Only those whose steps the person may run here, on this deployment.
     expect(
@@ -98,7 +98,7 @@ describe("a project's workflows", () => {
 
   it("says when the person can't run workflows in the project", async () => {
     onProject({ run: [] });
-    await renderApp("/projects/kinase-atlas/workflows/new/");
+    await renderApp("/projects/kinase-atlas/automation/workflows/new/");
     expect(await screen.findByText(/You can’t run workflows in Kinase Atlas/)).toBeInTheDocument();
   });
 });

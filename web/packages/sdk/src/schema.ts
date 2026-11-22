@@ -2513,6 +2513,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's latest changes
+         * @description Newest first: the latest revisions of the records in the project (its own, and those
+         *     linked into it) that you can read, as its Entities tab lists them, each with the record
+         *     it changed. Its records' own revisions: a registry entry's curation is on the entry's
+         *     history (ADR 0115). Takes a role in the project. The full trail of each is the record's
+         *     ``/revisions``.
+         */
+        get: operations["iki_server_api_entities_project_changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/costs": {
         parameters: {
             query?: never;
@@ -5624,6 +5648,34 @@ export interface components {
             after?: unknown;
             /** Before */
             before?: unknown;
+        };
+        /** ChangedOut */
+        ChangedOut: {
+            /** Archived */
+            archived: boolean;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** ChangesParams */
+        ChangesParams: {
+            /**
+             * Limit
+             * @description How many, newest first.
+             * @default 10
+             */
+            limit: number;
         };
         /** CheckpointOut */
         CheckpointOut: {
@@ -10157,6 +10209,66 @@ export interface components {
              * @description The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
              */
             run: ("self_hosted" | "backend" | "container" | "vm")[];
+        };
+        /** ProjectChangeOut */
+        ProjectChangeOut: {
+            /** @description The agent that made it, acting for user, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
+            /** Changed Fields */
+            changed_fields: string[];
+            /**
+             * Client
+             * @description The OAuth app it came through, such as an AI agent's MCP client, if any.
+             */
+            client: string;
+            /** Created At */
+            created_at: string | null;
+            /** @description The record it changed. */
+            entity: components["schemas"]["ChangedOut"];
+            /**
+             * Entry
+             * @description It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
+             * @default false
+             */
+            entry: boolean;
+            /**
+             * Holds
+             * @description The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
+             */
+            holds?: components["schemas"]["HeldOut"][];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            /** Number */
+            number: number;
+            /** Reason */
+            reason: string;
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record. */
+            run?: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Run Withheld
+             * @description A run made it, in a project you can't read, so `run` is null. When `via` is `run` and both are empty, no run is recorded for it: it was imported, say.
+             * @default false
+             */
+            run_withheld: boolean;
+            /** @description For a state change (ADR 0125): which state field, and the states it went from and to. One a plugin's migration made, moving records out of a state it removed, is by no one, via `system`. */
+            state: components["schemas"]["RevisionStateOut"] | null;
+            /**
+             * Submitted
+             * @description A record's first revision, of a registry entry its identity found (ADR 0138): its identity's values as they were given, where they're spelled other than the entry's, such as a plasmid from another origin or on its other strand. Features given along it were placed along the entry's.
+             */
+            submitted?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Who, or for a run, who launched it. */
+            user: components["schemas"]["UserOut"] | null;
+            /**
+             * Via
+             * @description How: web, api, mcp, run, …
+             */
+            via: string;
         };
         /** ProjectChoiceIn */
         ProjectChoiceIn: {
@@ -18751,6 +18863,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_project_changes: {
+        parameters: {
+            query?: {
+                /** @description How many, newest first. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectChangeOut"][];
                 };
             };
         };

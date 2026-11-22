@@ -128,7 +128,7 @@ function onProject(triggers: Schemas["ProjectTriggerOut"][], firings = [FIRING])
 describe("a project's triggers", () => {
   it("says what each fires, whether it's on and as whom", async () => {
     onProject([ON, RELAX]);
-    await renderApp("/projects/kinase-atlas/triggers/");
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
     const rows = await screen.findByRole("list", { name: "Triggers" });
     const [first, second] = within(rows).getAllByRole("listitem");
     expect(first).toHaveTextContent(
@@ -150,7 +150,7 @@ describe("a project's triggers", () => {
       ...ON,
       can: { enable: false, disable: true },
     }));
-    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     await user.click(await screen.findByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent(
@@ -178,7 +178,7 @@ describe("a project's triggers", () => {
       related: { aliquots: 3, results: 0 },
     };
     onProject([HOLD], [held]);
-    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     const rows = await screen.findByRole("list", { name: "Triggers" });
     expect(rows).toHaveTextContent(
       "Each run is also given, from Kinase Atlas: aliquots, what was derived from it, up to 2 " +
@@ -198,7 +198,7 @@ describe("a project's triggers", () => {
   it("turns one off", async () => {
     onProject([{ ...ON, can: { enable: false, disable: true } }]);
     answer(`POST /api/v1/projects/${KINASE.id}/triggers/${OFF.name}/disable`, () => OFF);
-    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     await user.click(await screen.findByRole("button", { name: "Turn off" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Runs it already started carry on");
@@ -224,7 +224,7 @@ describe("a project's triggers", () => {
         can: { enable: false, disable: false },
       },
     ]);
-    await renderApp("/projects/kinase-atlas/triggers/");
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
     const rows = await screen.findByRole("list", { name: "Triggers" });
     expect(rows).toHaveTextContent(/Iki turned it off .*: Alice Admin can no longer run/);
     expect(rows).toHaveTextContent("You can’t turn it on: Its runs would be launched as you");
@@ -243,7 +243,7 @@ describe("a project's triggers", () => {
         can: { enable: true, disable: true },
       },
     ]);
-    await renderApp("/projects/kinase-atlas/triggers/");
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
     const rows = await screen.findByRole("list", { name: "Triggers" });
     const [row] = within(rows).getAllByRole("listitem");
     expect(row).toHaveTextContent(
@@ -257,7 +257,7 @@ describe("a project's triggers", () => {
     onProject([NIGHTLY]);
     const path = `/api/v1/projects/${KINASE.id}/triggers/${NIGHTLY.name}/enable`;
     answer(`POST ${path}`, () => ({ ...NIGHTLY, enabled: true, run_as: ROBOT }));
-    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     await user.click(await screen.findByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("as the service account you choose, on your authority");
@@ -303,7 +303,7 @@ describe("a project's triggers", () => {
         },
       ],
     );
-    await renderApp("/projects/kinase-atlas/triggers/");
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
     const firings = await screen.findByRole("list", { name: "Firings" });
     const [launched, skipped] = within(firings).getAllByRole("listitem");
     expect(launched).toHaveTextContent(/Scheduled for .*since the run for/);
@@ -325,7 +325,7 @@ describe("a project's triggers", () => {
         },
       ],
     );
-    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     const firings = await screen.findByRole("list", { name: "Firings" });
     const [launched, failed] = within(firings).getAllByRole("listitem");
     expect(within(must(launched)).getByRole("link", { name: "PRT-000007" })).toHaveAttribute(

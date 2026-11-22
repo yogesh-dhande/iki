@@ -340,6 +340,46 @@ def test_revisions_show_who_what_how_and_why(world: World) -> None:
     assert provenance["name"]["number"] == 2 and provenance["bases"]["number"] == 1
 
 
+def test_a_projects_changes_are_its_records_newest_first_and_no_one_elses(
+    world: World, other: Project
+) -> None:
+    """A project's page shows its latest changes (ADR 0176): its records' revisions, its own
+    and those linked into it, newest first. Another project's records never appear, and only
+    the project's members may ask."""
+    editor = api_as(world)
+    own = create(editor, world.project, {"bases": "ACGT", "name": "pUC19"}).json()
+    patch(editor, own["id"], {"values": {"name": "pUC19c"}, "reason": "Rename"}, '"1"')
+    elsewhere = create(editor, other, {"bases": "TTAA", "name": "Enzyme only"}).json()
+    shared = create(editor, other, {"bases": "GGCC", "name": "Shared in"}).json()
+    assert editor.put(f"/entities/{shared['id']}/projects/{world.project.pk}").status_code == 201
+
+    url = f"/projects/{world.project.pk}/changes"
+    changes = api_as(world, "viewer").get(url).json()
+    assert [(c["entity"]["hrid"], c["number"], c["kind"]) for c in changes] == [
+        (shared["hrid"], 1, "created"),
+        (own["hrid"], 2, "edited"),
+        (own["hrid"], 1, "created"),
+    ]
+    latest_edit = changes[1]
+    assert latest_edit["entity"]["title"] == "pUC19c"  # as it's called now
+    assert latest_edit["changed_fields"] == ["name"]
+    assert latest_edit["reason"] == "Rename"
+    assert latest_edit["user"]["email"] == "editor@example.com"
+    assert elsewhere["hrid"] not in {c["entity"]["hrid"] for c in changes}
+
+    limited = api_as(world, "viewer").get(f"{url}?limit=1")
+    assert [c["entity"]["hrid"] for c in limited.json()] == [shared["hrid"]]
+    problem(editor.get(f"{url}?limit=51"), 422, "validation_failed")
+
+    # The outsider is in Enzymes, not Kinase Atlas: it isn't there for them.
+    problem(api_as(world, "outsider").get(url), 404, "not_found")
+    # An Org Admin sees the project exists, not what changed in it.
+    problem(api_as(world, "org_admin").get(url), 403, "forbidden")
+    # Enzymes' changes are Enzymes' records': the shared one, and its own.
+    theirs = api_as(world, "outsider").get(f"/projects/{other.pk}/changes").json()
+    assert {c["entity"]["hrid"] for c in theirs} == {elsewhere["hrid"], shared["hrid"]}
+
+
 def test_tokens_need_write_to_change_and_are_held_to_their_projects(
     world: World, other: Project
 ) -> None:

@@ -15,6 +15,7 @@ import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
 import { adminNavigation } from "./admin";
 import { countsQuery } from "./lists";
+import { swatchOf } from "./project-color";
 import { openSearch } from "./search";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
@@ -365,6 +366,7 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       : []),
   ].map((p) => ({
     ...shown({ label: p.name, href: `${SPEC.projects.href}${p.slug}/`, app: true }),
+    swatch: swatchOf(p.id),
   }));
   const newProject =
     !SPEC.projects.new.requires || me.can[SPEC.projects.new.requires]
@@ -475,9 +477,7 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       >
         {mine.map((link) => (
           <NavLink key={link.key} link={link} current={current === link.key}>
-            <span className="project-mark" aria-hidden="true">
-              {link.label.slice(0, 1).toUpperCase()}
-            </span>
+            <span className="swatch swatch-large" data-swatch={link.swatch} aria-hidden="true" />
             <span className="nav-label">{link.label}</span>
           </NavLink>
         ))}

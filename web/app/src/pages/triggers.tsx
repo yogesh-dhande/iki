@@ -379,7 +379,7 @@ function TriggerRow({
 }
 
 function Firings({ project, triggers }: { project: Project; triggers: ProjectTrigger[] }) {
-  const { trigger } = useSearch({ from: "/projects/$slug/triggers" });
+  const { trigger } = useSearch({ from: "/projects/$slug/automation/triggers" });
   const navigate = useNavigate();
   const firings = useInfiniteQuery({
     ...triggerFiringsQuery(project.id, trigger),
@@ -405,7 +405,7 @@ function Firings({ project, triggers }: { project: Project; triggers: ProjectTri
           ]}
           onChange={(value) => {
             void navigate({
-              to: "/projects/$slug/triggers/",
+              to: "/projects/$slug/automation/triggers/",
               params: { slug: project.slug },
               search: value ? { trigger: value } : {},
             });

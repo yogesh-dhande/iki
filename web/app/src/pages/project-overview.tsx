@@ -1,6 +1,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 
 import {
   iki,
@@ -15,13 +16,16 @@ import {
 import { dashboardQuery } from "../apps";
 import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { swatchColor } from "../project-color";
+import { countsQuery } from "../lists";
+import { useRequestSides } from "../requests";
+import { Badge, Button, Loading, PageTitle, ProblemAlert, useMessages } from "../ui";
 import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
 import { PluginSections } from "./plugin-sections";
+import { About, Automation, EntityCounts, Members, RecentChanges } from "./project-cards";
 import { ProjectNotifications } from "./project-notifications";
 import { ProjectRequests } from "./project-intake";
-import { useRequestSides } from "../requests";
-import { Badge, Button, Loading, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
 export function useProject(): Project {
@@ -31,27 +35,100 @@ export function useProject(): Project {
 
 const tab = { "aria-current": "page" } as const;
 
-/** The project's heading and tabs, shared by its pages. */
+/** "an Editor", "a Viewer": a role's label in a sentence. */
+function withArticle(label: string): string {
+  return `${/^[AEIOU]/i.test(label) ? "an" : "a"} ${label}`;
+}
+
+/** How many there are, after a tab's name; nothing until it's known. */
+function TabCount({ count }: { count: number | undefined }) {
+  // The space keeps it apart from the name, for screen readers: "Entities 10".
+  return count === undefined ? null : (
+    <>
+      {" "}
+      <span className="tab-count">{count}</span>
+    </>
+  );
+}
+
+/** The project's heading and tabs, shared by its pages: where it is, what it's called, who's
+ * in it, and its tabs. Automation's three are a row of their own under it. */
 export function ProjectTabs() {
   const project = useProject();
   const sides = useRequestSides(project);
+  const path = useRouterState({ select: (state) => state.location.pathname });
+  const section = path.slice(`/projects/${project.slug}/`.length).split("/")[0] ?? "";
+  const inAutomation = section === "automation";
+  const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
+  const members = useQuery(membersQuery(project.id)).data;
+  const counts = useQuery({ ...countsQuery(project.id), enabled: project.can.read }).data;
+  const types = useQuery(typesQuery).data;
+  // Its request types' records: unknown if any of them is uncounted.
+  const requestCounts =
+    counts && types
+      ? counts.types
+          .filter((c) => types.find((t) => t.name === c.type)?.request)
+          .map((c) => c.count)
+      : undefined;
+  const requests =
+    requestCounts && !requestCounts.includes(null)
+      ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
+      : undefined;
+  const summary = [
+    project.description.split("\n")[0]?.trim(),
+    members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
+    role ? `you’re ${withArticle(role.label)}` : "you’re not a member",
+  ].filter(Boolean);
   return (
     <>
-      <PageHeader
-        eyebrow={<a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>}
-        title={project.name}
-        badge={
-          project.archived || !project.allow_sharing ? (
-            <>
-              {project.archived ? <Badge muted>Archived</Badge> : null}
-              {project.archived && !project.allow_sharing ? " " : null}
-              {project.allow_sharing ? null : <Badge muted>Not shared outside this project</Badge>}
-            </>
-          ) : null
-        }
-        actions={project.can.read ? <ProjectNotifications project={project} /> : undefined}
-      />
-      <nav className="tabs" aria-label="Project">
+      <div className="project-bar">
+        <nav className="breadcrumb" aria-label="Breadcrumb">
+          <ol>
+            <li>
+              <Link to="/projects/">Projects</Link>
+            </li>
+            <li>
+              <Link to="/projects/$slug/" params={{ slug: project.slug }} aria-current="page">
+                {project.name}
+              </Link>
+            </li>
+          </ol>
+        </nav>
+        <div className="project-actions">
+          {project.can.read ? <ProjectNotifications project={project} /> : null}
+          <NewMenu project={project} />
+        </div>
+      </div>
+      <div className="project-heading">
+        <div className="project-name">
+          <span
+            className="swatch swatch-large"
+            style={{ background: swatchColor(project.id) }}
+            aria-hidden="true"
+          />
+          <PageTitle>
+            {project.name}
+            {project.archived ? (
+              <>
+                {" "}
+                <Badge muted>Archived</Badge>
+              </>
+            ) : null}
+            {project.allow_sharing ? null : (
+              <>
+                {" "}
+                <Badge muted>Not shared outside this project</Badge>
+              </>
+            )}
+          </PageTitle>
+        </div>
+        <p className="project-summary">
+          {summary.join(" · ")}
+          {" · "}
+          <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
+        </p>
+      </div>
+      <nav className="tabs project-tabs" aria-label="Project">
         <Link
           to="/projects/$slug/"
           params={{ slug: project.slug }}
@@ -63,12 +140,14 @@ export function ProjectTabs() {
         {project.can.read ? (
           <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
             Entities
+            <TabCount count={counts?.total ?? undefined} />
           </Link>
         ) : null}
         {/* For a service, or a project that asks one (ADR 0132). */}
         {sides.received || sides.sent ? (
           <Link to="/projects/$slug/requests/" params={{ slug: project.slug }} activeProps={tab}>
             Requests
+            <TabCount count={requests} />
           </Link>
         ) : null}
         {project.can.read ? (
@@ -76,24 +155,16 @@ export function ProjectTabs() {
             Runs
           </Link>
         ) : null}
-        {project.can.read ? (
-          <Link to="/projects/$slug/workflows/" params={{ slug: project.slug }} activeProps={tab}>
-            Workflows
-          </Link>
-        ) : null}
-        {project.can.read ? (
-          <Link to="/projects/$slug/triggers/" params={{ slug: project.slug }} activeProps={tab}>
-            Triggers
+        {/* It opens the first of its three the reader may see, and is current on any. */}
+        {project.can.read || project.can.manage_webhooks ? (
+          <Link to="/projects/$slug/automation/" params={{ slug: project.slug }} activeProps={tab}>
+            Automation
           </Link>
         ) : null}
         <Link to="/projects/$slug/members/" params={{ slug: project.slug }} activeProps={tab}>
           Members
+          <TabCount count={members?.length} />
         </Link>
-        {project.can.manage_webhooks ? (
-          <Link to="/projects/$slug/webhooks/" params={{ slug: project.slug }} activeProps={tab}>
-            Webhooks
-          </Link>
-        ) : null}
         {/* Org Admins choose a new project's registry, without a role in it (ADR 0115). */}
         {project.can.manage || project.can.change_registry ? (
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }} activeProps={tab}>
@@ -101,7 +172,89 @@ export function ProjectTabs() {
           </Link>
         ) : null}
       </nav>
+      {inAutomation ? (
+        <nav className="subtabs" aria-label="Automation">
+          {project.can.read ? (
+            <Link
+              to="/projects/$slug/automation/workflows/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
+              Workflows
+            </Link>
+          ) : null}
+          {project.can.read ? (
+            <Link
+              to="/projects/$slug/automation/triggers/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
+              Triggers
+            </Link>
+          ) : null}
+          {project.can.manage_webhooks ? (
+            <Link
+              to="/projects/$slug/automation/webhooks/"
+              params={{ slug: project.slug }}
+              activeProps={tab}
+            >
+              Webhooks
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
     </>
+  );
+}
+
+/** What can be made in the project from its page: a record, a run, a workflow's run. */
+function NewMenu({ project }: { project: Project }) {
+  const navigate = useNavigate();
+  const params = { slug: project.slug };
+  const items = [
+    ...(project.can.edit && !project.archived
+      ? [{ id: "entity", label: "Entity", to: "/projects/$slug/entities/new/" } as const]
+      : []),
+    ...(project.can.run.length
+      ? [
+          { id: "run", label: "Run", to: "/projects/$slug/runs/new/" } as const,
+          {
+            id: "workflow",
+            label: "Workflow run",
+            to: "/projects/$slug/automation/workflows/new/",
+          } as const,
+        ]
+      : []),
+  ];
+  if (!items.length) return null;
+  return (
+    <MenuTrigger>
+      <AriaButton className="button button-primary" aria-label={`New in ${project.name}`}>
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        New
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </AriaButton>
+      <Popover className="menu-popover" placement="bottom end">
+        <Menu
+          className="menu"
+          aria-label={`New in ${project.name}`}
+          onAction={(key) => {
+            const chosen = items.find((i) => i.id === key);
+            if (chosen) void navigate({ to: chosen.to, params });
+          }}
+        >
+          {items.map((item) => (
+            <MenuItem key={item.id} id={item.id} className="menu-item">
+              {item.label}
+            </MenuItem>
+          ))}
+        </Menu>
+      </Popover>
+    </MenuTrigger>
   );
 }
 
@@ -135,8 +288,6 @@ export function useJoinAsAdmin(project: Project) {
 export function ProjectOverview() {
   const project = useProject();
   usePageTitle(project.name);
-  const roles = useQuery(rolesQuery).data ?? [];
-  const role = roles.find((r) => r.name === project.my_role);
 
   return (
     <>
@@ -157,42 +308,28 @@ export function ProjectOverview() {
           </p>
         </div>
       ) : null}
-      {project.can.read ? <Dashboard project={project} /> : null}
       {project.can.read ? (
-        <section className="card">
-          {project.description ? <p className="preserve-lines">{project.description}</p> : null}
-          <dl className="summary">
-            <dt>Team</dt>
-            <dd>
-              <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
-            </dd>
-            {role ? (
-              <>
-                <dt>Your role</dt>
-                <dd>
-                  <strong>{role.label}</strong>: {role.description}
-                </dd>
-              </>
-            ) : null}
-            <dt>Created</dt>
-            <dd>
-              <Time value={project.created_at} />
-            </dd>
-          </dl>
-          <p>
-            <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
-              Browse the project’s entities
-            </Link>
-          </p>
-        </section>
+        <div className="project-overview">
+          <div className="project-main">
+            <Dashboard project={project} />
+            <EntityCounts project={project} />
+            <RecentChanges project={project} />
+            {/* What plugins' components find in the project (ADR 0117). */}
+            <PluginSections kind="project.page" project={project} />
+            <ProjectCosts project={project} />
+            <ChooseDashboard project={project} />
+          </div>
+          <aside className="project-aside" aria-label="Project summary">
+            <About project={project} />
+            {/* What it takes as a service, its queue, and what it sent (ADR 0132). */}
+            <ProjectRequests project={project} />
+            <Members project={project} />
+            <Automation project={project} />
+          </aside>
+        </div>
       ) : (
         <NotAMember project={project} />
       )}
-      {/* What it takes as a service, and its queue (ADR 0132). */}
-      {project.can.read ? <ProjectRequests project={project} /> : null}
-      {/* What plugins' components find in the project (ADR 0117). */}
-      {project.can.read ? <PluginSections kind="project.page" project={project} /> : null}
-      {project.can.read ? <ProjectCosts project={project} /> : null}
     </>
   );
 }
@@ -205,17 +342,8 @@ function Dashboard({ project }: { project: Project }) {
   const types = useQuery(typesQuery);
   if (dashboard.isError) return <ProblemAlert problem={problemOf(dashboard.error)} />;
   if (!dashboard.data) return <Loading label="Opening its dashboard…" />;
-  if (!chosen) {
-    return project.can.manage && !project.archived ? (
-      <p className="muted">
-        Open this page with one of the project’s apps: choose it in{" "}
-        <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
-          Settings
-        </Link>
-        .
-      </p>
-    ) : null;
-  }
+  // Its Admins hear how to choose one at the foot of the page: below what it holds.
+  if (!chosen) return null;
   const problem = app.error ?? types.error;
   if (problem) return <ProblemAlert problem={problemOf(problem)} />;
   if (!app.data || !types.data) return <Loading label={`Opening ${chosen.name}…`} />;
@@ -231,6 +359,23 @@ function Dashboard({ project }: { project: Project }) {
       </div>
       <AppPanel app={app.data} types={types.data} />
     </section>
+  );
+}
+
+/** For its Admins, while the project has no app for its page: how to choose one. */
+function ChooseDashboard({ project }: { project: Project }) {
+  const dashboard = useQuery(dashboardQuery(project.id));
+  if (!dashboard.data || dashboard.data.app || !project.can.manage || project.archived) {
+    return null;
+  }
+  return (
+    <p className="project-hint muted">
+      Open this page with one of the project’s apps: choose it in{" "}
+      <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
+        Settings
+      </Link>
+      .
+    </p>
   );
 }
 

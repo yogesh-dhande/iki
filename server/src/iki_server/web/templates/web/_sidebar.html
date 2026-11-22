@@ -43,7 +43,7 @@ shows, open.
     </div>{% endif %}
     <div class="nav-group" role="group" aria-label="{{ nav.labels.projects }}">
       <div class="nav-heading"><span aria-hidden="true">{{ nav.labels.projects }}</span>{% if nav.new_project %}<a class="nav-add" href="{{ nav.new_project.href }}" title="{{ nav.new_project.label }}"{% if nav.new_project.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.icons.plus %}<span class="visually-hidden">{{ nav.new_project.label }}</span></a>{% endif %}</div>
-      {% for link in nav.projects %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="project-mark" aria-hidden="true">{{ link.initial }}</span><span class="nav-label">{{ link.label }}</span></a>
+      {% for link in nav.projects %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}><span class="swatch swatch-large" data-swatch="{{ link.swatch }}" aria-hidden="true"></span><span class="nav-label">{{ link.label }}</span></a>
       {% endfor %}
       <a class="nav-item nav-quiet" href="{{ nav.all_projects.href }}"{% if nav.all_projects.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=nav.all_projects.icon %}<span class="nav-label">{{ nav.all_projects.label }}</span></a>
     </div>

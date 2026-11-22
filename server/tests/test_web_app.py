@@ -392,6 +392,22 @@ def test_the_sidebar_lists_the_readers_active_projects_and_saved_searches(world:
     assert "Old Screens" not in links and "Left Behind" not in links
 
 
+def test_a_projects_square_is_its_color_as_the_app_draws_it(world: World) -> None:
+    """One of the stylesheet's eight swatches, from its ID, as project-color.ts works it out
+    (its test takes the same IDs to the same swatches): the same color on the server's pages
+    as in the app."""
+    from iki_server.web.navigation import swatch_of
+
+    assert [swatch_of(pk) for pk in ("00000000-0000-7000-8000-000000000001", "p2")] == [2, 8]
+    assert {swatch_of(f"project-{n}") for n in range(64)} == set(range(1, 9))
+    html = world.browser("viewer").get("/teams/").content.decode()
+    swatch = swatch_of(str(world.project.pk))
+    assert (
+        f'<span class="swatch swatch-large" data-swatch="{swatch}" aria-hidden="true"></span>'
+        '<span class="nav-label">Kinase Atlas</span>'
+    ) in html
+
+
 def test_the_sidebar_shows_the_project_a_page_is_in_beyond_the_first_few(world: World) -> None:
     from iki_server.org.models import Project, ProjectMembership, ProjectRole
     from iki_server.web.navigation import sidebar, spec

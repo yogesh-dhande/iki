@@ -373,7 +373,7 @@ def _turn_off(row: ProjectTrigger, spec: Trigger, why: str) -> None:
         kinds.TRIGGER_TURNED_OFF,
         title=f"“{spec.label}” was turned off in {row.project.name}",
         body=f"{why} An Admin who can run it can turn it on again; its runs are then theirs.",
-        path=f"/projects/{row.project.slug}/triggers/",
+        path=f"/projects/{row.project.slug}/automation/triggers/",
         project=row.project,
     )
 
