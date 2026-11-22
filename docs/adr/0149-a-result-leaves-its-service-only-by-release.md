@@ -51,7 +51,9 @@ reaches the project that asked by its release alone.
 project that asked, whatever put it there, its release still records
 `request.result_released`, tells the people its type names (ADR 0142),
 and keeps it there for good. A result released already, set back to an
-earlier state and released again, isn't released twice.
+earlier state and released again, isn't released twice. For a result with
+signed review and signed release, delivery records the reviewed, signed and
+released revisions, and the released result stays locked. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
 
 **A file that came with a request is read with the records it came on.**
 Its readers there read it as before, but no record refers to it anew, in

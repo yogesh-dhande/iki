@@ -674,35 +674,25 @@ def bearer_call(token: str, method: str, path: str, body: Any = None) -> request
     )
 
 
-def oauth(admin: requests.Session) -> None:
-    """OAuth 2.1: the CLI's device flow, a self-registered app with PKCE and approval,
-    and a service account's client credentials."""
-    app = browser()  # the client: no cookies of its own
-    meta = app.get(f"{IKI}/.well-known/oauth-authorization-server").json()
-    if meta.get("issuer") != IKI or meta.get("code_challenge_methods_supported") != ["S256"]:
-        fail(f"unexpected authorization server metadata: {meta}")
-    challenge = app.get(f"{IKI}/api/v1/me", headers={"Authorization": "Bearer nope"})
-    if "resource_metadata=" not in challenge.headers.get("WWW-Authenticate", ""):
-        fail(f"a bad token's 401 doesn't point at the metadata: {dict(challenge.headers)}")
-    ok("clients discover the OAuth server from metadata and from a 401")
-
-    # The CLI: device flow.
+def cli_read_token(session: requests.Session, *, project: str | None = None) -> str:
+    """Approve a read-only device token, optionally restricted to one project."""
+    app = browser()
     started = app.post(
         f"{IKI}/oauth/device-authorization/", data={"client_id": "iki-cli", "scope": "read write"}
     )
     if started.status_code != 200:
         fail(f"device authorization answered HTTP {started.status_code}: {started.text}")
     device = started.json()
-    alice = sign_in_as("alice")
     entered = page_post(
-        alice, f"{IKI}/oauth/device/", {"user_code": device["user_code"]}, allow_redirects=False
+        session, f"{IKI}/oauth/device/", {"user_code": device["user_code"]}, allow_redirects=False
     )
     if entered.status_code != 302:
         fail(f"entering the device code answered HTTP {entered.status_code}")
     confirm = urljoin(IKI, entered.headers["Location"])
-    if "Iki CLI" not in alice.get(confirm).text:
+    if "Iki CLI" not in session.get(confirm).text:
         fail("the device confirmation page doesn't name the CLI")
-    done = page_post(alice, confirm, {"granted": ["read"], "access": "all"})
+    choice = {"access": "chosen", "projects": project} if project else {"access": "all"}
+    done = page_post(session, confirm, {"granted": ["read"], **choice})
     if done.status_code != 200:
         fail(f"approving the device answered HTTP {done.status_code}")
     time.sleep(device["interval"])
@@ -716,7 +706,24 @@ def oauth(admin: requests.Session) -> None:
     )
     if tokens.status_code != 200 or tokens.json().get("scope") != "read":
         fail(f"the device poll answered HTTP {tokens.status_code}: {tokens.text}")
-    token = tokens.json()["access_token"]
+    return str(tokens.json()["access_token"])
+
+
+def oauth(admin: requests.Session) -> None:
+    """OAuth 2.1: the CLI's device flow, a self-registered app with PKCE and approval,
+    and a service account's client credentials."""
+    app = browser()  # the client: no cookies of its own
+    meta = app.get(f"{IKI}/.well-known/oauth-authorization-server").json()
+    if meta.get("issuer") != IKI or meta.get("code_challenge_methods_supported") != ["S256"]:
+        fail(f"unexpected authorization server metadata: {meta}")
+    challenge = app.get(f"{IKI}/api/v1/me", headers={"Authorization": "Bearer nope"})
+    if "resource_metadata=" not in challenge.headers.get("WWW-Authenticate", ""):
+        fail(f"a bad token's 401 doesn't point at the metadata: {dict(challenge.headers)}")
+    ok("clients discover the OAuth server from metadata and from a 401")
+
+    # The CLI: device flow.
+    alice = sign_in_as("alice")
+    token = cli_read_token(alice)
     me = bearer_call(token, "GET", "/me")
     if me.status_code != 200 or me.json()["email"] != "alice@iki.test":
         fail(f"the CLI's token answered HTTP {me.status_code}: {me.text[:200]}")
@@ -1654,42 +1661,80 @@ def analysis_result(
     result = created(
         analyst, core, "iki/example_lims.AnalysisResult", {"request": request["id"], **measurement}
     )
-    for session, name, state in ((analyst, "alice", "in_review"), (reviewer, "bob", "reviewed")):
-        signed = signing(session, result, state, name, field="review")
-        if signed["status"] != "signed" or not signed["set"]:
-            fail(f"signing {result['hrid']} as {state} gave {signed}")
-    reviewed = record(analyst, result["id"])
-    if not reviewed["locked"] or asking["id"] in {p["id"] for p in reviewed["projects"]}:
+    result_path = f"/entities/{result['hrid']}"
+    requester = cli_read_token(analyst, project=asking["id"])
+
+    def submit_and_review() -> dict[str, Any]:
+        for session, name, state in (
+            (analyst, "alice", "in_review"),
+            (reviewer, "bob", "reviewed"),
+        ):
+            signed = signing(session, result, state, name, field="review")
+            if signed["status"] != "signed" or not signed["set"]:
+                fail(f"signing {result['hrid']} as {state} gave {signed}")
+        return record(analyst, result["id"])
+
+    first_review = submit_and_review()
+    if not first_review["locked"] or bearer_call(requester, "GET", result_path).status_code != 404:
         fail(f"{result['hrid']} must be locked in the core until QA releases it")
+    measurement["purity"] = 97.0
     edit = api_call(
         analyst,
         "PATCH",
-        f"/entities/{result['id']}",
-        {"values": {"purity": 97.0}, "reason": "Correct the measured purity"},
-        {"If-Match": f'"{reviewed["revision"]}"'},
+        result_path,
+        {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
+        {"If-Match": f'"{first_review["revision"]}"'},
     )
-    if edit.status_code != 409 or edit.json().get("code") != "refused":
+    if edit.status_code != 200 or edit.json()["values"]["review"] != "draft":
         fail(
             f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
         )
+    qa_states = record(qa, result["id"])["can"]["states"]["review"]
+    if next(st for st in qa_states if st["name"] == "released")["allowed"]:
+        fail(f"QA could release {result['hrid']} before the correction was reviewed")
+    reviewed = submit_and_review()
     signed = signing(qa, result, "released", "carol", field="review")
     if signed["status"] != "signed" or not signed["set"]:
         fail(f"releasing {result['hrid']} gave {signed}")
-    released = record(analyst, result["id"])
-    signatures = api_call(analyst, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
-    if len({s["signer"]["id"] for s in signatures["items"]}) != 3:
+    released = bearer_call(requester, "GET", result_path).json()
+    signatures = bearer_call(requester, "GET", f"{result_path}/signatures?verify=true").json()[
+        "items"
+    ]
+    if len({s["signer"]["id"] for s in signatures}) != 3:
         fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
-    release = next(s for s in signatures["items"] if s["change"]["to"] == "released")
+    if len(signatures) != 5:
+        fail(f"{result['hrid']} must retain both signed reviews, both submissions and QA's release")
+    review = next(s for s in signatures if s["carried_by"] == reviewed["revision"])
+    release = next(s for s in signatures if s["change"]["to"] == "released")
+    receipt = bearer_call(requester, "GET", path + "/request").json()["result_releases"]
+    if receipt != [
+        {
+            "entity": result["id"],
+            "reviewed_revision": review["revision"],
+            "signed_revision": release["revision"],
+            "released_revision": released["revision"],
+        }
+    ]:
+        fail(f"{request['hrid']} received unexpected release revisions: {receipt}")
+    attested = json.loads(release["document"])["reviewed"]
+    snapshot = bearer_call(
+        requester, "GET", f"{result_path}/revisions/{receipt[0]['reviewed_revision']}"
+    ).json()
     if (
-        release["revision"] != reviewed["revision"]
-        or not release["verification"]["valid"]
+        attested["revision"] != review["revision"]
+        or attested["signatures"] != [review["id"]]
+        or attested["content_sha256"] != json.loads(review["document"])["record"]["content_sha256"]
+        or release["revision"] != reviewed["revision"]
+        or not all(s["verification"]["valid"] for s in signatures)
         or release["carried_by"] != released["revision"]
         or not released["locked"]
-        or asking["id"] not in {p["id"] for p in released["projects"]}
-        or any(released["values"][key] != value for key, value in measurement.items())
+        or any(
+            snapshot["values"][key] != value or released["values"][key] != value
+            for key, value in measurement.items()
+        )
     ):
         fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
-    ok(f"{result['hrid']}: QA signed reviewed revision {reviewed['revision']} and sent it back")
+    ok(f"{result['hrid']}: QA released corrected revision {review['revision']} to the requester")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
