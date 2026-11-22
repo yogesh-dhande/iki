@@ -15,6 +15,7 @@ import { useId, useState } from "react";
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { usePageTitle } from "../layout";
 import {
+  DEFAULT_SORT,
   gridSearch,
   SAVED_SEARCHES,
   savedSearchesQuery,
@@ -71,7 +72,14 @@ export function toAddress(query: Query): EntitySearch | null {
   }
   const q = [query.q ?? "", ...words].filter(Boolean).join(" ");
   if (q) out.q = q;
-  if (query.sort) {
+  if (!query.sort) {
+    // Without a sort, a search reads by when its records were made, oldest first: not the
+    // grid's default order, so the address says so.
+    out.sort = "created_at";
+  } else if (
+    query.sort.field !== DEFAULT_SORT.field ||
+    Boolean(query.sort.descending) !== DEFAULT_SORT.descending
+  ) {
     out.sort = query.sort.field;
     if (query.sort.descending) out.desc = true;
   }
@@ -88,8 +96,9 @@ export function fromAddress(search: EntitySearch) {
     archived: show === "all" ? undefined : show === "archived",
     q: search.q,
     filters: search.filters,
-    sort: search.sort,
-    descending: search.desc,
+    // Without a sort in the address, the grid's default order, which it runs.
+    sort: search.sort ?? DEFAULT_SORT.field,
+    descending: search.sort ? search.desc : DEFAULT_SORT.descending,
   });
 }
 

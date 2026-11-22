@@ -151,7 +151,16 @@ describe("a project's entities", () => {
       within(head)
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
-    ).toEqual(["", "ID", "Name", "Sequence", "Molecular weight (ku)", "Last changed"]);
+    ).toEqual([
+      "",
+      "ID",
+      "Name",
+      "Sequence",
+      "Molecular weight (ku)",
+      "Made by",
+      // Newest changes first, unless asked otherwise (ADR 0176).
+      "Changed▼",
+    ]);
     const cells = within(first)
       .getAllByRole("cell")
       .map((c) => c.textContent);
@@ -167,6 +176,7 @@ describe("a project's entities", () => {
       project: KINASE.id,
       type: "iki/protein.Protein",
       archived: false,
+      sort: { field: "updated_at", descending: true },
     });
   });
 
@@ -187,7 +197,9 @@ describe("a project's entities", () => {
     expect(screen.queryByRole("combobox", { name: "Type" })).not.toBeInTheDocument();
     expect(calls("GET", "/api/v1/entities/counts").at(-1)?.query.get("project")).toBe(KINASE.id);
     await user.click(within(pills).getByRole("button", { name: "Protein structure 1 record" }));
-    await user.selectOptions(screen.getByLabelText("Show"), "Current and archived");
+    // Archived ones are a filter, as the Filter menu offers it.
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show current and archived" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.ProteinStructure",
@@ -357,7 +369,7 @@ describe("a project's entities", () => {
     ).toBeVisible();
 
     // What can't be searched for yet isn't sent.
-    const second = await addFilter(user, "Last changed");
+    const second = await addFilter(user, "Changed");
     await user.selectOptions(within(second).getByLabelText("Filter 2: condition"), "is after");
     expect(within(second).getByLabelText("Filter 2: value")).toBeInTheDocument();
     await user.click(within(second).getByRole("button", { name: "Done" }));
@@ -448,10 +460,13 @@ describe("a project's entities", () => {
     );
     const saved = await screen.findByRole("navigation", { name: "Saved searches" });
     await user.click(within(saved).getByRole("link", { name: "Human proteins" }));
+    // Saved without a sort, it reads oldest first, as the database runs it: not the grid's
+    // default, so its address says so.
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",
         filters: [{ field: "name", op: "contains", value: "abl" }],
+        sort: "created_at",
       });
     });
     expect(within(saved).getByRole("link", { name: "Human proteins" })).toHaveAttribute(
@@ -474,6 +489,7 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         archived: false,
         where: { all: [{ field: "name", op: "contains", value: "abl" }] },
+        sort: { field: "created_at", descending: false },
       },
     });
   });
@@ -520,9 +536,11 @@ describe("a project's entities", () => {
     await screen.findByText("Saved “Kinases”.");
     // What it keeps is what the grid ran, which the API runs the same.
     const kept = nth(calls("POST", "/api/v1/saved-searches"), 0).body as { query: unknown };
-    expect(kept.query).toEqual(lineage);
+    // In the grid's own order, newest changes first, which it names.
+    const newest = { field: "updated_at", descending: true };
+    expect(kept.query).toEqual({ ...lineage, sort: newest });
     const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
-    expect(ran).toEqual({ ...lineage, limit: 100, project: KINASE.id });
+    expect(ran).toEqual({ ...lineage, sort: newest, limit: 100, project: KINASE.id });
 
     await user.click(
       within(screen.getByRole("main")).getByRole("link", { name: "From the donor" }),
@@ -532,6 +550,7 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         q: "abl downstream:DNR-000001",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
+        sort: "created_at",
       });
     });
   });
@@ -633,6 +652,7 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         q: "downstream:DNR-000001 components.part:PRT-000001 components.role:cargo",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
+        sort: "created_at",
       });
     });
   });

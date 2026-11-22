@@ -346,6 +346,10 @@ export function revisionQuery(ref: string, number: number, project?: string) {
 /** Which entities a list shows: ?show=archived|all. */
 export type Showing = "current" | "archived" | "all";
 
+/** The lists' order when their address names none: last changed, newest first (ADR 0176),
+ * so recent work is at the top. An index on when records changed serves it across types. */
+export const DEFAULT_SORT = { field: "updated_at", descending: true } as const;
+
 export interface EntitySearch {
   type?: string | undefined;
   show?: Showing | undefined;
@@ -570,4 +574,32 @@ export function inSentence(label: string): string {
 /** "iki/dna.DNASequence" → the type's label, or the name if it isn't installed. */
 export function typeLabel(types: EntityType[] | undefined, name: string): string {
   return types?.find((t) => t.name === name)?.label ?? name;
+}
+
+/** A type's name as lists show it: its label, and its plugin's name when another installed
+ * type has the same label, so two "Sample"s can be told apart. */
+export interface TypeDisplayName {
+  label: string;
+  /** Its plugin, when its label alone is ambiguous. */
+  plugin?: string;
+}
+
+export function typeDisplayName(
+  type: Pick<EntityType, "name" | "label" | "plugin">,
+  allTypes: readonly Pick<EntityType, "name" | "label">[],
+): TypeDisplayName {
+  const label = type.label.trim().toLowerCase();
+  const shared = allTypes.some(
+    (other) => other.name !== type.name && other.label.trim().toLowerCase() === label,
+  );
+  return shared ? { label: type.label, plugin: type.plugin } : { label: type.label };
+}
+
+/** The same as one string, where muted text can't show: an option, an accessible name. */
+export function typeDisplayText(
+  type: Pick<EntityType, "name" | "label" | "plugin">,
+  allTypes: readonly Pick<EntityType, "name" | "label">[],
+): string {
+  const shown = typeDisplayName(type, allTypes);
+  return shown.plugin ? `${shown.label} (${shown.plugin})` : shown.label;
 }

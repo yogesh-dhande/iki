@@ -20,7 +20,13 @@ import {
   MenuSection,
 } from "react-aria-components";
 
-import { formatDate, formatDateTime, type EntityType, type FieldDef } from "../entities";
+import {
+  formatDate,
+  formatDateTime,
+  type EntityType,
+  type FieldDef,
+  type Showing,
+} from "../entities";
 import { FieldInput } from "../entity-inputs";
 import type { Picked } from "../entity-values";
 import {
@@ -62,6 +68,19 @@ function useSettled<T>(value: T, onSettle: (value: T) => void, key: string): voi
   }, [key]);
 }
 
+/** Whether a key press is typing into something, which a page's shortcuts leave alone. */
+function typingIn(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
+
+/** A list's search: a box with a magnifier and its shortcut, "/", which focuses it from
+ * anywhere on the page that isn't taking typing. */
 export function SearchBox({
   value,
   onSearch,
@@ -72,6 +91,7 @@ export function SearchBox({
   placeholder: string;
 }) {
   const id = useId();
+  const input = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(value);
   useSettled(
     text,
@@ -80,26 +100,107 @@ export function SearchBox({
     },
     text,
   );
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.defaultPrevented || typingIn(event.target)) return;
+      // Not while a dialog or menu is open over the page: its keys are its own.
+      if (document.querySelector("[role=dialog], [role=alertdialog], [role=menu]")) return;
+      event.preventDefault();
+      input.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
   return (
-    <div className="search-box">
+    <div className="list-search">
       <label htmlFor={id} className="visually-hidden">
         Search
       </label>
       <input
+        ref={input}
         id={id}
         type="search"
         autoComplete="off"
         spellCheck={false}
         maxLength={200}
         placeholder={placeholder}
+        aria-keyshortcuts="/"
         value={text}
         onChange={(event) => {
           setText(event.target.value);
         }}
       />
+      <kbd className="list-search-key" aria-hidden="true">
+        /
+      </kbd>
     </div>
   );
 }
+
+/** A choice in a list's toolbar, drawn as its buttons are: its label inside, then what's
+ * chosen, then a chevron. A native select, so it works as one with every input. */
+export function ToolbarSelect<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: readonly { value: T; label: string }[];
+}) {
+  const id = useId();
+  return (
+    <div className="toolbar-select">
+      <label htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value as T);
+        }}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const TOOL_ICONS = {
+  filter: ["M4 5h16l-6 8v5l-4 2v-7z"],
+  sort: ["M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4"],
+  columns: [
+    "M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4z",
+    "M9 4v16M15 4v16",
+  ],
+  download: ["M12 4v11M7 10l5 5 5-5M5 20h14"],
+} as const;
+
+/** A toolbar button's icon, in its text's color. */
+export function ToolIcon({ name }: { name: keyof typeof TOOL_ICONS }) {
+  return (
+    <svg className="tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {TOOL_ICONS[name].map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
+  );
+}
+
+/** Which records a list shows by whether they're archived, as the Filter menu offers it. */
+const SHOWING: { value: Showing; label: string; chip: string }[] = [
+  { value: "current", label: "Current only", chip: "Current" },
+  { value: "archived", label: "Archived only", chip: "Archived only" },
+  { value: "all", label: "Current and archived", chip: "Current and archived" },
+];
 
 const same = (a: Filter[], b: Filter[]) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -168,11 +269,14 @@ export function FilterBar({
   projectId,
   noun,
   onApply,
+  show,
 }: {
   type: EntityType | undefined;
   types: EntityType[];
   fields: FieldDef[];
   applied: Filter[];
+  /** Whether archived records show, as a filter: a chip when it isn't the current ones. */
+  show?: { value: Showing; onChange: (show: Showing) => void } | undefined;
   /** The project its pickers find people and files in: none across projects, where a
    * person is filtered by "is me" alone. */
   projectId: string | undefined;
@@ -297,38 +401,112 @@ export function FilterBar({
           </div>
         );
       })}
-      {rows.length < MAX_FILTERS ? (
+      {show && show.value !== "current" ? (
+        <div className="filter-chip">
+          <MenuTrigger>
+            <AriaButton
+              className="filter-chip-words"
+              aria-label={`Showing: ${showing(show.value)}`}
+            >
+              {showing(show.value)}
+            </AriaButton>
+            <Popover className="menu-popover" placement="bottom start" offset={4}>
+              <Menu
+                className="menu"
+                aria-label="Show"
+                selectionMode="single"
+                selectedKeys={[show.value]}
+                onAction={(key) => {
+                  show.onChange(String(key) as Showing);
+                }}
+              >
+                {SHOWING.map((s) => (
+                  <MenuItem key={s.value} id={s.value} className="menu-item">
+                    {s.label}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </Popover>
+          </MenuTrigger>
+          <button
+            type="button"
+            className="filter-chip-remove"
+            aria-label={`Show current ones only, not ${showing(show.value).toLowerCase()}`}
+            onClick={() => {
+              show.onChange("current");
+            }}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+      ) : null}
+      {rows.length < MAX_FILTERS || show ? (
         <MenuTrigger>
-          <AriaButton className={buttonClass("quiet")}>
-            <span aria-hidden="true">+ </span>Filter
+          <AriaButton className={buttonClass()}>
+            <ToolIcon name="filter" />
+            Filter
           </AriaButton>
           <Popover className="menu-popover" placement="bottom start" offset={4}>
             {/* Named by its button, as a menu opened from one is. */}
             <Menu
               className="menu"
               onAction={(key) => {
-                add(String(key));
+                const picked = String(key);
+                if (picked.startsWith(SHOW_KEY)) {
+                  show?.onChange(picked.slice(SHOW_KEY.length) as Showing);
+                } else {
+                  add(picked);
+                }
               }}
             >
               <MenuSection>
                 <Header className="menu-heading">
                   {type ? `Filter ${noun} by` : `Filter ${noun} by (pick a type for its fields)`}
                 </Header>
-                {offered
-                  .filter((f) => operators(f).length > 0)
-                  .map((f) => (
-                    <MenuItem key={f.name} id={f.name} className="menu-item" textValue={f.label}>
-                      <span>{f.label}</span>
-                      <small className="menu-item-hint">{opsHint(f, operators(f))}</small>
+                {rows.length < MAX_FILTERS
+                  ? offered
+                      .filter((f) => operators(f).length > 0)
+                      .map((f) => (
+                        <MenuItem
+                          key={f.name}
+                          id={f.name}
+                          className="menu-item"
+                          textValue={f.label}
+                        >
+                          <span>{f.label}</span>
+                          <small className="menu-item-hint">{opsHint(f, operators(f))}</small>
+                        </MenuItem>
+                      ))
+                  : null}
+              </MenuSection>
+              {show ? (
+                <MenuSection>
+                  <Header className="menu-heading">Archived</Header>
+                  {SHOWING.filter((s) => s.value !== show.value).map((s) => (
+                    <MenuItem
+                      key={s.value}
+                      id={`${SHOW_KEY}${s.value}`}
+                      className="menu-item"
+                      textValue={`Show ${s.label.toLowerCase()}`}
+                    >
+                      Show {s.label.toLowerCase()}
                     </MenuItem>
                   ))}
-              </MenuSection>
+                </MenuSection>
+              ) : null}
             </Menu>
           </Popover>
         </MenuTrigger>
       ) : null}
     </div>
   );
+}
+
+/** The Filter menu's keys for whether archived records show: apart from fields' names. */
+const SHOW_KEY = "show:";
+
+function showing(value: Showing): string {
+  return SHOWING.find((s) => s.value === value)?.chip ?? value;
 }
 
 /** Whether a field names people (ADR 0122), who are picked from a project's. */
@@ -476,13 +654,18 @@ export function SortHeading({
   label,
   direction,
   onSort,
+  next: given,
 }: {
   label: string;
   direction: Direction;
   onSort: (direction: Direction) => void;
+  /** Where a click goes, when it isn't the next of the three: from the list's default
+   * order, which "as it was" would leave as it is. */
+  next?: Direction | undefined;
 }) {
   const next: Direction =
-    direction === "none" ? "ascending" : direction === "ascending" ? "descending" : "none";
+    given ??
+    (direction === "none" ? "ascending" : direction === "ascending" ? "descending" : "none");
   return (
     <button
       type="button"

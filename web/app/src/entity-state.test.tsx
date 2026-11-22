@@ -325,10 +325,10 @@ describe("a project's grid of a type with state fields", () => {
       within(nth(rows, 0))
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
-    ).toEqual(["", "ID", "Status", "Custody", "Name", "Last changed"]);
-    expect(within(nth(rows, 1)).getAllByRole("cell")[2]).toHaveTextContent("In testing");
-    expect(within(nth(rows, 2)).getAllByRole("cell")[2]).toHaveTextContent("ReviewedLocked");
-    expect(within(nth(rows, 2)).getAllByRole("cell")[3]).toHaveTextContent("In the lab");
+    ).toEqual(["", "ID", "Name", "Status", "Custody", "Made by", "Changed▼"]);
+    expect(within(nth(rows, 1)).getAllByRole("cell")[3]).toHaveTextContent("In testing");
+    expect(within(nth(rows, 2)).getAllByRole("cell")[3]).toHaveTextContent("ReviewedLocked");
+    expect(within(nth(rows, 2)).getAllByRole("cell")[4]).toHaveTextContent("In the lab");
 
     const editor = await addFilter(user, "Custody");
     const value = within(editor).getByRole("combobox", { name: "Filter 1: value" });
