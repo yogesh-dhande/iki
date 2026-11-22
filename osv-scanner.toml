@@ -23,12 +23,12 @@ includes it. Remove this once a fixed picomatch is out and the tools take it."""
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0592"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = """url (a stack overflow in Url::origin() on nested blob: URLs) is in \
-worker/Cargo.lock only as a dependency of cookie_store, which ureq's cookies feature would \
-pull in; that feature is off, and `cargo tree --target all` finds url in no build. Its fix, \
-url 2.5.9, came out on 2026-11-20 and can be locked from 2026-11-23 under the three-day \
-rule: lock it then, and remove this."""
+ignoreUntil = 2026-11-25T00:00:00Z
+reason = """url 2.5.8: a stack overflow in Url::origin() on nested blob: URLs. iki-worker \
+reaches url only through ureq and its cookie store, and talks only to the server it's \
+configured with and the addresses that server gives it, never a blob: URL from outside, so \
+the overflow isn't reachable. The fix, url 2.5.9, was released on 2026-11-20 and is under \
+the three-day minimum age until 2026-11-23. Remove this and take 2.5.9 then."""
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
