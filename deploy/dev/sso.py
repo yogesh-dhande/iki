@@ -1438,31 +1438,32 @@ def lims() -> None:
 
 def signing(
     session: requests.Session,
-    sample: dict[str, Any],
+    entity: dict[str, Any],
     state: str,
     as_user: str,
     *,
+    field: str = "status",
     someone_else: bool = False,
     reason: str = "",
 ) -> Any:  # noqa: ANN401
     """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
     than the session's person, if `someone_else`), and returns what came of it."""
-    etag = api_call(session, "GET", f"/entities/{sample['id']}").headers["ETag"]
+    etag = api_call(session, "GET", f"/entities/{entity['id']}").headers["ETag"]
     started = api_call(
         session,
         "POST",
-        f"/entities/{sample['id']}/signatures",
+        f"/entities/{entity['id']}/signatures",
         {
-            "field": "status",
+            "field": field,
             "state": state,
             "acknowledge": True,
             "reason": reason,
-            "return_to": f"/entities/{sample['hrid']}/",
+            "return_to": f"/entities/{entity['hrid']}/",
         },
         {"If-Match": etag},
     )
     if started.status_code != 201:
-        fail(f"signing {sample['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
+        fail(f"signing {entity['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
     # Keycloak's own session is the signer's, and its form for signing in again keeps
     # their username, whatever is typed: to have someone else really sign in there, set
     # that session aside, as signing out of Keycloak first (or another browser) would.
@@ -1479,7 +1480,7 @@ def signing(
             session.cookies.set_cookie(cookie)
     signing_id = started.json()["id"]
     if f"signing={signing_id}" not in response.url:
-        fail(f"signing in again came back to {response.url}, not the sample's page")
+        fail(f"signing in again came back to {response.url}, not the record's page")
     return api_call(session, "GET", f"/signings/{signing_id}").json()
 
 
@@ -1562,6 +1563,124 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
+    core = analytical_core(alice, bob, project)
+    analysis_result(alice, bob, project, sample, core)
+
+
+def analytical_core(
+    analyst: requests.Session, reviewer: requests.Session, asking: dict[str, Any]
+) -> dict[str, Any]:
+    """Set up the team's analytical core and the people who sign its results."""
+    team = asking["team"]["id"]
+    projects: list[dict[str, Any]] = api_call(
+        analyst, "GET", f"/projects?team={team}&member=true&limit=100"
+    ).json()["items"]
+    name = "Analytical Core"
+    for core in projects:
+        if core["name"] == name:
+            break
+    else:
+        made = api_call(analyst, "POST", "/projects", {"team": team, "name": name})
+        if made.status_code != 201:
+            fail(
+                f"creating the analytical core answered HTTP {made.status_code}: {made.text[:300]}"
+            )
+        core = made.json()
+    path = f"/projects/{core['id']}"
+    for session, role, lab_roles in (
+        (analyst, "admin", ["analyst", "qa"]),
+        (reviewer, "editor", ["reviewer"]),
+    ):
+        user = api_call(session, "GET", "/me").json()["id"]
+        grant = api_call(analyst, "PUT", f"{path}/members/users/{user}", {"role": role})
+        if grant.status_code != 200:
+            fail(f"giving a core membership answered HTTP {grant.status_code}: {grant.text[:300]}")
+        given = api_call(
+            analyst,
+            "PUT",
+            f"{path}/members/{grant.json()['id']}/lab-roles",
+            {"roles": [f"iki/example_lims.{r}" for r in lab_roles]},
+        )
+        if given.status_code != 200:
+            fail(f"giving core lab roles answered HTTP {given.status_code}: {given.text[:300]}")
+    intake = api_call(
+        analyst,
+        "PUT",
+        f"{path}/intake",
+        {"types": ["iki/example_lims.AnalysisRequest"], "projects": [asking["id"]]},
+    )
+    if intake.status_code != 200:
+        fail(f"setting the core's intake answered HTTP {intake.status_code}: {intake.text[:300]}")
+    return core
+
+
+def analysis_result(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    asking: dict[str, Any],
+    sample: dict[str, Any],
+    core: dict[str, Any],
+) -> None:
+    """A core returns the independently reviewed measurement and QA's signature to the requester."""
+    request = created(
+        analyst,
+        asking,
+        "iki/example_lims.AnalysisRequest",
+        {"title": "SEC purity", "samples": [sample["id"]], "analyses": ["sec_purity"]},
+    )
+    path = f"/entities/{request['id']}"
+    sent = api_call(
+        analyst,
+        "POST",
+        f"{path}/submit",
+        {"service": core["id"]},
+        {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+    )
+    if sent.status_code != 200:
+        fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+    measurement = {
+        "sample": sample["id"],
+        "analysis": "sec_purity",
+        "purity": 98.5,
+        "result": "pass",
+    }
+    result = created(
+        analyst, core, "iki/example_lims.AnalysisResult", {"request": request["id"], **measurement}
+    )
+    for session, name, state in ((analyst, "alice", "in_review"), (reviewer, "bob", "reviewed")):
+        signed = signing(session, result, state, name, field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"signing {result['hrid']} as {state} gave {signed}")
+    reviewed = record(analyst, result["id"])
+    if not reviewed["locked"] or asking["id"] in {p["id"] for p in reviewed["projects"]}:
+        fail(f"{result['hrid']} must be locked in the core until QA releases it")
+    edit = api_call(
+        analyst,
+        "PATCH",
+        f"/entities/{result['id']}",
+        {"values": {"purity": 97.0}, "reason": "Correct the measured purity"},
+        {"If-Match": f'"{reviewed["revision"]}"'},
+    )
+    if edit.status_code != 409 or edit.json().get("code") != "refused":
+        fail(
+            f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
+        )
+    signed = signing(analyst, result, "released", "alice", field="review")
+    if signed["status"] != "signed" or not signed["set"]:
+        fail(f"releasing {result['hrid']} gave {signed}")
+    released = record(analyst, result["id"])
+    signatures = api_call(analyst, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
+    release = next(s for s in signatures["items"] if s["change"]["to"] == "released")
+    if (
+        release["revision"] != reviewed["revision"]
+        or not release["verification"]["valid"]
+        or release["carried_by"] != released["revision"]
+        or not released["locked"]
+        or asking["id"] not in {p["id"] for p in released["projects"]}
+        or any(released["values"][key] != value for key, value in measurement.items())
+    ):
+        fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
+    ok(f"{result['hrid']}: QA signed reviewed revision {reviewed['revision']} and sent it back")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).

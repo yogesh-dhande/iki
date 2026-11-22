@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/example_lims
-version: 0.5.0
+version: 0.6.0
 title: Example LIMS
 description: >-
   Links each protein to its record in a LIMS: imports the LIMS's proteins

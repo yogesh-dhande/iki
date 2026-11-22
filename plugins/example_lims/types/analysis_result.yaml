@@ -3,7 +3,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AnalysisResult
 label: Analysis result
-schema_version: 1
+schema_version: 2
 description: >-
   What an analytical core measured for an analysis request (ADR 0132). The
   core owns it: its analyst records it, a reviewer checks it, and its QA
@@ -41,6 +41,18 @@ fields:
     display_unit: ku
     min: 0
     description: The intact mass, for a mass analysis.
+  peptide_coverage:
+    type: quantity
+    label: Peptide map sequence coverage
+    unit: "%"
+    min: 0
+    max: 100
+    description: The percentage of the protein sequence covered by identified peptides.
+  endotoxin:
+    type: quantity
+    unit: "{EU}/mg"
+    min: 0
+    description: Endotoxin units per milligram of protein.
   result:
     type: enum
     values: [pass, fail]
@@ -56,18 +68,74 @@ fields:
     states:
       draft:
         label: Draft
-        description: Its analyst is recording it.
+        description: Its analyst is recording or correcting the measurement.
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          before_release:
+            check: state.from == "in_review" || state.from == "reviewed"
+            message: Only a result awaiting review or release can be returned for correction.
+      in_review:
+        label: In review
+        description: The analyst has signed the measurement and submitted it for review.
         set_by: [analyst]
+        locks: true
+        signatures:
+          - meaning: authorship
+            statement: I recorded this measurement and its result as observed.
+        guards:
+          from_draft:
+            check: state.from == "draft"
+            message: Submit the result from Draft.
+          has_sample:
+            check: record.sample != null
+            message: Name the sample that was measured.
+          has_result:
+            check: record.result != null
+            message: Record whether the sample passed or failed.
+          has_purity:
+            when: record.analysis == "sec_purity"
+            check: record.purity != null
+            message: Record the SEC purity as a percentage.
+          has_mass:
+            when: record.analysis == "intact_mass"
+            check: record.measured_mass != null
+            message: Record the measured intact mass.
+          has_coverage:
+            when: record.analysis == "peptide_map"
+            check: record.peptide_coverage != null
+            message: Record the percentage of the protein sequence covered by the peptide map.
+          has_endotoxin:
+            when: record.analysis == "endotoxin"
+            check: record.endotoxin != null
+            message: Record the endotoxin units per milligram of protein.
       reviewed:
         label: Reviewed
-        description: A reviewer checked it.
+        description: An independent reviewer has checked the submitted measurement.
         set_by: [reviewer]
+        locks: true
+        signatures:
+          - meaning: review
+        guards:
+          submitted:
+            check: state.from == "in_review"
+            message: Review the result after its analyst submits it.
+          independent_reviewer:
+            check: history.review[0].by != actor.person && last.review.in_review.by != actor.person
+            message: Someone other than the result's creator and submitting analyst must review it.
       released:
         label: Released
-        description: QA released it to the project that asked; it can't change now.
+        description: QA has released the reviewed measurement to the project that asked.
         set_by: [qa]
         locks: true
         signatures:
           - meaning: approval
             label: QA release
             statement: I release these results to the project that requested them.
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "in_review"
+            message: QA can release a result after a reviewer signs the analyst's submission.
+          independent_release:
+            check: last.review.reviewed.by != actor.person
+            message: You reviewed this result, so someone else in QA releases it.
