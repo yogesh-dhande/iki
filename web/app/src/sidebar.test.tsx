@@ -200,12 +200,8 @@ describe("what it lists", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/projects/kinase-atlas/entities/");
     });
-    // Saved without a sort: oldest first, as the database runs it.
-    expect(router.state.location.search).toEqual({
-      q: "ampicillin",
-      show: "all",
-      sort: "created_at",
-    });
+    // Saved without a sort: the grid's order, newest changes first.
+    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
   });
 
   it("opens a search of every project on All entities", async () => {
@@ -221,12 +217,8 @@ describe("what it lists", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/entities/");
     });
-    // Saved without a sort: oldest first, as the database runs it.
-    expect(router.state.location.search).toEqual({
-      q: "ampicillin",
-      show: "all",
-      sort: "created_at",
-    });
+    // Saved without a sort: the grid's order, newest changes first.
+    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
   });
 });
 

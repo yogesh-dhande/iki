@@ -467,13 +467,11 @@ describe("a project's entities", () => {
     );
     const saved = await screen.findByRole("navigation", { name: "Saved searches" });
     await user.click(within(saved).getByRole("link", { name: "Human proteins" }));
-    // Saved without a sort, it reads oldest first, as the database runs it: not the grid's
-    // default, so its address says so.
+    // Saved without a sort, it opens in the grid's order, newest changes first.
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",
         filters: [{ field: "name", op: "contains", value: "abl" }],
-        sort: "created_at",
       });
     });
     expect(within(saved).getByRole("link", { name: "Human proteins" })).toHaveAttribute(
@@ -496,7 +494,8 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         archived: false,
         where: { all: [{ field: "name", op: "contains", value: "abl" }] },
-        sort: { field: "created_at", descending: false },
+        // The order it ran in: the grid's, newest changes first.
+        sort: { field: "updated_at", descending: true },
       },
     });
   });
@@ -557,7 +556,6 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         q: "abl downstream:DNR-000001",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
-        sort: "created_at",
       });
     });
   });
@@ -659,7 +657,6 @@ describe("a project's entities", () => {
         type: "iki/protein.Protein",
         q: "downstream:DNR-000001 components.part:PRT-000001 components.role:cargo",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
-        sort: "created_at",
       });
     });
   });

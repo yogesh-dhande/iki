@@ -72,13 +72,12 @@ export function toAddress(query: Query): EntitySearch | null {
   }
   const q = [query.q ?? "", ...words].filter(Boolean).join(" ");
   if (q) out.q = q;
-  if (!query.sort) {
-    // Without a sort, a search reads by when its records were made, oldest first: not the
-    // grid's default order, so the address says so.
-    out.sort = "created_at";
-  } else if (
-    query.sort.field !== DEFAULT_SORT.field ||
-    Boolean(query.sort.descending) !== DEFAULT_SORT.descending
+  // Without a sort of its own, it opens in the grid's order, newest changes first, as
+  // every list does (ADR 0176).
+  if (
+    query.sort &&
+    (query.sort.field !== DEFAULT_SORT.field ||
+      Boolean(query.sort.descending) !== DEFAULT_SORT.descending)
   ) {
     out.sort = query.sort.field;
     if (query.sort.descending) out.desc = true;
