@@ -12,6 +12,11 @@
   {# Inter's Latin, asked for at once: drawn in the fallback first, the page would shift when it came. #}
   <link rel="preload" href="{% static 'iki/fonts/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <script src="{% static 'iki/iki.js' %}" defer></script>
+  {% if search_assets %}{# Search everything (ADR 0176): the app's palette, opened by ⌘K here too. #}
+  <link rel="stylesheet" id="react-aria-pressable-style" href="{% static 'iki/react-aria.css' %}">
+  {% for src in search_assets.preloads %}<link rel="modulepreload" href="{{ src }}">
+  {% endfor %}{% for src in search_assets.scripts %}<script type="module" src="{{ src }}"></script>
+  {% endfor %}{% endif %}
 </head>
 {% with nav=sidebar %}
 <body>

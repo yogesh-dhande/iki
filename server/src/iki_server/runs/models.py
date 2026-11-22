@@ -580,6 +580,14 @@ class ActionRun(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["project", "id"], name="iki_action_run_project"),
             models.Index(fields=["action", "id"], name="iki_action_run_action"),
+            # Searching everything (ADR 0176): a run by the start of its HRID, and the runs
+            # someone launched lately.
+            models.Index(
+                fields=["hrid"],
+                opclasses=["varchar_pattern_ops"],
+                name="iki_action_run_hrid_prefix",
+            ),
+            models.Index(fields=["requested_by", "id"], name="iki_action_run_requester"),
             models.Index(
                 fields=["batch", "id"],
                 name="iki_action_run_batch",

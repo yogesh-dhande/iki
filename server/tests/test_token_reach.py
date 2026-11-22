@@ -271,6 +271,11 @@ def test_every_operation_beyond_its_projects_is_refused(
     if response.status_code == 200:
         # A list or a search, of nothing it may reach.
         found = response.json()
+        if isinstance(found, dict) and "groups" in found:
+            # Searching everything (ADR 0176): every kind, and nothing of any.
+            assert [g["items"] for g in found["groups"]] == [[]] * len(found["groups"]), found
+            assert all(g["total"] == 0 for g in found["groups"]), found
+            return
         assert (found.get("items") if isinstance(found, dict) else found) == [], found
         return
     assert response.status_code in (403, 404), (response.status_code, response.content[:300])

@@ -25,7 +25,8 @@ export default defineConfig({
     manifest: "manifest.json",
     sourcemap: true,
     target: "es2023",
-    rolldownOptions: { input: "src/main.tsx" },
+    // The app, and search everything's palette alone, for the server's own pages (ADR 0176).
+    rolldownOptions: { input: ["src/main.tsx", "src/search-entry.tsx"] },
   },
   // Workers (the parsers' Web Worker, ADR 0088) are named apart from the app's other
   // chunks, so the server can serve them with their own Content Security Policy.

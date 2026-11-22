@@ -60,6 +60,33 @@ counts in the sidebar.
 runs, projects, people and saved views. Results are grouped by kind; each
 shows its project, and each kind's group links to its full list. It uses
 each kind's own reading rules, so it finds nothing its reader couldn't open.
+`GET /api/v1/search` answers it:
+
+- **Records and requests** are found as the entity search finds them, in
+  every project their reader can read. Archived ones aren't searched, as the
+  lists hide them until asked. **Runs** are those of projects whose data
+  their reader can read; **projects**, those they can see; **saved views**,
+  their own and those shared with a project they read.
+- **People** are everyone, for those who manage the organization's people.
+  Anyone else finds the people that the members pages of their projects and
+  teams show them, and a person opens on the members page they share.
+- **Text needs three characters** to search records, requests and runs,
+  because their trigram indexes need three. The start of an HRID (`PRT-0`)
+  is found by the HRIDs' own index, and a whole HRID comes first.
+- **Each group counts what it found up to 1,000**, and says "1,000+" past
+  that. A group whose search runs out of time says so; it gives no count
+  rather than an estimate.
+- **With nothing typed, it shows what its reader changed or ran lately.**
+  That comes from the server, so no browser keeps a list of what someone
+  opened.
+
+The palette is a combobox (WAI-ARIA's pattern). Focus stays in its text box,
+and the arrow keys move through the results. Each group's link to its full
+list is its last option, so the arrows reach it. ⌘K (Ctrl+K) opens it, as
+does anything that dispatches an `iki:search` event on the window. The
+server-rendered pages load the palette on its own, as a second entry of the
+web app's build that shares the app's chunks, so ⌘K opens the same palette
+there.
 
 **A project's page holds what belongs to the project alone.** Its tabs are
 Overview, Entities, Requests, Runs, Automation, Members and Settings.

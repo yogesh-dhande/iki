@@ -3402,6 +3402,30 @@ export interface paths {
         patch: operations["iki_server_api_searches_update_saved_search"];
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search everything you can read
+         * @description Records, requests, runs, projects, people and saved views matching `q`, across every
+         *     project you can read, grouped by kind: each kind by its own reading rules, so nothing
+         *     you couldn't open is found, or counted. Records, requests and runs are found by their
+         *     HRID (or its start), or text in their title or action; the others by name. With no
+         *     `q`, `recent` lists what you changed or ran lately.
+         */
+        get: operations["iki_server_api_everything_search_everything"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/service-accounts": {
         parameters: {
             query?: never;
@@ -12199,6 +12223,77 @@ export interface components {
              */
             where?: string | null;
         };
+        /** SearchEverythingOut */
+        SearchEverythingOut: {
+            /**
+             * Groups
+             * @description Each kind searched, in order, even if empty.
+             */
+            groups: components["schemas"]["SearchGroupOut"][];
+            /**
+             * Projects Readable
+             * @description How many projects you can read: where it looked.
+             */
+            projects_readable: number;
+            /** Q */
+            q: string;
+            /**
+             * Recent
+             * @description With no text: what you changed or ran lately, newest first.
+             */
+            recent: components["schemas"]["SearchResultOut"][];
+            /**
+             * Searched Records
+             * @description Whether records, requests and runs were searched: text needs three characters, or the start of an HRID.
+             */
+            searched_records: boolean;
+        };
+        /** SearchEverythingParams */
+        SearchEverythingParams: {
+            /**
+             * Kind
+             * @description Only this kind, with more of it.
+             */
+            kind?: ("entities" | "requests" | "runs" | "projects" | "saved_views" | "people") | null;
+            /**
+             * Limit
+             * @description Results per kind: 5 by default, 20 for one `kind`.
+             */
+            limit?: number | null;
+            /**
+             * Q
+             * @description What to look for.
+             * @default
+             */
+            q: string;
+        };
+        /** SearchGroupOut */
+        SearchGroupOut: {
+            /**
+             * Href
+             * @description Their full list, when there is one.
+             */
+            href: string | null;
+            /** Items */
+            items: components["schemas"]["SearchResultOut"][];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entities" | "requests" | "runs" | "projects" | "saved_views" | "people";
+            /** Label */
+            label: string;
+            /**
+             * More Than Total
+             * @description There are more than `total`.
+             */
+            more_than_total: boolean;
+            /**
+             * Total
+             * @description How many there are, up to 1,000; null when counting would be too slow.
+             */
+            total: number | null;
+        };
         /** SearchIn */
         SearchIn: {
             /** Archived */
@@ -12242,6 +12337,53 @@ export interface components {
              */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** SearchResultOut */
+        SearchResultOut: {
+            /**
+             * Detail
+             * @description What it is: a record's type, a run's action and status, a project's team, a person's email address, whose a saved view is.
+             */
+            detail: string;
+            /**
+             * Href
+             * @description Where it opens.
+             */
+            href: string;
+            /**
+             * Hrid
+             * @description Its HRID, for records, requests and runs.
+             */
+            hrid: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entity" | "request" | "run" | "project" | "saved_view" | "person";
+            /**
+             * Projects
+             * @description The projects it's in that you can read, its owner first, up to three. A person's are the ones you share with them.
+             */
+            projects: components["schemas"]["ProjectRef"][];
+            /**
+             * Query
+             * @description A saved view's search, as `POST /entities/search` takes it.
+             */
+            query: {
+                [key: string]: unknown;
+            } | null;
+            /** Title */
+            title: string;
+            /**
+             * Type
+             * @description A record's or request's type, qualified.
+             */
+            type: string | null;
         };
         /** SecretOut */
         SecretOut: {
@@ -19803,6 +19945,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedSearchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_everything_search_everything: {
+        parameters: {
+            query?: {
+                /** @description What to look for. */
+                q?: string;
+                /** @description Only this kind, with more of it. */
+                kind?: ("entities" | "requests" | "runs" | "projects" | "saved_views" | "people") | null;
+                /** @description Results per kind: 5 by default, 20 for one `kind`. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchEverythingOut"];
                 };
             };
         };

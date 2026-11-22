@@ -9,6 +9,8 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import { isSignedOut, meQuery, onSignedOutChange, signInUrl } from "./api";
 import { useLiveUpdates } from "./events";
+import { isAppPath } from "./search";
+import { SearchPalette } from "./search-palette";
 import { Brand, Sidebar } from "./sidebar";
 import { markNavigated, MessagesProvider } from "./ui";
 
@@ -84,6 +86,14 @@ export function Layout() {
           <Outlet />
         </MessagesProvider>
       </main>
+      {me ? (
+        <SearchPalette
+          navigate={(href) => {
+            if (isAppPath(href)) void router.navigate({ href });
+            else window.location.assign(href);
+          }}
+        />
+      ) : null}
     </>
   );
 }

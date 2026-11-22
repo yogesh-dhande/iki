@@ -24,6 +24,9 @@ from servestatic.storage import CompressedManifestStaticFilesStorage
 
 MANIFEST = "app/manifest.json"
 ENTRY = "src/main.tsx"
+#: Search everything's palette alone (ADR 0176), for server-rendered pages: ⌘K opens it there
+#: too. It shares the app's chunks, so a browser that has opened the app has them already.
+SEARCH_ENTRY = "src/search-entry.tsx"
 #: Vite names these by content hash already, and chunks import each other by those names.
 ASSETS_PREFIX = "app/assets/"
 #: The same for the viewers' frames' code (iki_server.web.viewers).
@@ -100,19 +103,21 @@ def uses_dev_server(request: HttpRequest) -> bool:
     return settings.IKI_WEB_DEV_SERVER and request.headers.get(DEV_HEADER) == "1"
 
 
-def page_assets(request: HttpRequest) -> dict[str, list[str]]:
-    """The module scripts a page loads, and the chunks worth fetching early."""
+def page_assets(request: HttpRequest, entry: str = ENTRY) -> dict[str, list[str]]:
+    """The module scripts a page loads, and the chunks worth fetching early: the app's,
+    or another of its entries'."""
     if uses_dev_server(request):
         base = f"{settings.STATIC_URL}app/"
         # The preamble sets up React Fast Refresh; Vite's guide inlines it,
         # but the CSP allows no inline scripts, so it's a file.
         return {
-            "scripts": [f"{base}@vite/client", f"{base}dev-preamble.js", f"{base}{ENTRY}"],
+            "scripts": [f"{base}@vite/client", f"{base}dev-preamble.js", f"{base}{entry}"],
             "preloads": [],
         }
     chunks = manifest()
-    entry = chunks[ENTRY]
+    if entry not in chunks:
+        raise AppNotBuilt(f"{MANIFEST} has no {entry}. Build the app: make web")
     return {
-        "scripts": [static("app/" + entry["file"])],
-        "preloads": [static("app/" + f) for f in _imports(chunks, ENTRY, set())],
+        "scripts": [static("app/" + chunks[entry]["file"])],
+        "preloads": [static("app/" + f) for f in _imports(chunks, entry, set())],
     }
