@@ -1,7 +1,8 @@
 /**
  * The admin area's frame (ADR 0176), matching the server's web/admin_base.html: a sidebar
  * of the area's pages, from the server's navigation.json, that leads back to Iki; then a
- * top bar with the breadcrumb and the page's own actions, over the page.
+ * top bar with the breadcrumb and the page's own actions, over the page. On a narrow
+ * screen the sidebar is a drawer, opened from a bar above the page, as the main one is.
  *
  * The app's pages of the area are the router's /admin/ route's children (compute, costs,
  * webhooks and outside APIs), which says so with `staticData: { admin: true }`; each page
@@ -14,6 +15,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { meQuery, type Me } from "./api";
+import { useDrawer } from "./drawer";
 import { useLiveUpdates } from "./events";
 import { Layout, organizationName, SignedOut } from "./layout";
 import { ActionsSlot, TopBar } from "./page-top";
@@ -80,7 +82,7 @@ export function AdminActions({ children }: { children: ReactNode }) {
 
 function Icon({ paths }: { paths: string[] }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       {paths.map((d) => (
         <path key={d} d={d} />
       ))}
@@ -140,6 +142,20 @@ function Crumbs({ groups, pathname }: { groups: AdminGroup[]; pathname: string }
   );
 }
 
+/** The area's name, with the organization's: atop its sidebar, and in the bar above the
+ * page on a narrow screen. */
+function AdminTitle({ org }: { org: string }) {
+  return (
+    <div className="admin-title">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z" />
+      </svg>
+      <span>Admin</span>
+      {org ? <span className="admin-org">{org}</span> : null}
+    </div>
+  );
+}
+
 export function AdminLayout({ me }: { me: Me }) {
   const org = organizationName();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -147,43 +163,46 @@ export function AdminLayout({ me }: { me: Me }) {
   useEffect(() => router.subscribe("onBeforeNavigate", markNavigated), [router]);
   useLiveUpdates(me.kind === "person");
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
-  // On a narrow screen the pages fold under a menu button: open on the page it was opened
-  // on, so closed again after each move.
-  const [openOn, setOpenOn] = useState<string | null>(null);
-  const menuOpen = openOn === pathname;
+  // On a narrow screen the sidebar is a drawer, as the main one is.
+  const { open, show, dismiss, opener, closer, panel, backdrop, panelProps } = useDrawer(
+    pathname,
+    "Menu",
+  );
   const groups = adminNavigation(me);
   return (
     <>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <div className="admin-frame">
-        <nav className="admin-side" aria-label="Admin">
+      {/* Not a header: the top bar over the page is the area's banner. */}
+      <div className="topbar admin-topbar">
+        <button
+          ref={opener}
+          className="topbar-menu"
+          type="button"
+          aria-controls="admin-sidebar"
+          aria-expanded={open}
+          onClick={show}
+        >
+          <Icon paths={navigation.icons.menu} />
+          <span className="visually-hidden">Menu</span>
+        </button>
+        <AdminTitle org={org} />
+      </div>
+      <div ref={panel} className="admin-side" id="admin-sidebar" {...panelProps}>
+        <nav className="admin-nav" aria-label="Admin">
           <div className="admin-side-head">
             <Link className="admin-back" to="/">
               <Icon paths={["M15 6l-6 6 6 6"]} />
               Back to Iki
             </Link>
-            <div className="admin-title">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z" />
-              </svg>
-              <span>Admin</span>
-              {org ? <span className="admin-org">{org}</span> : null}
-            </div>
-            <button
-              className="button admin-menu-button"
-              type="button"
-              aria-expanded={menuOpen}
-              aria-controls="admin-menu"
-              onClick={() => {
-                setOpenOn(menuOpen ? null : pathname);
-              }}
-            >
-              Menu
+            <button ref={closer} className="sidebar-close" type="button" onClick={dismiss}>
+              <Icon paths={navigation.icons.close} />
+              <span className="visually-hidden">Close menu</span>
             </button>
+            <AdminTitle org={org} />
           </div>
-          <div className="admin-menu" id="admin-menu">
+          <div className="admin-menu">
             {groups.map((group, i) => (
               <div key={group.label}>
                 <p className="admin-group" id={`admin-group-${String(i + 1)}`}>
@@ -198,23 +217,25 @@ export function AdminLayout({ me }: { me: Me }) {
                 </ul>
               </div>
             ))}
-            <Account me={me} pathname={pathname} />
           </div>
         </nav>
-        <div className="admin-column">
-          <header className="admin-top">
-            <Crumbs groups={groups} pathname={pathname} />
-            <div className="admin-actions" ref={setSlot} />
-          </header>
-          <main id="main" className="admin-main" tabIndex={-1}>
-            <SignedOut />
-            <ActionsSlot slot={slot}>
-              <MessagesProvider>
-                <Outlet />
-              </MessagesProvider>
-            </ActionsSlot>
-          </main>
-        </div>
+        {/* Its foot, as the main sidebar's: the list scrolls above it. */}
+        <Account me={me} pathname={pathname} />
+      </div>
+      <div ref={backdrop} className="sidebar-backdrop" hidden={!open} />
+      <div className="admin-column">
+        <header className="admin-top">
+          <Crumbs groups={groups} pathname={pathname} />
+          <div className="admin-actions" ref={setSlot} />
+        </header>
+        <main id="main" className="admin-main" tabIndex={-1}>
+          <SignedOut />
+          <ActionsSlot slot={slot}>
+            <MessagesProvider>
+              <Outlet />
+            </MessagesProvider>
+          </ActionsSlot>
+        </main>
       </div>
     </>
   );

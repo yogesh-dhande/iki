@@ -9,10 +9,11 @@
 import { unwrap } from "@ikisci/sdk";
 import { queryOptions, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useMatch, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
+import { useDrawer } from "./drawer";
 import { adminNavigation } from "./admin";
 import { entityQuery } from "./entities";
 import { countsQuery } from "./lists";
@@ -50,8 +51,6 @@ const SPEC = navigation as unknown as {
   admin: { label: string; href: string };
 };
 
-/** Below this width the sidebar is a drawer (iki.css). */
-const DRAWER = "(max-width: 56rem)";
 /** Whether Entities is open, once the reader has opened or closed it: the server reads it
  * too. Until then it's open on the entities' own pages only, where its types are the way
  * on, and closed elsewhere, where they'd push the rest of the sidebar out of sight. */
@@ -211,62 +210,11 @@ function NavLink({
 }
 
 export function Sidebar({ me, pathname }: { me: Me; pathname: string }) {
-  const [drawer, setDrawer] = useState(false);
-  const opener = useRef<HTMLButtonElement>(null);
-  const closer = useRef<HTMLButtonElement>(null);
-  const backdrop = useRef<HTMLDivElement>(null);
-  // Dismissed, the menu button has the focus again, once it's back within reach; when the
-  // reader goes somewhere, the page they go to takes it.
-  const refocus = useRef(false);
-  const dismiss = useCallback(() => {
-    refocus.current = true;
-    setDrawer(false);
-  }, []);
-  // Going somewhere closes it.
-  const [shownFor, setShownFor] = useState(pathname);
-  if (shownFor !== pathname) {
-    setShownFor(pathname);
-    setDrawer(false);
-  }
-  // So does a screen wide enough for it to stay.
-  useEffect(() => {
-    // jsdom, which the tests run in, has none.
-    if (typeof window.matchMedia !== "function") return;
-    const narrow = window.matchMedia(DRAWER);
-    const changed = (event: MediaQueryListEvent) => {
-      if (!event.matches) setDrawer(false);
-    };
-    narrow.addEventListener("change", changed);
-    return () => {
-      narrow.removeEventListener("change", changed);
-    };
-  }, []);
-  // Open, it's a dialog: the rest of the page is out of reach, and Escape or a click beside
-  // it dismisses it.
-  useEffect(() => {
-    if (!drawer) return;
-    closer.current?.focus();
-    const sidebar = document.getElementById("sidebar");
-    const outside = [...(sidebar?.parentElement?.children ?? [])].filter(
-      (el): el is HTMLElement =>
-        el instanceof HTMLElement && el !== sidebar && el !== backdrop.current,
-    );
-    for (const el of outside) el.inert = true;
-    const pressed = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismiss();
-    };
-    const away = backdrop.current;
-    const menu = opener.current;
-    document.addEventListener("keydown", pressed);
-    away?.addEventListener("click", dismiss);
-    return () => {
-      for (const el of outside) el.inert = false;
-      document.removeEventListener("keydown", pressed);
-      away?.removeEventListener("click", dismiss);
-      if (refocus.current) menu?.focus();
-      refocus.current = false;
-    };
-  }, [drawer, dismiss]);
+  // On a narrow screen it's a drawer, as the admin area's is.
+  const { open, show, dismiss, opener, closer, panel, backdrop, panelProps } = useDrawer(
+    pathname,
+    "Menu",
+  );
 
   return (
     <>
@@ -276,22 +224,15 @@ export function Sidebar({ me, pathname }: { me: Me; pathname: string }) {
           className="topbar-menu"
           type="button"
           aria-controls="sidebar"
-          aria-expanded={drawer}
-          onClick={() => {
-            setDrawer(true);
-          }}
+          aria-expanded={open}
+          onClick={show}
         >
           <Icon name="menu" />
           <span className="visually-hidden">Menu</span>
         </button>
         <Brand />
       </header>
-      <div
-        className="sidebar"
-        id="sidebar"
-        data-open={drawer ? "true" : undefined}
-        {...(drawer ? { role: "dialog", "aria-modal": true, "aria-label": "Menu" } : {})}
-      >
+      <div ref={panel} className="sidebar" id="sidebar" {...panelProps}>
         <div className="sidebar-brand">
           <Brand />
           <button ref={closer} className="sidebar-close" type="button" onClick={dismiss}>
@@ -303,7 +244,7 @@ export function Sidebar({ me, pathname }: { me: Me; pathname: string }) {
         <MainNavigation me={me} pathname={pathname} />
         <Account me={me} pathname={pathname} />
       </div>
-      <div ref={backdrop} className="sidebar-backdrop" hidden={!drawer} />
+      <div ref={backdrop} className="sidebar-backdrop" hidden={!open} />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 
 import {
@@ -75,6 +76,17 @@ export function ProjectTabs() {
     requestCounts && !requestCounts.includes(null)
       ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
+  // On a phone its tabs scroll across, as a record's do: the one you're on is kept in view,
+  // again once the counts that widen them arrive.
+  const tabs = useRef<HTMLElement>(null);
+  const widths = `${String(counts?.total)} ${String(requests)} ${String(members?.length)}`;
+  useEffect(() => {
+    const nav = tabs.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && current && nav.scrollWidth > nav.clientWidth) {
+      current.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [path, widths]);
   const summary = [
     project.description.split("\n")[0]?.trim(),
     members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
@@ -131,7 +143,7 @@ export function ProjectTabs() {
           <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
         </p>
       </div>
-      <nav className="tabs project-tabs" aria-label="Project">
+      <nav ref={tabs} className="tabs project-tabs" aria-label="Project">
         <Link
           to="/projects/$slug/"
           params={{ slug: project.slug }}

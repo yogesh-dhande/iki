@@ -62,18 +62,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // The admin area's menu: on a narrow screen its pages fold under a button. Without
-  // this, the button stays hidden and the pages stay listed.
-  const menu = document.querySelector("button[data-admin-menu]");
-  if (menu) {
-    menu.setAttribute("aria-expanded", "false");
-    menu.hidden = false;
-    menu.addEventListener("click", () => {
-      const open = menu.getAttribute("aria-expanded") === "true";
-      menu.setAttribute("aria-expanded", open ? "false" : "true");
-    });
-  }
-
   // Move focus to an error summary, so keyboard and screen reader users land on it.
   const summary = document.querySelector("[data-focus-on-load]");
   if (summary) {
@@ -81,11 +69,9 @@ document.addEventListener("DOMContentLoaded", () => {
     summary.focus();
   }
 
+  // The main sidebar, or the admin area's: either is a drawer on a narrow screen.
   const sidebar = document.querySelector("[data-sidebar]");
   if (sidebar) setUpSidebar(sidebar);
-  // The admin area's sidebar has the same account menu at its foot.
-  const admin = document.querySelector(".admin-side");
-  if (admin) setUpAccount(admin);
 });
 
 // --- The sidebar (ADR 0176), as the web app's sidebar.tsx works -----------------------

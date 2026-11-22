@@ -162,7 +162,12 @@ Each page needs the permission it needs today.
 - **The sidebar offers only what its reader may open.** A group with nothing in it is
   left out, and `/admin/` opens the first page they may open. Someone with no
   administrative permission at all gets no admin frame: a page of the area tells them
-  it isn't theirs in the main one.
+  it isn't theirs in the main one. `/admin/` itself holds nothing, so for them it
+  answers as a page, not an error: the area isn't theirs, and it's for Org Admins,
+  Compute Admins and Auditors.
+- **On a narrow screen its sidebar is a drawer,** as the main one is: a bar above the
+  page with the menu button and the area's name, and the same modal dialog, backdrop
+  and ways to close it.
 - **Every page of the area is under `/admin/`,** server-rendered or the web app's,
   named for what it is: `/admin/sign-in/`, `/admin/people/` (and `/admin/people/<id>/`),
   `/admin/service-accounts/`, `/admin/apps/`, `/admin/email/`, `/admin/registries/`,
