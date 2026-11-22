@@ -76,6 +76,8 @@ class SavedSearchFilters(Schema):
         description="Only this project's. Without one, every search you see: your own, and "
         "those shared with projects you can read.",
     )
+    mine: bool = Field(False, description="Only your own: the sidebar's saved views.")
+    limit: int | None = Field(None, ge=1, le=100, description="At most this many.")
 
 
 def _query(query: QueryIn) -> dict[str, Any]:
@@ -139,14 +141,19 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
 @router.get("/saved-searches", response=list[SavedSearchOut], summary="Saved searches")
 def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]) -> Any:  # noqa: ANN401
     """Yours, and those shared with the project, by name. Without a project: every one you
-    see, your searches of every project among them."""
+    see, your searches of every project among them. Only your own with ``mine`` (the
+    sidebar's saved views, ADR 0176)."""
     me = caller(request)
     if filters.project is None:
-        searches = services.everywhere(me)
+        searches = services.mine(me) if filters.mine else services.everywhere(me)
     else:
         searches = services.visible(me, project(me, filters.project, Action.PROJECT_READ))
-    searches = searches.select_related("project__team", "created_by")
-    return [_out(me, s) for s in searches.order_by("name", "pk")]
+        if filters.mine:
+            searches = searches.filter(created_by=me)
+    searches = searches.select_related("project__team", "created_by").order_by("name", "pk")
+    if filters.limit is not None:
+        searches = searches[: filters.limit]
+    return [_out(me, s) for s in searches]
 
 
 @router.post("/saved-searches", response={201: SavedSearchOut}, summary="Save a search")

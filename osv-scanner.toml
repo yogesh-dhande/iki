@@ -314,3 +314,15 @@ license.ignore = true
 name = "webpki-root-certs"
 ecosystem = "crates.io"
 license.ignore = true
+
+# Inter, the app's typeface (ADR 0176), is under the SIL Open Font License 1.1,
+# which permits bundling the font with software under any licence, so long as
+# the font isn't sold by itself and its licence goes with it. Iki serves the
+# package's files unmodified from its static files, beside its licence
+# (server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt), and NOTICE
+# names it. This exception covers this package alone, not OFL in general.
+
+[[PackageOverrides]]
+name = "@fontsource-variable/inter"
+ecosystem = "npm"
+license.ignore = true

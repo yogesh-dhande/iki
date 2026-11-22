@@ -293,8 +293,11 @@ def test_the_log_pages_with_a_stable_cursor(world: World, monkeypatch: pytest.Mo
 
 
 def test_auditor_link_only_for_auditors(world: World) -> None:
-    assert 'href="/admin/audit/"' in world.browser("auditor").get("/teams/").content.decode()
-    assert 'href="/admin/audit/"' not in world.browser("org_admin").get("/teams/").content.decode()
+    # In the admin area's sidebar, on its pages, for those who may read it (ADR 0176).
+    on_audit = world.browser("auditor").get("/admin/audit/").content.decode()
+    assert 'href="/admin/audit/"' in on_audit
+    on_settings = world.browser("org_admin").get("/admin/sign-in/").content.decode()
+    assert 'href="/admin/audit/"' not in on_settings
     assert Api(world.browser("auditor")).get("/me").json()["can"]["read_audit"] is True
     assert path_of(world.browser("anonymous").get("/admin/audit/")).startswith("/login/")
 

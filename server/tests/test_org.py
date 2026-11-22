@@ -327,7 +327,8 @@ def test_people_page_lists_everyone_with_roles(world: World) -> None:
 
 
 def test_people_link_only_for_org_admins(world: World) -> None:
-    assert 'href="/admin/people/"' in text(world.browser("org_admin").get("/teams/"))
+    # In the admin area's sidebar, on its pages (ADR 0176).
+    assert 'href="/admin/people/"' in text(world.browser("org_admin").get("/admin/sign-in/"))
     assert 'href="/admin/people/"' not in text(world.browser("admin").get("/teams/"))
 
 

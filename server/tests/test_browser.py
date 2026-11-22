@@ -238,7 +238,14 @@ def watch(page: Page) -> Page:
         done(request)
         failed.append(f"{request.method} {request.url}: {request.failure}")
 
-    page.on("pageerror", lambda error: errors.append(str(error)))
+    def thrown(error: Any) -> None:
+        # Not an error (the ResizeObserver spec): what a size change made while observers were
+        # called is delivered in the next frame. WebKit reports it when a popover grows as
+        # what it read arrives and react-aria places it again, above its button.
+        if str(error) != "ResizeObserver loop completed with undelivered notifications.":
+            errors.append(str(error))
+
+    page.on("pageerror", thrown)
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("request", lambda r: waiting.__setitem__(r, (time.monotonic(), f"{r.method} {r.url}")))
     page.on("requestfinished", done)
@@ -417,6 +424,78 @@ def test_pages_are_accessible_and_keep_the_policy(open_as: Any, color_scheme: st
         page = open_as(principal, path, color_scheme)
         assert_clean(page)
         page.context.close()
+
+
+def _focused(locator: Locator) -> bool:
+    return bool(locator.evaluate("e => e === document.activeElement"))
+
+
+@pytest.mark.parametrize(
+    ("path", "color_scheme"),
+    # The web app's sidebar and the server's, in each theme.
+    [("/projects/", "light"), ("/teams/", "dark")],
+)
+def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
+    open_as: Any, path: str, color_scheme: str
+) -> None:
+    """The sidebar (ADR 0176): Entities stays as its reader left it, the account menu opens
+    and closes from the keyboard, its button opens search as ⌘K does, and on a phone it's a drawer
+    that holds the focus until it closes, with the page never wider than the screen."""
+    page = open_as("org_admin", path, color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    nav = page.get_by_role("navigation", name="Main")
+    entities = nav.get_by_role("button", name="Entities")
+    entities.focus()
+    page.keyboard.press("Enter")
+    assert entities.get_attribute("aria-expanded") == "false"
+    page.reload()
+    shown(page)
+    assert entities.get_attribute("aria-expanded") == "false"
+    entities.click()
+    nav.get_by_role("link", name="All entities").wait_for()
+
+    account = page.get_by_role("button", name="Org Admin")
+    account.focus()
+    page.keyboard.press("Enter")
+    page.get_by_role("link", name="Notification preferences").wait_for()
+    page.get_by_role("button", name="Sign out").wait_for()
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    assert account.get_attribute("aria-expanded") == "false"
+    assert _focused(account)
+
+    # Search everything: the palette, from the shortcut and from the button.
+    palette = page.get_by_role("dialog", name="Search everything")
+    page.keyboard.press("ControlOrMeta+k")
+    palette.wait_for()
+    page.keyboard.press("Escape")
+    palette.wait_for(state="hidden")
+    page.get_by_role("button", name="Search everything").click()
+    palette.wait_for()
+    page.keyboard.press("Escape")
+    palette.wait_for(state="hidden")
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    width = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+    assert page.evaluate(width)
+    nav.wait_for(state="hidden")
+    menu = page.get_by_role("button", name="Menu", exact=True)
+    menu.click()
+    drawer = page.get_by_role("dialog", name="Menu")
+    close = drawer.get_by_role("button", name="Close menu")
+    page.wait_for_function("() => document.activeElement?.closest('[role=dialog]') !== null")
+    assert _focused(close)
+    assert page.evaluate(width)
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    drawer.wait_for(state="hidden")
+    assert _focused(menu)
+    menu.click()
+    drawer.get_by_role("link", name="Types").click()
+    page.wait_for_url("**/types/")
+    drawer.wait_for(state="hidden")
+    assert page.evaluate(width)
+    page.context.close()
 
 
 def test_a_compute_admin_registers_and_changes_self_hosted_machines(
@@ -626,7 +705,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
         actor=viewer,
     )
     page = open_as("admin", "/notifications/")
-    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    page.get_by_role("link", name="Inbox 1 unread").wait_for()
     # What the inbox's requests answered, to say why if the new one never shows.
     answered: list[str] = []
     page.on(
@@ -644,7 +723,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
         project=world.project,
         actor=viewer,
     )
-    page.get_by_role("link", name="Notifications, 2 unread").wait_for()
+    page.get_by_role("link", name="Inbox 2 unread").wait_for()
     try:
         page.get_by_role("link", name=title).wait_for()
     except PlaywrightTimeoutError:
@@ -653,7 +732,7 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
 
     page.get_by_role("link", name=title).click()
     page.wait_for_url("**/projects/kinase-atlas/")
-    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    page.get_by_role("link", name="Inbox 1 unread").wait_for()
     assert_clean(page)
 
 
@@ -864,7 +943,7 @@ def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> No
     beside = page.get_by_role("combobox", name="Show").bounding_box()
     assert box is not None and beside is not None, (box, beside)
     assert abs(box["height"] - beside["height"]) <= 1, (box, beside)
-    assert box["height"] >= 24, box
+    assert box["height"] >= 28, box
     assert_clean(page)
 
 
@@ -1519,7 +1598,7 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert page.get_by_role("button", name="Cancel run").count() == 0
     assert_clean(page)
 
-    page.get_by_role("link", name="Kinase Atlas").click()
+    page.get_by_role("main").get_by_role("link", name="Kinase Atlas").click()
     # The project's runs, one row each (ADR 0176's table, as every run's list).
     row = page.get_by_role("row").filter(has_text=run.hrid)
     row.get_by_text("Failed", exact=True).wait_for()
@@ -1638,7 +1717,9 @@ def test_following_lineage_from_entity_to_entity(
 
     middle = made[1]
     page = open_as("admin", f"/entities/{middle.hrid}/", color_scheme)
-    page.get_by_role("link", name="Lineage").click()
+    # The record's Lineage tab, not the rail's link to the same page, which a phrase of it
+    # also matches.
+    page.get_by_role("navigation", name="Record").get_by_role("link", name="Lineage").click()
     # What it was derived from, as a tree, walked with the keyboard.
     tree = page.get_by_role("tree", name="What it was derived from")
     tree.wait_for()
@@ -2631,12 +2712,12 @@ def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, wor
     assert_clean(page, axe_in_firefox=False)
 
 
-def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
+def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
     open_as: Any, world: World
 ) -> None:
-    """An auditor in California opens the log from the web app: its header offers what the
-    app's did, its times are in their zone and say so, and the date the app showed a
-    project's creation on finds it."""
+    """An auditor in California opens the log from the web app's sidebar, through Admin:
+    the server's sidebar offers what the app's did, its times are in their zone and say so,
+    and the date the app showed a project's creation on finds it."""
     from datetime import UTC, datetime
 
     from iki_server.audit import log as audit
@@ -2661,16 +2742,24 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
     )
     page = open_as("auditor", "/", timezone_id="America/Los_Angeles")
 
-    def header() -> list[str]:
-        nav = page.get_by_role("navigation", name="Main")
+    nav = page.get_by_role("navigation", name="Main")
+
+    def sidebar() -> list[str]:
         links: list[str] = nav.get_by_role("link").all_inner_texts()
         return links
 
-    in_the_app = header()
-    assert in_the_app == ["My work", "Projects", "Types", "Teams", "Costs", "Audit"]
-    page.get_by_role("navigation", name="Main").get_by_role("link", name="Audit").click()
+    # Admin is one link, to the admin area, which opens on the first page an auditor may.
+    in_the_app = sidebar()
+    assert in_the_app[:3] == ["My work", "Inbox", "All entities"]
+    assert in_the_app[-3:] == ["Types", "People and teams", "Admin"]
+    nav.get_by_role("link", name="Admin").click()
+    page.wait_for_url("**/admin/costs/")
+    # The admin area (ADR 0176): its own sidebar offers what an auditor may open, and the
+    # main sidebar isn't drawn there.
+    admin = page.get_by_role("navigation", name="Admin")
+    admin.get_by_role("link", name="Audit log").click()
     page.get_by_role("heading", name="Audit log", level=1).wait_for()
-    # The log is in the admin area (ADR 0176): its sidebar offers what an auditor may open.
+    assert page.get_by_role("navigation", name="Main").count() == 0
     admin = page.get_by_role("navigation", name="Admin")
     assert admin.get_by_role("list").get_by_role("link").all_inner_texts() == [
         "Costs and budgets",
@@ -2696,6 +2785,10 @@ def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_header(
     page.wait_for_url("**tz=America%2FLos_Angeles**")
     page.get_by_text("Created a project: Compute Capacity Study").wait_for()
     assert_clean(page)
+    # Back to Iki: the main sidebar, as it was.
+    page.get_by_role("navigation", name="Admin").get_by_role("link", name="Back to Iki").click()
+    nav.wait_for()
+    assert sidebar() == in_the_app
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
@@ -2751,7 +2844,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
     # that, and nothing else.
     PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
     assert_clean(page)
-    page.get_by_role("link", name="Antigens", exact=True).click()
+    page.get_by_role("main").get_by_role("link", name="Antigens", exact=True).click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/\?project=antigens$"))
     page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
     page.get_by_role("heading", name="Project values").wait_for()

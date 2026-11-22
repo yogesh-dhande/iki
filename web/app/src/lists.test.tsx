@@ -186,7 +186,10 @@ describe("all entities", () => {
     const { router, user } = await renderApp("/entities/?project=vector-qc");
     expect(await screen.findByText("There’s no project vector-qc you can read.")).toBeVisible();
     expect(calls("POST", "/api/v1/entities/search")).toHaveLength(0);
-    expect(calls("GET", "/api/v1/entities/counts")).toHaveLength(0);
+    // Not counted there either; the sidebar's counts are of every project.
+    expect(calls("GET", "/api/v1/entities/counts").filter((c) => c.query.has("project"))).toEqual(
+      [],
+    );
     await user.click(screen.getByRole("button", { name: "Show every project’s" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({});

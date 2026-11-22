@@ -312,7 +312,6 @@ TEMPLATES = [
                 "iki_server.web.context_processors.installation",
                 "iki_server.web.context_processors.search_palette",
                 "iki_server.org.context_processors.navigation",
-                "iki_server.notifications.context_processors.unread",
             ],
         },
     }

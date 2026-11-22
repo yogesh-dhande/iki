@@ -134,24 +134,121 @@
       }
     ]
   },
-  "main": [
-    { "label": "My work", "href": "/work/", "app": true },
-    { "label": "Projects", "href": "/projects/", "app": true },
-    { "label": "Types", "href": "/types/", "app": true },
-    { "label": "Teams", "href": "/teams/" },
+  "top": [
     {
-      "label": "People",
-      "href": "/admin/people/",
-      "requires": "manage_org",
-      "current": ["/admin/people/", "/admin/service-accounts/"]
+      "label": "My work",
+      "href": "/work/",
+      "app": true,
+      "icon": "work"
     },
     {
-      "label": "Settings",
-      "href": "/admin/sign-in/",
-      "requires": "manage_org"
+      "label": "Inbox",
+      "href": "/notifications/",
+      "app": true,
+      "icon": "inbox",
+      "badge": "unread"
+    }
+  ],
+  "entities": {
+    "label": "Entities",
+    "icon": "entities",
+    "all": {
+      "label": "All entities",
+      "href": "/entities/",
+      "app": true
     },
-    { "label": "Costs", "href": "/admin/costs/", "requires": "read_costs", "app": true },
-    { "label": "Compute", "href": "/admin/compute/", "requires": "manage_compute", "app": true },
-    { "label": "Audit", "href": "/admin/audit/", "requires": "read_audit" }
-  ]
+    "type": "/entities/types/"
+  },
+  "work": [
+    {
+      "label": "Requests",
+      "href": "/requests/",
+      "icon": "requests",
+      "app": true
+    },
+    {
+      "label": "Runs",
+      "href": "/runs/",
+      "icon": "runs",
+      "app": true
+    }
+  ],
+  "saved": {
+    "label": "Saved views",
+    "href": "/saved-searches/",
+    "app": true,
+    "icon": "saved"
+  },
+  "projects": {
+    "label": "Projects",
+    "href": "/projects/",
+    "shown": 8,
+    "new": {
+      "label": "New project",
+      "href": "/projects/new/",
+      "app": true,
+      "requires": "create_projects"
+    },
+    "all": {
+      "label": "All projects",
+      "href": "/projects/",
+      "app": true,
+      "icon": "projects"
+    }
+  },
+  "organization": {
+    "label": "Organization",
+    "items": [
+      {
+        "label": "Types",
+        "href": "/types/",
+        "app": true,
+        "icon": "types"
+      },
+      {
+        "label": "People and teams",
+        "href": "/teams/",
+        "icon": "people"
+      }
+    ],
+    "admin": {
+      "icon": "admin"
+    }
+  },
+  "account": [
+    {
+      "label": "Notification preferences",
+      "href": "/account/notifications/"
+    },
+    {
+      "label": "Authorized apps",
+      "href": "/account/apps/"
+    }
+  ],
+  "icons": {
+    "search": ["M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0", "m20 20-3.5-3.5"],
+    "work": ["M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"],
+    "inbox": ["M3 13h5l1.5 3h5L16 13h5", "M5 5h14l2 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"],
+    "entities": ["M12 3 3 7.5v9L12 21l9-4.5v-9z", "M3 7.5 12 12l9-4.5M12 12v9"],
+    "requests": ["M21 3 10 14", "m21 3-7 18-4-7-7-4z"],
+    "runs": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0", "m10 8.5 5 3.5-5 3.5z"],
+    "saved": ["M6 3h12v18l-6-4-6 4z"],
+    "projects": ["M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"],
+    "types": [
+      "M4.5 3h5A1.5 1.5 0 0 1 11 4.5v5A1.5 1.5 0 0 1 9.5 11h-5A1.5 1.5 0 0 1 3 9.5v-5A1.5 1.5 0 0 1 4.5 3z",
+      "M13 17a4 4 0 1 0 8 0a4 4 0 1 0-8 0",
+      "m17 3 4 7h-8z"
+    ],
+    "people": [
+      "M5.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0",
+      "M2.5 20a6.5 6.5 0 0 1 13 0",
+      "M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"
+    ],
+    "admin": ["M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"],
+    "chevron": ["m9 6 6 6-6 6"],
+    "plus": ["M12 5v14M5 12h14"],
+    "account": ["m7 10 5-5 5 5M7 14l5 5 5-5"],
+    "menu": ["M4 6h16M4 12h16M4 18h16"],
+    "close": ["M6 6l12 12M18 6 6 18"]
+  }
 }

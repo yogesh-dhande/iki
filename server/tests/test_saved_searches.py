@@ -153,6 +153,44 @@ def test_only_people_who_can_read_the_project(world: World) -> None:
     problem(outsider.delete(f"/saved-searches/{mine['id']}"), 404, "not_found")
 
 
+def test_only_your_own_are_the_sidebars_saved_views(world: World) -> None:
+    """The sidebar's saved views (ADR 0176): your own, of every project or of one you can
+    read, not those others shared, and none in a project you can no longer read, not even
+    one you saved there."""
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+    from iki_server.searches.models import SavedSearch
+
+    viewer = api_as(world, "viewer")
+    save(viewer, world, "Human")
+    save(api_as(world, "editor"), world, "Shared", shared=True)
+    assert viewer.post("/saved-searches", {"name": "Everywhere", "query": HUMAN}).status_code == 201
+    other = Project.objects.create(team=world.team, name="Variant Calls")
+    membership = ProjectMembership.objects.create(
+        project=other, user=world.users["viewer"], role=ProjectRole.VIEWER
+    )
+    SavedSearch.objects.create(
+        project=other, name="Another", query={}, created_by=world.users["viewer"]
+    )
+    mine = viewer.get("/saved-searches", mine=True)
+    assert mine.status_code == 200, mine.content
+    assert [(s["name"], s["project"]) for s in mine.json()] == [
+        ("Another", str(other.pk)),
+        ("Everywhere", None),
+        ("Human", str(world.project.pk)),
+    ]
+    assert [s["name"] for s in viewer.get("/saved-searches", mine=True, limit=1).json()] == [
+        "Another"
+    ]
+    in_the_project = viewer.get("/saved-searches", project=str(world.project.pk), mine=True)
+    assert [s["name"] for s in in_the_project.json()] == ["Human"]
+    membership.delete()
+    assert [s["name"] for s in viewer.get("/saved-searches", mine=True).json()] == [
+        "Everywhere",
+        "Human",
+    ]
+    assert api_as(world, "outsider").get("/saved-searches", mine=True).json() == []
+
+
 def test_a_search_of_every_project_is_its_owners_alone(world: World) -> None:
     """Saved with no project (ADR 0176), it finds records in every project its reader can
     read; nobody else sees it, and it can't be shared, having nobody to share it with."""

@@ -3801,6 +3801,10 @@ class SavedSearchCan(TypedDict):
 
 
 class SavedSearchFilters(TypedDict):
+    #: At most this many.
+    limit: NotRequired[int | None]
+    #: Only your own: the sidebar's saved views.
+    mine: NotRequired[bool]
     #: Only this project's. Without one, every search you see: your own, and those shared with projects you can read.
     project: NotRequired[str | None]
 

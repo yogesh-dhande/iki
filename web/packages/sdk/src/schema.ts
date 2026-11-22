@@ -3464,7 +3464,8 @@ export interface paths {
         /**
          * Saved searches
          * @description Yours, and those shared with the project, by name. Without a project: every one you
-         *     see, your searches of every project among them.
+         *     see, your searches of every project among them. Only your own with ``mine`` (the
+         *     sidebar's saved views, ADR 0176).
          */
         get: operations["iki_server_api_searches_list_saved_searches"];
         put?: never;
@@ -12285,6 +12286,17 @@ export interface components {
         /** SavedSearchFilters */
         SavedSearchFilters: {
             /**
+             * Limit
+             * @description At most this many.
+             */
+            limit?: number | null;
+            /**
+             * Mine
+             * @description Only your own: the sidebar's saved views.
+             * @default false
+             */
+            mine: boolean;
+            /**
              * Project
              * @description Only this project's. Without one, every search you see: your own, and those shared with projects you can read.
              */
@@ -20188,6 +20200,10 @@ export interface operations {
             query?: {
                 /** @description Only this project's. Without one, every search you see: your own, and those shared with projects you can read. */
                 project?: string | null;
+                /** @description Only your own: the sidebar's saved views. */
+                mine?: boolean;
+                /** @description At most this many. */
+                limit?: number | null;
             };
             header?: never;
             path?: never;

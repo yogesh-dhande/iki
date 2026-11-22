@@ -50,7 +50,9 @@ describe("the type browser", () => {
     const { user } = await renderApp("/types/");
     expect(screen.getByRole("heading", { level: 2, name: "iki/protein" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Types" })).toHaveAttribute("aria-current", "page");
-    await user.click(screen.getByRole("link", { name: "Protein structure" }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("link", { name: "Protein structure" }),
+    );
     await screen.findByRole("heading", { level: 1, name: "Protein structure" });
     const rows = within(screen.getByRole("table")).getAllByRole("row");
     expect(rows.map((r) => r.textContent)).toEqual([
@@ -522,7 +524,9 @@ describe("a project's entities", () => {
     const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
     expect(ran).toEqual({ ...lineage, limit: 100, project: KINASE.id });
 
-    await user.click(screen.getByRole("link", { name: "From the donor" }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("link", { name: "From the donor" }),
+    );
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",

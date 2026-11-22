@@ -93,7 +93,11 @@ describe("a project's runs", () => {
       ]),
     );
     const { user } = await renderApp("/projects/kinase-atlas/runs/");
-    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(
+      within(screen.getByRole("navigation", { name: "Project" })).getByRole("link", {
+        name: "Runs",
+      }),
+    ).toHaveAttribute("aria-current", "page");
     const links = await screen.findAllByRole("link", { name: "Compute properties" });
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
       "/runs/RUN-000001/",
@@ -134,10 +138,9 @@ describe("a run's page", () => {
       /^Compute properties\s*RUN-000001\s*Running$/,
     );
     expect(document.title).toBe("Compute properties (RUN-000001) · Example Bio");
-    expect(await screen.findByRole("link", { name: "Kinase Atlas" })).toHaveAttribute(
-      "href",
-      "/projects/kinase-atlas/runs/",
-    );
+    expect(
+      await within(screen.getByRole("main")).findByRole("link", { name: "Kinase Atlas" }),
+    ).toHaveAttribute("href", "/projects/kinase-atlas/runs/");
     const inputs = screen.getByRole("region", { name: "Inputs" });
     expect(within(inputs).getByRole("link", { name: "PRT-000001" })).toHaveAttribute(
       "href",

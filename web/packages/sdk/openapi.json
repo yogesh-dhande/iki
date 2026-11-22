@@ -16850,6 +16850,26 @@
       },
       "SavedSearchFilters": {
         "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At most this many.",
+            "title": "Limit"
+          },
+          "mine": {
+            "default": false,
+            "description": "Only your own: the sidebar's saved views.",
+            "title": "Mine",
+            "type": "boolean"
+          },
           "project": {
             "anyOf": [
               {
@@ -34786,7 +34806,7 @@
     },
     "/api/v1/saved-searches": {
       "get": {
-        "description": "Yours, and those shared with the project, by name. Without a project: every one you\nsee, your searches of every project among them.",
+        "description": "Yours, and those shared with the project, by name. Without a project: every one you\nsee, your searches of every project among them. Only your own with ``mine`` (the\nsidebar's saved views, ADR 0176).",
         "operationId": "iki_server_api_searches_list_saved_searches",
         "parameters": [
           {
@@ -34806,6 +34826,38 @@
               ],
               "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
               "title": "Project"
+            }
+          },
+          {
+            "description": "Only your own: the sidebar's saved views.",
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only your own: the sidebar's saved views.",
+              "title": "Mine",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "At most this many.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "At most this many.",
+              "title": "Limit"
             }
           }
         ],

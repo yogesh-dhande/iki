@@ -173,6 +173,49 @@ Each page needs the permission it needs today.
 
 No page loads fonts or scripts from outside the deployment.
 
+### The sidebar, in detail
+
+- **One description, two renderers.** `navigation.json` lists the sidebar's
+  items, what each needs, the paths each is current on, and its icons. The
+  app and the server draw from it, and tests check that both show the same
+  items to the same people. The current item is the one whose path is the
+  longest prefix of the page's: a project's pages mark the project, not All
+  projects. Only that item has `aria-current="page"`.
+- **Projects** shows the first eight active projects you belong to, by team
+  and then name, and the one you are on if it is further down.
+- **Saved views** are your own saved searches, of every project or of one
+  you can still read, the first eight by name; those others share stay in
+  their project's list. Each opens from its own address,
+  `/saved-searches/<id>/`, on its project's table, or All entities for a
+  search of every project, so a link to one keeps working as the table's
+  address changes.
+- **Entities stays open or closed** as each person left it. This is kept in
+  a cookie, so the server draws it the same way without a flash. Its types
+  are those the counts list, as All entities counts them; where counting
+  would be slow they're listed without numbers, and if the counts can't be
+  read, Entities holds All entities alone.
+- **Admin** is one link, to `/admin/`, for whoever may open any page of the
+  admin area. The area's own sidebar takes them through the rest, and its
+  pages don't draw this sidebar.
+- **Search everything**, the sidebar's button, opens the palette with an
+  `iki:search` event, as ⌘K does. The palette binds the shortcut, once a
+  page; the sidebar binds none of its own. A server page shows the button
+  only where it has loaded the palette.
+- **The account menu** shows your name and email, notification preferences,
+  authorized apps and sign-out. Error pages keep the sidebar, so you can
+  leave them by its links.
+- **On a narrow screen** (below 896px) the drawer is a modal dialog. The page
+  behind it can't be reached until it closes, by Escape, its close button,
+  the backdrop or a link. Without JavaScript, the sidebar shows open above
+  the page.
+- **Sizes:** 1rem is 13px, so sizes in rem keep their proportions.
+- **Borders:** inputs' borders have 3:1 contrast against the page, as WCAG
+  1.4.11 asks of a control's edge. Borders that only divide are lighter.
+- **The Inter subsets** are Latin, Latin Extended and Greek; other scripts
+  fall back to the system's font.
+- **Marks:** a project's mark in the sidebar is its color's square, worked
+  out the same way by the server's pages and the app.
+
 ## Consequences
 
 - People who used the header's links find them in the sidebar or under

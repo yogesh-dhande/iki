@@ -77,6 +77,12 @@ def everywhere(user: User) -> QuerySet[SavedSearch]:
     return SavedSearch.objects.filter(Q(project__isnull=True, created_by=user) | in_projects)
 
 
+def mine(user: User) -> QuerySet[SavedSearch]:
+    """The user's own searches, of a project they can still read or of every project: the
+    sidebar's saved views (ADR 0176). One of a project they've left isn't theirs to open."""
+    return everywhere(user).filter(created_by=user)
+
+
 def can_change(user: User, saved: SavedSearch) -> bool:
     return bool(saved.created_by_id == user.pk)
 

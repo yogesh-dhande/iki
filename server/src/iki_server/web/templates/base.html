@@ -9,37 +9,17 @@
   <title>{% block title %}Iki{% endblock %}{% if organization_name %} · {{ organization_name }}{% endif %}</title>
   {% include "_head_links.html" %}
 </head>
+{% with nav=sidebar %}
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="/">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="16" cy="16" r="5" fill="currentColor"/></svg>
-      <span class="brand-name">iki</span>
-      {% if organization_name %}<span class="brand-org">{{ organization_name }}</span>{% endif %}
-    </a>
-    {% block nav %}{% if user.is_authenticated %}
-    <nav class="site-nav" aria-label="Main">
-      {% for item in nav_items %}<a href="{{ item.href }}"{% if item.current %} aria-current="page"{% endif %}>{{ item.label }}</a>
-      {% endfor %}
-    </nav>
-    {% endif %}{% endblock %}
-    {% block header_actions %}
-    {% if user.is_authenticated %}
-    <form class="header-actions" method="post" action="{% url 'logout' %}">
-      {% csrf_token %}
-      <a class="header-notifications" href="/notifications/"{% if request.path == "/notifications/" %} aria-current="page"{% endif %} aria-label="Notifications{% if notifications_unread %}, {{ notifications_unread }} unread{% endif %}">{% include "web/_bell.svg" %}{% if notifications_unread %}<span class="badge" aria-hidden="true">{% if notifications_unread > 99 %}99+{% else %}{{ notifications_unread }}{% endif %}</span>{% endif %}</a>
-      <a class="header-user" href="{% url 'notifications:account' %}" title="{{ user.email }}: your account">{{ user.get_full_name }}</a>
-      <button class="button button-quiet" type="submit">Sign out</button>
-    </form>
-    {% endif %}
-    {% endblock %}
-  </header>
+  {% block nav %}{% if nav %}{% include "web/_sidebar.html" %}{% else %}{% include "web/_site_header.html" %}{% endif %}{% endblock %}
   <main id="main" class="{% block main_class %}page-narrow{% endblock %}" tabindex="-1">
     {% include "web/_messages.html" %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="site-footer">
+  {% if not nav %}<footer class="site-footer">
     <span>Iki</span>
-  </footer>
+  </footer>{% endif %}
 </body>
+{% endwith %}
 </html>

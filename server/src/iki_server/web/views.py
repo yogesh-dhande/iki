@@ -43,9 +43,12 @@ def app(request: HttpRequest, **_: str) -> HttpResponse:
     return render(
         request,
         "web/app.html",
-        # Whether accounts come only from the identity provider (ADR 0026), for the forms
-        # that add people: the same for everyone.
-        {"assets": assets, "provisioning": "scim" if scim_enabled() else ""},
+        {
+            "assets": assets,
+            # Whether accounts come only from the identity provider (ADR 0026), for the
+            # forms that add people: the same for everyone.
+            "provisioning": "scim" if scim_enabled() else "",
+        },
         status=200 if assets else 503,
     )
 

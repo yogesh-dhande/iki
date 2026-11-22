@@ -124,6 +124,8 @@ const EntityApp = lazyRouteComponent(() => import("./pages/entity-app"), "Entity
 const registryPages = () => import("./pages/registries");
 const RegistryEntries = lazyRouteComponent(registryPages, "RegistryEntries");
 const EntryPage = lazyRouteComponent(registryPages, "EntryPage");
+const savedSearchPages = () => import("./pages/saved-searches");
+const SavedSearchPage = lazyRouteComponent(savedSearchPages, "SavedSearchPage");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
@@ -158,6 +160,17 @@ const workRoute = createRoute({
   // ?open=true: work open to your lab roles; ?project=, ?type=, ?state=, ?sort=updated.
   validateSearch: validateWorkSearch,
   component: Work,
+});
+
+// A saved search, by its own address: the sidebar's saved views (ADR 0176) link here.
+const savedSearchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "saved-searches/$savedId",
+  loader: async ({ context, params }) => {
+    const { openSavedSearch } = await savedSearchPages();
+    await openSavedSearch(context.queryClient, params.savedId);
+  },
+  component: SavedSearchPage,
 });
 
 // The admin area (ADR 0176): its pages are in its frame, not the main layout.
@@ -653,6 +666,7 @@ const outsideApisRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
+  savedSearchRoute,
   homeRoute,
   notificationsRoute,
   workRoute,

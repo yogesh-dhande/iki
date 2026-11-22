@@ -173,7 +173,10 @@ describe("a project's page", () => {
     ).toHaveAttribute("href", "/entities/?project=kinase-atlas");
     const tabs = screen.getByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities 1252" })).toBeVisible();
-    expect(calls("GET", "/api/v1/entities/counts")[0]?.query.get("project")).toBe(PROJECT.id);
+    // The project's, beside the sidebar's of every project.
+    expect(calls("GET", "/api/v1/entities/counts").map((c) => c.query.get("project"))).toContain(
+      PROJECT.id,
+    );
   });
 
   it("says which types it didn't count, where counting would be slow", async () => {
@@ -193,9 +196,11 @@ describe("a project's page", () => {
   it("says why it couldn't count, and its tab goes without a count", async () => {
     signedIn();
     onProject();
-    answer(
-      "GET /api/v1/entities/counts",
-      problem(404, "not_found", "No such project, or you can’t read it."),
+    // The project's can't be counted; the sidebar's, of every project, can.
+    answer("GET /api/v1/entities/counts", ({ query }: { query: URLSearchParams }) =>
+      query.get("project")
+        ? problem(404, "not_found", "No such project, or you can’t read it.")
+        : { types: [], total: 0 },
     );
     await renderApp("/projects/kinase-atlas/");
     const card = await screen.findByRole("region", { name: "Entities in this project" });
