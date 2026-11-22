@@ -89,6 +89,24 @@ describe("what it lists", () => {
     expect(within(nav()).getByRole("link", { name: "All entities" })).toBeVisible();
   });
 
+  it("tells two types of one label apart by their plugins", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    answer("GET /api/v1/entities/counts", {
+      types: [
+        { type: "acme/example.Sample", label: "Sample", count: 6 },
+        { type: "iki/example_lims.Sample", label: "Sample", count: 2 },
+        { type: "iki/dna.Plasmid", label: "Plasmid", count: 3 },
+      ],
+      total: 11,
+    });
+    await renderApp("/projects/");
+    const lims = await within(nav()).findByRole("link", { name: "Sample iki/example_lims 2" });
+    expect(lims.querySelector(".type-plugin")).toHaveTextContent("iki/example_lims");
+    expect(within(nav()).getByRole("link", { name: "Sample acme/example 6" })).toBeVisible();
+    expect(within(nav()).getByRole("link", { name: "Plasmid 3" })).toBeVisible();
+  });
+
   it("lists All entities alone where the counts can't be read", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
@@ -182,7 +200,12 @@ describe("what it lists", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/projects/kinase-atlas/entities/");
     });
-    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
+    // Saved without a sort: oldest first, as the database runs it.
+    expect(router.state.location.search).toEqual({
+      q: "ampicillin",
+      show: "all",
+      sort: "created_at",
+    });
   });
 
   it("opens a search of every project on All entities", async () => {
@@ -198,7 +221,12 @@ describe("what it lists", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/entities/");
     });
-    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
+    // Saved without a sort: oldest first, as the database runs it.
+    expect(router.state.location.search).toEqual({
+      q: "ampicillin",
+      show: "all",
+      sort: "created_at",
+    });
   });
 });
 

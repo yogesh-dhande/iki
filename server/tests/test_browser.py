@@ -1066,17 +1066,77 @@ def test_a_fields_description_opens_beside_its_label(open_as: Any, world: World)
     described.wait_for(state="hidden")
 
 
-def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> None:
-    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/dna.DNASequence")
+def test_the_grids_toolbar_is_one_row_above_one_row_of_types(open_as: Any) -> None:
+    """ADR 0176: search, Project, Filter and sort on one row with Columns and CSV at its
+    end; the type pills on one row beneath, scrolling across at a phone's width; and the
+    newest changes first."""
+    page = open_as("admin", "/entities/")
     search = page.get_by_role("searchbox", name="Search")
     search.wait_for()
-    # As high as the toolbar's other controls (ADR 0176's 28 pixels), whatever a browser
-    # draws a search box as by itself, and no smaller than WCAG's target size (2.5.8).
-    box = search.bounding_box()
-    beside = page.get_by_role("combobox", name="Show").bounding_box()
-    assert box is not None and beside is not None, (box, beside)
-    assert abs(box["height"] - beside["height"]) <= 1, (box, beside)
-    assert box["height"] >= 28, box
+    pills = page.get_by_role("group", name="Type")
+    pills.get_by_role("button", name=re.compile(r"^All types")).wait_for()
+    # A bordered 30 pixel field: no smaller than WCAG's target size (2.5.8).
+    box = search.locator("xpath=..").bounding_box()
+    assert box is not None and abs(box["height"] - 30) <= 1, box
+    controls = [
+        search.locator("xpath=.."),
+        page.get_by_role("combobox", name="Project"),
+        page.get_by_role("button", name="Filter", exact=True),
+        page.get_by_role("button", name=re.compile(r"^Sort")),
+        page.get_by_role("button", name="Columns"),
+        page.get_by_role("link", name="Download CSV"),
+    ]
+    middles = []
+    for control in controls:
+        found = control.bounding_box()
+        assert found is not None and found["height"] >= 24, (control, found)
+        middles.append(found["y"] + found["height"] / 2)
+    assert max(middles) - min(middles) <= 2, middles
+    tops = {
+        round(b["y"])
+        for b in pills.get_by_role("button").evaluate_all(
+            "all => all.map(b => b.getBoundingClientRect().toJSON())"
+        )
+    }
+    assert len(tops) == 1, tops
+    assert page.get_by_role("button", name=re.compile(r"^Sort")).inner_text().strip() == (
+        "Changed, newest first"
+    )
+    assert_clean(page)
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    tops = {
+        round(b["y"])
+        for b in pills.get_by_role("button").evaluate_all(
+            "all => all.map(b => b.getBoundingClientRect().toJSON())"
+        )
+    }
+    assert len(tops) == 1, tops
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    assert_clean(page)
+
+
+def test_a_runs_id_is_never_cut_short(open_as: Any, world: World) -> None:
+    """Runs (ADR 0176): an ID shows whole, at any width; what's left gives way."""
+    from iki_server.entities import services as entities
+    from iki_server.runs import catalog, services
+
+    admin = world.users["admin"]
+    action = catalog.action("acme/protein.compute_properties")
+    assert action is not None
+    made = entities.create(
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKVL", "name": "ABL1"}
+    )
+    (run,) = services.launch_each(admin, action, world.project, "protein", [made.entity.pk], {}, {})
+    page = open_as("admin", "/runs/")
+    table = page.get_by_role("table")
+    # The ID, and beneath it the batch it ran in.
+    table.get_by_role("cell", name=re.compile(rf"^{run.hrid}\b.*in BAT-")).wait_for()
+    for width in (1440, 390):
+        page.set_viewport_size({"width": width, "height": 844})
+        cells = page.locator("table td:first-child")
+        assert cells.evaluate_all("all => all.every(c => c.scrollWidth <= c.clientWidth)")
+        assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
     assert_clean(page)
 
 
@@ -1104,7 +1164,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     page.get_by_role("table", name="3 proteins").wait_for()
 
     page.get_by_role("searchbox", name="Search").fill("ab")
-    page.get_by_role("table", name="1 protein match").wait_for()
+    page.get_by_role("table", name="1 of 3 proteins").wait_for()
     page.get_by_role("searchbox", name="Search").fill("")
     page.get_by_role("table", name="3 proteins").wait_for()
 
@@ -1117,22 +1177,23 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     editor.get_by_role("textbox", name="Filter 2: value").fill("90")
     editor.get_by_role("combobox", name="Unit for Filter 2: value").select_option("[degF]")
     editor.get_by_role("button", name="Done").click()
-    grid = page.get_by_role("table", name="1 protein match")
+    grid = page.get_by_role("table", name="1 of 3 proteins")
     grid.get_by_role("cell", name="ABL1", exact=True).wait_for()
     filters = page.get_by_role("group", name="Filters")
     filters.get_by_role("button", name="Filter 1: Host is Homo sapiens", exact=True).wait_for()
     assert_clean(page)
 
     # The address keeps it: a reload, or a shared link, shows the same.
+    page.wait_for_url(re.compile(r"filters=.*temperature_optimum"))
     page.reload()
-    page.get_by_role("table", name="1 protein match").wait_for()
+    page.get_by_role("table", name="1 of 3 proteins").wait_for()
     chip = filters.get_by_role("button", name=re.compile(r"^Filter 2: Temperature optimum"))
     chip.click()
     editor = page.get_by_role("dialog", name="Filter 2: Temperature optimum")
     assert editor.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
     page.keyboard.press("Escape")
     filters.get_by_role("button", name=re.compile(r"^Remove filter 2:")).click()
-    grid = page.get_by_role("table", name="2 proteins match")
+    grid = page.get_by_role("table", name="2 of 3 proteins")
     grid.wait_for()
 
     grid.get_by_role("button", name="Name").click()
@@ -1211,7 +1272,7 @@ def test_the_lists_across_projects_hold_only_what_you_can_read(
     editor_box = add_filter(page, "Bases")
     editor_box.get_by_role("textbox", name="Filter 1: value").fill("CAGNAAAC")
     editor_box.get_by_role("button", name="Done").click()
-    table = page.get_by_role("table", name="1 DNA sequence match")
+    table = page.get_by_role("table", name="1 of 2 DNA sequences")
     table.get_by_role("cell", name="M13 rev", exact=True).wait_for()
     views = page.get_by_role("navigation", name="Views")
     assert views.get_by_role("link", name="All DNA sequences").get_attribute("aria-current") is None
@@ -1251,7 +1312,7 @@ def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
             {"sequence": sequence, "name": name},
         )
     page = open_as("editor", "/projects/kinase-atlas/entities/?type=acme/protein.Protein&q=abl")
-    page.get_by_role("table", name="1 protein match").wait_for()
+    page.get_by_role("table", name="1 of 2 proteins").wait_for()
     page.get_by_role("button", name="Save this search").click()
     dialog = page.get_by_role("alertdialog", name="Save this search")
     dialog.get_by_label("Name").fill("ABL proteins")
@@ -1267,7 +1328,7 @@ def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
     other.get_by_role("navigation", name="Saved searches").get_by_role(
         "link", name="ABL proteins"
     ).click()
-    other.get_by_role("table", name="1 protein match").wait_for()
+    other.get_by_role("table", name="1 of 2 proteins").wait_for()
     # Viewers can't remove what someone else shared.
     assert other.get_by_role("button", name="Remove saved search ABL proteins").count() == 0
     assert_clean(other)
@@ -1284,7 +1345,7 @@ def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
             {"sequence": sequence, "name": name},
         )
     page = open_as("editor", "/projects/kinase-atlas/entities/?type=acme/protein.Protein&q=abl")
-    page.get_by_role("table", name="2 proteins match").wait_for()
+    page.get_by_role("table", name="2 of 3 proteins").wait_for()
     page.get_by_role("button", name="Save as collection").click()
     dialog = page.get_by_role("alertdialog", name="Save as a collection")
     dialog.get_by_label("Name").fill("ABL kinases")
@@ -3566,7 +3627,7 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
     page.get_by_role("table", name="3 batches").wait_for()
     assert page.get_by_role("columnheader", name="Rules").count() == 0
     page.get_by_role("searchbox", name="Search").fill("is:held")
-    grid = page.get_by_role("table", name="1 batch match")
+    grid = page.get_by_role("table", name="1 of 3 batches")
     grid.get_by_role("columnheader", name="Rules").wait_for()
     grid.get_by_role(
         "cell", name=re.compile("^Held for review: Purity in specification")
@@ -3581,12 +3642,12 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
         label="Expires after it's made"
     )
     chip_editor.get_by_role("button", name="Done").click()
-    grid = page.get_by_role("table", name="1 batch match")
+    grid = page.get_by_role("table", name="1 of 3 batches")
     grid.get_by_role("cell", name=re.compile("^Breaks: Expires after it's made")).wait_for()
     assert_clean(page)
     # The address keeps it, and the condition reads back.
     page.reload()
-    page.get_by_role("table", name="1 batch match").wait_for()
+    page.get_by_role("table", name="1 of 3 batches").wait_for()
     page.get_by_role("button", name=re.compile(r"^Filter 1: Breaks")).click()
     condition = page.get_by_role("combobox", name="Filter 1: condition")
     assert condition.locator("option:checked").inner_text() == "the rule"
@@ -3689,7 +3750,7 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     assert_clean(page)
     page.goto("/projects/kinase-atlas/entities/?type=acme/protein.Sample")
     page.get_by_role("searchbox", name="Search").fill("assigned:me")
-    grid = page.get_by_role("table", name="1 sample match")
+    grid = page.get_by_role("table", name=re.compile(r"^1 of \d+ samples?$"))
     grid.get_by_role("link", name=hrid).wait_for()
     grid.get_by_role("checkbox", name=f"Select {hrid}").check()
     page.get_by_role("button", name="Reassign").click()

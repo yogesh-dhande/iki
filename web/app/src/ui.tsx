@@ -625,6 +625,22 @@ export function Badge({ children, muted = false }: { children: ReactNode; muted?
   return <span className={muted ? "badge badge-muted" : "badge"}>{children}</span>;
 }
 
+/** A type's name as `typeDisplayName` gives it: its label, then its plugin in muted text
+ * when another type shares the label. */
+export function TypeName({ shown }: { shown: { label: string; plugin?: string | undefined } }) {
+  return (
+    <>
+      {shown.label}
+      {shown.plugin ? (
+        <>
+          {" "}
+          <span className="type-plugin">{shown.plugin}</span>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 export function Loading({ label }: { label: string }) {
   return (
     <p className="muted" role="status" aria-live="polite">

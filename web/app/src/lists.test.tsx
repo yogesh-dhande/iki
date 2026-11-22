@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   addFilter,
+  COLLECTION_TYPE,
   entity,
   field,
   KINASE,
@@ -19,6 +20,9 @@ import {
   STRUCTURE,
   withTypes,
 } from "./entity-fixtures";
+import { typeDisplayName, typeDisplayText } from "./entities";
+import { countOf } from "./lists";
+import { keyFieldsOf, sizeColumns } from "./pages/entity-grid";
 import { ACTION, run } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
 
@@ -85,10 +89,10 @@ function everywhere(rows: Schemas["EntityOut"][] = [ABL1, INSULIN]): void {
   answer("POST /api/v1/entities/search", page(rows));
   answer("GET /api/v1/entities/counts", {
     types: [
-      { type: PROTEIN.name, label: "Protein", count: 2 },
+      { type: PROTEIN.name, label: "Protein", count: rows.length },
       { type: STRUCTURE.name, label: "Protein structure", count: 1 },
     ],
-    total: 3,
+    total: rows.length + 1,
   });
   answer("GET /api/v1/saved-searches", []);
 }
@@ -102,7 +106,7 @@ describe("all entities", () => {
     expect(screen.getByRole("heading", { level: 1, name: "All entities" })).toBeVisible();
     // Kinase Atlas and Protein Core: not Vector Reference QC, which they only see.
     expect(screen.getByText(/in the 2 projects you belong to/)).toBeVisible();
-    const grid = await screen.findByRole("table", { name: "2 entities" });
+    const grid = await screen.findByRole("table", { name: "3 entities" });
     const headings = within(grid)
       .getAllByRole("columnheader")
       .map((c) => c.textContent);
@@ -114,15 +118,18 @@ describe("all entities", () => {
       "Project",
       "Status",
       "Made by",
-      "Last changed",
+      // Sorted by it, newest first, as the lists are unless asked otherwise.
+      "Changed▼",
     ]);
     const rows = within(grid).getAllByRole("row");
     expect(within(nth(rows, 1)).getAllByRole("cell")[4]).toHaveTextContent(
       "Kinase Atlas+1, also in Protein Core",
     );
     expect(within(nth(rows, 2)).getAllByRole("cell")[4]).toHaveTextContent("Protein Core");
-    // Across projects, the search names none.
+    // Across projects, the search names none; newest changes first.
     expect(lastSearch()).not.toHaveProperty("project");
+    expect(lastSearch()).toMatchObject({ sort: { field: "updated_at", descending: true } });
+    expect(screen.getByRole("button", { name: "Sort: Changed, newest first" })).toBeVisible();
     expect(document.title).toBe("All entities · Example Bio");
   });
 
@@ -162,13 +169,13 @@ describe("all entities", () => {
   it("holds to a project by its slug, and counts that project's", async () => {
     everywhere();
     const { router, user } = await renderApp("/entities/");
-    await screen.findByRole("table", { name: "2 entities" });
+    await screen.findByRole("table", { name: "3 entities" });
     const select = screen.getByRole("combobox", { name: "Project" });
     expect(
       within(select)
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Any project", "Kinase Atlas", "Protein Core"]);
+    ).toEqual(["Any", "Kinase Atlas", "Protein Core"]);
     await user.selectOptions(select, "Protein Core");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ project: "protein-core" });
@@ -194,13 +201,13 @@ describe("all entities", () => {
     await waitFor(() => {
       expect(router.state.location.search).toEqual({});
     });
-    expect(await screen.findByRole("table", { name: "2 entities" })).toBeVisible();
+    expect(await screen.findByRole("table", { name: "3 entities" })).toBeVisible();
   });
 
   it("runs an action on what's picked in a project every one is in", async () => {
     everywhere();
     const { user } = await renderApp("/entities/");
-    await screen.findByRole("table", { name: "2 entities" });
+    await screen.findByRole("table", { name: "3 entities" });
     await user.click(screen.getByRole("checkbox", { name: `Select ${ABL1.hrid}` }));
     // ABL1 is in Kinase Atlas, where the reader runs actions.
     expect(screen.getByRole("link", { name: "Run action in Kinase Atlas" })).toHaveAttribute(
@@ -220,7 +227,7 @@ describe("all entities", () => {
   it("hides a column, and remembers it in this browser", async () => {
     everywhere();
     const { user } = await renderApp("/entities/");
-    const grid = await screen.findByRole("table", { name: "2 entities" });
+    const grid = await screen.findByRole("table", { name: "3 entities" });
     await user.click(screen.getByRole("button", { name: "Columns" }));
     const choice = await screen.findByRole("group", { name: "Columns to show" });
     await user.click(within(choice).getByRole("checkbox", { name: "Made by" }));
@@ -235,7 +242,7 @@ describe("all entities", () => {
     expect(columns).not.toContain("created_by");
     cleanup();
     await renderApp("/entities/");
-    const again = await screen.findByRole("table", { name: "2 entities" });
+    const again = await screen.findByRole("table", { name: "3 entities" });
     expect(within(again).queryByRole("columnheader", { name: "Made by" })).not.toBeInTheDocument();
   });
 
@@ -254,6 +261,128 @@ describe("all entities", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/projects/kinase-atlas/entities/new/");
     });
+  });
+
+  it("says exactly how many there are, as the counts do, and how many of them match", async () => {
+    everywhere([ABL1, INSULIN]);
+    answer("POST /api/v1/entities/search", { items: [ABL1, INSULIN], next_cursor: "more" });
+    answer("GET /api/v1/entities/counts", {
+      types: [{ type: PROTEIN.name, label: "Protein", count: 1204 }],
+      total: 1204,
+    });
+    const { user } = await renderApp("/entities/");
+    // Not "2+": the counts know.
+    expect(await screen.findByRole("table", { name: "1,204 entities" })).toBeVisible();
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "abl");
+    expect(await screen.findByRole("table", { name: "2+ of 1,204 entities" })).toBeVisible();
+    // Archived ones aren't counted: then it says what it loaded.
+    answer("POST /api/v1/entities/search", page([ABL1]));
+    cleanup();
+    await renderApp("/entities/?show=archived");
+    expect(await screen.findByRole("table", { name: "1 entity, archived" })).toBeVisible();
+  });
+
+  it("keeps one search box as a search finds nothing, beside the filters", async () => {
+    everywhere();
+    const { router, user } = await renderApp("/entities/");
+    await screen.findByRole("table", { name: "3 entities" });
+    answer("POST /api/v1/entities/search", page([]));
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "ZZZ-9");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ q: "ZZZ-9" });
+    });
+    expect(await screen.findByText("No entities you can read match.")).toBeVisible();
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Filter" })).toHaveLength(1);
+  });
+
+  it("sorts newest changes first unless the address says otherwise", async () => {
+    everywhere();
+    const { router, user } = await renderApp("/entities/");
+    await screen.findByRole("table", { name: "3 entities" });
+    await user.click(screen.getByRole("button", { name: "Sort: Changed, newest first" }));
+    const menu = await screen.findByRole("menu", { name: /^Sort/ });
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((m) => m.textContent)
+        .slice(0, 4),
+    ).toEqual([
+      "Changed, newest first",
+      "Changed, oldest first",
+      "Created, newest first",
+      "Created, oldest first",
+    ]);
+    await user.click(within(menu).getByRole("menuitemradio", { name: "Created, oldest first" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ sort: "created_at" });
+    });
+    await waitFor(() => {
+      expect(lastSearch()).toMatchObject({ sort: { field: "created_at", descending: false } });
+    });
+    // Back to the default: the address names no sort.
+    await user.click(screen.getByRole("button", { name: "Sort: Created, oldest first" }));
+    await user.click(
+      within(await screen.findByRole("menu", { name: /^Sort/ })).getByRole("menuitemradio", {
+        name: "Changed, newest first",
+      }),
+    );
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({});
+    });
+    // The Changed heading, sorted by default, turns the order round on a click.
+    const grid = screen.getByRole("table", { name: "3 entities" });
+    expect(within(grid).getByRole("columnheader", { name: /Changed/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    await user.click(within(grid).getByRole("button", { name: /Changed/ }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ sort: "updated_at" });
+    });
+  });
+
+  it("shows archived records through the Filter menu, as a chip", async () => {
+    everywhere();
+    const { router, user } = await renderApp("/entities/");
+    await screen.findByRole("table", { name: "3 entities" });
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show archived only" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ show: "archived" });
+    });
+    const filters = screen.getByRole("group", { name: "Filters" });
+    expect(within(filters).getByRole("button", { name: "Showing: Archived only" })).toBeVisible();
+    await user.click(
+      within(filters).getByRole("button", {
+        name: "Show current ones only, not archived only",
+      }),
+    );
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({});
+    });
+  });
+
+  it("tells two types with the same label apart by their plugins", async () => {
+    const OTHER = { ...PROTEIN, name: "acme/lab.Protein", plugin: "acme/lab", subtypes: [] };
+    everywhere();
+    answer("GET /api/v1/entity-types", [COLLECTION_TYPE, PROTEIN, STRUCTURE, OTHER]);
+    answer("GET /api/v1/entities/counts", {
+      types: [
+        { type: PROTEIN.name, label: "Protein", count: 2 },
+        { type: OTHER.name, label: "Protein", count: 1 },
+      ],
+      total: 3,
+    });
+    await renderApp("/entities/");
+    const pills = await screen.findByRole("group", { name: "Type" });
+    expect(
+      await within(pills).findByRole("button", { name: `Protein ${PROTEIN.plugin} 2 records` }),
+    ).toBeVisible();
+    expect(within(pills).getByRole("button", { name: "Protein acme/lab 1 record" })).toBeVisible();
+    const grid = await screen.findByRole("table", { name: "3 entities" });
+    const row = nth(within(grid).getAllByRole("row"), 1);
+    expect(within(row).getAllByRole("cell")[3]).toHaveTextContent(`Protein ${PROTEIN.plugin}`);
   });
 
   it("says when there's nothing to read yet", async () => {
@@ -423,5 +552,93 @@ describe("every run", () => {
       expect(calls("GET", "/api/v1/runs").at(-1)?.query.get("project")).toBe(CORE.id);
     });
     expect(await screen.findByRole("table", { name: "Runs in Protein Core" })).toBeVisible();
+  });
+});
+
+describe("a list's columns", () => {
+  const row = (hrid: string, title: string) => entity({ hrid, title, id: `id-${hrid}` });
+
+  it("sizes an ID to the longest, cuts only long text short, and grows to fill", () => {
+    const rows = [row("PRT-000001", "ABL1"), row("PRT-1234567890", "A".repeat(80))];
+    const { template, widths } = sizeColumns(
+      [
+        { label: "Select", width: "calc(40rem / 13)" },
+        { label: "ID", fit: "id", text: (e) => e.hrid },
+        { label: "Name", fit: "long", text: (e) => e.title },
+        { label: "Status", text: () => "Open", pills: true },
+      ],
+      rows,
+    );
+    const [select, id, name, status] = widths;
+    expect(select).toBe(40);
+    // Fourteen monospace characters, and the cell's padding: never cut short.
+    expect(id).toBeGreaterThanOrEqual(14 * 7.3 + 22);
+    expect(template).toMatch(
+      new RegExp(`^calc\\(40rem / 13\\) calc\\(${String(Math.round(id ?? 0))}rem / 13\\) minmax`),
+    );
+    // The name's eighty capitals would take 700 pixels: it gives way, down to 180.
+    expect(name).toBe(180);
+    expect(template).toContain("minmax(calc(180rem / 13), 4.20fr)");
+    // "Open" in a pill: wider than its letters alone.
+    expect(status).toBeGreaterThan(4 * 7 + 22 + 30);
+  });
+
+  it("shows a type's key facts first: what makes it, then what's worked out from it", () => {
+    const own = (
+      name: string,
+      type: string,
+      extra: Partial<(typeof PROTEIN.fields)[number]> = {},
+    ) => field({ name, label: name, type, ...extra });
+    const fields = [
+      own("name", "string"),
+      own("description", "text"),
+      own("cdr_h3", "string", { plugin: "iki/antibody", computed: true }),
+      own("vendor", "string"),
+      own("organism", "ref"),
+      own("features", "json"),
+      own("sequence", "string", { format: "protein_sequence" }),
+      own("found_with", "string", { computed: true }),
+      own("length", "quantity", { computed: true }),
+      own("verified", "bool"),
+    ];
+    const type = { ...PROTEIN, identity: ["sequence"], fields };
+    const named = fields[0];
+    expect(keyFieldsOf(type, [type], fields, named).map((f) => f.name)).toEqual([
+      "sequence",
+      "length",
+      "organism",
+      "vendor",
+      "verified",
+      // Last: what another plugin adds, and text a plugin writes, in their order.
+      "cdr_h3",
+      "found_with",
+    ]);
+  });
+
+  it("names a type with its plugin only when another has its label", () => {
+    const sample = { name: "acme/example.Sample", label: "Sample", plugin: "acme/example" };
+    const lims = { name: "iki/example_lims.Sample", label: "Sample", plugin: "iki/example_lims" };
+    expect(typeDisplayName(sample, [sample, lims, PROTEIN])).toEqual({
+      label: "Sample",
+      plugin: "acme/example",
+    });
+    expect(typeDisplayText(lims, [sample, lims])).toBe("Sample (iki/example_lims)");
+    expect(typeDisplayName(PROTEIN, [sample, lims, PROTEIN])).toEqual({ label: "Protein" });
+  });
+
+  it("counts what the counts know, and nothing when they don't", () => {
+    const counts = {
+      types: [
+        { type: "a", label: "A", count: 3 },
+        { type: "b", label: "B", count: 4 },
+      ],
+      total: 7,
+    };
+    expect(countOf(counts, null)).toBe(7);
+    expect(countOf(counts, new Set(["b", "c"]))).toBe(4);
+    expect(countOf({ types: [{ type: "a", label: "A", count: null }], total: null }, null)).toBe(
+      null,
+    );
+    expect(countOf(undefined, null)).toBe(null);
   });
 });

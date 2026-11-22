@@ -5985,34 +5985,112 @@ input[type="file"]::file-selector-button {
   text-decoration: underline;
 }
 
-/* The search, the filters' menus and the download, in one row where they fit. */
+/* The search, the filters' menus and the download, in one row where they fit: Columns and
+   the download pushed to the end, as the mockups of ADR 0176 have them. */
 .list-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: calc(8rem / 13);
-  margin: 0 0 calc(8rem / 13);
+  margin: 0 0 calc(12rem / 13);
 }
 
-.list-toolbar select,
 .list-toolbar .button,
-.filter-bar .button,
 .list-actions .button {
   width: auto;
   min-height: 28px;
-  padding: calc(3.2rem / 13) calc(10.4rem / 13);
-  font-size: calc(14rem / 13);
+  height: 28px;
+  gap: calc(6rem / 13);
+  padding: 0 calc(10rem / 13);
+  font-size: 1rem;
   font-weight: 500;
+  white-space: nowrap;
   border-width: 1px;
   border-radius: 6px;
 }
 
-.list-toolbar select {
+.list-toolbar .filter-bar {
+  margin: 0;
+}
+
+.tool-icon {
+  width: calc(14rem / 13);
+  height: calc(14rem / 13);
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A choice drawn as the buttons are: its label inside, muted, then what's chosen and a
+   chevron. The select fills the box, so all of it opens the choice. */
+.list-toolbar .toolbar-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   height: 28px;
-  max-width: calc(224rem / 13);
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-right: calc(28rem / 13);
+  max-width: calc(240rem / 13);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.list-toolbar .toolbar-select:hover {
+  background: var(--surface-2);
+}
+
+.list-toolbar .toolbar-select:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.list-toolbar .toolbar-select label {
+  flex: none;
+  margin: 0;
+  padding: 0 calc(4rem / 13) 0 calc(9rem / 13);
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.list-toolbar .toolbar-select select {
+  width: auto;
+  min-width: 0;
+  height: 26px;
+  min-height: 0;
+  padding: 0 calc(24rem / 13) 0 0;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+}
+
+.list-toolbar .toolbar-select select:focus-visible {
+  outline: none;
+}
+
+/* The chevron, in the text's color, over the select's end: pointing at it opens it. */
+.list-toolbar .toolbar-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: calc(8rem / 13);
+  width: calc(10rem / 13);
+  height: calc(10rem / 13);
+  transform: translateY(-50%);
+  background: var(--muted);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 6l5 5 5-5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  pointer-events: none;
 }
 
 .list-toolbar-end {
@@ -6029,38 +6107,80 @@ input[type="file"]::file-selector-button {
 
 .list-count {
   margin: 0;
+  font-size: calc(12rem / 13);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A list's search: a bordered field with a magnifier, its placeholder, and its shortcut. */
+.list-toolbar .list-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: calc(7rem / 13);
+  flex: 1 1 calc(240rem / 13);
+  min-width: min(100%, calc(200rem / 13));
+  max-width: calc(440rem / 13);
+  height: 30px;
+  padding: 0 calc(8rem / 13) 0 calc(9rem / 13);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
   font-size: 1rem;
 }
 
-.search-box {
-  position: relative;
-  flex: 1 1 calc(256rem / 13);
-  max-width: calc(448rem / 13);
-  min-width: min(100%, calc(192rem / 13));
+.list-toolbar .list-search:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.search-box input[type="search"] {
-  height: 28px;
-  min-height: 28px;
-  padding: 0 calc(10.4rem / 13) 0 calc(32rem / 13);
-  font-size: calc(14rem / 13);
-  border-width: 1px;
-  border-radius: 6px;
-}
-
-/* A magnifier drawn in the text's own color, so it keeps contrast in both themes. */
-.search-box::before {
+/* A magnifier drawn in the muted text's color, so it keeps contrast in both themes. */
+.list-toolbar .list-search::before {
   content: "";
-  position: absolute;
-  top: 50%;
-  left: calc(10.4rem / 13);
+  flex: none;
   width: calc(14rem / 13);
   height: calc(14rem / 13);
-  transform: translateY(-50%);
   background: var(--muted);
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='6.5' cy='6.5' r='5' fill='none' stroke='black' stroke-width='2'/%3E%3Cpath d='M10.5 10.5 15 15' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7' fill='none' stroke='black' stroke-width='2'/%3E%3Cpath d='m20 20-3.5-3.5' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")
     center / contain no-repeat;
-  pointer-events: none;
+}
+
+.list-toolbar .list-search input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  box-shadow: none;
+  outline: none;
+}
+
+.list-toolbar .list-search input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.list-search-key {
+  flex: none;
+  padding: 0 calc(4rem / 13);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: calc(11rem / 13);
+  line-height: 16px;
+}
+
+/* Typing, the shortcut has done its job. */
+.list-search:focus-within .list-search-key,
+.list-search:has(input:not(:placeholder-shown)) .list-search-key {
+  display: none;
 }
 
 /* Filters as chips: what each holds back, a button to change it, and one to remove it. */
@@ -6226,27 +6346,53 @@ input[type="file"]::file-selector-button {
   padding: calc(4rem / 13) calc(8rem / 13);
 }
 
-/* A list's types, each with how many records of it its reader can read. */
+/* A list's types, each with how many records of it its reader can read: one row, which
+   scrolls across when there are more than fit, so the table starts at the same place
+   however many types there are. Room below for the focus ring. */
 .type-pills {
+  /* Holds its pills' screen-reader text too, which would otherwise widen the page. */
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: calc(4rem / 13);
-  margin: 0 0 calc(12rem / 13);
+  margin: calc(-3rem / 13) calc(-3rem / 13) calc(9rem / 13);
+  padding: 3px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .type-pill {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: calc(6rem / 13);
   min-height: 26px;
-  padding: 0 calc(10.4rem / 13);
+  padding: 0 calc(10rem / 13);
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 1rem;
+  font-size: calc(12.5rem / 13);
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.type-pill:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* A type's plugin, beside a label another type has too: "Sample acme/example". */
+.type-plugin {
+  color: var(--muted);
+  font-size: calc(11.5rem / 13);
+}
+
+.type-pill[aria-pressed="true"] .type-plugin {
+  color: inherit;
+  opacity: 0.75;
 }
 
 .type-pill:hover {
@@ -6327,7 +6473,8 @@ input[type="file"]::file-selector-button {
 /* The grid's cells: IDs in monospace, a record's other projects and its state as pills. */
 .grid-id {
   font-family: var(--mono);
-  font-size: 1rem;
+  font-size: calc(12rem / 13);
+  white-space: nowrap;
 }
 
 .data-grid .cell-meta,
@@ -6361,7 +6508,7 @@ input[type="file"]::file-selector-button {
 
 .data-grid {
   border-radius: 8px;
-  font-size: calc(14rem / 13);
+  font-size: 1rem;
 }
 
 .data-grid-head .data-grid-row {
@@ -6392,7 +6539,7 @@ input[type="file"]::file-selector-button {
 .list-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: calc(14rem / 13);
+  font-size: 1rem;
 }
 
 .list-table th {
@@ -6424,6 +6571,36 @@ input[type="file"]::file-selector-button {
 
 .list-table .list-table-end {
   text-align: right;
+}
+
+/* The column that takes the room the others leave, each of which is as wide as what it
+   holds: what's in it is cut short, never the IDs beside it. Narrower than its table's
+   least, the box scrolls across, not the page. */
+.list-table:has(.list-fill) {
+  min-width: calc(760rem / 13);
+}
+
+/* An ID, and beneath it the batch or workflow it ran in. */
+.list-table .list-id .cell-meta {
+  display: block;
+  margin-left: 0;
+}
+
+.list-table:has(.list-fill) :is(th, td):not(.list-fill) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.list-table .list-fill {
+  width: 100%;
+  max-width: 0;
+}
+
+.list-fill-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .list-name {
