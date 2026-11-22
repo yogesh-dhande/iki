@@ -21,11 +21,11 @@ from iki_server.api.entities import field_out
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import (
+    ActionTier,
     CancelIn,
     ConsentStatementOut,
     InputOut,
     ParamOut,
-    Tier,
     invalid_problem,
     outside_problem,
 )
@@ -105,7 +105,7 @@ class WorkflowOut(Schema):
     params: list[ParamOut]
     params_schema: dict[str, Any] = Field(description="The params as JSON Schema (2020-12).")
     steps: list[WorkflowStepOut] = Field(description="In the order they start.")
-    tiers: list[Tier] = Field(
+    tiers: list[ActionTier] = Field(
         description="The tiers its steps run on, from the least to the most a starter needs: "
         "starting it takes the role each needs in the project (`can.run` on a project)."
     )

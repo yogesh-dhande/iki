@@ -23,6 +23,7 @@ __all__ = [
     "FieldError",
     "Forbidden",
     "IkiError",
+    "ImportFailed",
     "Invalid",
     "NotApproved",
     "NotFound",
@@ -149,6 +150,24 @@ class RunFailed(IkiError):
         error = run.get("error") or {}
         why = error.get("message") or run.get("status", "ended")
         super().__init__(f"{run.get('hrid', 'The run')} {run.get('status', 'ended')}: {why}")
+
+
+class ImportFailed(IkiError):
+    """A spreadsheet import that wasn't written: rows with problems, or a run that
+    failed. ``problems`` says why, each at its row and column."""
+
+    def __init__(self, imported: dict[str, Any], problems: list[dict[str, Any]]) -> None:
+        self.imported = imported
+        self.problems = problems
+        shown = "; ".join(
+            f"row {p.get('row')}: {p.get('detail')}" if p.get("row") else str(p.get("detail"))
+            for p in problems[:5]
+        )
+        more = f" (and {len(problems) - 5} more)" if len(problems) > 5 else ""
+        why = imported.get("error") or shown or imported.get("state", "it failed")
+        super().__init__(
+            f"{imported.get('file', {}).get('name', 'The import')} wasn't imported: {why}{more}"
+        )
 
 
 class TimedOut(IkiError):

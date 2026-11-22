@@ -155,6 +155,13 @@ CASES: list[Case] = [
     ("project_members", "GET", project_url("members/"), row(OK)),
     ("project_entities", "GET", project_url("entities/"), row(OK)),
     ("project_entity_new", "GET", project_url("entities/new/"), row(OK)),
+    ("project_sheet_import", "GET", project_url("entities/import/"), row(OK)),
+    (
+        "project_sheet_import_detail",
+        "GET",
+        project_url("entities/import/01a1c452-a14b-7195-acd0-4b6ba266a654/"),
+        row(OK),
+    ),
     ("project_requests", "GET", project_url("requests/"), row(OK)),
     ("project_runs", "GET", project_url("runs/"), row(OK)),
     ("project_run_new", "GET", project_url("runs/new/"), row(OK)),

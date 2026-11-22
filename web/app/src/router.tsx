@@ -402,6 +402,23 @@ const projectAutomationIndexRoute = createRoute({
   },
 });
 
+// Importing a spreadsheet (ADR 0178): ?type=acme/lab.Sample, its rows' type; then its steps.
+const sheetPages = () => import("./pages/spreadsheet-import");
+const projectSheetImportRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "entities/import",
+  validateSearch: validateNewEntitySearch,
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: lazyRouteComponent(sheetPages, "SpreadsheetImportStart"),
+});
+
+const projectSheetImportPageRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "entities/import/$importId",
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: lazyRouteComponent(sheetPages, "SpreadsheetImportPage"),
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -707,6 +724,8 @@ const routeTree = rootRoute.addChildren([
       projectEntitiesRoute,
       projectRequestsRoute,
       projectEntityNewRoute,
+      projectSheetImportRoute,
+      projectSheetImportPageRoute,
       projectRunsRoute,
       projectRunNewRoute,
       projectFilesRoute,

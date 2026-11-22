@@ -6634,6 +6634,265 @@ input[type="file"]::file-selector-button {
   font-weight: 500;
 }
 
+/* --- Importing a spreadsheet (ADR 0178) ------------------------------------------------------ */
+
+/* Its heading, under the project's: the workbook, where the import is, and Discard. */
+.sheet-heading {
+  align-items: flex-start;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.sheet-title {
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.sheet-description {
+  margin: 0;
+}
+
+.sheet-heading-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Its steps, each a card, one under the other. */
+.sheet-card {
+  margin-bottom: 1rem;
+}
+
+.sheet-card .table-scroll {
+  margin-bottom: 0.75rem;
+}
+
+.sheet-steps {
+  margin-bottom: 1rem;
+}
+
+/* The header, first and last rows, side by side where they fit. */
+.sheet-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+
+.sheet-number {
+  flex: 0 1 12rem;
+}
+
+.sheet-number input {
+  width: 100%;
+}
+
+/* The sheet's first rows: compact, its row numbers muted, its header row marked, and the
+   rows it won't import faded and struck through. */
+.sheet-sample .table th,
+.sheet-sample .table td {
+  white-space: nowrap;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+}
+
+.sheet-sample tbody th {
+  color: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-header-row td {
+  font-weight: 600;
+  background: var(--accent-soft);
+}
+
+.sheet-skipped td {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* A column's letter, as a spreadsheet heads it. */
+.sheet-letter {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.sheet-columns th[scope="row"] {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.sheet-columns select,
+.sheet-columns input {
+  max-width: 18rem;
+}
+
+/* On a phone each column is a card of its own: its name and first cells, then its field
+   and how it reads, the pickers full width. Its headings stay for screen readers. */
+@media (max-width: 36rem) {
+  .sheet-columns,
+  .sheet-columns tbody,
+  .sheet-columns tr,
+  .sheet-columns th,
+  .sheet-columns td {
+    display: block;
+  }
+
+  .sheet-columns thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .sheet-columns tr {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sheet-columns tr:last-child {
+    border-bottom: 0;
+  }
+
+  .sheet-columns th,
+  .sheet-columns td {
+    padding: 0.15rem 0;
+    border: 0;
+  }
+
+  .sheet-columns th[scope="row"] {
+    white-space: normal;
+  }
+
+  .sheet-columns .sheet-examples {
+    max-width: none;
+  }
+
+  .sheet-columns select,
+  .sheet-columns input {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* Readings, a group a column: the column's name heads its cells. */
+.sheet-reading-column th {
+  background: var(--surface-2);
+  font-weight: 500;
+}
+
+.sheet-examples {
+  max-width: 14rem;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.sheet-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+}
+
+.sheet-spellings {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sheet-mappings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.sheet-mappings .field {
+  margin-bottom: 0;
+}
+
+/* The locale's three choices, side by side where they fit. */
+.sheet-locale {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 1.5rem;
+}
+
+.sheet-readings code {
+  overflow-wrap: anywhere;
+}
+
+.sheet-unreadable {
+  color: var(--error);
+}
+
+/* What the preview found: each outcome counted. */
+.sheet-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.sheet-count {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+
+.sheet-count strong {
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-count-problem {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.sheet-count-create,
+.sheet-count-register,
+.sheet-count-add {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.sheet-row-problem th {
+  color: var(--warning);
+}
+
+.sheet-rows td ul {
+  margin: 0;
+}
+
+.sheet-actions {
+  margin: 0 0 1rem;
+}
+
+.sheet-done-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
 /* --- Files (ADR 0177) --------------------------------------------------------------- */
 
 /* A list of files: a project's Files tab, the Files list, and the file picker. Filters

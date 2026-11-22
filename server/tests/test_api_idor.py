@@ -144,9 +144,9 @@ def _cases() -> list[tuple[str, str, Build]]:
 def test_another_projects_objects_are_never_reached(
     method: str, template: str, build: Build, request: pytest.FixtureRequest
 ) -> None:
-    if template.startswith(("/uploads", "/files", "/registrations", "/bundles", "/imports")) or (
-        template.endswith(("/bundles", "/imports"))
-    ):
+    if template.startswith(
+        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet-imports")
+    ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]

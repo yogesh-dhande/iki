@@ -694,6 +694,77 @@ def readers_of_entries(status: int, **overrides: int) -> dict[str, int]:
     return readers(status, **overrides)
 
 
+def _workbook(w: World) -> Any:
+    """A file the editor added to the project, to import."""
+    from iki_server.files import services as files
+    from iki_server.files.services import EMPTY_SHA256
+
+    upload = files.start(
+        w.users["editor"],
+        w.project,
+        name="manifest.csv",
+        media_type="text/csv",
+        size=0,
+        sha256=EMPTY_SHA256,
+    )
+    upload.refresh_from_db()
+    return upload.file
+
+
+def workbook_import(w: World) -> tuple[str, Any]:
+    return f"/projects/{w.project.pk}/spreadsheet-imports", {
+        "file": str(_workbook(w).pk),
+        "type": "acme/protein.Sample",
+    }
+
+
+def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
+    """The editor's import of a manifest, its columns mapped: only they see it until it's
+    committed."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.spreadsheets.models import SpreadsheetImport
+
+        made = SpreadsheetImport.objects.create(
+            project=w.project,
+            type="acme/protein.Sample",
+            file=_workbook(w),
+            requested_by=w.users["editor"],
+            state="mapping",
+            kind="csv",
+            sheets=[
+                {
+                    "name": "manifest",
+                    "rows": 2,
+                    "columns": 1,
+                    "hidden": False,
+                    "sample": [["Label"], ["S-1"]],
+                    "cells": [["Label"], ["S-1"]],
+                }
+            ],
+            sheet="manifest",
+            columns=[{"index": 0, "field": "label"}],
+        )
+        return f"/spreadsheet-imports/{made.pk}{suffix}", body
+
+    return build
+
+
+def spreadsheet_mapping(w: World) -> tuple[str, Any]:
+    from iki_server.spreadsheets.models import SavedMapping
+
+    saved = SavedMapping.objects.create(
+        project=w.project,
+        type="acme/protein.Sample",
+        name="Plate reader",
+        columns=[{"header": "Label", "field": "label"}],
+        headers=["Label"],
+        created_by=w.users["editor"],
+        updated_by=w.users["editor"],
+    )
+    return f"/spreadsheet-mappings/{saved.pk}", None
+
+
 PDB = b"HEADER    TEST\nEND\n"
 
 
@@ -1602,6 +1673,59 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, org_admin=204),
     ),
     ("GET", "/runs/{ref}/api-calls", run("/api-calls"), readers(200)),
+    # Spreadsheet imports (ADR 0178): the requester's until they're committed.
+    # An Org Admin sees the project, not its data.
+    (
+        "POST",
+        "/projects/{project_id}/spreadsheet-imports",
+        workbook_import,
+        {**editors(201), "org_admin": 403},
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/spreadsheet-imports",
+        project("/spreadsheet-imports"),
+        visible(200, org_admin=403),
+    ),
+    ("GET", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=200)),
+    (
+        "PATCH",
+        "/spreadsheet-imports/{import_id}",
+        spreadsheet_import(body={"header_row": 1}),
+        row(404, editor=200),
+    ),
+    ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),
+    (
+        "POST",
+        "/spreadsheet-imports/{import_id}/preview",
+        spreadsheet_import("/preview"),
+        row(404, editor=202),
+    ),
+    (
+        "GET",
+        "/spreadsheet-imports/{import_id}/rows",
+        spreadsheet_import("/rows"),
+        row(404, editor=200),
+    ),
+    (
+        "POST",
+        "/spreadsheet-imports/{import_id}/commit",
+        spreadsheet_import("/commit", {}),
+        row(404, editor=409),
+    ),
+    (
+        "POST",
+        "/spreadsheet-imports/{import_id}/mappings",
+        spreadsheet_import("/mappings", {"name": "Plate reader"}),
+        row(404, editor=201),
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/spreadsheet-mappings",
+        project("/spreadsheet-mappings"),
+        visible(200, org_admin=403),
+    ),
+    ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
 ]
 
 
@@ -1672,9 +1796,9 @@ def test_operation_matrix(
     expected: dict[str, int],
     request: pytest.FixtureRequest,
 ) -> None:
-    if template.startswith(("/uploads", "/files", "/registrations", "/bundles", "/imports")) or (
-        template.endswith(("/bundles", "/imports"))
-    ):
+    if template.startswith(
+        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+    ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]

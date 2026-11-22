@@ -357,6 +357,45 @@ def _finish(
         )
 
 
+def add_written(
+    path: Any,  # noqa: ANN401 - a Path
+    *,
+    name: str,
+    media_type: str,
+    project: Project,
+    user: User,
+    sha256: str,
+    agent: Any = None,  # noqa: ANN401 - an Agent
+) -> File:
+    """A file Iki wrote itself, for ``user`` (a spreadsheet's rows as it read them, for the
+    run that imports them, ADR 0178): stored once per content as an upload's bytes are, and
+    audited as adding one is. ``sha256`` is what Iki worked out as it wrote it. Call outside
+    a transaction: storing it may take a while."""
+    size = path.stat().st_size
+    key = storage.blob_key(sha256)
+    if not storage.exists(key):
+        storage.upload_file(path, key, "application/octet-stream")
+    with transaction.atomic():
+        blob = _blob(sha256, size, storage.uri(key))
+        file = File.objects.create(
+            blob=blob,
+            name=clean_name(name),
+            media_type=clean_media_type(media_type),
+            project=project,
+            created_by=user,
+            agent=agent,
+        )
+        log.record(
+            "file.added",
+            actor=user,
+            agent=agent,
+            target=file,
+            project=project,
+            data={"sha256": sha256, "size": size, "media_type": file.media_type, "by": "iki"},
+        )
+    return file
+
+
 def _blob(sha256: str, size: int, uri: str) -> Blob:
     try:
         with transaction.atomic():

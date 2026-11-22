@@ -20,15 +20,24 @@ import { buttonClass, PageHeader } from "../ui";
 import { EntityGrid } from "./entity-grid";
 import { RemoveSearchDialog, SaveSearchDialog, toAddress } from "./saved-searches";
 
-/** "New": a record is made in a project, so it asks which, of those its maker edits. */
-function NewIn({ type, label }: { type?: EntityType | undefined; label: string }) {
+/** "New": a record is made in a project, so it asks which, of those its maker edits. With
+ * `importing`, the same for importing a spreadsheet's rows as the type's (ADR 0178). */
+function NewIn({
+  type,
+  label,
+  importing = false,
+}: {
+  type?: EntityType | undefined;
+  label: string;
+  importing?: boolean;
+}) {
   const navigate = useNavigate();
   const { projects } = useReadableProjects();
   const editable = projects.filter((p) => p.can.edit && !p.archived);
   if (!editable.length || type?.abstract || type?.detached) return null;
   return (
     <MenuTrigger>
-      <AriaButton className={buttonClass("primary")}>
+      <AriaButton className={buttonClass(importing ? undefined : "primary")}>
         {label}
         <span aria-hidden="true"> ▾</span>
       </AriaButton>
@@ -38,7 +47,7 @@ function NewIn({ type, label }: { type?: EntityType | undefined; label: string }
           className="menu"
           onAction={(slug) => {
             void navigate({
-              to: "/projects/$slug/entities/new/",
+              to: importing ? "/projects/$slug/entities/import/" : "/projects/$slug/entities/new/",
               params: { slug: String(slug) },
               search: type ? { type: type.name } : {},
             });
@@ -46,7 +55,7 @@ function NewIn({ type, label }: { type?: EntityType | undefined; label: string }
         >
           {editable.map((p) => (
             <MenuItem key={p.slug} id={p.slug} className="menu-item">
-              In {p.name}
+              {importing ? "Into" : "In"} {p.name}
             </MenuItem>
           ))}
         </Menu>
@@ -124,7 +133,12 @@ export function TypeTable() {
             About the {type.label} type: its fields and where it comes from
           </Link>
         }
-        actions={<NewIn type={type} label={`New ${inSentence(type.label)}`} />}
+        actions={
+          <>
+            <NewIn type={type} label="Import" importing />
+            <NewIn type={type} label={`New ${inSentence(type.label)}`} />
+          </>
+        }
       />
       <ViewTabs type={type} search={held} />
       <EntityGrid

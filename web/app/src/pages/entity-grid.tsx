@@ -556,6 +556,7 @@ export function EntityGrid({
     sort,
     descending,
     collection: library ? search.collection : undefined,
+    run: search.run,
   };
   // A project named in the address that isn't one the reader can read finds nothing, as
   // the API would answer for it: it isn't searched across every project instead.
@@ -570,7 +571,7 @@ export function EntityGrid({
   });
   // How many there are, when the counts know: of the types it shows, current ones, with no
   // search or filter. The sidebar asks the same, so it's usually there already.
-  const countable = !unknownProject && !search.collection && show === "current";
+  const countable = !unknownProject && !search.collection && !search.run && show === "current";
   const counts = useQuery({ ...countsQuery(project?.id), enabled: countable });
   const applyFilters = (next: Filter[]) => {
     navigate({
@@ -599,6 +600,7 @@ export function EntityGrid({
         show: prev.show,
         q: prev.q,
         collection: prev.collection,
+        run: prev.run,
         project: prev.project,
       }),
     });
@@ -614,6 +616,7 @@ export function EntityGrid({
     sort,
     descending,
     search.collection,
+    search.run,
     project?.id,
   ]);
   const [selection, setSelection] = useState<Selection>({ list: listKey, hrids: new Set() });
@@ -904,6 +907,18 @@ export function EntityGrid({
           {library && project?.can.edit && !project.archived && !search.collection ? (
             <SaveAsCollection project={project} search={search} />
           ) : null}
+          {making && fixedProject?.can.edit && !fixedProject.archived ? (
+            // A spreadsheet's rows, as records of the type shown, or one chosen (ADR 0178).
+            <Link
+              to="/projects/$slug/entities/import/"
+              params={{ slug: fixedProject.slug }}
+              search={makeable ? { type: makeable.name } : {}}
+              className={buttonClass()}
+            >
+              <ToolIcon name="upload" />
+              Import
+            </Link>
+          ) : null}
           {/* The page's header makes a record of any type, as its one primary action; a type
               picked here can be made straight away, its form already of that type. */}
           {making && makeable && fixedProject?.can.edit && !fixedProject.archived ? (
@@ -933,6 +948,14 @@ export function EntityGrid({
             About {type.label_plural}
           </Link>
         </p>
+      ) : null}
+      {search.run ? (
+        <RunBanner
+          run={search.run}
+          onClear={() => {
+            navigate({ search: (prev) => ({ ...prev, run: undefined }) });
+          }}
+        />
       ) : null}
       {!library || !project ? null : search.collection ? (
         <CollectionBanner reference={search.collection} project={project} />
@@ -1376,5 +1399,24 @@ function ShownAs({
       project={project}
       types={types}
     />
+  );
+}
+
+/** Only the records a run wrote, such as a spreadsheet's import (ADR 0178): which run, and
+ * a way back to every record. */
+function RunBanner({ run, onClear }: { run: string; onClear: () => void }) {
+  return (
+    <div className="alert alert-info collection-banner" role="note">
+      <p>
+        Records written by run{" "}
+        <Link to="/runs/$ref/" params={{ ref: run }}>
+          {run}
+        </Link>
+        .
+      </p>
+      <button type="button" className={buttonClass("quiet")} onClick={onClear}>
+        Show every record
+      </button>
+    </div>
   );
 }

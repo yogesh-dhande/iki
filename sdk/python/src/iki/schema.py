@@ -623,6 +623,17 @@ class CarriedSignatureOut(TypedDict):
     present: bool
 
 
+class CellReadingOut(TypedDict):
+    ambiguous: bool
+    #: As the sheet shows it.
+    cell: str
+    problem: str | None
+    reads_as: str | None
+    row: int
+    #: The workbook holds it as a number or a date, so it reads one way only.
+    stored: bool
+
+
 class CertificationIn(TypedDict):
     #: Where it's kept, or how it was sent: “QA-DOC-0042, sent to FDA ORA”.
     reference: str
@@ -696,6 +707,13 @@ class CollectionSearch(TypedDict):
     sort: NotRequired[str | None]
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]
+
+
+class ColumnReadingOut(TypedDict):
+    cells: list[CellReadingOut]
+    column: int
+    field: str
+    kind: Literal['numbers', 'dates']
 
 
 class ComponentEntitiesIn(TypedDict):
@@ -1080,6 +1098,8 @@ class EntityFilters(TypedDict):
     project: NotRequired[str | None]
     #: Entities whose HRID, or a text field in their title, contains this.
     q: NotRequired[str | None]
+    #: What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
+    run: NotRequired[str | None]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     #: Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.
@@ -1427,6 +1447,27 @@ class FieldOut(TypedDict):
     unit_symbol: str | None
     #: Enums, and lists of them: the allowed values (for a list, its items').
     values: list[str]
+
+
+class FieldTargetOut(TypedDict):
+    """A field of the type a column may set, or why it can't."""
+    choices: list[str]
+    #: Part of what makes a record the same as another.
+    identity: bool
+    #: A list's items' type.
+    item_type: str | None
+    label: str
+    name: str
+    required: bool
+    #: A reference's types: cells name one by HRID or name.
+    to: list[str]
+    type: str
+    unique: bool
+    unit: str | None
+    #: Units its quantity's cells may be in, for a form.
+    units: list[str]
+    #: Why a column can't set it, if it can't.
+    why_not: str | None
 
 
 class FileCountOut(TypedDict):
@@ -2012,6 +2053,14 @@ class ImportPlan(TypedDict):
     #: What keeps it from being applied.
     problems: list[str]
     types: list[ImportType]
+
+
+class ImportRunRef(TypedDict):
+    hrid: str
+    id: str
+    message: str
+    progress: float | None
+    status: str
 
 
 class ImportSource(TypedDict):
@@ -2686,6 +2735,12 @@ class PageParams(TypedDict):
     limit: NotRequired[int]
 
 
+class PagePreviewRowOut(TypedDict):
+    items: list[PreviewRowOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class PageProjectMemberOut(TypedDict):
     items: list[ProjectMemberOut]
     #: Pass as cursor for the next page; null at the end.
@@ -2742,6 +2797,12 @@ class PageSetupBuildOut(TypedDict):
 
 class PageSlurmAccountOut(TypedDict):
     items: list[SlurmAccountOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageSpreadsheetImportOut(TypedDict):
+    items: list[SpreadsheetImportOut]
     #: Pass as cursor for the next page; null at the end.
     next_cursor: str | None
 
@@ -2954,6 +3015,26 @@ class PolicyIn(TypedDict):
 class PolicyOut(TypedDict):
     #: Project Admins may add webhooks to their projects.
     project_webhooks: bool
+
+
+class PreviewRowOut(TypedDict):
+    held: list[dict[str, str]]
+    #: The HRID it is, or will be a record of.
+    match: str
+    match_id: str | None
+    outcome: Literal['create', 'register', 'add', 'reuse', 'same', 'problem']
+    problems: list[SheetProblemOut]
+    row: int
+    same_as: int | None
+
+
+class PreviewRowParams(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: Only rows with these outcomes.
+    outcome: NotRequired[list[Literal['create', 'register', 'add', 'reuse', 'same', 'problem']] | None]
 
 
 class ProjectCan(TypedDict):
@@ -3172,7 +3253,7 @@ class ProjectTriggerOut(TypedDict):
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
     states: list[str]
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
-    tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
+    tier: Literal['self_hosted', 'backend', 'container', 'vm', 'server'] | None
     #: On a schedule: the timezone of its times.
     timezone: str
     #: The entity type it fires for, with its subtypes; empty on a schedule.
@@ -3924,7 +4005,7 @@ class RunOut(TypedDict):
     settings: dict[str, Any]
     started_at: str | None
     status: Literal['awaiting_approval', 'queued', 'running', 'parked', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
-    tier: Literal['self_hosted', 'backend', 'container', 'vm']
+    tier: Literal['self_hosted', 'backend', 'container', 'vm', 'server']
     #: The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080).
     trigger: TriggerFiredOut | None
     via: str
@@ -3966,6 +4047,32 @@ class SampleOut(TypedDict):
     type: str
     #: The run it came through: one that read the sample and read or made the file. Null when the sample holds the file itself.
     via_run: RunRef | None
+
+
+class SavedMappingIn(TypedDict):
+    name: str
+    #: A saved mapping to change, rather than add.
+    replace: NotRequired[str | None]
+
+
+class SavedMappingMatch(TypedDict):
+    id: str
+    #: The share of its headers the sheet has.
+    match: float
+    name: str
+
+
+class SavedMappingOut(TypedDict):
+    columns: list[dict[str, Any]]
+    created_by: PersonRef
+    header_row: int
+    headers: list[str]
+    id: str
+    locale: SheetLocaleOut
+    name: str
+    type: str
+    updated_at: str
+    updated_by: PersonRef
 
 
 class SavedSearchCan(TypedDict):
@@ -4038,6 +4145,8 @@ class SearchCsvParams(TypedDict):
     project: NotRequired[str | None]
     #: Text in their HRID, or a text field in their title.
     q: NotRequired[str | None]
+    #: What this run wrote: its ID or HRID.
+    run: NotRequired[str | None]
     #: A field to sort by.
     sort: NotRequired[str | None]
     #: This type and its subtypes.
@@ -4093,6 +4202,8 @@ class SearchIn(TypedDict):
     project: NotRequired[str | None]
     #: Text in their HRID, or a text field in their title.
     q: NotRequired[str | None]
+    #: What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
+    run: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
     #: This type and its subtypes.
     type: NotRequired[str | None]
@@ -4296,6 +4407,78 @@ class SetupVolumeOut(TypedDict):
     size: int
     #: `ready`: machines can get a copy of it, or mount it.
     state: Literal['creating', 'ready', 'failed', 'deleted']
+
+
+class SheetColumnIn(TypedDict):
+    #: How 03/04/2026 reads, if not as the sheet's locale says.
+    dates: NotRequired[Literal['day_first', 'month_first'] | None]
+    #: A number's decimal mark, if not as the sheet's locale says.
+    decimal: NotRequired[Literal['point', 'comma'] | None]
+    #: The field its cells set; null to leave it out.
+    field: NotRequired[str | None]
+    #: The column, from 0 for A.
+    index: int
+    #: A list's items' separator: `;`.
+    separator: NotRequired[str | None]
+    #: Its plain numbers are Excel serial dates, if not as the locale says.
+    serial_dates: NotRequired[bool | None]
+    #: A date and time's, when its cells give none: an IANA name.
+    time_zone: NotRequired[str | None]
+    #: A quantity's cells' UCUM unit when they don't say one (12.5, not 12.5 ug/mL): the field's, if none. Iki converts them to the field's.
+    unit: NotRequired[str | None]
+    #: What a cell says, for each choice it means: an enumeration's, or for a truth value, true or false.
+    values: NotRequired[dict[str, str] | None]
+
+
+class SheetColumnOut(TypedDict):
+    dates: str | None
+    decimal: str | None
+    #: Its first few cells under the header.
+    examples: list[str]
+    field: str | None
+    header: str
+    index: int
+    letter: str
+    separator: str
+    serial_dates: bool | None
+    time_zone: str | None
+    unit: str | None
+    values: dict[str, str]
+
+
+class SheetLocaleIn(TypedDict):
+    """How the sheet's text writes numbers and dates. Until it's said, a cell that reads
+two ways (1,234; 03/04/2026) is a problem, never a guess.
+    """
+    #: day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+    dates: NotRequired[Literal['day_first', 'month_first'] | None]
+    #: point: 1,234.5; comma: 1.234,5. Null until you know.
+    decimal: NotRequired[Literal['point', 'comma'] | None]
+    #: Plain numbers in date columns are Excel serial dates (46023).
+    serial_dates: NotRequired[bool]
+
+
+class SheetLocaleOut(TypedDict):
+    dates: str | None
+    decimal: str | None
+    serial_dates: bool
+
+
+class SheetOut(TypedDict):
+    columns: int
+    hidden: bool
+    name: str
+    #: Up to its last row with anything in it.
+    rows: int
+
+
+class SheetProblemOut(TypedDict):
+    column: int | None
+    detail: str
+    field: str | None
+    #: ambiguous: it reads two ways; say how the sheet's text is written.
+    kind: NotRequired[Literal['ambiguous'] | None]
+    row: int | None
 
 
 class SignCan(TypedDict):
@@ -4604,6 +4787,87 @@ class SplitIn(TypedDict):
     values: NotRequired[list[dict[str, Any]] | dict[str, Any] | None]
 
 
+class SpreadsheetCommitIn(TypedDict):
+    #: Why, for its run and the audit trail.
+    reason: NotRequired[str]
+    #: Leave out the rows with problems, and import the rest.
+    skip_problems: NotRequired[bool]
+
+
+class SpreadsheetImportChange(TypedDict):
+    #: How each column maps; those not given are left out.
+    columns: NotRequired[list[SheetColumnIn] | None]
+    #: The first row imported, from 1.
+    first_row: NotRequired[int | None]
+    #: From 1; 0 when there's none.
+    header_row: NotRequired[int | None]
+    #: The last row imported; 0 for the last.
+    last_row: NotRequired[int | None]
+    locale: NotRequired[SheetLocaleIn | None]
+    #: A saved mapping to map the columns by.
+    mapping: NotRequired[str | None]
+    sheet: NotRequired[str | None]
+    #: Rows left out besides, as [from, to] ranges.
+    skip: NotRequired[list[list[int]] | None]
+
+
+class SpreadsheetImportIn(TypedDict):
+    #: The workbook: a file added to the project.
+    file: str
+    #: The entity type its rows become, such as acme/dna.Plasmid.
+    type: str
+
+
+class SpreadsheetImportOut(TypedDict):
+    can: dict[str, bool]
+    columns: list[SheetColumnOut]
+    created_at: str
+    #: A CSV file's, as Iki read it.
+    encoding: str
+    error: str
+    fields: list[FieldTargetOut]
+    file: WorkbookRef
+    first_row: int
+    header_row: int
+    id: str
+    #: xlsx or csv, once it's read.
+    kind: str
+    last_row: int | None
+    locale: SheetLocaleOut
+    #: The saved mapping it was mapped by.
+    mapping: SavedMappingMatch | None
+    #: The project's saved mappings for the type, best matched first.
+    mappings: list[SavedMappingMatch]
+    preview: SpreadsheetPreviewOut | None
+    project: str
+    #: How the mapped columns' numbers and dates read, on the sheet's own cells.
+    readings: list[ColumnReadingOut]
+    requested_by: PersonRef
+    run: ImportRunRef | None
+    #: If its run didn't write it: why, by row and column.
+    run_problems: list[SheetProblemOut]
+    #: The sheet's first rows, as text.
+    sample: list[list[str]]
+    #: A CSV file's.
+    separator: str
+    sheet: str
+    sheets: list[SheetOut]
+    skip: list[list[int]]
+    skip_problems: bool
+    state: Literal['reading', 'mapping', 'previewing', 'previewed', 'committing', 'importing', 'imported', 'failed', 'cancelled', 'discarded']
+    type: str
+    updated_at: str
+    warnings: list[str]
+
+
+class SpreadsheetPreviewOut(TypedDict):
+    #: Rows by what importing does: create, register (a new registry entry), add (a new record of an entry registered already), reuse (the project's record of it, unchanged), same (as an earlier row), problem; blank and left_out rows; and held (written, then held for review by a plugin's rule).
+    counts: dict[str, int]
+    message: str
+    phase: str
+    progress: float
+
+
 class StartedOut(TypedDict):
     created_at: str
     #: Why it failed.
@@ -4852,7 +5116,7 @@ class TriggerOut(TypedDict):
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
     states: list[str]
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
-    tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
+    tier: Literal['self_hosted', 'backend', 'container', 'vm', 'server'] | None
     #: On a schedule: the timezone of its times.
     timezone: str
     #: The entity type it fires for, with its subtypes; empty on a schedule.
@@ -5210,6 +5474,13 @@ class WorkItemOut(TypedDict):
     fields: list[str]
 
 
+class WorkbookRef(TypedDict):
+    id: str
+    media_type: str
+    name: str
+    size: int
+
+
 class WorkerFilters(TypedDict):
     #: From the previous page's next_cursor.
     cursor: NotRequired[str | None]
@@ -5499,4 +5770,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'FacetParams', 'FieldOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MovementOut', 'MovementsOut', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResultTypeOut', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunStatus', 'SampleOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeNotificationOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MovementOut', 'MovementsOut', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceSearchIn', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResultTypeOut', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeNotificationOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

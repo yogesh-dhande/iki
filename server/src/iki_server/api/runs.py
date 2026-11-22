@@ -75,7 +75,10 @@ from iki_spec.model import Action, action_from_dict
 
 router = Router(tags=["runs"])
 
-Tier = Literal["self_hosted", "backend", "container", "vm"]
+# The tiers an action in the catalog runs on; a run may be on the server's own too, as an
+# import's is (ADR 0178), which no catalog action is.
+ActionTier = Literal["self_hosted", "backend", "container", "vm"]
+Tier = Literal["self_hosted", "backend", "container", "vm", "server"]
 
 
 # --- Actions -----------------------------------------------------------------------------------
@@ -184,7 +187,7 @@ class ActionOut(Schema):
     plugin: str
     label: str
     description: str | None
-    tier: Tier
+    tier: ActionTier
     environment: str
     inputs: list[InputOut]
     labels: list[str] = Field(

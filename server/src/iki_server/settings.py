@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "iki_server.amounts",
     "iki_server.searches",
     "iki_server.runs",
+    "iki_server.spreadsheets",
     "iki_server.graph",
     "iki_server.plugins",
     "iki_server.bundles",

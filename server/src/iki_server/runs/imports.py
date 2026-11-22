@@ -38,7 +38,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -84,6 +84,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import is_a
 from iki_spec import schemas
+from iki_spec.model import Action as SpecAction
 from iki_spec.model import Field, Software
 
 if TYPE_CHECKING:
@@ -91,7 +92,16 @@ if TYPE_CHECKING:
 
     from iki_server.entities.values import Shape
 
-__all__ = ["MAX_LINES", "recover", "start", "step"]
+__all__ = [
+    "MAX_LINES",
+    "breaking",
+    "launch",
+    "look_up_refs",
+    "recover",
+    "refs_for",
+    "start",
+    "step",
+]
 
 logger = structlog.get_logger("iki.runs.imports")
 
@@ -137,6 +147,69 @@ def start(job: Job, run: ActionRun, file_id: uuid.UUID) -> RunImport:
     live.changed(run.pk, run.batch_id)
     tasks.import_creates.enqueue(str(imported.pk))
     return imported
+
+
+def launch(
+    user: Any,  # noqa: ANN401 - a User
+    project: Any,  # noqa: ANN401 - a Project
+    action: SpecAction,
+    params: dict[str, Any],
+    creates: File,
+    *,
+    reason: str = "",
+    via: str | None = None,
+    client: str | None = None,
+    agent: Any = None,  # noqa: ANN401 - an Agent
+) -> ActionRun:
+    """A run of one of Iki's core actions, on its own tier (``server``), whose results are
+    ``creates``' lines (ADR 0178): such as a spreadsheet's rows, as Iki read them. No worker
+    runs it: its one attempt has finished its command, and the task runner checks and
+    writes its creates as it does a worker's (ADR 0056), with everything a run's give its
+    entities. Call in a transaction, with what it may do checked."""
+    from iki_server import __version__
+    from iki_server.runs import services
+
+    now = timezone.now()
+    run = ActionRun.objects.create(
+        hrid=services._next_hrid(),
+        action=action.qualified_name,
+        plugin_version=__version__,
+        spec=asdict(action),
+        project=project,
+        requested_by=user,
+        via=via or audit.current_via(),
+        client=audit.current_oauth_client() if client is None else client,
+        agent=agent if agent is not None else audit.current_agent(),
+        reason=reason,
+        tier=action.tier,
+        environment=action.environment,
+        params=params,
+        status=RunStatus.RUNNING,
+        started_at=now,
+        timeout=action.timeout,
+        max_attempts=1,
+    )
+    job = Job.objects.create(
+        run=run,
+        project=project,
+        tier=action.tier,
+        environment=f"{action.plugin}.{action.environment}",
+        state=JobState.COMMITTING,
+        started_at=now,
+    )
+    RunOutput.objects.create(
+        run=run, job=job, document={"apiVersion": "iki/v1", "kind": "RunOutput"}
+    )
+    audit.record(
+        "run.launched",
+        actor=user,
+        agent=run.agent,
+        target=run,
+        project=project,
+        data={"action": action.qualified_name, "tier": action.tier, "inputs": 0},
+    )
+    start(job, run, creates.pk)
+    return run
 
 
 def _lines(imported: RunImport) -> str:
@@ -275,7 +348,7 @@ def _give_up(imported: RunImport, why: str) -> None:
 def _advance(import_id: uuid.UUID) -> bool:
     """True once the import has ended; False if there's more to do."""
     deadline = time.monotonic() + STEP_FOR
-    reader: _Reader | None = None
+    reader: Reader | None = None
     try:
         while True:
             with transaction.atomic():
@@ -303,7 +376,7 @@ def _advance(import_id: uuid.UUID) -> bool:
                     if reader is None or reader.offset != imported.offset:
                         if reader is not None:
                             reader.close()
-                        reader = _Reader(imported.file, imported.offset)
+                        reader = Reader.of(imported.file, imported.offset)
                     _check_chunk(imported, run, reader)
             if time.monotonic() > deadline:
                 return False
@@ -349,21 +422,24 @@ def _progress(imported: RunImport, fraction: float, message: str) -> None:
 # --- Checking ----------------------------------------------------------------------------------
 
 
-class _Reader:
-    """The file's lines from ``offset``, each with the bytes it took (its newline too)."""
+class Reader:
+    """A stored file's lines from ``offset``, each with the bytes it took (its newline too):
+    a creates file's, or a spreadsheet's rows to preview (ADR 0178)."""
 
-    def __init__(self, file: File, offset: int) -> None:
+    def __init__(self, storage_uri: str, version: str, size: int, offset: int) -> None:
         self.offset = offset
         #: Whole lines read but not yet given, then the start of the next one.
         self._ready: deque[bytes] = deque()
         self._pending: list[bytes] = []
         self._held = 0
-        self._size = file.blob.size
+        self._size = size
         self._body = (
-            None
-            if offset >= self._size
-            else storage.open_object(file.blob.storage_uri, file.blob.object_version, offset)
+            None if offset >= self._size else storage.open_object(storage_uri, version, offset)
         )
+
+    @classmethod
+    def of(cls, file: File, offset: int) -> Reader:
+        return cls(file.blob.storage_uri, file.blob.object_version, file.blob.size, offset)
 
     def lines(self) -> Generator[bytes | None]:
         """Each line (without its newline); None for one that's over :data:`MAX_LINE`,
@@ -405,7 +481,7 @@ class _Line:
     item: dict[str, Any]
 
 
-def _check_chunk(imported: RunImport, run: ActionRun, reader: _Reader) -> None:
+def _check_chunk(imported: RunImport, run: ActionRun, reader: Reader) -> None:
     """Reads, checks and stages up to a chunk of lines, then saves how far it got."""
     document = RunOutput.objects.filter(job_id=imported.job_id).values_list("document", flat=True)[
         0
@@ -487,17 +563,8 @@ def _stage_rows(
     imported: RunImport,
 ) -> list[tuple[Any, ...]]:
     user = run.requested_by
-    # Like a create in the run's project: references to what it may use (ADR 0067).
-    refs = Refs(
-        access.shareable_into(user, run.project),
-        None,
-        held=access.held_entity(user, run.project),
-        entries=access.held_entries(run.project),
-        readable_entries=access.visible_entries(user),
-        project=run.project.name,
-        namer=Namer(run.project),
-    )
-    _look_up_refs(refs, parsed)
+    refs = refs_for(user, run.project)
+    look_up_refs(refs, [line.item for line in parsed])
     # A line's `$create` names one of the output's creates (ADR 0140), written first: it's
     # staged as a stand-in, which writing replaces with what that create made.
     for key, type_name in keyed.items():
@@ -527,18 +594,11 @@ def _stage_rows(
             errors.extend(check.errors)
             continue
         prepared.append((line, create, form, given))
-    by_type: dict[str, list[int]] = {}
-    for index, (_, create, _, _) in enumerate(prepared):
-        by_type.setdefault(create.type, []).append(index)
-    refused: dict[int, list[checking.Broken]] = {}
-    for type_name, indexes in by_type.items():
-        # A chunk's lines at once, as one evaluation (ADR 0127). Those breaking a rule
-        # that holds are kept, and held once written (holds.hold_imported).
-        found = checking.broken(type_name, [checking.Saving(prepared[i][3].get) for i in indexes])
-        for i, broken in zip(indexes, found, strict=True):
-            refusing = [b for b in broken if not b.held]
-            if refusing:
-                refused[i] = refusing
+    refused = {
+        index: [b for b in broken if not b.held]
+        for index, broken in breaking([(c.type, g) for _, c, _, g in prepared]).items()
+        if any(not b.held for b in broken)
+    }
     for index, (line, create, form, given) in enumerate(prepared):
         if index in refused:
             if len(errors) >= MAX_ERRORS:
@@ -583,15 +643,44 @@ def _standing_in(
     return values
 
 
-def _look_up_refs(refs: Refs, parsed: list[_Line]) -> None:
+def refs_for(user: Any, project: Any) -> Refs:  # noqa: ANN401 - a User and a Project
+    """What a create in ``project`` may refer to, as ``user``: what they may use there
+    (ADR 0067). A bulk import's lines are checked with it, and so is a spreadsheet's
+    preview of them (ADR 0178)."""
+    return Refs(
+        access.shareable_into(user, project),
+        None,
+        held=access.held_entity(user, project),
+        entries=access.held_entries(project),
+        readable_entries=access.visible_entries(user),
+        project=project.name,
+        namer=Namer(project),
+    )
+
+
+def breaking(lines: list[tuple[str, dict[str, Any]]]) -> dict[int, list[checking.Broken]]:
+    """The plugins' rules each of a chunk's prepared lines breaks, by its index: each type's
+    lines at once, as one evaluation (ADR 0127). Those breaking only rules that hold are
+    written, and held once they are (:func:`holds.hold_imported`)."""
+    by_type: dict[str, list[int]] = {}
+    for index, (type_name, _) in enumerate(lines):
+        by_type.setdefault(type_name, []).append(index)
+    out: dict[int, list[checking.Broken]] = {}
+    for type_name, indexes in by_type.items():
+        found = checking.broken(type_name, [checking.Saving(lines[i][1].get) for i in indexes])
+        out.update((i, b) for i, b in zip(indexes, found, strict=True) if b)
+    return out
+
+
+def look_up_refs(refs: Refs, items: list[dict[str, Any]]) -> None:
     """Finds every entity the chunk's references name in one query, not one per line."""
     wanted: set[uuid.UUID] = set()
-    for line in parsed:
-        type_name = line.item.get("type")
+    for item in items:
+        type_name = item.get("type")
         if type_name not in registry.types():
             continue
         fields = shape(type_name).fields()
-        for name, value in line.item.get("values", {}).items():
+        for name, value in item.get("values", {}).items():
             f = fields.get(name)
             if f is None:
                 continue

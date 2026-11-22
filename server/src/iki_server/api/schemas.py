@@ -268,6 +268,7 @@ class ProjectOut(Schema):
     def resolve_can(project: Project, context: dict[str, Any]) -> dict[str, Any]:
         from iki_server.org import permissions
         from iki_server.org.permissions import Action
+        from iki_server.runs.models import SERVER_TIER
         from iki_server.runs.services import TIER_PERMISSIONS
 
         user = context["request"].auth
@@ -283,7 +284,12 @@ class ProjectOut(Schema):
             and not _has_entities(project),
             "run": []
             if project.is_archived
-            else [t for t, a in TIER_PERMISSIONS.items() if permissions.can(user, a, project)],
+            else [
+                t
+                for t, a in TIER_PERMISSIONS.items()
+                # Iki's own runs are launched by what they do, not from an action's page.
+                if t != SERVER_TIER and permissions.can(user, a, project)
+            ],
         }
 
 

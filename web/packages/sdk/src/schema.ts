@@ -2979,6 +2979,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/spreadsheet-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's spreadsheet imports
+         * @description Yours, and those committed, newest first.
+         */
+        get: operations["iki_server_api_spreadsheets_list_imports"];
+        put?: never;
+        /**
+         * Import a spreadsheet
+         * @description Starts importing a workbook the project has (an XLSX workbook, or a CSV file) as
+         *     records of a type. Iki reads it, then suggests how its columns map. Needs an Editor.
+         */
+        post: operations["iki_server_api_spreadsheets_start_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/spreadsheet-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The project's saved spreadsheet mappings */
+        get: operations["iki_server_api_spreadsheets_list_mappings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/trigger-firings": {
         parameters: {
             query?: never;
@@ -3775,6 +3817,135 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A spreadsheet import */
+        get: operations["iki_server_api_spreadsheets_get_import"];
+        put?: never;
+        post?: never;
+        /**
+         * Discard a spreadsheet import
+         * @description Before it's committed. The workbook stays in the project.
+         */
+        delete: operations["iki_server_api_spreadsheets_discard_import"];
+        options?: never;
+        head?: never;
+        /**
+         * Choose what a spreadsheet import imports
+         * @description Its sheet, header row and rows, and how its columns map (or a saved mapping to map
+         *     them by). Choosing another sheet or header row maps the columns afresh, unless the
+         *     columns are given too. A preview starts again.
+         */
+        patch: operations["iki_server_api_spreadsheets_change_import"];
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-imports/{import_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a previewed spreadsheet
+         * @description Writes its rows as records, all of them or none, as a run of
+         *     ``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with
+         *     problems stop it, unless ``skip_problems`` leaves them out.
+         */
+        post: operations["iki_server_api_spreadsheets_commit_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-imports/{import_id}/mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a spreadsheet import's mapping
+         * @description Keeps how its columns map, by their headers, for the project's next sheet of the same
+         *     kind: one from the same instrument or vendor maps itself.
+         */
+        post: operations["iki_server_api_spreadsheets_save_mapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-imports/{import_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a spreadsheet import's rows
+         * @description Checks every row as importing would write it, a chunk at a time: what's wrong with
+         *     each, by its column, and the records each would duplicate. Poll it until it's
+         *     ``previewed``.
+         */
+        post: operations["iki_server_api_spreadsheets_preview_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-imports/{import_id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a preview found, row by row
+         * @description In the sheet's order; ``outcome`` narrows them to those with problems, say.
+         */
+        get: operations["iki_server_api_spreadsheets_import_rows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spreadsheet-mappings/{mapping_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved mapping */
+        delete: operations["iki_server_api_spreadsheets_delete_mapping"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5721,6 +5892,27 @@ export interface components {
              */
             present: boolean;
         };
+        /** CellReadingOut */
+        CellReadingOut: {
+            /** Ambiguous */
+            ambiguous: boolean;
+            /**
+             * Cell
+             * @description As the sheet shows it.
+             */
+            cell: string;
+            /** Problem */
+            problem: string | null;
+            /** Reads As */
+            reads_as: string | null;
+            /** Row */
+            row: number;
+            /**
+             * Stored
+             * @description The workbook holds it as a number or a date, so it reads one way only.
+             */
+            stored: boolean;
+        };
         /** CertificationIn */
         CertificationIn: {
             /**
@@ -5875,6 +6067,20 @@ export interface components {
             /** Type */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** ColumnReadingOut */
+        ColumnReadingOut: {
+            /** Cells */
+            cells: components["schemas"]["CellReadingOut"][];
+            /** Column */
+            column: number;
+            /** Field */
+            field: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "numbers" | "dates";
         };
         /** ComponentEntitiesIn */
         ComponentEntitiesIn: {
@@ -6691,6 +6897,11 @@ export interface components {
              */
             q?: string | null;
             /**
+             * Run
+             * @description What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
+             */
+            run?: string | null;
+            /**
              * Type
              * @description This type and its subtypes.
              */
@@ -7458,6 +7669,51 @@ export interface components {
              * @description Enums, and lists of them: the allowed values (for a list, its items').
              */
             values: string[];
+        };
+        /**
+         * FieldTargetOut
+         * @description A field of the type a column may set, or why it can't.
+         */
+        FieldTargetOut: {
+            /** Choices */
+            choices: string[];
+            /**
+             * Identity
+             * @description Part of what makes a record the same as another.
+             */
+            identity: boolean;
+            /**
+             * Item Type
+             * @description A list's items' type.
+             */
+            item_type: string | null;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /** Required */
+            required: boolean;
+            /**
+             * To
+             * @description A reference's types: cells name one by HRID or name.
+             */
+            to: string[];
+            /** Type */
+            type: string;
+            /** Unique */
+            unique: boolean;
+            /** Unit */
+            unit: string | null;
+            /**
+             * Units
+             * @description Units its quantity's cells may be in, for a form.
+             */
+            units: string[];
+            /**
+             * Why Not
+             * @description Why a column can't set it, if it can't.
+             */
+            why_not: string | null;
         };
         /** FileCountOut */
         FileCountOut: {
@@ -8682,6 +8938,22 @@ export interface components {
             problems: string[];
             /** Types */
             types: components["schemas"]["ImportType"][];
+        };
+        /** ImportRunRef */
+        ImportRunRef: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Message */
+            message: string;
+            /** Progress */
+            progress: number | null;
+            /** Status */
+            status: string;
         };
         /** ImportSource */
         ImportSource: {
@@ -10046,6 +10318,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[PreviewRowOut] */
+        Page_PreviewRowOut_: {
+            /** Items */
+            items: components["schemas"]["PreviewRowOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[ProjectMemberOut] */
         Page_ProjectMemberOut_: {
             /** Items */
@@ -10140,6 +10422,16 @@ export interface components {
         Page_SlurmAccountOut_: {
             /** Items */
             items: components["schemas"]["SlurmAccountOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[SpreadsheetImportOut] */
+        Page_SpreadsheetImportOut_: {
+            /** Items */
+            items: components["schemas"]["SpreadsheetImportOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -10566,6 +10858,50 @@ export interface components {
              * @description Project Admins may add webhooks to their projects.
              */
             project_webhooks: boolean;
+        };
+        /** PreviewRowOut */
+        PreviewRowOut: {
+            /** Held */
+            held: {
+                [key: string]: string;
+            }[];
+            /**
+             * Match
+             * @description The HRID it is, or will be a record of.
+             */
+            match: string;
+            /** Match Id */
+            match_id: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "create" | "register" | "add" | "reuse" | "same" | "problem";
+            /** Problems */
+            problems: components["schemas"]["SheetProblemOut"][];
+            /** Row */
+            row: number;
+            /** Same As */
+            same_as: number | null;
+        };
+        /** PreviewRowParams */
+        PreviewRowParams: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Outcome
+             * @description Only rows with these outcomes.
+             */
+            outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
         };
         /** ProjectCan */
         ProjectCan: {
@@ -11036,7 +11372,7 @@ export interface components {
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
-            tier: ("self_hosted" | "backend" | "container" | "vm") | null;
+            tier: ("self_hosted" | "backend" | "container" | "vm" | "server") | null;
             /**
              * Timezone
              * @description On a schedule: the timezone of its times.
@@ -12644,7 +12980,7 @@ export interface components {
              * Tier
              * @enum {string}
              */
-            tier: "self_hosted" | "backend" | "container" | "vm";
+            tier: "self_hosted" | "backend" | "container" | "vm" | "server";
             /** @description The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080). */
             trigger: components["schemas"]["TriggerFiredOut"] | null;
             /** Via */
@@ -12722,6 +13058,59 @@ export interface components {
             type: string;
             /** @description The run it came through: one that read the sample and read or made the file. Null when the sample holds the file itself. */
             via_run: components["schemas"]["RunRef"] | null;
+        };
+        /** SavedMappingIn */
+        SavedMappingIn: {
+            /** Name */
+            name: string;
+            /**
+             * Replace
+             * @description A saved mapping to change, rather than add.
+             */
+            replace?: string | null;
+        };
+        /** SavedMappingMatch */
+        SavedMappingMatch: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Match
+             * @description The share of its headers the sheet has.
+             */
+            match: number;
+            /** Name */
+            name: string;
+        };
+        /** SavedMappingOut */
+        SavedMappingOut: {
+            /** Columns */
+            columns: {
+                [key: string]: unknown;
+            }[];
+            created_by: components["schemas"]["PersonRef"];
+            /** Header Row */
+            header_row: number;
+            /** Headers */
+            headers: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            locale: components["schemas"]["SheetLocaleOut"];
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            updated_by: components["schemas"]["PersonRef"];
         };
         /** SavedSearchCan */
         SavedSearchCan: {
@@ -12880,6 +13269,11 @@ export interface components {
              */
             q?: string | null;
             /**
+             * Run
+             * @description What this run wrote: its ID or HRID.
+             */
+            run?: string | null;
+            /**
              * Sort
              * @description A field to sort by.
              */
@@ -13002,6 +13396,11 @@ export interface components {
              * @description Text in their HRID, or a text field in their title.
              */
             q?: string | null;
+            /**
+             * Run
+             * @description What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
+             */
+            run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
             /**
              * Type
@@ -13429,6 +13828,150 @@ export interface components {
              * @enum {string}
              */
             state: "creating" | "ready" | "failed" | "deleted";
+        };
+        /** SheetColumnIn */
+        SheetColumnIn: {
+            /**
+             * Dates
+             * @description How 03/04/2026 reads, if not as the sheet's locale says.
+             */
+            dates?: ("day_first" | "month_first") | null;
+            /**
+             * Decimal
+             * @description A number's decimal mark, if not as the sheet's locale says.
+             */
+            decimal?: ("point" | "comma") | null;
+            /**
+             * Field
+             * @description The field its cells set; null to leave it out.
+             */
+            field?: string | null;
+            /**
+             * Index
+             * @description The column, from 0 for A.
+             */
+            index: number;
+            /**
+             * Separator
+             * @description A list's items' separator: `;`.
+             */
+            separator?: string | null;
+            /**
+             * Serial Dates
+             * @description Its plain numbers are Excel serial dates, if not as the locale says.
+             */
+            serial_dates?: boolean | null;
+            /**
+             * Time Zone
+             * @description A date and time's, when its cells give none: an IANA name.
+             */
+            time_zone?: string | null;
+            /**
+             * Unit
+             * @description A quantity's cells' UCUM unit when they don't say one (12.5, not 12.5 ug/mL): the field's, if none. Iki converts them to the field's.
+             */
+            unit?: string | null;
+            /**
+             * Values
+             * @description What a cell says, for each choice it means: an enumeration's, or for a truth value, true or false.
+             */
+            values?: {
+                [key: string]: string;
+            } | null;
+        };
+        /** SheetColumnOut */
+        SheetColumnOut: {
+            /** Dates */
+            dates: string | null;
+            /** Decimal */
+            decimal: string | null;
+            /**
+             * Examples
+             * @description Its first few cells under the header.
+             */
+            examples: string[];
+            /** Field */
+            field: string | null;
+            /** Header */
+            header: string;
+            /** Index */
+            index: number;
+            /** Letter */
+            letter: string;
+            /** Separator */
+            separator: string;
+            /** Serial Dates */
+            serial_dates: boolean | null;
+            /** Time Zone */
+            time_zone: string | null;
+            /** Unit */
+            unit: string | null;
+            /** Values */
+            values: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * SheetLocaleIn
+         * @description How the sheet's text writes numbers and dates. Until it's said, a cell that reads
+         *     two ways (1,234; 03/04/2026) is a problem, never a guess.
+         */
+        SheetLocaleIn: {
+            /**
+             * Dates
+             * @description day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+             */
+            dates?: ("day_first" | "month_first") | null;
+            /**
+             * Decimal
+             * @description point: 1,234.5; comma: 1.234,5. Null until you know.
+             */
+            decimal?: ("point" | "comma") | null;
+            /**
+             * Serial Dates
+             * @description Plain numbers in date columns are Excel serial dates (46023).
+             * @default false
+             */
+            serial_dates: boolean;
+        };
+        /** SheetLocaleOut */
+        SheetLocaleOut: {
+            /** Dates */
+            dates: string | null;
+            /** Decimal */
+            decimal: string | null;
+            /** Serial Dates */
+            serial_dates: boolean;
+        };
+        /** SheetOut */
+        SheetOut: {
+            /** Columns */
+            columns: number;
+            /** Hidden */
+            hidden: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Rows
+             * @description Up to its last row with anything in it.
+             */
+            rows: number;
+        };
+        /** SheetProblemOut */
+        SheetProblemOut: {
+            /** Column */
+            column: number | null;
+            /** Detail */
+            detail: string;
+            /** Field */
+            field: string | null;
+            /**
+             * Kind
+             * @description ambiguous: it reads two ways; say how the sheet's text is written.
+             */
+            kind?: "ambiguous" | null;
+            /** Row */
+            row: number | null;
         };
         /**
          * SignCan
@@ -14086,6 +14629,185 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** SpreadsheetCommitIn */
+        SpreadsheetCommitIn: {
+            /**
+             * Reason
+             * @description Why, for its run and the audit trail.
+             * @default
+             */
+            reason: string;
+            /**
+             * Skip Problems
+             * @description Leave out the rows with problems, and import the rest.
+             * @default false
+             */
+            skip_problems: boolean;
+        };
+        /** SpreadsheetImportChange */
+        SpreadsheetImportChange: {
+            /**
+             * Columns
+             * @description How each column maps; those not given are left out.
+             */
+            columns?: components["schemas"]["SheetColumnIn"][] | null;
+            /**
+             * First Row
+             * @description The first row imported, from 1.
+             */
+            first_row?: number | null;
+            /**
+             * Header Row
+             * @description From 1; 0 when there's none.
+             */
+            header_row?: number | null;
+            /**
+             * Last Row
+             * @description The last row imported; 0 for the last.
+             */
+            last_row?: number | null;
+            locale?: components["schemas"]["SheetLocaleIn"] | null;
+            /**
+             * Mapping
+             * @description A saved mapping to map the columns by.
+             */
+            mapping?: string | null;
+            /** Sheet */
+            sheet?: string | null;
+            /**
+             * Skip
+             * @description Rows left out besides, as [from, to] ranges.
+             */
+            skip?: number[][] | null;
+        };
+        /** SpreadsheetImportIn */
+        SpreadsheetImportIn: {
+            /**
+             * File
+             * Format: uuid
+             * @description The workbook: a file added to the project.
+             */
+            file: string;
+            /**
+             * Type
+             * @description The entity type its rows become, such as acme/dna.Plasmid.
+             */
+            type: string;
+        };
+        /** SpreadsheetImportOut */
+        SpreadsheetImportOut: {
+            /** Can */
+            can: {
+                [key: string]: boolean;
+            };
+            /** Columns */
+            columns: components["schemas"]["SheetColumnOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Encoding
+             * @description A CSV file's, as Iki read it.
+             */
+            encoding: string;
+            /** Error */
+            error: string;
+            /** Fields */
+            fields: components["schemas"]["FieldTargetOut"][];
+            file: components["schemas"]["WorkbookRef"];
+            /** First Row */
+            first_row: number;
+            /** Header Row */
+            header_row: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description xlsx or csv, once it's read.
+             */
+            kind: string;
+            /** Last Row */
+            last_row: number | null;
+            locale: components["schemas"]["SheetLocaleOut"];
+            /** @description The saved mapping it was mapped by. */
+            mapping: components["schemas"]["SavedMappingMatch"] | null;
+            /**
+             * Mappings
+             * @description The project's saved mappings for the type, best matched first.
+             */
+            mappings: components["schemas"]["SavedMappingMatch"][];
+            preview: components["schemas"]["SpreadsheetPreviewOut"] | null;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /**
+             * Readings
+             * @description How the mapped columns' numbers and dates read, on the sheet's own cells.
+             */
+            readings: components["schemas"]["ColumnReadingOut"][];
+            requested_by: components["schemas"]["PersonRef"];
+            run: components["schemas"]["ImportRunRef"] | null;
+            /**
+             * Run Problems
+             * @description If its run didn't write it: why, by row and column.
+             */
+            run_problems: components["schemas"]["SheetProblemOut"][];
+            /**
+             * Sample
+             * @description The sheet's first rows, as text.
+             */
+            sample: string[][];
+            /**
+             * Separator
+             * @description A CSV file's.
+             */
+            separator: string;
+            /** Sheet */
+            sheet: string;
+            /** Sheets */
+            sheets: components["schemas"]["SheetOut"][];
+            /** Skip */
+            skip: number[][];
+            /** Skip Problems */
+            skip_problems: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "reading" | "mapping" | "previewing" | "previewed" | "committing" | "importing" | "imported" | "failed" | "cancelled" | "discarded";
+            /** Type */
+            type: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** SpreadsheetPreviewOut */
+        SpreadsheetPreviewOut: {
+            /**
+             * Counts
+             * @description Rows by what importing does: create, register (a new registry entry), add (a new record of an entry registered already), reuse (the project's record of it, unchanged), same (as an earlier row), problem; blank and left_out rows; and held (written, then held for review by a plugin's rule).
+             */
+            counts: {
+                [key: string]: number;
+            };
+            /** Message */
+            message: string;
+            /** Phase */
+            phase: string;
+            /** Progress */
+            progress: number;
+        };
         /** StartedOut */
         StartedOut: {
             /**
@@ -14621,7 +15343,7 @@ export interface components {
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
-            tier: ("self_hosted" | "backend" | "container" | "vm") | null;
+            tier: ("self_hosted" | "backend" | "container" | "vm" | "server") | null;
             /**
              * Timezone
              * @description On a schedule: the timezone of its times.
@@ -15387,6 +16109,20 @@ export interface components {
              * @description The assignment fields naming you that count in its states; for open work, the ones you could take it in.
              */
             fields: string[];
+        };
+        /** WorkbookRef */
+        WorkbookRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
         };
         /** WorkerFilters */
         WorkerFilters: {
@@ -17172,6 +17908,8 @@ export interface operations {
                 q?: string | null;
                 /** @description Members of this collection (its ID or HRID): those it lists, or those its search finds, as you can see them. */
                 collection?: string | null;
+                /** @description What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say. */
+                run?: string | null;
             };
             header?: never;
             path?: never;
@@ -17335,6 +18073,8 @@ export interface operations {
                 q?: string | null;
                 /** @description Members of this collection: its ID or HRID. */
                 collection?: string | null;
+                /** @description What this run wrote: its ID or HRID. */
+                run?: string | null;
                 /** @description Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`. */
                 where?: string | null;
                 /** @description A field to sort by. */
@@ -20034,6 +20774,83 @@ export interface operations {
             };
         };
     };
+    iki_server_api_spreadsheets_list_imports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SpreadsheetImportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_start_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpreadsheetImportIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_list_mappings: {
+        parameters: {
+            query?: {
+                type?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedMappingOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_triggers_trigger_firings: {
         parameters: {
             query?: {
@@ -21236,6 +22053,197 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SigningOut"];
                 };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_get_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_discard_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_spreadsheets_change_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpreadsheetImportChange"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_commit_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpreadsheetCommitIn"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_save_mapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedMappingIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedMappingOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_preview_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_import_rows: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only rows with these outcomes. */
+                outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
+            };
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PreviewRowOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_spreadsheets_delete_mapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mapping_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

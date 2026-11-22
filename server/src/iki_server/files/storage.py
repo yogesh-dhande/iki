@@ -121,6 +121,12 @@ def kept_key(kind: str, upload_id: Any) -> str:  # noqa: ANN401 - a UUID
     return artifact_key(upload_id)
 
 
+def spreadsheet_key(import_id: Any, round_: int) -> str:  # noqa: ANN401 - a UUID
+    """Where a spreadsheet import keeps its rows as it read them, to check (ADR 0178), until
+    it's committed or discarded."""
+    return _key("spreadsheets", f"{import_id}.{round_}.ndjson")
+
+
 def bundle_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
     """Where an export's archive is kept until it expires (ADR 0096)."""
     return _key("bundles", f"{export_id}.tar.gz")

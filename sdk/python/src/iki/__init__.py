@@ -18,8 +18,9 @@ Sign in once, then work with Iki from notebooks and scripts::
     run = iki.wait(run)
 
 ``iki.entities``, ``iki.types``, ``iki.projects``, ``iki.actions``, ``iki.runs``,
-``iki.files`` and ``iki.signatures`` use your sign-in, or ``IKI_URL`` and ``IKI_TOKEN`` if
-they're set. For more than one deployment, make an ``iki.Client`` for each.
+``iki.files``, ``iki.spreadsheets`` and ``iki.signatures`` use your sign-in, or
+``IKI_URL`` and ``IKI_TOKEN`` if they're set. For more than one deployment, make an
+``iki.Client`` for each.
 
 Everything you do is recorded in Iki as done by you, through the API, with this SDK.
 """
@@ -42,6 +43,7 @@ from iki.errors import (
     FieldError,
     Forbidden,
     IkiError,
+    ImportFailed,
     Invalid,
     NotApproved,
     NotFound,
@@ -53,7 +55,16 @@ from iki.errors import (
 )
 
 if TYPE_CHECKING:
-    from iki.client import Actions, Entities, Files, Projects, Runs, Signatures, Types
+    from iki.client import (
+        Actions,
+        Entities,
+        Files,
+        Projects,
+        Runs,
+        Signatures,
+        Spreadsheets,
+        Types,
+    )
     from iki.schema import MeOut, RunOut
 
     entities: Entities
@@ -62,6 +73,7 @@ if TYPE_CHECKING:
     actions: Actions
     runs: Runs
     files: Files
+    spreadsheets: Spreadsheets
     signatures: Signatures
 
 __all__ = [
@@ -72,6 +84,7 @@ __all__ = [
     "FieldError",
     "Forbidden",
     "IkiError",
+    "ImportFailed",
     "Invalid",
     "NotApproved",
     "NotFound",
@@ -94,11 +107,14 @@ __all__ = [
     "run_each",
     "runs",
     "signatures",
+    "spreadsheets",
     "types",
     "wait",
 ]
 
-_PARTS = frozenset({"entities", "types", "projects", "actions", "runs", "files", "signatures"})
+_PARTS = frozenset(
+    {"entities", "types", "projects", "actions", "runs", "files", "spreadsheets", "signatures"}
+)
 _default: Client | None = None
 _lock = threading.Lock()
 
