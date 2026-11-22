@@ -310,6 +310,7 @@ export function ProjectOverview() {
             {/* What plugins' components find in the project (ADR 0117). */}
             <PluginSections kind="project.page" project={project} />
             <ProjectCosts project={project} />
+            <ChooseDashboard project={project} />
           </div>
           <aside className="project-aside" aria-label="Project summary">
             <About project={project} />
@@ -334,17 +335,8 @@ function Dashboard({ project }: { project: Project }) {
   const types = useQuery(typesQuery);
   if (dashboard.isError) return <ProblemAlert problem={problemOf(dashboard.error)} />;
   if (!dashboard.data) return <Loading label="Opening its dashboard…" />;
-  if (!chosen) {
-    return project.can.manage && !project.archived ? (
-      <p className="muted">
-        Open this page with one of the project’s apps: choose it in{" "}
-        <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
-          Settings
-        </Link>
-        .
-      </p>
-    ) : null;
-  }
+  // Its Admins hear how to choose one at the foot of the page: below what it holds.
+  if (!chosen) return null;
   const problem = app.error ?? types.error;
   if (problem) return <ProblemAlert problem={problemOf(problem)} />;
   if (!app.data || !types.data) return <Loading label={`Opening ${chosen.name}…`} />;
@@ -360,6 +352,23 @@ function Dashboard({ project }: { project: Project }) {
       </div>
       <AppPanel app={app.data} types={types.data} />
     </section>
+  );
+}
+
+/** For its Admins, while the project has no app for its page: how to choose one. */
+function ChooseDashboard({ project }: { project: Project }) {
+  const dashboard = useQuery(dashboardQuery(project.id));
+  if (!dashboard.data || dashboard.data.app || !project.can.manage || project.archived) {
+    return null;
+  }
+  return (
+    <p className="project-hint muted">
+      Open this page with one of the project’s apps: choose it in{" "}
+      <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
+        Settings
+      </Link>
+      .
+    </p>
   );
 }
 

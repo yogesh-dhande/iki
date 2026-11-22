@@ -3468,6 +3468,10 @@ input[type="file"]::file-selector-button {
   margin-bottom: 0;
 }
 
+.project-hint {
+  font-size: 12.5px;
+}
+
 .box {
   min-width: 0;
   background: var(--surface);
