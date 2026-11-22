@@ -305,6 +305,10 @@ def test_every_operation_beyond_its_projects_is_refused(
         if isinstance(found, dict) and "types" in found:
             assert found == {"types": [], "total": 0}, found
             return
+        if isinstance(found, dict) and "more_than_total" in found:
+            # How many files match (ADR 0177): none.
+            assert found == {"total": 0, "more_than_total": False}, found
+            return
         assert (found.get("items") if isinstance(found, dict) else found) == [], found
         return
     assert response.status_code in (403, 404), (response.status_code, response.content[:300])

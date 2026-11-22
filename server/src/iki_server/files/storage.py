@@ -368,6 +368,27 @@ def open_object(storage_uri: str, version: str = "", offset: int = 0) -> Any:  #
 
 
 @_backend
+def read_range(storage_uri: str, version: str, offset: int, length: int) -> bytes:
+    """Up to ``length`` of a stored object's bytes from ``offset`` (fewer at its end): one
+    ranged read, for what a format records where it starts or in its directory."""
+    if length <= 0:
+        return b""
+    bucket_name, key = split_uri(storage_uri)
+    params: dict[str, Any] = {
+        "Bucket": bucket_name,
+        "Key": key,
+        "Range": f"bytes={offset}-{offset + length - 1}",
+    }
+    if version:
+        params["VersionId"] = version
+    body = client_for(bucket_name).get_object(**params)["Body"]
+    try:
+        return bytes(body.read())
+    finally:
+        body.close()
+
+
+@_backend
 def exists(key: str) -> bool:
     try:
         client().head_object(Bucket=bucket(), Key=key)

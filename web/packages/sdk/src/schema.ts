@@ -1143,8 +1143,9 @@ export interface paths {
         put?: never;
         /**
          * Draw from its amount
-         * @description Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
-         *     much, or a state holds it. Two people drawing at once take turns.
+         * @description Takes some of it for the given purpose. A purpose you cannot use answers 403.
+         *     An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
+         *     Two people drawing at once take turns.
          */
         post: operations["iki_server_api_amounts_draw"];
         delete?: never;
@@ -1924,10 +1925,53 @@ export interface paths {
         };
         /**
          * Files you can read
-         * @description Oldest first, unless ``newest_first``. Files are read through the projects they
-         *     were added to.
+         * @description A project's files, or every file you can read: those added to the projects, and
+         *     those their records hold (ADR 0177). Found by part of the name, format, when acquired,
+         *     sample and run; newest first unless ``sort`` says otherwise. Each says how many records
+         *     and runs you can read use it.
          */
         get: operations["iki_server_api_files_list_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many files match
+         * @description As ``GET /files`` would list them, up to 1,000.
+         */
+        get: operations["iki_server_api_files_count_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/formats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The formats of files
+         * @description The media types of the files ``GET /files`` would list, whatever its ``format``,
+         *     with how many of each: what its Format filter offers.
+         */
+        get: operations["iki_server_api_files_file_formats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1943,7 +1987,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A file */
+        /**
+         * A file
+         * @description With where it came from, the samples it belongs to, and how many records and runs
+         *     use it, of those you can read.
+         */
         get: operations["iki_server_api_files_get_file"];
         put?: never;
         post?: never;
@@ -1988,6 +2036,48 @@ export interface paths {
          *     offer, since a redirect to another origin hides who's asking.
          */
         get: operations["iki_server_api_files_file_content_url"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The records that hold a file
+         * @description Every record you can read that holds the file in a file field, at any revision,
+         *     with the revisions that hold it (ADR 0177). Oldest first.
+         */
+        get: operations["iki_server_api_files_file_records"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The runs that used a file
+         * @description Every run you can read that read the file (as a param, or an input's) or made it,
+         *     newest first.
+         */
+        get: operations["iki_server_api_files_file_runs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4506,6 +4596,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AcquiredOut */
+        AcquiredOut: {
+            /**
+             * At
+             * @description When, in ISO 8601, as precisely as its source gave it: a date, or a date and time, with an offset only if the source stated one.
+             */
+            at: string;
+            /**
+             * On
+             * Format: date
+             * @description The day, as its source gave it.
+             */
+            on: string;
+            /**
+             * Source
+             * @description Where that came from: ``given`` by whoever added it, or the format that records it in the file, such as ``abif`` or ``fcs``.
+             */
+            source: string;
+            /**
+             * Source Label
+             * @description Where that came from, as people would say it.
+             */
+            source_label: string;
+        };
         /** ActionApiOut */
         ActionApiOut: {
             /**
@@ -6309,6 +6423,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -6578,12 +6699,22 @@ export interface components {
             /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
             amount: components["schemas"]["AmountIn"];
             /**
+             * @description Why material is being drawn.
+             * @default routine
+             */
+            purpose: components["schemas"]["DrawPurpose"];
+            /**
              * Reason
              * @description What it was used for.
              * @default
              */
             reason: string;
         };
+        /**
+         * DrawPurpose
+         * @enum {string}
+         */
+        DrawPurpose: "routine" | "qa_sampling";
         /** EffectCountsOut */
         EffectCountsOut: {
             /** Created */
@@ -6697,10 +6828,20 @@ export interface components {
         /** EntityCan */
         EntityCan: {
             /**
+             * Draw Purposes
+             * @description The purposes you may draw for. State holds and draw guards still apply.
+             */
+            draw_purposes?: components["schemas"]["DrawPurpose"][];
+            /**
              * Edit
              * @description Change it, archive or restore it: false for everyone when its plugin is detached, or while a state locks it.
              */
             edit: boolean;
+            /**
+             * Edit Amount
+             * @description Change its amount, including while a state locks the record's values.
+             */
+            edit_amount: boolean;
             /**
              * Sign
              * @description The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
@@ -6822,6 +6963,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -7013,6 +7161,11 @@ export interface components {
              * @description The rules its records keep at every save (ADR 0127): its own, its parents' and those extensions add.
              */
             rules?: components["schemas"]["RuleOut"][];
+            /**
+             * Sample
+             * @description Its records are samples (ADR 0177): a project's files are found by them.
+             */
+            sample: boolean;
             /**
              * Subtypes
              * @description The types that extend it, at any depth.
@@ -7362,6 +7515,30 @@ export interface components {
              */
             revision?: number | null;
         };
+        /** FacetParams */
+        FacetParams: {
+            /** Accepts */
+            accepts?: string[];
+            /** Acquired From */
+            acquired_from?: string | null;
+            /** Acquired To */
+            acquired_to?: string | null;
+            /** Format */
+            format?: string[];
+            /** Max Size */
+            max_size?: number | null;
+            /** Project */
+            project?: string | null;
+            /**
+             * Q
+             * @default
+             */
+            q: string;
+            /** Run */
+            run?: string | null;
+            /** Sample */
+            sample?: string | null;
+        };
         /** FieldOut */
         FieldOut: {
             /**
@@ -7538,6 +7715,59 @@ export interface components {
              */
             why_not: string | null;
         };
+        /** FileCountOut */
+        FileCountOut: {
+            /** More Than Total */
+            more_than_total: boolean;
+            /**
+             * Total
+             * @description How many match, up to 1,000.
+             */
+            total: number;
+        };
+        /** FileDetailOut */
+        FileDetailOut: {
+            /** @description When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added. */
+            acquired: components["schemas"]["AcquiredOut"] | null;
+            /** @description The agent that added it, acting for created_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * External
+             * @description Registered where it already was, rather than uploaded.
+             */
+            external: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            origin: components["schemas"]["FileOriginOut"];
+            /** @description Where it was added. Null if you can't see it. */
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Samples
+             * @description The samples it belongs to that you can read.
+             */
+            samples: components["schemas"]["SampleOut"][];
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            used_by: components["schemas"]["UsedByCountOut"];
+        };
         /** FileExportOut */
         FileExportOut: {
             /**
@@ -7565,10 +7795,30 @@ export interface components {
         /** FileFilters */
         FileFilters: {
             /**
+             * Accepts
+             * @description Only files a field or param takes: its media types, as `format`.
+             */
+            accepts?: string[];
+            /**
+             * Acquired From
+             * @description Acquired on this day or later.
+             */
+            acquired_from?: string | null;
+            /**
+             * Acquired To
+             * @description Acquired on this day or earlier.
+             */
+            acquired_to?: string | null;
+            /**
              * Cursor
              * @description From the previous page's next_cursor.
              */
             cursor?: string | null;
+            /**
+             * Format
+             * @description Media types, such as application/x-abi, or image/* for any image.
+             */
+            format?: string[];
             /**
              * Limit
              * @description Items per page.
@@ -7576,13 +7826,38 @@ export interface components {
              */
             limit: number;
             /**
-             * Newest First
-             * @description Newest first, rather than oldest.
-             * @default false
+             * Max Size
+             * @description Only files this many bytes or fewer.
              */
-            newest_first: boolean;
-            /** Project */
+            max_size?: number | null;
+            /**
+             * Project
+             * @description Its files; every one you can read if left out.
+             */
             project?: string | null;
+            /**
+             * Q
+             * @description Part of its name, in any case.
+             * @default
+             */
+            q: string;
+            /**
+             * Run
+             * @description A run, by ID or HRID: the files it read or made.
+             */
+            run?: string | null;
+            /**
+             * Sample
+             * @description A sample, by ID or HRID: the files it holds, and those a run that read it read or made (ADR 0177).
+             */
+            sample?: string | null;
+            /**
+             * Sort
+             * @description newest or oldest added, name (A to Z) or name_desc, or by when acquired: acquired (latest first) or acquired_oldest, unknown last either way.
+             * @default newest
+             * @enum {string}
+             */
+            sort: "newest" | "oldest" | "name" | "name_desc" | "acquired" | "acquired_oldest";
         };
         /** FileFormatOut */
         FileFormatOut: {
@@ -7613,8 +7888,31 @@ export interface components {
              */
             media_type: string;
         };
+        /** FileOriginOut */
+        FileOriginOut: {
+            /**
+             * Kind
+             * @description How it was added: uploaded, uploaded by a run's worker for its results, registered where it already was, or imported with a bundle from another deployment.
+             * @enum {string}
+             */
+            kind: "upload" | "run" | "registration" | "import";
+            /** @description The run that made it, if you can read the run. */
+            run: components["schemas"]["RunRef"] | null;
+            /**
+             * Uri
+             * @description Where a registered file is, such as s3://lab/x.csv.
+             */
+            uri: string | null;
+            /**
+             * Version
+             * @description The object version a registered file is pinned to.
+             */
+            version: string | null;
+        };
         /** FileOut */
         FileOut: {
+            /** @description When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added. */
+            acquired: components["schemas"]["AcquiredOut"] | null;
             /** @description The agent that added it, acting for created_by, if one did (ADR 0072). */
             agent: components["schemas"]["AgentOut"] | null;
             /**
@@ -7647,6 +7945,16 @@ export interface components {
              */
             size: number;
         };
+        /** FilePageOut */
+        FilePageOut: {
+            /** Items */
+            items: components["schemas"]["FileRowOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** FileRef */
         FileRef: {
             /** Media Type */
@@ -7658,6 +7966,43 @@ export interface components {
              * @description Bytes.
              */
             size: number;
+        };
+        /** FileRowOut */
+        FileRowOut: {
+            /** @description When its data was acquired (ADR 0177): as its format records it, or as whoever added it said. Null if neither says: never when it was added. */
+            acquired: components["schemas"]["AcquiredOut"] | null;
+            /** @description The agent that added it, acting for created_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * External
+             * @description Registered where it already was, rather than uploaded.
+             */
+            external: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** @description Where it was added. Null if you can't see it. */
+            project: components["schemas"]["ProjectRef"] | null;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            used_by: components["schemas"]["UsedByCountOut"];
         };
         /** FiredEntityOut */
         FiredEntityOut: {
@@ -7748,6 +8093,13 @@ export interface components {
              * @description The trigger's qualified name.
              */
             trigger: string;
+        };
+        /** FormatOut */
+        FormatOut: {
+            /** Count */
+            count: number;
+            /** Media Type */
+            media_type: string;
         };
         /** FreezeIn */
         FreezeIn: {
@@ -8287,6 +8639,30 @@ export interface components {
              * @description The lab roles (ADR 0116) whose holders review a record it holds.
              */
             reviewed_by: string[];
+        };
+        /** HoldingRecordOut */
+        HoldingRecordOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Revision
+             * @description The record's latest revision.
+             */
+            revision: number;
+            /**
+             * Spans
+             * @description Its revisions that held the file.
+             */
+            spans: components["schemas"]["SpanOut"][];
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
         };
         /** ImportCounts */
         ImportCounts: {
@@ -8960,13 +9336,13 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field.
+             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role. state: a state field (ADR 0125), some of whose states someone with the role sets. signature: an electronic signature setting one of a state field's states needs (ADR 0126), which someone with the role gives; `name` is the state field. draw: a purpose for which the role permits taking material (ADR 0139).
              * @enum {string}
              */
-            kind: "approval" | "field" | "state" | "signature";
+            kind: "approval" | "field" | "state" | "signature" | "draw";
             /**
              * Name
-             * @description The step or field.
+             * @description The step, field or draw purpose.
              */
             name: string;
             /**
@@ -9266,6 +9642,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Draw Refusals
+             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             */
+            draw_refusals?: {
+                [key: string]: string;
+            };
             /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
             entry?: components["schemas"]["EntryRefOut"] | null;
             /**
@@ -9399,6 +9782,8 @@ export interface components {
              * @description One per request: a transfer's two movements, and a split's and its aliquots', share it.
              */
             operation: string;
+            /** @description The purpose recorded for a draw. */
+            purpose: components["schemas"]["DrawPurpose"] | null;
             /** Reason */
             reason: string;
             /** Unit */
@@ -9863,20 +10248,20 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[FileOut] */
-        Page_FileOut_: {
+        /** Page[FiringOut] */
+        Page_FiringOut_: {
             /** Items */
-            items: components["schemas"]["FileOut"][];
+            items: components["schemas"]["FiringOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
              */
             next_cursor: string | null;
         };
-        /** Page[FiringOut] */
-        Page_FiringOut_: {
+        /** Page[HoldingRecordOut] */
+        Page_HoldingRecordOut_: {
             /** Items */
-            items: components["schemas"]["FiringOut"][];
+            items: components["schemas"]["HoldingRecordOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -10097,6 +10482,16 @@ export interface components {
         Page_UserOut_: {
             /** Items */
             items: components["schemas"]["UserOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[UsingRunOut] */
+        Page_UsingRunOut_: {
+            /** Items */
+            items: components["schemas"]["UsingRunOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -11211,6 +11606,12 @@ export interface components {
         };
         /** RegistrationIn */
         RegistrationIn: {
+            /**
+             * Acquired At
+             * @description When its data was acquired, if you know, as for an upload (ADR 0177).
+             * @default
+             */
+            acquired_at: string;
             /**
              * Media Type
              * @description Such as text/csv; the object's own if empty.
@@ -12592,6 +12993,26 @@ export interface components {
             /** @description The workflow run it's a step of, if any (ADR 0079). */
             workflow: components["schemas"]["WorkflowStepRefOut"] | null;
         };
+        /** RunRef */
+        RunRef: {
+            /**
+             * Action
+             * @description Its action, qualified.
+             */
+            action: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Label
+             * @description Its action's label.
+             */
+            label: string;
+        };
         /** RunRefOut */
         RunRefOut: {
             /** Action */
@@ -12621,6 +13042,22 @@ export interface components {
              */
             id: string;
             project: components["schemas"]["ScopeOut"];
+        };
+        /** SampleOut */
+        SampleOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+            /** @description The run it came through: one that read the sample and read or made the file. Null when the sample holds the file itself. */
+            via_run: components["schemas"]["RunRef"] | null;
         };
         /** SavedMappingIn */
         SavedMappingIn: {
@@ -12873,7 +13310,7 @@ export interface components {
             recent: components["schemas"]["SearchResultOut"][];
             /**
              * Searched Records
-             * @description Whether records, requests and runs were searched: text needs three characters, or the start of an HRID.
+             * @description Whether records, requests, runs and files were searched: text needs three characters, or the start of an HRID.
              */
             searched_records: boolean;
         };
@@ -12883,7 +13320,7 @@ export interface components {
              * Kind
              * @description Only this kind, with more of it.
              */
-            kind?: ("entities" | "requests" | "runs" | "projects" | "saved_views" | "people") | null;
+            kind?: ("entities" | "requests" | "runs" | "files" | "projects" | "saved_views" | "people") | null;
             /**
              * Limit
              * @description Results per kind: 5 by default, 20 for one `kind`.
@@ -12909,7 +13346,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "entities" | "requests" | "runs" | "projects" | "saved_views" | "people";
+            kind: "entities" | "requests" | "runs" | "files" | "projects" | "saved_views" | "people";
             /** Label */
             label: string;
             /**
@@ -12998,7 +13435,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "entity" | "request" | "run" | "project" | "saved_view" | "person";
+            kind: "entity" | "request" | "run" | "file" | "project" | "saved_view" | "person";
             /**
              * Projects
              * @description The projects it's in that you can read, its owner first, up to three. A person's are the ones you share with them.
@@ -14150,6 +14587,24 @@ export interface components {
              */
             field: string;
         };
+        /** SpanOut */
+        SpanOut: {
+            /**
+             * Fields
+             * @description The fields that held it.
+             */
+            fields: string[];
+            /**
+             * First
+             * @description The first revision that held it.
+             */
+            first: number;
+            /**
+             * Last
+             * @description The last that did; null if the latest still does.
+             */
+            last: number | null;
+        };
         /** SplitIn */
         SplitIn: {
             /**
@@ -15041,6 +15496,12 @@ export interface components {
         /** UploadIn */
         UploadIn: {
             /**
+             * Acquired At
+             * @description When its data was acquired, if you know: a date (2026-03-14) or a date and time (2026-03-14T09:21, with an offset if known), in ISO 8601. Iki keeps the file's own instead when its format records one (ADR 0177).
+             * @default
+             */
+            acquired_at: string;
+            /**
              * Media Type
              * @description Such as chemical/x-pdb.
              */
@@ -15115,6 +15576,19 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** UsedByCountOut */
+        UsedByCountOut: {
+            /**
+             * Records
+             * @description Records you can read that hold it, at any revision.
+             */
+            records: number;
+            /**
+             * Runs
+             * @description Runs you can read that read or made it.
+             */
+            runs: number;
+        };
         /** UserFilters */
         UserFilters: {
             /** Active */
@@ -15169,6 +15643,36 @@ export interface components {
         UserPatch: {
             /** Active */
             active?: boolean | null;
+        };
+        /** UsingRunOut */
+        UsingRunOut: {
+            /** Action */
+            action: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            project: components["schemas"]["ProjectRef"];
+            /**
+             * Roles
+             * @description How it used the file: a file param, an input's file, or made by it.
+             */
+            roles: ("param" | "input" | "made")[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "awaiting_approval" | "queued" | "running" | "parked" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
         /** VersionOut */
         VersionOut: {
@@ -18793,9 +19297,26 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Its files; every one you can read if left out. */
                 project?: string | null;
-                /** @description Newest first, rather than oldest. */
-                newest_first?: boolean;
+                /** @description Part of its name, in any case. */
+                q?: string;
+                /** @description Media types, such as application/x-abi, or image/* for any image. */
+                format?: string[];
+                /** @description Acquired on this day or later. */
+                acquired_from?: string | null;
+                /** @description Acquired on this day or earlier. */
+                acquired_to?: string | null;
+                /** @description A sample, by ID or HRID: the files it holds, and those a run that read it read or made (ADR 0177). */
+                sample?: string | null;
+                /** @description A run, by ID or HRID: the files it read or made. */
+                run?: string | null;
+                /** @description Only files a field or param takes: its media types, as `format`. */
+                accepts?: string[];
+                /** @description Only files this many bytes or fewer. */
+                max_size?: number | null;
+                /** @description newest or oldest added, name (A to Z) or name_desc, or by when acquired: acquired (latest first) or acquired_oldest, unknown last either way. */
+                sort?: "newest" | "oldest" | "name" | "name_desc" | "acquired" | "acquired_oldest";
             };
             header?: never;
             path?: never;
@@ -18809,7 +19330,67 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_FileOut_"];
+                    "application/json": components["schemas"]["FilePageOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_count_files: {
+        parameters: {
+            query?: {
+                project?: string | null;
+                q?: string;
+                acquired_from?: string | null;
+                acquired_to?: string | null;
+                sample?: string | null;
+                run?: string | null;
+                accepts?: string[];
+                max_size?: number | null;
+                format?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileCountOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_file_formats: {
+        parameters: {
+            query?: {
+                project?: string | null;
+                q?: string;
+                acquired_from?: string | null;
+                acquired_to?: string | null;
+                sample?: string | null;
+                run?: string | null;
+                accepts?: string[];
+                max_size?: number | null;
+                format?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormatOut"][];
                 };
             };
         };
@@ -18831,7 +19412,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FileOut"];
+                    "application/json": components["schemas"]["FileDetailOut"];
                 };
             };
         };
@@ -18874,6 +19455,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_file_records: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HoldingRecordOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_file_runs: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_UsingRunOut_"];
                 };
             };
         };
@@ -21147,7 +21782,7 @@ export interface operations {
                 /** @description What to look for. */
                 q?: string;
                 /** @description Only this kind, with more of it. */
-                kind?: ("entities" | "requests" | "runs" | "projects" | "saved_views" | "people") | null;
+                kind?: ("entities" | "requests" | "runs" | "files" | "projects" | "saved_views" | "people") | null;
                 /** @description Results per kind: 5 by default, 20 for one `kind`. */
                 limit?: number | null;
             };

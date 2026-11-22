@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("iki_audit", "0005_via_trigger"),
         ("iki_org", "0005_lab_roles"),
-        ("iki_runs", "0046_action_run_volumes"),
+        ("iki_runs", "0047_run_files"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

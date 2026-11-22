@@ -15,7 +15,8 @@ from typing import Any
 
 import pytest
 
-from iki_spec import schemas
+from iki_spec import rules, schemas
+from iki_spec.model import EntityType
 from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
@@ -105,6 +106,124 @@ def test_the_plugin_is_valid() -> None:
     assert (down.ref, down.target, down.to_values) == ("instrument", "service", ("out_of_service",))
     assert down.tell_fields == ("booked_by",)
     assert down.where == {"field": "ends_at", "op": "gte", "value": "{{ now }}"}
+
+
+@pytest.fixture(scope="module")
+def analysis_result() -> EntityType:
+    loaded = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    assert loaded.problems == []
+    assert loaded.plugin is not None
+    return loaded.plugin.types["iki/example_lims.AnalysisResult"]
+
+
+def allows(
+    result_type: EntityType,
+    current: str,
+    target: str,
+    person: str,
+    values: dict[str, Any],
+    *,
+    reviewed_from: str = "in_review",
+) -> bool:
+    """Evaluate the example's guards with the people who signed the latest transitions."""
+    review = result_type.fields["review"]
+    guards = review.states[target].guards.values()
+    record = rules.record_schema(result_type.label, result_type.fields, None)
+    variables = rules.guard_variables(record, {"review": review}, [], review)
+    history = [{"from": "", "to": "draft", "by": "creator"}]
+    if current != "draft" and reviewed_from == "in_review":
+        history.append({"from": "draft", "to": "in_review", "by": "analyst"})
+    if current in ("reviewed", "released"):
+        history.append({"from": reviewed_from, "to": "reviewed", "by": "reviewer"})
+    if current == "released":
+        history.append({"from": "reviewed", "to": "released", "by": "qa"})
+    context = {
+        "state": {"field": "review", "from": current, "to": target},
+        "record": {**values, "review": current},
+        "actor": {"person": person},
+        "last": {"review": {change["to"]: change for change in history}},
+        "history": {"review": history},
+    }
+    checks = [
+        (f"!({g.when}) || ({g.check})" if g.when else g.check, rules.CONDITION) for g in guards
+    ]
+    (outcomes,) = rules.evaluate(variables, checks, [context])
+    assert all(o.error is None or o.empty for o in outcomes), outcomes
+    return all(o.value for o in outcomes)
+
+
+@pytest.mark.parametrize(
+    ("analysis", "measurement"),
+    [
+        ("sec_purity", "purity"),
+        ("intact_mass", "measured_mass"),
+        ("peptide_map", "peptide_coverage"),
+        ("endotoxin", "endotoxin"),
+    ],
+)
+def test_submitting_an_analysis_requires_its_own_measurement(
+    analysis_result: EntityType, analysis: str, measurement: str
+) -> None:
+    complete = {"analysis": analysis, "sample": "sample-id", "result": "fail", measurement: 0.0}
+    assert allows(analysis_result, "draft", "in_review", "analyst", complete)
+    for missing in ("sample", "result"):
+        incomplete = {**complete, missing: None}
+        assert not allows(analysis_result, "draft", "in_review", "analyst", incomplete), missing
+    # A different assay's measurement cannot stand in for the one ordered.
+    wrong = {"purity": 99.0, "measured_mass": 24000.0, "peptide_coverage": 97.0, "endotoxin": 0.2}
+    assert not allows(
+        analysis_result, "draft", "in_review", "analyst", {**complete, **wrong, measurement: None}
+    )
+
+
+def test_qa_cannot_release_an_unreviewed_analysis(analysis_result: EntityType) -> None:
+    for state in ("draft", "in_review"):
+        assert not allows(analysis_result, state, "released", "qa", {})
+
+
+@pytest.mark.parametrize("person", ["creator", "analyst"])
+def test_qa_cannot_release_a_result_they_created_or_submitted(
+    analysis_result: EntityType, person: str
+) -> None:
+    values = {"analysis": "sec_purity", "sample": "sample-id", "result": "pass", "purity": 99.0}
+    assert not allows(analysis_result, "reviewed", "released", person, values)
+
+
+def test_an_older_unsigned_review_needs_fresh_review(analysis_result: EntityType) -> None:
+    values = {"analysis": "sec_purity", "sample": "sample-id", "result": "pass", "purity": 99.0}
+    assert allows(analysis_result, "reviewed", "draft", "analyst", values, reviewed_from="draft")
+    assert not allows(analysis_result, "reviewed", "released", "qa", values, reviewed_from="draft")
+
+
+def test_an_analysis_requires_independent_review_and_signed_release(
+    analysis_result: EntityType,
+) -> None:
+    review = analysis_result.fields["review"]
+    states = review.states
+    assert review.initial == "draft"
+    assert not states["draft"].locks
+    assert states["reviewed"].locks
+    assert states["draft"].reason == "required"
+    for state, role, meaning in [
+        ("in_review", "analyst", "authorship"),
+        ("reviewed", "reviewer", "review"),
+        ("released", "qa", "approval"),
+    ]:
+        assert states[state].locks
+        assert states[state].set_by == (f"iki/example_lims.{role}",)
+        assert [s.meaning for s in states[state].signatures] == [meaning]
+    values = {"analysis": "sec_purity", "sample": "sample-id", "result": "fail", "purity": 90.0}
+    assert not allows(analysis_result, "draft", "reviewed", "reviewer", values)
+    assert not allows(analysis_result, "in_review", "reviewed", "analyst", values)
+    assert not allows(analysis_result, "in_review", "reviewed", "creator", values)
+    assert allows(analysis_result, "in_review", "reviewed", "reviewer", values)
+    assert not allows(analysis_result, "reviewed", "released", "reviewer", values)
+    assert allows(analysis_result, "reviewed", "released", "qa", values)
+    # Returning it for correction requires a fresh submission and review before QA can sign.
+    for state in ("in_review", "reviewed"):
+        assert allows(analysis_result, state, "draft", "analyst", values)
+    for state, person in [("draft", "analyst"), ("in_review", "analyst"), ("reviewed", "reviewer")]:
+        assert not allows(analysis_result, "released", state, person, values)
 
 
 class FakeLims:

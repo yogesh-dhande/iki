@@ -728,6 +728,8 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     world: World,
 ) -> None:
     """ADR 0139: an agent's draws and splits are in the ledger, by the person, through it."""
+    from test_lab_roles import give, membership
+
     token = await token_for(world)
     made = data(
         await tool(
@@ -741,9 +743,20 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     )
     assert made["amount"]["value"] == "100"
     ref = made["hrid"]
-    drawn = data(
-        await tool(token, "draw_amount", ref=ref, amount={"value": 10, "unit": "uL"}, reason="SEC")
-    )
+    sampling = {
+        "ref": ref,
+        "amount": {"value": 10, "unit": "uL"},
+        "purpose": "qa_sampling",
+        "reason": "SEC",
+    }
+    refused = error(await tool(token, "draw_amount", **sampling))
+    assert "(403" in refused and "qa" in refused.lower()
+
+    def authorize() -> None:
+        assert give(world, membership(world, "editor"), "acme/protein.qa").status_code == 200
+
+    await sync_to_async(authorize)()
+    drawn = data(await tool(token, "draw_amount", **sampling))
     assert drawn["amount"]["value"] == "90"
     split = data(
         await tool(
@@ -768,6 +781,7 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
         ("recorded", "100"),
     ]
     assert {m["via"] for m in ledger} == {"mcp"}
+    assert ledger[1]["purpose"] == "qa_sampling"
     assert ledger[1]["user"]["email"] == world.users["editor"].email
     assert ledger[1]["agent"] is not None
 

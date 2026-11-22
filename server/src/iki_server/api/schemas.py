@@ -403,17 +403,18 @@ class LabRolesIn(Schema):
 
 
 class LabRoleUseOut(Schema):
-    kind: Literal["approval", "field", "state", "signature"] = Field(
+    kind: Literal["approval", "field", "state", "signature", "draw"] = Field(
         description=(
             "approval: a workflow step's, which someone with the role approves. field: a "
             "type's field naming people, who must hold the role. state: a state field "
             "(ADR 0125), some of whose states someone with the role sets. signature: an "
             "electronic signature setting one of a state field's states needs (ADR 0126), "
-            "which someone with the role gives; `name` is the state field."
+            "which someone with the role gives; `name` is the state field. draw: a purpose "
+            "for which the role permits taking material (ADR 0139)."
         )
     )
     owner: str = Field(description="The workflow or type it's in, by name.")
-    name: str = Field(description="The step or field.")
+    name: str = Field(description="The step, field or draw purpose.")
     description: str = Field(
         description="What it lets them do: approve “Weigh” in Review, set Status to Approved "
         "or Released on samples, …"

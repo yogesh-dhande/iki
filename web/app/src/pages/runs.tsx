@@ -1700,6 +1700,12 @@ export function RunPage() {
             );
           })}
         </dl>
+        {/* The files it was given and made, in the list that finds files (ADR 0177). */}
+        <p className="run-files-link">
+          <Link to="/files/" search={{ run: run.hrid }}>
+            Files it read or made
+          </Link>
+        </p>
       </section>
 
       <section className="card" aria-labelledby="details-title">

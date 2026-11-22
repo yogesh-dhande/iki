@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         BudgetOut,
         CostSummaryOut,
         CreatedOut,
+        DrawPurpose,
         EntityOut,
         EntityTypeOut,
         EntryOut,
@@ -678,12 +679,22 @@ class Entities(_Part):
         path = _path("/entities/{ref}/amount/movements", ref=ref)
         return Results(lambda c: client.request("GET", path, params={"cursor": c}))
 
-    def draw(self, ref: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
-        """Draws some of it: ``iki.entities.draw("SMP-000003", (12.5, "uL"))``. In its
-        unit, one that converts to it, or, for a type with a concentration, a mass of a
-        volume (or a volume of a mass). Refused if it hasn't that much, or a state holds
-        it; two drawing at once take turns."""
-        return self._move(ref, "draw", {"amount": _quantity(amount), "reason": reason})
+    def draw(
+        self,
+        ref: str,
+        amount: Quantity,
+        *,
+        purpose: DrawPurpose = "routine",
+        reason: str = "",
+    ) -> AmountMovedOut:
+        """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
+        QA sampling requires a role the type designates in the source record's project.
+        Give the amount in its own unit or one that converts to it. A recorded
+        concentration also permits a mass to be drawn by volume or vice versa.
+        The server checks the record is eligible for this purpose and has enough left."""
+        return self._move(
+            ref, "draw", {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
+        )
 
     def transfer(self, ref: str, to: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
         """Moves some of it to the record ``to`` (an ID or HRID): pooled, or topped up."""
@@ -1556,6 +1567,7 @@ class Files(_Part):
         project: str | Mapping[str, Any],
         name: str | None = None,
         media_type: str | None = None,
+        acquired: date | str | None = None,
         timeout: float | None = None,
         poll: float = 2.0,
     ) -> FileOut:
@@ -1564,12 +1576,23 @@ class Files(_Part):
         A stream is read from its current position, which is restored if it can seek.
         Give an unnamed stream a ``name``.
         The media type defaults to a guess from the filename, then application/octet-stream.
+        ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
+        as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
+        it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
         ``timeout`` limits the wait for Iki to check the upload, in seconds.
         """
         from iki._uploads import upload
 
+        given = acquired.isoformat() if isinstance(acquired, date) else (acquired or "")
         return upload(
-            self._client, source, self._client._project_id(project), name, media_type, timeout, poll
+            self._client,
+            source,
+            self._client._project_id(project),
+            name,
+            media_type,
+            timeout,
+            poll,
+            given,
         )
 
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:

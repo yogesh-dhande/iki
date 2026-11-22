@@ -10,9 +10,22 @@ import { useId, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
-import { Button, ConfirmDialog, Loading, ProblemAlert, TextField, Time, useMessages } from "../ui";
+import {
+  Button,
+  ConfirmDialog,
+  Loading,
+  ProblemAlert,
+  SelectField,
+  TextField,
+  Time,
+  useMessages,
+} from "../ui";
 
 type Movement = Schemas["MovementOut"];
+const DRAW_PURPOSES = [
+  { value: "routine", label: "Routine use" },
+  { value: "qa_sampling", label: "QA sampling" },
+] as const;
 type Doing = "draw" | "transfer" | "split" | "adjust";
 interface Done {
   moved: Schemas["AmountMovedOut"];
@@ -69,7 +82,9 @@ export function EntityAmount({
         String(entity.values[holder.name])
       }, so none of it can be drawn, transferred or split off until that changes.`
     : null;
-  const editing = entity.can.edit && !entity.archived;
+  const editing = entity.can.edit_amount && !entity.archived;
+  const canDraw = !!entity.can.draw_purposes?.length;
+  const routineRefusal = entity.draw_refusals?.["routine"];
   const taking = editing && amount != null && !held;
   const why = `${id}-held`;
   return (
@@ -89,9 +104,19 @@ export function EntityAmount({
           <span className="muted">None recorded.</span>
         )}
       </p>
+      {routineRefusal ? (
+        <div className="alert alert-warning" role="note">
+          <p>{routineRefusal}</p>
+        </div>
+      ) : null}
       {held ? (
         <p className="muted" id={why}>
           {held}
+        </p>
+      ) : null}
+      {editing && !canDraw ? (
+        <p className="muted" id={`${id}-no-purpose`}>
+          You don’t have permission to draw from this record.
         </p>
       ) : null}
       {editing ? (
@@ -99,8 +124,10 @@ export function EntityAmount({
           {(["draw", "transfer", "split"] as const).map((what) => (
             <Button
               key={what}
-              disabled={!taking}
-              {...(held ? { describedBy: why } : {})}
+              disabled={!taking || (what === "draw" && !canDraw)}
+              describedBy={
+                held ? why : what === "draw" && !canDraw ? `${id}-no-purpose` : undefined
+              }
               onClick={() => {
                 setDoing(what);
               }}
@@ -160,6 +187,10 @@ function AmountDialog({
   const [to, setTo] = useState("");
   const [count, setCount] = useState("2");
   const [reason, setReason] = useState("");
+  const purposes = DRAW_PURPOSES.filter((p) => entity.can.draw_purposes?.includes(p.value));
+  const [purpose, setPurpose] = useState<Schemas["DrawPurpose"]>(purposes[0]?.value ?? "routine");
+  const purposeAllowed = purposes.some((p) => p.value === purpose);
+  const refusal = doing === "draw" && purposeAllowed ? entity.draw_refusals?.[purpose] : undefined;
   const own = ownFields(aliquotType, kept);
   const [names, setNames] = useState<Record<string, string>>({});
   const { say } = useMessages();
@@ -178,7 +209,7 @@ function AmountDialog({
           moved: unwrap(
             await iki.POST("/api/v1/entities/{ref}/amount/draw", {
               params: { path: { ref } },
-              body: { amount: quantity, reason: reason.trim() },
+              body: { amount: quantity, purpose, reason: reason.trim() },
             }),
           ),
           aliquots: [],
@@ -224,7 +255,12 @@ function AmountDialog({
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
   const shownProblem =
-    problem && !amountError && !errors["reason"] && !errors["to"] && !errors["count"]
+    problem &&
+    !amountError &&
+    !errors["purpose"] &&
+    !errors["reason"] &&
+    !errors["to"] &&
+    !errors["count"]
       ? problem
       : undefined;
   const titles: Record<Doing, string> = {
@@ -247,11 +283,17 @@ function AmountDialog({
       title={titles[doing]}
       confirmLabel={confirm[doing]}
       confirmVariant="primary"
+      confirmDisabled={doing === "draw" && (!purposeAllowed || !!refusal)}
       busy={move.isPending}
       problem={shownProblem}
       onCancel={onClose}
       onConfirm={() => {
         move.mutate(undefined, {
+          onError: (error) => {
+            if (doing === "draw" && error.status === 403) {
+              void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
+            }
+          },
           onSuccess: ({ moved, aliquots }) => {
             onClose();
             const left = `${moved.amount.value} ${moved.amount.unit}`;
@@ -270,6 +312,29 @@ function AmountDialog({
           It has {entity.amount.value} {entity.amount.unit}. Each change is kept in its ledger, with
           your name and reason.
         </p>
+      ) : null}
+      {doing === "draw" ? (
+        <SelectField
+          label="Purpose"
+          options={
+            purposeAllowed
+              ? purposes
+              : [
+                  {
+                    value: "",
+                    label: purposes.length ? "Choose a purpose" : "No draw purposes available",
+                  },
+                  ...purposes,
+                ]
+          }
+          value={purposeAllowed ? purpose : ""}
+          onChange={(selected) => {
+            if (selected) setPurpose(selected);
+            if (move.isError) move.reset();
+          }}
+          error={errors["purpose"]}
+          {...(refusal ? { help: refusal } : {})}
+        />
       ) : null}
       {doing === "transfer" ? (
         <TextField
@@ -372,6 +437,11 @@ function Ledger({ entity, label }: { entity: Entity; label: string }) {
                     </td>
                     <td>
                       {KINDS[m.kind]}
+                      {m.purpose ? (
+                        <span className="cell-meta">
+                          {DRAW_PURPOSES.find((p) => p.value === m.purpose)?.label}
+                        </span>
+                      ) : null}
                       {other ? (
                         <>
                           {" "}

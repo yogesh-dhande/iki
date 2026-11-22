@@ -17,7 +17,7 @@ import { whileWorking } from "../activity";
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize } from "../entities";
 import { required, useForm } from "../forms";
-import { UploadStatus } from "../entity-inputs";
+import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
 import {
   Badge,

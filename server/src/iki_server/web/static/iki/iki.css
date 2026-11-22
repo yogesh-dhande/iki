@@ -6892,3 +6892,216 @@ input[type="file"]::file-selector-button {
   align-items: center;
   gap: 0.5rem 1rem;
 }
+
+/* --- Files (ADR 0177) --------------------------------------------------------------- */
+
+/* A list of files: a project's Files tab, the Files list, and the file picker. Filters
+   past the toolbar's open beneath it: when its data was acquired, sample and run. */
+.file-filter-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: calc(18rem / 13);
+  height: calc(18rem / 13);
+  padding: 0 calc(5rem / 13);
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 calc(12rem / 13);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.file-filters .field {
+  margin: 0;
+}
+
+.file-filter-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.file-filter-dates label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 500;
+}
+
+.file-filter-dates input {
+  height: var(--control-height);
+  padding: 0 0.5rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.file-filter-sample {
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 22rem;
+}
+
+.file-filter-none {
+  margin: 0;
+}
+
+/* A filter is never required, so it doesn't say it's optional as a form's field does. */
+.file-filter-sample .optional {
+  display: none;
+}
+
+.file-filter-run {
+  flex: 0 1 12rem;
+}
+
+.file-filter-run input {
+  font-family: var(--mono);
+}
+
+.file-filters > .button {
+  align-self: flex-end;
+}
+
+.file-rows .file-choose {
+  width: 1%;
+  padding-right: 0;
+}
+
+.file-rows .file-choose input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.file-rows label.file-name {
+  cursor: pointer;
+}
+
+.file-rows tbody tr:has(.file-choose input:not(:disabled)) {
+  cursor: pointer;
+}
+
+.file-rows tr.file-row-chosen td {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+/* The picker: wider than a confirmation, and its list scrolls within it. */
+.dialog.file-picker {
+  max-width: min(64rem, 100%);
+}
+
+.file-picker .file-table {
+  min-height: 12rem;
+}
+
+.file-picker .list-table-box {
+  max-height: min(28rem, 55dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.file-picker .list-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.file-picker-rules:empty {
+  display: none;
+}
+
+/* A file field's chosen file: its name, its size, and Remove. */
+.file-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  grid-column: 1 / -1;
+  margin: 0.5rem 0 0;
+  padding: 0.35rem 0.5rem 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.file-chosen-name {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.file-chosen .button {
+  margin-left: auto;
+}
+
+/* A file's page. */
+.file-facts dd {
+  overflow-wrap: anywhere;
+}
+
+.file-uri {
+  overflow-wrap: anywhere;
+}
+
+.file-samples {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-used-by {
+  margin-top: 1.5rem;
+}
+
+.file-used-heading {
+  margin: 1.25rem 0 0.5rem;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .file-rows tr.file-row-chosen td {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+
+/* A run's link to its files, under its inputs. */
+.run-files-link {
+  margin: 0.5rem 0 0;
+}
+
+/* Files from this computer, before and while they're sent, and when they were acquired. */
+.file-upload-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(16rem, 40dvh);
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.file-upload-name {
+  font-weight: 500;
+}
+
+.file-acquired-input {
+  width: auto;
+  max-width: 100%;
+}

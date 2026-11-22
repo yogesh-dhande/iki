@@ -41,6 +41,8 @@ import { validateCostsSearch } from "./costs-search";
 import { validateWorkersSearch } from "./compute";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
+import { fileQuery, validateFileSearch } from "./files";
+import { AllFiles, FilePage, ProjectFiles } from "./pages/files";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
 import { AppDraft } from "./pages/app-draft";
@@ -319,6 +321,14 @@ const projectRunsRoute = createRoute({
       ? { status: search["status"] as RunStatus }
       : {},
   component: ProjectRuns,
+});
+
+const projectFilesRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "files",
+  // ?q=, ?format=, ?acquired_from=, ?acquired_to=, ?sample=, ?run=, ?sort= (ADR 0177).
+  validateSearch: validateFileSearch,
+  component: ProjectFiles,
 });
 
 const projectRunNewRoute = createRoute({
@@ -627,6 +637,24 @@ const entryRoute = createRoute({
   component: EntryPage,
 });
 
+const filesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "files",
+  // As a project's Files, and ?project=atlas.
+  validateSearch: validateFileSearch,
+  loader: ({ context }) => context.queryClient.query(projectsQuery),
+  component: AllFiles,
+});
+
+const fileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "files/$id",
+  // The page says why if it can't be read.
+  loader: ({ context, params }) =>
+    context.queryClient.query(fileQuery(params.id)).catch(() => undefined),
+  component: FilePage,
+});
+
 const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "runs/$ref",
@@ -700,6 +728,7 @@ const routeTree = rootRoute.addChildren([
       projectSheetImportPageRoute,
       projectRunsRoute,
       projectRunNewRoute,
+      projectFilesRoute,
       projectAutomationRoute.addChildren([
         projectAutomationIndexRoute,
         projectWorkflowsRoute,
@@ -728,6 +757,8 @@ const routeTree = rootRoute.addChildren([
   ]),
   requestsRoute,
   runsRoute,
+  filesRoute,
+  fileRoute,
   registryEntriesRoute,
   entryRoute,
   runRoute,

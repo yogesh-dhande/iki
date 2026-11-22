@@ -1806,6 +1806,44 @@ class RunUpload(models.Model):
         return f"{self.run_id} {self.upload_id}"
 
 
+class RunFileRole(models.TextChoices):
+    #: One of its file params, or among a list of them.
+    PARAM = "param", "A file param"
+    #: Held by one of its inputs, or a reference they include, at the revision it read.
+    INPUT = "input", "An input's file"
+    #: Uploaded by its worker for its results.
+    MADE = "made", "Made by it"
+
+
+class RunFile(models.Model):
+    """A file a run read or made (ADR 0177): given as a param, held by its inputs when it
+    was launched, or uploaded by its worker. So a file lists the runs that used it, and a
+    project's Files are found by run."""
+
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey("run", "file", "role")
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="files")
+    file = models.ForeignKey("iki_files.File", on_delete=models.PROTECT, related_name="+")
+    role = models.CharField(max_length=8, choices=RunFileRole.choices)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_run_file"
+        db_table_comment = "The files each run read (its params and inputs') and made."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["file", "run"], name="iki_run_file_by_file"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(role__in=RunFileRole.values), name="iki_run_file_role"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} {self.role} {self.file_id}"
+
+
 class ImportPhase(models.TextChoices):
     #: Reading the file, checking each line and staging it.
     CHECKING = "checking", "Checking"

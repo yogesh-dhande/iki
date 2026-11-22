@@ -112,6 +112,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   description: "A protein sequence.",
   extends: null,
   abstract: false,
+  sample: false,
   detached: false,
   subtypes: [],
   hrid_prefix: "PRT",
@@ -234,7 +235,7 @@ export function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["
     values,
     refs: {},
     files: {},
-    can: { edit: true, states: {}, sign: [] },
+    can: { edit: true, edit_amount: false, states: {}, sign: [] },
     ...overrides,
   };
 }

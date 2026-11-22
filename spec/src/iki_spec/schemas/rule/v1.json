@@ -120,7 +120,7 @@
       "description": "One rule: exactly one of `check`, `unique` and `no_overlap`."
     },
     "guards": {
-      "description": "Conditions on setting the field to this state, by name, besides `set_by`: each must be true, or the change is refused with its message. They read who's acting (`actor`), the record (`record`, with every state field), the change (`state`), each state field's changes (`history`, and `last`, the latest change to each state) and its holds (`holds`). Which state may follow which, and four eyes, are guards.",
+      "description": "Named conditions on an operation. Each must pass or the operation is refused with its message.",
       "type": "object",
       "maxProperties": 20,
       "propertyNames": {
@@ -139,7 +139,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
         },
         "check": {
-          "description": "CEL that must be true for the state to be set. One that can't be worked out refuses the change.",
+          "description": "CEL that must be true for the operation to proceed. One that can't be worked out refuses the change.",
           "$ref": "#/$defs/expression"
         },
         "when": {

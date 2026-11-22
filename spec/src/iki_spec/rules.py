@@ -41,6 +41,7 @@ __all__ = [
     "Checked",
     "Outcome",
     "check",
+    "draw_variables",
     "evaluate",
     "guard_variables",
     "read",
@@ -115,10 +116,12 @@ def field_schema(f: Field, refs: RefFields | None) -> dict[str, Any]:
         assert f.items is not None  # noqa: S101 - lists always have items
         return {"type": "list", "items": field_schema(f.items, refs)}
     if f.type == "ref":
+        if refs is None:
+            return dict(_STRING)
         if len(f.to) > 1:
             # A reference to one of several types (ADR 0136): what every one of them has.
             return record_schema(f"{f.label} ({', '.join(f.to)})", {}, None)
-        target = refs(f.to[0]) if refs is not None and f.to else None
+        target = refs(f.to[0]) if f.to else None
         if target is None:
             return dict(_STRING)
         label, fields = target
@@ -140,6 +143,16 @@ def record_schema(
 def rule_variables(record: dict[str, Any]) -> dict[str, Any]:
     """What a rule's expressions read: the record as it will be saved, and the time."""
     return {"record": record, "now": dict(_TIMESTAMP), "today": dict(_TIMESTAMP)}
+
+
+def draw_variables(label: str, fields: Mapping[str, Field]) -> dict[str, Any]:
+    """A draw guard reads the record's own values, clock, operation and purpose.
+    References are IDs. Its refusal may be shown to anyone who can read this record."""
+    return {
+        **rule_variables(record_schema(label, fields, None)),
+        "operation": {"type": "string", "values": ["draw", "transfer", "split"]},
+        "purpose": {"type": "string", "values": ["routine", "qa_sampling"]},
+    }
 
 
 def _agent() -> dict[str, Any]:
@@ -444,8 +457,20 @@ class _Rules:
         changed = dict(entity_type.fields)
         for name, f in entity_type.fields.items():
             if f.type == "state" and any(st.guards for st in f.states.values()):
-                changed[name] = self.guards(entity_type, f, source, ("fields", name))
-        return replace(entity_type, rules=rules, fields=changed)
+                states = {n: x for n, x in fields.items() if x.type == "state"}
+                variables = guard_variables(self.record(entity_type), states, self.roles(), f)
+                checked_states = {}
+                for state_name, state in f.states.items():
+                    path: Path = ("fields", name, "states", state_name, "guards")
+                    checked = self.guards(state.guards, variables, fields, source, path)
+                    checked_states[state_name] = replace(state, guards=checked)
+                changed[name] = replace(f, states=checked_states)
+        draw = entity_type.draw_guards
+        if draw:
+            draw = self.guards(
+                draw, draw_variables(entity_type.label, fields), fields, source, ("draw_guards",)
+            )
+        return replace(entity_type, rules=rules, fields=changed, draw_guards=draw)
 
     def extension(self, extension: Extension, source: Document) -> Extension:
         target = self.s.types.get(extension.extends_type)
@@ -732,28 +757,26 @@ class _Rules:
 
     # Guards.
 
-    def guards(self, entity_type: EntityType, f: Field, source: Document, path: Path) -> Field:
-        fields = self.fields_of(entity_type)
-        states = {n: x for n, x in fields.items() if x.type == "state"}
-        variables = guard_variables(self.record(entity_type), states, self.roles(), f)
-        asked: list[tuple[tuple[str, str], str, str, Path]] = []
-        for state in f.states.values():
-            for name, guard in state.guards.items():
-                at: Path = (*path, "states", state.name, "guards", name)
-                key = (state.name, name)
-                asked.append((key, guard.check, CONDITION, (*at, "check")))
-                if guard.when is not None:
-                    asked.append((key, guard.when, CONDITION, (*at, "when")))
-                asked.append((key, guard.message, MESSAGE, (*at, "message")))
+    def guards(
+        self,
+        guards: Mapping[str, Guard],
+        variables: Mapping[str, Any],
+        fields: Mapping[str, Field],
+        source: Document,
+        path: Path,
+    ) -> dict[str, Guard]:
+        asked: list[tuple[str, str, str, Path]] = []
+        for name, guard in guards.items():
+            at: Path = (*path, name)
+            asked.append((name, guard.check, CONDITION, (*at, "check")))
+            if guard.when is not None:
+                asked.append((name, guard.when, CONDITION, (*at, "when")))
+            asked.append((name, guard.message, MESSAGE, (*at, "message")))
         found = self.expressions(variables, asked, source)
-        new_states = {}
-        for state_name, state in f.states.items():
-            guards: dict[str, Guard] = {}
-            for name, guard in state.guards.items():
-                reads = found.get((state_name, name), ())
-                guards[name] = replace(guard, reads=tuple(sorted(r for r in reads if r in fields)))
-            new_states[state_name] = replace(state, guards=guards)
-        return replace(f, states=new_states)
+        return {
+            name: replace(guard, reads=tuple(r for r in found.get(name, ()) if r in fields))
+            for name, guard in guards.items()
+        }
 
     # Expressions.
 

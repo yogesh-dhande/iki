@@ -1039,6 +1039,7 @@
           }
         },
         "guards": {
+          "description": "Conditions on setting this state. CEL reads the actor, record, proposed state change, history, last change into each state, open holds and signatures.",
           "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
         }
       }

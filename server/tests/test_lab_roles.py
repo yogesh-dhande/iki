@@ -74,6 +74,7 @@ def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
         ("signature", "status", "sign “Responsibility” to set Status to Released on lots"),
         ("state", "status", "set Status to In testing or Released on samples"),
         ("state", "custody", "set Custody to In the lab, Quarantined or Disposed on samples"),
+        ("draw", "qa_sampling", "record draws from samples as “QA sampling”"),
     ]
     assert {u["owner"] for u in qa["uses"][1:]} == {
         "acme/protein.AssayRequest",

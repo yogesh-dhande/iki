@@ -170,6 +170,11 @@ export function ProjectTabs() {
             Runs
           </Link>
         ) : null}
+        {project.can.read ? (
+          <Link to="/projects/$slug/files/" params={{ slug: project.slug }} activeProps={tab}>
+            Files
+          </Link>
+        ) : null}
         {/* It opens the first of its three the reader may see, and is current on any. */}
         {project.can.read || project.can.manage_webhooks ? (
           <Link to="/projects/$slug/automation/" params={{ slug: project.slug }} activeProps={tab}>

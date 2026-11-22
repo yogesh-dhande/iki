@@ -114,6 +114,18 @@ data:
           "credentials": [
             { "type": "password", "value": "${IKI_DEV_USER_PASSWORD}", "temporary": false }
           ]
+        },
+        {
+          "id": "020bd086-f361-4657-b753-98ae88716582",
+          "username": "carol",
+          "email": "carol@iki.test",
+          "firstName": "Carol",
+          "lastName": "Quality",
+          "emailVerified": true,
+          "enabled": true,
+          "credentials": [
+            { "type": "password", "value": "${IKI_DEV_USER_PASSWORD}", "temporary": false }
+          ]
         }
       ]
     }
@@ -135,7 +147,7 @@ spec:
       annotations:
         # Keycloak imports the realm only on start. Bump this when the realm
         # above changes, so applying the manifests restarts Keycloak.
-        iki.dev/realm-revision: "4"
+        iki.dev/realm-revision: "5"
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false

@@ -31,7 +31,6 @@ import { Item, useComboBoxState, type ComboBoxState, type Key, type Node } from 
 import {
   formatSize,
   pickerQuery,
-  projectFilesQuery,
   typeLabel,
   type Entity,
   type EntityType,
@@ -49,6 +48,9 @@ import {
   type Schemaed,
   type QuantityDraft,
 } from "./entity-values";
+import { FilePicker } from "./file-picker";
+import { UploadStatus } from "./file-upload";
+import { FILES } from "./files";
 import { optionLabel } from "./filters";
 import { describeHelm, isProblem, useHelmReading } from "./helm";
 import { media } from "./media";
@@ -1038,16 +1040,13 @@ function FileInput({
   // In a list of files, the rules are its items'.
   const own = propertySchema(type, field.name);
   const schema = own.items ?? own;
-  const files = useQuery(projectFilesQuery(projectId));
   const client = useQueryClient();
   const allowed = schema["x-iki-media-types"] ?? [];
   const maxSize = schema["x-iki-max-size"];
   const [progress, setProgress] = useState<Progress | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const transfer = useRef<AbortController | null>(null);
-  const fits = (files.data ?? []).filter(
-    (f) => media.allowed(f.media_type, allowed) && (maxSize == null || f.size <= maxSize),
-  );
   const inList = itemLabel !== undefined;
   const help = inList
     ? undefined
@@ -1055,7 +1054,7 @@ function FileInput({
   const shownError = problem ?? error;
   const label = itemLabel ?? field.label;
 
-  async function send(file: File) {
+  async function send(file: File, acquiredAt = "") {
     setProblem(null);
     const refused = media.refusal(file, allowed);
     if (refused) {
@@ -1080,9 +1079,10 @@ function FileInput({
         setProgress,
         controller.signal,
         media.of(file, allowed),
+        acquiredAt,
       );
-      onChange({ id: made.id, hrid: "", title: made.name });
-      void client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey });
+      onChange({ id: made.id, hrid: "", title: made.name, size: made.size });
+      void client.invalidateQueries({ queryKey: FILES });
     } catch (failure) {
       onChange(emptyDraft(field));
       if (!controller.signal.aborted) setProblem(uploadError(failure));
@@ -1106,19 +1106,19 @@ function FileInput({
   useEffect(() => {
     if (given && started.current !== given) {
       started.current = given;
-      void send(given);
+      void send(given, picked.acquiredAt);
     }
     // send is this render's; the file is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [given]);
 
-  if (inList && picked && !picked.uploading && picked.id) {
-    const size = files.data?.find((f) => f.id === picked.id)?.size;
+  const chosen = picked && !picked.uploading && picked.id ? picked : null;
+  if (inList && chosen) {
     return (
       <p className="list-input-file">
         <span className="visually-hidden">{label}: </span>
-        {picked.title}
-        {size != null ? <span className="muted"> {formatSize(size)}</span> : null}
+        {chosen.title}
+        {chosen.size != null ? <span className="muted"> {formatSize(chosen.size)}</span> : null}
       </p>
     );
   }
@@ -1143,6 +1143,10 @@ function FileInput({
           {help}
         </p>
       ) : null}
+      {/* Said when a file is chosen, or once its upload is checked. */}
+      <p className="visually-hidden" role="status">
+        {chosen ? `Chosen: ${chosen.title}` : ""}
+      </p>
       {picked?.uploading && progress ? (
         <div className="upload">
           {/* Screen readers hear each step, not every percent. */}
@@ -1179,8 +1183,27 @@ function FileInput({
         </div>
       ) : (
         <div className="file-choice">
+          {chosen ? (
+            <p className="file-chosen">
+              <span className="visually-hidden">Chosen: </span>
+              <span className="file-chosen-name">{chosen.title}</span>
+              {chosen.size != null ? (
+                <span className="muted"> {formatSize(chosen.size)}</span>
+              ) : null}
+              <Button
+                variant="quiet"
+                label={`Remove ${chosen.title}`}
+                onClick={() => {
+                  setProblem(null);
+                  onChange(emptyDraft(field));
+                }}
+              >
+                Remove
+              </Button>
+            </p>
+          ) : null}
           <div className="field-sub">
-            <label htmlFor={`${id}-upload`}>Upload a file</label>
+            <label htmlFor={`${id}-upload`}>{chosen ? "Upload another" : "Upload a file"}</label>
             <input
               id={`${id}-upload`}
               type="file"
@@ -1195,43 +1218,35 @@ function FileInput({
             />
           </div>
           <div className="field-sub">
-            <label htmlFor={`${id}-existing`}>Or one already in the project</label>
-            <select
-              id={`${id}-existing`}
-              value={picked && !picked.uploading ? picked.id : ""}
-              onChange={(event) => {
-                setProblem(null);
-                const chosen = fits.find((f) => f.id === event.target.value);
-                onChange(
-                  chosen ? { id: chosen.id, hrid: "", title: chosen.name } : emptyDraft(field),
-                );
+            <Button
+              onClick={() => {
+                setPicking(true);
               }}
             >
-              <option value="">{files.isPending ? "Loading files…" : "No file"}</option>
-              {picked && !picked.uploading && !fits.some((f) => f.id === picked.id) ? (
-                <option value={picked.id}>{picked.title}</option>
-              ) : null}
-              {fits.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name} ({formatSize(f.size)})
-                </option>
-              ))}
-            </select>
+              {chosen ? "Choose another already here" : "Or choose one already here"}
+            </Button>
           </div>
         </div>
       )}
+      <FilePicker
+        isOpen={picking}
+        onClose={() => {
+          setPicking(false);
+        }}
+        projectId={projectId}
+        label={label}
+        takes={{ accepts: allowed, maxSize }}
+        chosen={chosen ? [chosen.id] : []}
+        onChoose={([file]) => {
+          if (!file) return;
+          setProblem(null);
+          onChange({ id: file.id, hrid: "", title: file.name, size: file.size });
+        }}
+        onUpload={([file], acquiredAt) => {
+          if (file) void send(file, acquiredAt);
+        }}
+      />
     </fieldset>
-  );
-}
-
-export function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
-  if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
-  const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
-  return (
-    <>
-      {progress.phase === "hashing" ? "Reading" : "Uploading"} {name}: {percent}% (
-      {formatSize(progress.done)} of {formatSize(progress.total)})
-    </>
   );
 }
 
@@ -1261,6 +1276,31 @@ function ListInput(props: InputProps) {
   };
   const most = propertySchema(type, field.name).maxItems;
   const [tooMany, setTooMany] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  /** Files chosen from this computer: each item's input uploads its own. */
+  const addFiles = (chosen: File[], acquiredAt = "") => {
+    const room = most == null ? chosen.length : most - latest.current.length;
+    if (chosen.length > room) {
+      setTooMany(
+        `${field.label} takes at most ${String(most)} files: choose ${
+          room > 0 ? `up to ${String(room)} more` : "none more, or remove some"
+        }.`,
+      );
+      return;
+    }
+    setTooMany(null);
+    change([
+      ...latest.current,
+      ...chosen.map((f) => ({
+        id: "",
+        hrid: "",
+        title: f.name,
+        uploading: true,
+        file: f,
+        acquiredAt,
+      })),
+    ]);
+  };
   const shownError = tooMany ?? error;
   const list = useRef<HTMLDivElement>(null);
   const focusItem = (index: number) => {
@@ -1349,32 +1389,47 @@ function ListInput(props: InputProps) {
               onChange={(event) => {
                 const chosen = [...(event.target.files ?? [])];
                 event.target.value = "";
-                if (!chosen.length) return;
-                const room = most == null ? chosen.length : most - latest.current.length;
-                if (chosen.length > room) {
-                  setTooMany(
-                    `${field.label} takes at most ${String(most)} files: choose ${
-                      room > 0 ? `up to ${String(room)} more` : "none more, or remove some"
-                    }.`,
-                  );
-                  return;
-                }
-                setTooMany(null);
-                change([
-                  ...latest.current,
-                  ...chosen.map((f) => ({
-                    id: "",
-                    hrid: "",
-                    title: f.name,
-                    uploading: true,
-                    file: f,
-                  })),
-                ]);
+                if (chosen.length) addFiles(chosen);
               }}
             />
           </div>
         ) : null}
+        {files ? (
+          <Button
+            disabled={disabled ?? false}
+            onClick={() => {
+              setPicking(true);
+            }}
+          >
+            Choose files already here
+          </Button>
+        ) : null}
       </div>
+      {files ? (
+        <FilePicker
+          isOpen={picking}
+          onClose={() => {
+            setPicking(false);
+          }}
+          projectId={props.projectId}
+          label={field.label}
+          takes={{
+            accepts: itemSchema["x-iki-media-types"] ?? [],
+            maxSize: itemSchema["x-iki-max-size"],
+          }}
+          multiple
+          room={most == null ? undefined : Math.max(0, most - items.length)}
+          chosen={items.flatMap((d) => ((d as Picked | null)?.id ? [(d as Picked).id] : []))}
+          onChoose={(picked) => {
+            setTooMany(null);
+            change([
+              ...latest.current,
+              ...picked.map((f) => ({ id: f.id, hrid: "", title: f.name, size: f.size })),
+            ]);
+          }}
+          onUpload={addFiles}
+        />
+      ) : null}
     </fieldset>
   );
 }

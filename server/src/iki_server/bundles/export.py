@@ -579,6 +579,11 @@ def _file(f: File) -> dict[str, Any]:
             if blob.registered_external
             else None
         ),
+        "acquired": (
+            {"on": f.acquired_on.isoformat(), "at": f.acquired_at, "source": f.acquired_from}
+            if f.acquired_on is not None
+            else None
+        ),
     }
 
 

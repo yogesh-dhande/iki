@@ -25,7 +25,7 @@ import { useId, useRef, useState, type ReactNode, type SubmitEvent } from "react
 
 import { fieldErrors, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
-import { UploadStatus } from "../entity-inputs";
+import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
 import {
   changeImport,

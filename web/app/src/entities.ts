@@ -183,19 +183,6 @@ export function pickerQuery(types: readonly string[], q: string) {
   });
 }
 
-/** A project's files, newest first, for choosing one already there. */
-export function projectFilesQuery(projectId: string) {
-  return queryOptions({
-    queryKey: ["files", "project", projectId],
-    queryFn: async () =>
-      unwrap(
-        await iki.GET("/api/v1/files", {
-          params: { query: { project: projectId, limit: 100, newest_first: true } },
-        }),
-      ).items,
-  });
-}
-
 /**
  * By ID or HRID, as in the page's address. A registry entry's records share its HRID
  * (ADR 0115), so `project` (a project's slug) says whose record; without it, an HRID that

@@ -445,7 +445,8 @@ def provisioning(admin: requests.Session) -> None:
     scim = Scim(token.group(1))
     alice_id = scim.user("alice@iki.test")
     scim.user("bob@iki.test")
-    ok("the Org Admin turned on SCIM; bob's and alice's accounts are now provisioned")
+    scim.user("carol@iki.test")
+    ok("the Org Admin turned on SCIM and provisioned all three dev users")
 
     name = f"E2E Chemistry {int(time.time())}"
     group = scim("POST", "/Groups", {"displayName": name, "members": [{"value": alice_id}]})
@@ -1438,31 +1439,32 @@ def lims() -> None:
 
 def signing(
     session: requests.Session,
-    sample: dict[str, Any],
+    entity: dict[str, Any],
     state: str,
     as_user: str,
     *,
+    field: str = "status",
     someone_else: bool = False,
     reason: str = "",
 ) -> Any:  # noqa: ANN401
     """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
     than the session's person, if `someone_else`), and returns what came of it."""
-    etag = api_call(session, "GET", f"/entities/{sample['id']}").headers["ETag"]
+    etag = api_call(session, "GET", f"/entities/{entity['id']}").headers["ETag"]
     started = api_call(
         session,
         "POST",
-        f"/entities/{sample['id']}/signatures",
+        f"/entities/{entity['id']}/signatures",
         {
-            "field": "status",
+            "field": field,
             "state": state,
             "acknowledge": True,
             "reason": reason,
-            "return_to": f"/entities/{sample['hrid']}/",
+            "return_to": f"/entities/{entity['hrid']}/",
         },
         {"If-Match": etag},
     )
     if started.status_code != 201:
-        fail(f"signing {sample['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
+        fail(f"signing {entity['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
     # Keycloak's own session is the signer's, and its form for signing in again keeps
     # their username, whatever is typed: to have someone else really sign in there, set
     # that session aside, as signing out of Keycloak first (or another browser) would.
@@ -1479,7 +1481,7 @@ def signing(
             session.cookies.set_cookie(cookie)
     signing_id = started.json()["id"]
     if f"signing={signing_id}" not in response.url:
-        fail(f"signing in again came back to {response.url}, not the sample's page")
+        fail(f"signing in again came back to {response.url}, not the record's page")
     return api_call(session, "GET", f"/signings/{signing_id}").json()
 
 
@@ -1562,6 +1564,132 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
+    carol = sign_in_as("carol")
+    core = analytical_core(alice, bob, carol, project)
+    analysis_result(alice, bob, carol, project, sample, core)
+
+
+def analytical_core(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    qa: requests.Session,
+    asking: dict[str, Any],
+) -> dict[str, Any]:
+    """Set up the team's analytical core and the people who sign its results."""
+    team = asking["team"]["id"]
+    projects: list[dict[str, Any]] = api_call(
+        analyst, "GET", f"/projects?team={team}&member=true&limit=100"
+    ).json()["items"]
+    name = "Analytical Core"
+    for core in projects:
+        if core["name"] == name:
+            break
+    else:
+        made = api_call(analyst, "POST", "/projects", {"team": team, "name": name})
+        if made.status_code != 201:
+            fail(
+                f"creating the analytical core answered HTTP {made.status_code}: {made.text[:300]}"
+            )
+        core = made.json()
+    path = f"/projects/{core['id']}"
+    for session, role, lab_role in (
+        (analyst, "admin", "analyst"),
+        (reviewer, "editor", "reviewer"),
+        (qa, "editor", "qa"),
+    ):
+        user = api_call(session, "GET", "/me").json()["id"]
+        grant = api_call(analyst, "PUT", f"{path}/members/users/{user}", {"role": role})
+        if grant.status_code != 200:
+            fail(f"giving a core membership answered HTTP {grant.status_code}: {grant.text[:300]}")
+        given = api_call(
+            analyst,
+            "PUT",
+            f"{path}/members/{grant.json()['id']}/lab-roles",
+            {"roles": [f"iki/example_lims.{lab_role}"]},
+        )
+        if given.status_code != 200:
+            fail(f"giving core lab roles answered HTTP {given.status_code}: {given.text[:300]}")
+    intake = api_call(
+        analyst,
+        "PUT",
+        f"{path}/intake",
+        {"types": ["iki/example_lims.AnalysisRequest"], "projects": [asking["id"]]},
+    )
+    if intake.status_code != 200:
+        fail(f"setting the core's intake answered HTTP {intake.status_code}: {intake.text[:300]}")
+    return core
+
+
+def analysis_result(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    qa: requests.Session,
+    asking: dict[str, Any],
+    sample: dict[str, Any],
+    core: dict[str, Any],
+) -> None:
+    """A core returns the independently reviewed measurement and QA's signature to the requester."""
+    request = created(
+        analyst,
+        asking,
+        "iki/example_lims.AnalysisRequest",
+        {"title": "SEC purity", "samples": [sample["id"]], "analyses": ["sec_purity"]},
+    )
+    path = f"/entities/{request['id']}"
+    sent = api_call(
+        analyst,
+        "POST",
+        f"{path}/submit",
+        {"service": core["id"]},
+        {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+    )
+    if sent.status_code != 200:
+        fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+    measurement = {
+        "sample": sample["id"],
+        "analysis": "sec_purity",
+        "purity": 98.5,
+        "result": "pass",
+    }
+    result = created(
+        analyst, core, "iki/example_lims.AnalysisResult", {"request": request["id"], **measurement}
+    )
+    for session, name, state in ((analyst, "alice", "in_review"), (reviewer, "bob", "reviewed")):
+        signed = signing(session, result, state, name, field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"signing {result['hrid']} as {state} gave {signed}")
+    reviewed = record(analyst, result["id"])
+    if not reviewed["locked"] or asking["id"] in {p["id"] for p in reviewed["projects"]}:
+        fail(f"{result['hrid']} must be locked in the core until QA releases it")
+    edit = api_call(
+        analyst,
+        "PATCH",
+        f"/entities/{result['id']}",
+        {"values": {"purity": 97.0}, "reason": "Correct the measured purity"},
+        {"If-Match": f'"{reviewed["revision"]}"'},
+    )
+    if edit.status_code != 409 or edit.json().get("code") != "refused":
+        fail(
+            f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
+        )
+    signed = signing(qa, result, "released", "carol", field="review")
+    if signed["status"] != "signed" or not signed["set"]:
+        fail(f"releasing {result['hrid']} gave {signed}")
+    released = record(analyst, result["id"])
+    signatures = api_call(analyst, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
+    if len({s["signer"]["id"] for s in signatures["items"]}) != 3:
+        fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
+    release = next(s for s in signatures["items"] if s["change"]["to"] == "released")
+    if (
+        release["revision"] != reviewed["revision"]
+        or not release["verification"]["valid"]
+        or release["carried_by"] != released["revision"]
+        or not released["locked"]
+        or asking["id"] not in {p["id"] for p in released["projects"]}
+        or any(released["values"][key] != value for key, value in measurement.items())
+    ):
+        fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
+    ok(f"{result['hrid']}: QA signed reviewed revision {reviewed['revision']} and sent it back")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
@@ -2011,6 +2139,20 @@ PUC19 = (
 POLYLINKER = PUC19[389:455]
 
 
+def give_lab_roles(alice: requests.Session, project: dict[str, Any], *roles: str) -> None:
+    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
+    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
+    held = {r["role"] for r in grant["lab_roles"]}
+    given = api_call(
+        alice,
+        "PUT",
+        f"/projects/{project['id']}/members/{grant['id']}/lab-roles",
+        {"roles": sorted(held.union(roles))},
+    )
+    if given.status_code != 200:
+        fail(f"giving alice {', '.join(roles)} answered HTTP {given.status_code}")
+
+
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
     2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
@@ -2021,15 +2163,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
     which its construct states then follow, up to the four-eyes guard that won't let
     whoever built it verify it (ADR 0128)."""
-    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
-    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    held = {held["role"] for held in grant.get("lab_roles") or []}
-    roles = sorted(held | {"iki/plasmid.cloner", "iki/plasmid.construct_reviewer"})
-    given = api_call(
-        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", {"roles": roles}
-    )
-    if given.status_code != 200:
-        fail(f"giving alice the plasmid plugin's lab roles answered HTTP {given.status_code}")
+    give_lab_roles(alice, project, "iki/plasmid.cloner", "iki/plasmid.construct_reviewer")
     # A trigger is off until a project Admin turns it on, and then its runs are launched as
     # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
     # before alice turns these on herself.
@@ -2422,15 +2556,19 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     got = record(alice, lot["id"])["values"]
     if (got.get("expected_mass"), got.get("mass_error")) != (7183.08, -0.88):
         fail(f"{run['hrid']} checked {lot['hrid']}'s mass as {got}, not -0.88 Da from 7183.08")
-    # 50 uL of a 100 uM solution is 5 nmol.
+    # The lot is in quarantine. A 50 uL sample for testing at 100 uM is 5 nmol.
+    give_lab_roles(alice, project, "iki/lots.qa")
     drawn = api_call(
         alice,
         "POST",
         f"/entities/{lot['id']}/amount/draw",
-        {"amount": {"value": 50, "unit": "uL"}, "reason": "Dosed"},
+        {"amount": {"value": 50, "unit": "uL"}, "purpose": "qa_sampling", "reason": "QC assay"},
     )
     if drawn.status_code != 200:
         fail(f"drawing from {lot['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
+    movement = drawn.json()["movement"]
+    if movement["purpose"] != "qa_sampling" or movement["user"]["email"] != "alice@iki.test":
+        fail(f"{lot['hrid']}'s ledger did not record who took the QA sample and why")
     left = api_call(alice, "GET", f"/entities/{lot['id']}/amount").json()
     if Decimal(left["value"]) != 495:
         fail(f"{lot['hrid']} has {left} left, not 495 nmol")

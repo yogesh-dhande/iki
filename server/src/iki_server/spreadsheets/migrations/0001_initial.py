@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
         ("iki_audit", "0005_via_trigger"),
         ("iki_files", "0008_bundle_uploads"),
         ("iki_org", "0005_lab_roles"),
-        ("iki_runs", "0047_server_tier"),
+        ("iki_runs", "0048_server_tier"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

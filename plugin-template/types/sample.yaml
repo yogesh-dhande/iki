@@ -8,6 +8,8 @@ name: Sample
 label: Sample
 label_plural: Samples
 schema_version: 1
+# Its records are samples (ADR 0177): a project's Files finds files by them.
+sample: true
 description: A physical sample in the lab.
 hrid: { prefix: SMP }
 fields:

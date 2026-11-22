@@ -430,6 +430,8 @@ PAGES = [
     ("admin", "/entities/types/acme/protein.Protein/"),
     ("admin", "/requests/"),
     ("admin", "/runs/"),
+    ("admin", "/files/"),
+    ("admin", "/projects/kinase-atlas/files/"),
 ]
 
 
@@ -1882,9 +1884,9 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     structure.get_by_label("Upload a file").set_input_files(
         {"name": "1abc.pdb", "mimeType": "", "buffer": data}
     )
-    existing = structure.get_by_role("combobox", name="Or one already in the project")
-    page.wait_for_function("(el) => el.value !== ''", arg=existing.element_handle(), timeout=60_000)
-    stored = File.objects.get(pk=existing.input_value())
+    # Once Iki has checked its bytes, it's the field's file.
+    structure.get_by_role("button", name="Remove 1abc.pdb").wait_for(timeout=60_000)
+    stored = File.objects.get(name="1abc.pdb")
     assert (stored.name, stored.media_type, stored.size) == (
         "1abc.pdb",
         "chemical/x-pdb",
@@ -3551,7 +3553,7 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
         has_text="to set Status to Open or Released on lots; to sign “QA approval” to set Status "
         "to Approved on lots; to sign “Responsibility” to set Status to Released on lots; to set "
         "Status to In testing or Released on samples; to set Custody to In the lab, Quarantined "
-        "or Disposed on samples."
+        "or Disposed on samples; to record draws from samples as “QA sampling”."
     ).wait_for()
     assert_clean(page)
     qa.check()

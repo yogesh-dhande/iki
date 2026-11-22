@@ -3,7 +3,7 @@
 import hashlib
 import io
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -317,6 +317,21 @@ def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, clie
     assert fake.body("POST", "/api/v1/entries/CPD-000123/supersede") == {
         "replacement": "CPD-000124",
         "reason": "Wrong salt form",
+    }
+
+
+def test_draws_tell_the_server_their_purpose(fake: FakeIki, client: Client) -> None:
+    ref = "SMP-000001"
+    path = f"/api/v1/entities/{ref}/amount/draw"
+    fake.on("POST", path, {}, {})
+    client.entities.draw(ref, (1, "uL"))
+    client.entities.draw(ref, (1, "uL"), purpose="qa_sampling", reason="Release testing")
+    routine, sample = (json.loads(r.content) for r in fake.sent("POST", path))
+    assert routine["purpose"] == "routine"
+    assert sample == {
+        "amount": {"value": "1", "unit": "uL"},
+        "purpose": "qa_sampling",
+        "reason": "Release testing",
     }
 
 
@@ -728,6 +743,34 @@ class _Pipe(io.BytesIO):
     def read(self, size: int | None = -1, /) -> bytes:
         assert size is not None and size >= 0
         return super().read(min(size, 2))
+
+
+@pytest.mark.parametrize(
+    ("acquired", "sent"),
+    [
+        (date(2026, 3, 14), "2026-03-14"),
+        (
+            datetime(2026, 3, 14, 9, 21, tzinfo=timezone(timedelta(hours=1))),
+            "2026-03-14T09:21:00+01:00",
+        ),
+        ("2026-03-14T09:21", "2026-03-14T09:21"),
+    ],
+)
+def test_an_upload_says_when_its_data_was_acquired(
+    fake: FakeIki, client: Client, tmp_path: Path, acquired: date | str, sent: str
+) -> None:
+    # For a file whose format doesn't record it, such as a plate reader's CSV (ADR 0177).
+    path = tmp_path / "plate-7.csv"
+    path.touch()
+    record = {"id": "f1", "name": path.name, "size": 0, "sha256": hashlib.sha256().hexdigest()}
+    fake.on(
+        "POST",
+        "/api/v1/uploads",
+        {"id": "u1", "state": "ready", "file": record, "parts": [], "part_count": 0},
+    )
+
+    assert client.files.upload(path, project=PROJECT, acquired=acquired) == record
+    assert fake.body("POST", "/api/v1/uploads")["acquired_at"] == sent
 
 
 def test_upload_sends_parts_to_storage_and_renews_an_expired_part(
