@@ -30,6 +30,7 @@ from iki_server.api.entities import (
     RefOut,
     RevisionDetailOut,
     RevisionOut,
+    TrailFilter,
     _created,
     _etag,
     _expected,
@@ -547,16 +548,19 @@ def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dic
     by_alias=True,
 )
 def list_entry_revisions(
-    request: HttpRequest, ref: str, params: Query[PageParams]
+    request: HttpRequest, ref: str, params: Query[PageParams], trail: Query[TrailFilter]
 ) -> dict[str, Any]:
     """Newest first. Its registrars see each in full, without the project it came through.
     A holder sees who and when for its own projects' and registrars' changes; for others,
-    only what was set."""
+    only what was set. ``person`` finds only those you're told they made."""
     me = caller(request)
     entry, curates = _entry(me, ref)
-    revisions = Revision.objects.filter(entity=entry).select_related("user", "agent")
-    result = page(revisions, params, key="number", newest_first=True)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    revisions = trail.applied(
+        Revision.objects.filter(entity=entry),
+        disclosed=None if curates else services.disclosing(readable),
+    ).select_related("user", "agent")
+    result = page(revisions, params, key="number", newest_first=True)
     states = revision_states(result["items"])
     runs = _runs_of(me, result["items"])
     result["items"] = [

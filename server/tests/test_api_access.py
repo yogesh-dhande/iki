@@ -1043,6 +1043,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
     # A project's latest changes: its records' history, so its members' alone (ADR 0176).
     ("GET", "/projects/{project_id}/changes", project("/changes"), visible(200, org_admin=403)),
+    # Its audit trail (ADR 0176): who it can be narrowed to, and all of it as CSV.
+    ("GET", "/entities/{ref}/contributors", entity("/contributors"), readers(200)),
+    ("GET", "/entities/{ref}/revisions.csv", entity("/revisions.csv"), readers(200)),
     ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),

@@ -7,7 +7,15 @@ import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entity, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
+import {
+  entity,
+  fieldHistory,
+  KINASE,
+  nth,
+  renderApp,
+  revision,
+  withTypes,
+} from "./entity-fixtures";
 import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
 import { answer, calls, FakeEventSource, ME, page, signedIn } from "./test-server";
 
@@ -1446,21 +1454,21 @@ describe("an entity's provenance", () => {
       }),
     });
     answer("GET /api/v1/entities/PRT-000001/projects", []);
-    await renderApp("/entities/PRT-000001/");
-    const values = screen.getByRole("region", { name: "Values" });
-    expect(await within(values).findByRole("link", { name: "RUN-000001" })).toHaveAttribute(
+    const { user } = await renderApp("/entities/PRT-000001/");
+    // Who set each value is on demand, in its history (ADR 0176).
+    const weight = await fieldHistory(user, "Molecular weight");
+    expect(within(weight).getByRole("link", { name: "RUN-000001" })).toHaveAttribute(
       "href",
       "/runs/RUN-000001/",
     );
-    expect(
-      within(values)
-        .getByText(/RUN-000001/)
-        .closest(".cell-meta"),
-    ).toHaveTextContent(/^Changed by Rosalind Franklin .+ by RUN-000001 \(revision 3\)$/);
-    expect(within(values).getByText(/by a run in a project you can’t see/)).toBeInTheDocument();
-    expect(
-      within(values).getByRole("link", { name: "RUN-000002" }).closest(".cell-meta"),
-    ).toHaveTextContent(/by RUN-000002 \(entry revision 1\)$/);
+    expect(weight).toHaveTextContent(/WhoRosalind FranklinHowby RUN-000001When.+ UTCRevision3/);
+    await user.keyboard("{Escape}");
+    const name = await fieldHistory(user, "Name");
+    expect(within(name).getByText(/by a run in a project you can’t see/)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    const sequence = await fieldHistory(user, "Sequence");
+    expect(within(sequence).getByRole("link", { name: "RUN-000002" })).toBeInTheDocument();
+    expect(sequence).toHaveTextContent(/Revision1 of its registry entry/);
   });
 
   it("says when no run is recorded for a value a run set", async () => {
@@ -1470,9 +1478,9 @@ describe("an entity's provenance", () => {
       name: revision({ via: "run", run: null, run_withheld: false }),
     });
     answer("GET /api/v1/entities/PRT-000001/projects", []);
-    await renderApp("/entities/PRT-000001/");
-    const values = screen.getByRole("region", { name: "Values" });
-    expect(await within(values).findByText(/by a run not recorded here/)).toBeInTheDocument();
-    expect(within(values).queryByText(/can’t see/)).not.toBeInTheDocument();
+    const { user } = await renderApp("/entities/PRT-000001/");
+    const name = await fieldHistory(user, "Name");
+    expect(within(name).getByText(/by a run not recorded here/)).toBeInTheDocument();
+    expect(within(name).queryByText(/can’t see/)).not.toBeInTheDocument();
   });
 });

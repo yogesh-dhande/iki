@@ -260,7 +260,8 @@ describe("a request's page", () => {
     // say it was sent: until it is, its page says it's not sent yet.
     onRequest(request());
     await renderApp("/entities/ARQ-000001/");
-    const heading = await screen.findByRole("heading", { level: 1 });
+    // Its state pills sit beside its title (ADR 0176).
+    const heading = (await screen.findByRole("heading", { level: 1 })).parentElement;
     expect(heading).toHaveTextContent(/Not sent/);
     expect(heading).not.toHaveTextContent(/Submitted/);
     const states = within(region("States")).getByRole("list", { name: "State fields" });
@@ -282,7 +283,7 @@ describe("a request's page", () => {
       results: [],
     });
     await renderApp("/entities/ARQ-000001/");
-    const heading = await screen.findByRole("heading", { level: 1 });
+    const heading = (await screen.findByRole("heading", { level: 1 })).parentElement;
     expect(heading).toHaveTextContent(/Submitted/);
     expect(heading).not.toHaveTextContent(/Not sent/);
     expect(within(region("States")).getByText(/^Status: Submitted/)).toBeInTheDocument();

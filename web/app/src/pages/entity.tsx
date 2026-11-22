@@ -1,23 +1,18 @@
 /**
- * An entity's page: its values, each with who set it, how and when; the
- * projects it's in; and its history, revision by revision.
+ * An entity's page (ADR 0176): its header and tabs, then its values. Who set each value,
+ * how and when is on demand, from the history button beside it, and in full on its Audit
+ * trail tab. A record of a registry entry shows the entry's values, then its project's,
+ * with a picker for the reader's other projects' records of it (ADR 0115). Its rail
+ * says where it's from and what it's linked to.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
-import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-  type InfiniteData,
-  type UseInfiniteQueryResult,
-} from "@tanstack/react-query";
+import { unwrap, type Schemas } from "@ikisci/sdk";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
 import { useId, useState } from "react";
+import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
-import { Through } from "../agent";
 import { iki, problemOf, useApiMutation } from "../api";
-import { componentsQuery, entityTabs } from "../components";
 import {
   apiRef,
   ENTITIES,
@@ -33,7 +28,6 @@ import {
   quantity,
   recordSearch,
   revisionQuery,
-  revisionsQuery,
   typesQuery,
   valueText,
   type Entity,
@@ -44,39 +38,29 @@ import {
   type Origin,
   type Ref,
   type Revision,
-  type RevisionDetail,
 } from "../entities";
 
-import { entryRevisionQuery, entryRevisionsQuery, FIXED_FACT, REGISTRY_MARK } from "../registries";
+import { entryQuery, entryRevisionQuery, FIXED_FACT, REGISTRY_MARK } from "../registries";
 import { usePageTitle } from "../layout";
 import { isServiceField } from "../requests";
-import { APP_TYPE, entityAppsQuery } from "../apps";
+import { APP_TYPE } from "../apps";
 import { VIEW_TYPE } from "../views";
 import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
 import { EntityHolds } from "./entity-holds";
-import { EntitySignatures } from "./entity-signatures";
+import { EntitySignatures, signaturesQuery } from "./entity-signatures";
 import { EntityRequest, ResultNote } from "./entity-request";
 import { EntityAmount } from "./entity-amount";
-import { EntityState, StateBadges } from "./entity-state";
+import { EntityState } from "./entity-state";
 import { EntityWork } from "./entity-work";
-import { EntityWatch } from "./entity-watch";
-import { ExportButton } from "./entity-export";
-import {
-  Badge,
-  Button,
-  buttonClass,
-  ConfirmDialog,
-  Loading,
-  PageHeader,
-  ProblemAlert,
-  RelativeTime,
-  TextField,
-  Time,
-  useMessages,
-} from "../ui";
+import { EntityTabs, neighboursQuery } from "./entity-header";
+import { FeatureTable, MiniMap, miniMapOf } from "./record-map";
+import { UtcTime, Via } from "./revision-text";
+import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
+
+export { EntityTabs } from "./entity-header";
 
 /** What the page after a move shows: the records it changed to refer to the new entry. */
 interface MovedState {
@@ -91,67 +75,8 @@ declare module "@tanstack/react-router" {
   }
 }
 
-const VIA: Record<string, string> = {
-  web: "in the web app",
-  api: "through the API",
-  mcp: "by an AI assistant (MCP)",
-  cli: "from the command line",
-  scim: "by provisioning",
-  system: "by Iki",
-};
-
-/** How a revision was made; a run's links to the run. One the reader can't read is said
- * to be hidden; one with no run recorded, as one imported from elsewhere, says so. */
-function Via({ revision }: { revision: Revision }) {
-  if (revision.via === "run") {
-    if (revision.run) {
-      return (
-        <>
-          by{" "}
-          <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
-            {revision.run.hrid}
-          </Link>
-        </>
-      );
-    }
-    return revision.run_withheld ? (
-      <>by a run in a project you can’t see</>
-    ) : (
-      <>by a run not recorded here</>
-    );
-  }
-  const how = VIA[revision.via] ?? revision.via;
-  // The agent it came through, if any: an AI assistant's MCP client, say.
-  return (
-    <>
-      {how}
-      <Through agent={revision.agent} />
-    </>
-  );
-}
-
-export const KIND: Record<string, string> = {
-  created: "Created",
-  edited: "Edited",
-  archived: "Archived",
-  restored: "Restored",
-  curated: "Facts changed",
-  superseded: "Superseded",
-  moved: "Moved",
-  state_changed: "State set",
-};
-
 /** The most lines of a JSON value an entity's page shows unfolded. */
 const JSON_LINES_SHOWN = 20;
-
-/** What a revision did: its kind, or for a state change (ADR 0125), which field, from
- * which state to which: “Status set to Approved, from In review”. */
-export function revisionWhat(revision: Revision): string {
-  const s = revision.state;
-  if (!s) return KIND[revision.kind] ?? revision.kind;
-  const set = `${s.field.label} set to ${s.to.label}`;
-  return s.from ? `${set}, from ${s.from.label}` : set;
-}
 
 /** The entity the page is about, from the `$ref` in its address, and `?project=` for a
  * record of a registry entry. */
@@ -238,6 +163,41 @@ export function shownIn(
   };
 }
 
+/** The sequence viewer that draws a field as its features, if one of its type's does. */
+function drawnBy(type: EntityType | undefined, field: string) {
+  return (type?.viewers ?? []).find(
+    (v) => v.viewer === "sequence" && "features" in v && v.features === field,
+  );
+}
+
+/** A field a viewer draws, such as a plasmid's features: how many, and where to see them.
+ * The rail's map shows them too; the audit trail has their JSON. */
+function DrawnBy({
+  entity,
+  value,
+  viewer,
+}: {
+  entity: Entity;
+  value: unknown;
+  viewer: { viewer: string; label: string };
+}) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return <span className="muted">None</span>;
+  }
+  return (
+    <span>
+      {value.length.toLocaleString()} {value.length === 1 ? "feature" : "features"}.{" "}
+      <Link
+        to="/entities/$ref/viewers/$viewer/"
+        params={{ ref: entity.hrid, viewer: viewer.viewer }}
+        search={recordSearch(entity)}
+      >
+        Open in {viewer.label}
+      </Link>
+    </span>
+  );
+}
+
 /** A long text value, cut short: it wraps within its cell, never widening the page. */
 function LongValue({
   value,
@@ -267,7 +227,9 @@ function LongValue({
             setAll(!all);
           }}
         >
-          {all ? "Show less" : `Show all ${counted}`}
+          {/* Its count is just before it: its name, "Show all of Bases", holds what it reads
+              (WCAG 2.5.3). */}
+          {all ? "Show less" : "Show all"}
         </Button>
         {shown ? (
           <>
@@ -310,6 +272,19 @@ export function Value({
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="muted">None</span>;
     const item: FieldDef = { ...field, type: field.items ?? "string" };
+    // A long list of JSON, such as a sequence's features, is folded, as a long JSON value
+    // is: it would otherwise fill the page.
+    const lines = item.type === "json" ? JSON.stringify(value, null, 2).split("\n").length : 0;
+    if (lines > JSON_LINES_SHOWN) {
+      return (
+        <details className="disclosure">
+          <summary>{`Show its JSON (${value.length.toLocaleString()} items)`}</summary>
+          <pre className="code">
+            <code>{JSON.stringify(value, null, 2)}</code>
+          </pre>
+        </details>
+      );
+    }
     return (
       <ul className="value-list">
         {(value as unknown[]).map((v, index) => (
@@ -599,360 +574,6 @@ function ImportedFrom({ origin }: { origin: Origin }) {
   );
 }
 
-function Provenance({ revision }: { revision: Revision | undefined }) {
-  if (!revision) return null;
-  const which = `${revision.entry ? "entry revision" : "revision"} ${String(revision.number)}`;
-  if (!revision.created_at) {
-    // An entry's revision made through a project the reader can't read: what, not who.
-    return <span className="cell-meta">Set in the registry entry ({which})</span>;
-  }
-  const who = personName(revision.user);
-  return (
-    <span className="cell-meta">
-      {revision.kind === "created" ? "Set" : "Changed"} by {who}{" "}
-      <RelativeTime value={revision.created_at} /> <Via revision={revision} />
-      {revision.reason ? <>: “{revision.reason}”</> : null} ({which})
-    </span>
-  );
-}
-
-/** Edit, archive and restore, for Editors in its owner project. */
-function EntityActions({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
-  const [asking, setAsking] = useState(false);
-  const [reason, setReason] = useState("");
-  const { say } = useMessages();
-  const client = useQueryClient();
-  const archiving = !entity.archived;
-  const change = useApiMutation(
-    async () =>
-      unwrap(
-        await iki.PATCH("/api/v1/entities/{ref}", {
-          params: {
-            path: { ref: entity.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
-          body: { archived: archiving, reason: reason.trim() },
-        }),
-      ),
-    [ENTITIES],
-  );
-  const running =
-    !entity.archived && entity.owner_project ? (
-      <Link
-        to="/projects/$slug/runs/new/"
-        params={{ slug: entity.owner_project.slug }}
-        search={{ entities: entity.hrid }}
-        className={buttonClass()}
-      >
-        Run action
-      </Link>
-    ) : null;
-  const watch = <EntityWatch entity={entity} />;
-  // Anyone who reads it may download it (ADR 0171).
-  const exporting = <ExportButton entity={entity} type={type} />;
-  if (!entity.can.edit || !type) {
-    return (
-      <div className="actions">
-        {running}
-        {exporting}
-        {watch}
-      </div>
-    );
-  }
-  const close = () => {
-    setAsking(false);
-    setReason("");
-    change.reset();
-  };
-  const stale = change.error instanceof ApiError && change.error.problem.code === "stale";
-  return (
-    <div className="actions">
-      {entity.archived ? null : (
-        <Link
-          to="/entities/$ref/edit/"
-          params={{ ref: entity.hrid }}
-          search={recordSearch(entity)}
-          className={buttonClass("primary")}
-        >
-          Edit
-        </Link>
-      )}
-      {running}
-      {exporting}
-      {watch}
-      <Button
-        {...(archiving ? { variant: "danger" as const } : {})}
-        onClick={() => {
-          setAsking(true);
-        }}
-      >
-        {archiving ? "Archive" : "Restore"}
-      </Button>
-      <ConfirmDialog
-        isOpen={asking}
-        title={`${archiving ? "Archive" : "Restore"} ${entity.hrid}?`}
-        confirmLabel={archiving ? "Archive" : "Restore"}
-        confirmVariant={archiving ? "danger" : "primary"}
-        busy={change.isPending}
-        problem={
-          stale && change.error
-            ? {
-                ...change.error.problem,
-                detail:
-                  "Someone changed it while this was open. The page now shows their change: check it, then try again.",
-              }
-            : change.error
-              ? problemOf(change.error)
-              : undefined
-        }
-        onCancel={close}
-        onConfirm={() => {
-          change.mutate(undefined, {
-            onSuccess: (saved) => {
-              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-              close();
-              say(archiving ? `Archived ${saved.hrid}.` : `Restored ${saved.hrid}.`);
-            },
-            onError: (error) => {
-              // Read it again, so trying again sends the revision it's at now.
-              if (error.problem.code === "stale") {
-                void client.invalidateQueries({ queryKey: ENTITIES });
-              }
-            },
-          });
-        }}
-      >
-        <p>
-          {archiving
-            ? "It stays in every project it’s in, with its values and history, but it can’t change and lists hide it. You can restore it later."
-            : "It can change again, and lists show it again."}
-        </p>
-        <TextField
-          label="Reason"
-          value={reason}
-          onChange={setReason}
-          maxLength={2000}
-          optional
-          multiline
-          help="Why, for the record. It’s kept in its history."
-        />
-      </ConfirmDialog>
-    </div>
-  );
-}
-
-export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
-  const tab = { "aria-current": "page" } as const;
-  const types = useQuery(typesQuery).data ?? [];
-  // Plugins' tabs (ADR 0084). If they can't be listed, the page still works without them.
-  const plugins = entityTabs(entity.type, types, useQuery(componentsQuery).data ?? []);
-  // Apps about it (ADR 0090), likewise.
-  const apps = useQuery(entityAppsQuery(apiRef(entity))).data ?? [];
-  // The project's record, on every tab: other projects' records have its HRID too.
-  const search = recordSearch(entity);
-  return (
-    <>
-      <PageHeader
-        eyebrow={
-          type ? (
-            <Link to="/types/$/" params={{ _splat: type.name }}>
-              {type.label}
-            </Link>
-          ) : (
-            entity.type
-          )
-        }
-        title={entity.title}
-        actions={<EntityActions entity={entity} type={type} />}
-        badge={
-          <>
-            {entity.title !== entity.hrid ? <Badge>{entity.hrid}</Badge> : null}
-            <StateBadges entity={entity} type={type} />
-            {entity.archived ? (
-              <>
-                {" "}
-                <Badge muted>Archived</Badge>
-              </>
-            ) : null}
-            {entity.entry?.superseded ? (
-              <>
-                {" "}
-                <Badge muted>Superseded</Badge>
-              </>
-            ) : null}
-            {type?.detached ? (
-              <>
-                {" "}
-                <Badge muted>Detached plugin</Badge>
-              </>
-            ) : null}
-          </>
-        }
-      />
-      <nav className="tabs" aria-label="Entity">
-        <Link
-          to="/entities/$ref/"
-          params={{ ref: entity.hrid }}
-          search={search}
-          activeOptions={{ exact: true, includeSearch: false }}
-          activeProps={tab}
-        >
-          Overview
-        </Link>
-        {(type?.viewers ?? []).map((v) => (
-          <Link
-            key={v.viewer}
-            to="/entities/$ref/viewers/$viewer/"
-            params={{ ref: entity.hrid, viewer: v.viewer }}
-            search={search}
-            activeOptions={{ includeSearch: false }}
-            activeProps={tab}
-          >
-            {v.label}
-          </Link>
-        ))}
-        <Link
-          to="/entities/$ref/lineage/"
-          params={{ ref: entity.hrid }}
-          search={search}
-          activeOptions={{ includeSearch: false }}
-          activeProps={tab}
-        >
-          Lineage
-        </Link>
-        <Link
-          to="/entities/$ref/history/"
-          params={{ ref: entity.hrid }}
-          search={search}
-          activeOptions={{ includeSearch: false }}
-          activeProps={tab}
-        >
-          History
-        </Link>
-        {plugins.map(({ component, label }) => (
-          <Link
-            key={component.name}
-            to="/entities/$ref/components/$/"
-            params={{ ref: entity.hrid, _splat: component.name }}
-            search={search}
-            activeOptions={{ includeSearch: false }}
-            activeProps={tab}
-          >
-            {label}
-          </Link>
-        ))}
-        {apps.map((app) => (
-          <Link
-            key={app.hrid}
-            to="/entities/$ref/apps/$app/"
-            params={{ ref: entity.hrid, app: app.hrid }}
-            search={search}
-            activeOptions={{ includeSearch: false }}
-            activeProps={tab}
-          >
-            {/* Two apps of one name are told apart by their IDs. */}
-            {apps.filter((a) => a.name === app.name).length > 1
-              ? `${app.name} (${app.hrid})`
-              : app.name}
-          </Link>
-        ))}
-      </nav>
-    </>
-  );
-}
-
-/** Fields' values, each with who set it; those not set, in a line after. */
-function ValueList({
-  fields,
-  entity,
-  type,
-  provenance,
-  marks,
-}: {
-  fields: FieldDef[];
-  entity: Entity;
-  type: EntityType | undefined;
-  provenance: Record<string, Revision> | undefined;
-  /** Say how each is kept in its registry entry: identity, derived or fact. */
-  marks: boolean;
-}) {
-  const id = useId();
-  // The fields whose descriptions are open: a toggletip each, opened by a press, so it
-  // stays until it's closed (WCAG 1.4.13), never by hovering alone.
-  const [about, setAbout] = useState<ReadonlySet<string>>(new Set());
-  const set = fields.filter((f) => entity.values[f.name] != null);
-  const unset = fields.filter((f) => entity.values[f.name] == null);
-  return (
-    <>
-      {set.length === 0 ? <p className="muted">No values are set.</p> : null}
-      <dl className="summary values">
-        {set.map((f) => {
-          const mark = marks ? registryNote(f) : null;
-          const open = about.has(f.name);
-          const aboutId = `${id}-${f.name}-about`;
-          return (
-            <div key={f.name} className="value-row">
-              <dt>
-                {f.label}
-                {f.description ? (
-                  <button
-                    type="button"
-                    className="about-field"
-                    aria-label={`About ${f.label}`}
-                    aria-expanded={open}
-                    aria-controls={aboutId}
-                    onClick={() => {
-                      const next = new Set(about);
-                      if (open) next.delete(f.name);
-                      else next.add(f.name);
-                      setAbout(next);
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                      focusable="false"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 11v5" />
-                      <path d="M12 7.5v.01" />
-                    </svg>
-                  </button>
-                ) : null}
-                {mark ? <span className="cell-meta">{mark}</span> : null}
-                {f.computed && f.registry !== "derived" ? (
-                  <span className="cell-meta">Computed</span>
-                ) : null}
-              </dt>
-              <dd>
-                {f.description ? (
-                  <p className="field-about" id={aboutId} hidden={!open}>
-                    {f.description}
-                  </p>
-                ) : null}
-                <Value
-                  field={f}
-                  value={entity.values[f.name]}
-                  entity={entity}
-                  shown={shownIn(entity, type, f.name)}
-                />
-                <Provenance revision={provenance?.[f.name]} />
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-      {unset.length ? (
-        <p className="muted">Not set: {unset.map((f) => f.label).join(", ")}.</p>
-      ) : null}
-    </>
-  );
-}
-
 /** A registrar replaced the record's entry (ADR 0115): what with, and for Editors, moving
  * the record there. */
 function Superseded({ entity }: { entity: Entity }) {
@@ -1106,15 +727,471 @@ function MovedNote({ moved, entity }: { moved: MovedState; entity: Entity }) {
   );
 }
 
+/** A clock: a field's history. */
+function ClockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+/**
+ * A field's history button (ADR 0176): its last change, before and after, who made it,
+ * how and when, and a link to the field in the audit trail. A popover a press opens and
+ * Escape closes, never one hovering opens (WCAG 1.4.13).
+ */
+function FieldHistory({
+  field,
+  entity,
+  revision,
+}: {
+  field: FieldDef;
+  entity: Entity;
+  revision: Revision | undefined;
+}) {
+  const label = `History of ${field.label}`;
+  return (
+    <DialogTrigger>
+      <AriaButton className="history-button" aria-label={label}>
+        <ClockIcon />
+      </AriaButton>
+      <Popover className="history-popover" placement="bottom end">
+        <Dialog className="history-dialog" aria-label={label}>
+          <LastChange field={field} entity={entity} revision={revision} />
+        </Dialog>
+      </Popover>
+    </DialogTrigger>
+  );
+}
+
+function LastChange({
+  field,
+  entity,
+  revision,
+}: {
+  field: FieldDef;
+  entity: Entity;
+  revision: Revision | undefined;
+}) {
+  const trail = (
+    <Link
+      to="/entities/$ref/audit/"
+      params={{ ref: entity.hrid }}
+      search={{ ...recordSearch(entity), field: field.name }}
+    >
+      {field.label} in the audit trail
+    </Link>
+  );
+  if (!revision) {
+    return (
+      <>
+        <p className="history-title">{field.label}</p>
+        <p className="muted">No revision that set it is recorded here.</p>
+        {trail}
+      </>
+    );
+  }
+  return (
+    <>
+      <p className="history-title">Last change to {field.label}</p>
+      <ChangedValue field={field} entity={entity} revision={revision} />
+      <dl className="history-facts">
+        {revision.created_at ? (
+          <>
+            <dt>Who</dt>
+            <dd>{personName(revision.user)}</dd>
+            <dt>How</dt>
+            <dd>
+              <Via revision={revision} />
+            </dd>
+            <dt>When</dt>
+            <dd>
+              <UtcTime value={revision.created_at} />
+            </dd>
+          </>
+        ) : null}
+        <dt>Revision</dt>
+        <dd>
+          {revision.number}
+          {revision.entry ? " of its registry entry" : ""}
+        </dd>
+      </dl>
+      {revision.created_at ? null : (
+        // An entry's revision made through a project the reader can't read: what, not who.
+        <p className="muted">
+          Set in its registry entry through a project you can’t read, so who, how and when aren’t
+          shown.
+        </p>
+      )}
+      {revision.reason ? <p className="history-reason">“{revision.reason}”</p> : null}
+      {trail}
+    </>
+  );
+}
+
+/** What the revision changed the field from, and to: read when its history is opened. */
+function ChangedValue({
+  field,
+  entity,
+  revision,
+}: {
+  field: FieldDef;
+  entity: Entity;
+  revision: Revision;
+}) {
+  const entry = revision.entry ? (entity.entry?.id ?? null) : null;
+  const own = useQuery({ ...revisionQuery(apiRef(entity), revision.number), enabled: !entry });
+  const theirs = useQuery({
+    ...entryRevisionQuery(entry ?? "", revision.number),
+    enabled: entry !== null,
+  });
+  const detail = entry ? theirs : own;
+  if (detail.isPending) return <Loading label="Loading the change…" />;
+  const change = detail.data?.changes[field.name];
+  if (!detail.data || !change) return null;
+  // Its own refs and files: a value it removed may not be in the record's any more.
+  const shown = { ...detail.data, owner_project: entity.owner_project };
+  return (
+    <dl className="history-change">
+      <dt>Before</dt>
+      <dd>
+        <Value field={field} value={change.before} entity={shown} />
+      </dd>
+      <dt>After</dt>
+      <dd>
+        <Value field={field} value={change.after} entity={shown} />
+      </dd>
+    </dl>
+  );
+}
+
+/** Fields' values, each with its history button; those not set, in a line after. */
+function FieldRows({
+  fields,
+  entity,
+  type,
+  provenance,
+  marks,
+}: {
+  fields: FieldDef[];
+  entity: Entity;
+  type: EntityType | undefined;
+  provenance: Record<string, Revision> | undefined;
+  /** Say how each is kept in its registry entry: identity, derived or fact. */
+  marks: boolean;
+}) {
+  const id = useId();
+  // The fields whose descriptions are open: a toggletip each, opened by a press, so it
+  // stays until it's closed (WCAG 1.4.13), never by hovering alone.
+  const [about, setAbout] = useState<ReadonlySet<string>>(new Set());
+  const set = fields.filter((f) => entity.values[f.name] != null);
+  const unset = fields.filter((f) => entity.values[f.name] == null);
+  return (
+    <>
+      {set.length === 0 ? <p className="muted field-rows-empty">No values are set.</p> : null}
+      <dl className="field-rows">
+        {set.map((f) => {
+          const mark = marks ? registryNote(f) : null;
+          const open = about.has(f.name);
+          const aboutId = `${id}-${f.name}-about`;
+          const drawn = drawnBy(type, f.name);
+          return (
+            <div key={f.name} className="field-row">
+              <dt>
+                {f.label}
+                {f.description ? (
+                  <button
+                    type="button"
+                    className="about-field"
+                    aria-label={`About ${f.label}`}
+                    aria-expanded={open}
+                    aria-controls={aboutId}
+                    onClick={() => {
+                      const next = new Set(about);
+                      if (open) next.delete(f.name);
+                      else next.add(f.name);
+                      setAbout(next);
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    >
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 11v5" />
+                      <path d="M12 7.5v.01" />
+                    </svg>
+                  </button>
+                ) : null}
+                {mark ? <span className="cell-meta">{mark}</span> : null}
+                {f.computed && f.registry !== "derived" ? (
+                  <span className="cell-meta">Computed</span>
+                ) : null}
+              </dt>
+              <dd>
+                <div className="field-value">
+                  {f.description ? (
+                    <p className="field-about" id={aboutId} hidden={!open}>
+                      {f.description}
+                    </p>
+                  ) : null}
+                  {drawn ? (
+                    <DrawnBy entity={entity} value={entity.values[f.name]} viewer={drawn} />
+                  ) : (
+                    <Value
+                      field={f}
+                      value={entity.values[f.name]}
+                      entity={entity}
+                      shown={shownIn(entity, type, f.name)}
+                    />
+                  )}
+                </div>
+                {provenance ? (
+                  <FieldHistory field={f} entity={entity} revision={provenance[f.name]} />
+                ) : null}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      {unset.length ? (
+        <p className="muted field-rows-unset">Not set: {unset.map((f) => f.label).join(", ")}.</p>
+      ) : null}
+    </>
+  );
+}
+
+/** The reader's projects' records of the entry: the one shown, and the others to switch to. */
+function ProjectPicker({ entity }: { entity: Entity }) {
+  const id = useId();
+  const navigate = useNavigate();
+  const records = useQuery({
+    ...entryQuery(entity.entry?.id ?? ""),
+    enabled: Boolean(entity.entry),
+  }).data?.records;
+  if (!records || records.length < 2 || !entity.owner_project) return null;
+  const sorted = [...records].sort((a, b) => a.project.name.localeCompare(b.project.name));
+  return (
+    <span className="section-picker">
+      <label htmlFor={id}>Project</label>
+      <select
+        id={id}
+        value={entity.owner_project.slug}
+        onChange={(event) => {
+          void navigate({
+            to: "/entities/$ref/",
+            params: { ref: entity.hrid },
+            search: { project: event.target.value },
+          });
+        }}
+      >
+        {sorted.map((r) => (
+          <option key={r.id} value={r.project.slug}>
+            {r.project.name}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
+/** Its details, in the rail: where it is, who made it and when, and where it came from. */
+function Details({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
+  const ref = apiRef(entity);
+  const projects = useQuery(entityProjectsQuery(ref)).data;
+  const origins = useQuery(originsQuery(ref)).data ?? [];
+  const making = useQuery(makingQuery(ref)).data ?? [];
+  const bundles = useQuery(bundleOriginsQuery(ref)).data ?? [];
+  const signatures = useQuery(signaturesQuery(ref, false)).data?.items ?? [];
+  const carried = signatures.filter((s) => s.status === "carried");
+  const entry = entity.entry;
+  const also = (projects ?? []).filter((p) => !p.owner);
+  return (
+    <section className="card rail-card" aria-labelledby="details-title">
+      <h2 className="section-title" id="details-title">
+        Details
+      </h2>
+      <dl className="rail-facts">
+        <dt>ID</dt>
+        <dd>
+          <code>{entity.hrid}</code>
+          {entry ? <span className="cell-meta">Its registry entry’s ID</span> : null}
+        </dd>
+        <dt>Type</dt>
+        <dd>
+          {type ? (
+            <Link to="/types/$/" params={{ _splat: type.name }}>
+              {type.label}
+            </Link>
+          ) : (
+            <code>{entity.type}</code>
+          )}
+        </dd>
+        {entry ? (
+          <>
+            <dt>Registry</dt>
+            <dd>{entry.registry.name}</dd>
+          </>
+        ) : null}
+        <dt>Owner project</dt>
+        <dd>
+          {entity.owner_project ? (
+            <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
+              {entity.owner_project.name}
+            </Link>
+          ) : (
+            <span className="muted">A project you can’t see</span>
+          )}
+        </dd>
+        {also.length ? (
+          <>
+            <dt>Also in</dt>
+            <dd>
+              {also.map((p, index) => (
+                <span key={p.project.id}>
+                  {index ? ", " : ""}
+                  <Link to="/projects/$slug/" params={{ slug: p.project.slug }}>
+                    {p.project.name}
+                  </Link>
+                </span>
+              ))}
+            </dd>
+          </>
+        ) : null}
+        <dt>Created</dt>
+        <dd>
+          {personName(entity.created_by)}, <RelativeTime value={entity.created_at} />
+        </dd>
+        <dt>Last changed</dt>
+        <dd>
+          <RelativeTime value={entity.updated_at} />
+        </dd>
+        <dt>Revision</dt>
+        <dd>
+          {entity.revision} ·{" "}
+          <Link
+            to="/entities/$ref/audit/"
+            params={{ ref: entity.hrid }}
+            search={recordSearch(entity)}
+          >
+            audit trail
+          </Link>
+        </dd>
+        {carried.length ? (
+          <>
+            <dt>Signed</dt>
+            <dd>
+              <ul className="value-list rail-list">
+                {carried.map((s) => (
+                  <li key={s.id}>
+                    {s.meaning_label} by {s.signer_name || s.signer_email},{" "}
+                    <Time value={s.signed_at} />
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        ) : null}
+        {making.length ? (
+          <>
+            <dt>How it was made</dt>
+            <dd>
+              <ul className="value-list">
+                {madeGroups(making).map((rows) => (
+                  <li key={[rows[0]?.by, rows[0]?.run?.hrid, rows[0]?.source?.id].join("-")}>
+                    <MadeHow rows={rows} />
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        ) : null}
+        {origins.length || bundles.length ? (
+          <>
+            <dt>Imported from</dt>
+            <dd>
+              <ul className="value-list">
+                {bundles.map((b, index) => (
+                  <li key={`bundle-${String(index)}`}>
+                    <FromBundle origin={b} />
+                  </li>
+                ))}
+                {origins.map((o, index) => (
+                  <li key={index}>
+                    <ImportedFrom origin={o} />
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+/** At most this many linked records in the rail; the Lineage tab has the rest. */
+const RAIL_LINKS = 8;
+
+/** What it's linked to, one step either way, in the rail: the Lineage tab has the rest. */
+function LineageCard({ entity }: { entity: Entity }) {
+  const graph = useQuery(neighboursQuery(entity)).data;
+  const types = useQuery(typesQuery).data;
+  if (!graph) return null;
+  const linked = graph.entities.filter((e) => e.at !== 0);
+  const groups = [
+    { label: "Derived from", items: linked.filter((e) => e.at < 0) },
+    { label: "Used in", items: linked.filter((e) => e.at > 0) },
+  ].filter((g) => g.items.length);
+  const slug = entity.owner_project?.slug;
+  return (
+    <section className="card rail-card" aria-labelledby="rail-lineage-title">
+      <h2 className="section-title" id="rail-lineage-title">
+        Lineage
+      </h2>
+      {linked.length === 0 ? <p className="muted">Nothing you can read is linked to it.</p> : null}
+      {groups.map((g) => (
+        <div key={g.label} className="rail-group">
+          <h3 className="rail-group-title">{g.label}</h3>
+          <ul className="rail-links">
+            {g.items.slice(0, RAIL_LINKS).map((e) => (
+              <li key={e.id}>
+                <Link
+                  to="/entities/$ref/"
+                  params={{ ref: e.hrid }}
+                  search={slug && hasIdentity(types, e.type) ? { project: slug } : {}}
+                >
+                  <code>{e.hrid}</code>
+                  {e.title !== e.hrid ? ` · ${e.title}` : ""}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <Link
+        to="/entities/$ref/lineage/"
+        params={{ ref: entity.hrid }}
+        search={recordSearch(entity)}
+      >
+        Open its lineage
+      </Link>
+    </section>
+  );
+}
+
 export function EntityOverview() {
   const { entity, type, types } = useEntity();
   usePageTitle(`${entity.title} (${entity.hrid})`);
   const ref = apiRef(entity);
   const provenance = useQuery(provenanceQuery(ref)).data;
-  const projects = useQuery(entityProjectsQuery(ref)).data;
-  const origins = useQuery(originsQuery(ref)).data ?? [];
-  const making = useQuery(makingQuery(ref)).data ?? [];
-  const bundles = useQuery(bundleOriginsQuery(ref)).data ?? [];
   const moved = useRouterState({ select: (s) => s.location.state.moved });
   const { signing } = useSearch({ from: "/entities/$ref" });
   const collection = isCollection(type, types);
@@ -1133,527 +1210,114 @@ export function EntityOverview() {
   const asker = sides?.asking_project?.name ?? project;
   const asked = sides ? own.filter((f) => !isServiceField(sides, f.name)) : own;
   const served = sides ? own.filter((f) => isServiceField(sides, f.name)) : [];
+  const map = type ? miniMapOf(entity, type) : null;
   return (
     <>
       <EntityTabs entity={entity} type={type} />
-      {moved?.to === entity.hrid ? <MovedNote moved={moved} entity={entity} /> : null}
-      {entry?.superseded ? <Superseded entity={entity} /> : null}
-      {entity.archived ? (
-        <div className="alert alert-warning" role="note">
-          <p>This entity is archived. Its values and history are kept, and it can’t change.</p>
-        </div>
-      ) : null}
-      {type?.detached ? <DetachedNote plugin={type.plugin} what="entity" /> : null}
-      {!type ? (
-        <div className="alert alert-warning" role="note">
-          <p>
-            Its type, <code>{entity.type}</code>, isn’t installed any more, so its values can’t be
-            shown.
-          </p>
-        </div>
-      ) : null}
-      {!entity.archived ? <EntityHolds entity={entity} /> : null}
-      {type?.result ? <ResultNote entity={entity} type={type} /> : null}
-      {type && sides ? <EntityRequest entity={entity} type={type} /> : null}
-      {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
-      <EntityAmount entity={entity} type={type} types={types} />
-      {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
-      <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />
-      {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
-      {app ? <AppPanel app={entity} types={types} /> : null}
-      {entry ? (
-        <section className="card" aria-labelledby="entry-title">
-          <h2 className="section-title" id="entry-title">
-            Registry entry {entry.hrid}
-          </h2>
-          <p className="muted">
-            In the {entry.registry.name} registry. These values are the entry’s: every project with{" "}
-            {entry.hrid} has the same ones.{" "}
-            <Link to="/entries/$ref/" params={{ ref: entry.hrid }}>
-              Open the entry
-            </Link>
-          </p>
-          <ValueList
-            fields={entryFields}
-            entity={entity}
-            type={type}
-            provenance={provenance}
-            marks
-          />
-        </section>
-      ) : null}
-      <section className="card" aria-labelledby="values-title">
-        <h2 className="section-title" id="values-title">
-          {entry ? `${project}’s values` : sides ? `${asker}’s values` : "Values"}
-        </h2>
-        {entry ? (
-          <p className="muted">
-            {project}’s own record of {entry.hrid}. Other projects with it keep their own.
-          </p>
-        ) : null}
-        <ValueList
-          fields={asked}
-          entity={entity}
-          type={type}
-          provenance={provenance}
-          marks={false}
-        />
-      </section>
-      {/* A request's service fills in its own fields (ADR 0132). */}
-      {sides && served.length ? (
-        <section className="card" aria-labelledby="service-values-title">
-          <h2 className="section-title" id="service-values-title">
-            {sides.service ? `${sides.service.name}’s values` : "The service’s values"}
-          </h2>
-          <p className="muted">
-            {sides.service
-              ? `${sides.service.name}, the service it’s sent to, fills these in.`
-              : "The service it’s sent to fills these in, once it’s sent."}
-          </p>
-          <ValueList
-            fields={served}
-            entity={entity}
-            type={type}
-            provenance={provenance}
-            marks={false}
-          />
-        </section>
-      ) : null}
-      {collection ? <CollectionMembers entity={entity} types={types} /> : null}
-      {app ? <AppSpec app={entity} /> : null}
-      <section className="card" aria-labelledby="details-title">
-        <h2 className="section-title" id="details-title">
-          Details
-        </h2>
-        <dl className="summary">
-          <dt>ID</dt>
-          <dd>
-            <code>{entity.hrid}</code>
-            {entry ? <span className="cell-meta">Its registry entry’s ID</span> : null}
-          </dd>
+      <div className="record-body">
+        <div className="record-main">
+          {moved?.to === entity.hrid ? <MovedNote moved={moved} entity={entity} /> : null}
+          {entry?.superseded ? <Superseded entity={entity} /> : null}
+          {entity.archived ? (
+            <div className="alert alert-warning" role="note">
+              <p>This entity is archived. Its values and history are kept, and it can’t change.</p>
+            </div>
+          ) : null}
+          {type?.detached ? <DetachedNote plugin={type.plugin} what="entity" /> : null}
+          {!type ? (
+            <div className="alert alert-warning" role="note">
+              <p>
+                Its type, <code>{entity.type}</code>, isn’t installed any more, so its values can’t
+                be shown.
+              </p>
+            </div>
+          ) : null}
+          {!entity.archived ? <EntityHolds entity={entity} /> : null}
+          {type?.result ? <ResultNote entity={entity} type={type} /> : null}
+          {type && sides ? <EntityRequest entity={entity} type={type} /> : null}
+          {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
+          <EntityAmount entity={entity} type={type} types={types} />
+          {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
+          <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />
+          {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
+          {app ? <AppPanel app={entity} types={types} /> : null}
           {entry ? (
-            <>
-              <dt>Registry</dt>
-              <dd>{entry.registry.name}</dd>
-            </>
+            <section className="card record-section" aria-labelledby="entry-title">
+              <div className="section-head">
+                <h2 className="section-title" id="entry-title">
+                  Registry entry {entry.hrid}
+                </h2>
+                <p className="muted">
+                  In the {entry.registry.name} registry. These values are the entry’s: every project
+                  with {entry.hrid} has the same ones.{" "}
+                  <Link to="/entries/$ref/" params={{ ref: entry.hrid }}>
+                    Open the entry
+                  </Link>
+                </p>
+              </div>
+              <FieldRows
+                fields={entryFields}
+                entity={entity}
+                type={type}
+                provenance={provenance}
+                marks
+              />
+            </section>
           ) : null}
-          <dt>Owner project</dt>
-          <dd>
-            {entity.owner_project ? (
-              <Link to="/projects/$slug/" params={{ slug: entity.owner_project.slug }}>
-                {entity.owner_project.name}
-              </Link>
-            ) : (
-              <span className="muted">A project you can’t see</span>
-            )}
-          </dd>
-          {projects && projects.length > 1 ? (
-            <>
-              <dt>Also in</dt>
-              <dd>
-                {projects
-                  .filter((p) => !p.owner)
-                  .map((p, index) => (
-                    <span key={p.project.id}>
-                      {index ? ", " : ""}
-                      <Link to="/projects/$slug/" params={{ slug: p.project.slug }}>
-                        {p.project.name}
-                      </Link>
-                    </span>
-                  ))}
-              </dd>
-            </>
+          <section className="card record-section" aria-labelledby="values-title">
+            <div className="section-head">
+              <h2 className="section-title" id="values-title">
+                {entry ? "Project values" : sides ? `${asker}’s values` : "Values"}
+              </h2>
+              {entry ? (
+                <>
+                  <p className="muted">
+                    {project}’s own record of {entry.hrid}. Other projects with it keep their own.
+                  </p>
+                  <ProjectPicker entity={entity} />
+                </>
+              ) : null}
+            </div>
+            <FieldRows
+              fields={asked}
+              entity={entity}
+              type={type}
+              provenance={provenance}
+              marks={false}
+            />
+          </section>
+          {/* A request's service fills in its own fields (ADR 0132). */}
+          {sides && served.length ? (
+            <section className="card record-section" aria-labelledby="service-values-title">
+              <div className="section-head">
+                <h2 className="section-title" id="service-values-title">
+                  {sides.service ? `${sides.service.name}’s values` : "The service’s values"}
+                </h2>
+                <p className="muted">
+                  {sides.service
+                    ? `${sides.service.name}, the service it’s sent to, fills these in.`
+                    : "The service it’s sent to fills these in, once it’s sent."}
+                </p>
+              </div>
+              <FieldRows
+                fields={served}
+                entity={entity}
+                type={type}
+                provenance={provenance}
+                marks={false}
+              />
+            </section>
           ) : null}
-          <dt>Created</dt>
-          <dd>
-            {personName(entity.created_by)}, <RelativeTime value={entity.created_at} />
-          </dd>
-          <dt>Last changed</dt>
-          <dd>
-            <RelativeTime value={entity.updated_at} /> (revision {entity.revision})
-          </dd>
-          {making.length ? (
-            <>
-              <dt>How it was made</dt>
-              <dd>
-                <ul className="value-list">
-                  {madeGroups(making).map((rows) => (
-                    <li key={[rows[0]?.by, rows[0]?.run?.hrid, rows[0]?.source?.id].join("-")}>
-                      <MadeHow rows={rows} />
-                    </li>
-                  ))}
-                </ul>
-              </dd>
-            </>
-          ) : null}
-          {origins.length || bundles.length ? (
-            <>
-              <dt>Imported from</dt>
-              <dd>
-                <ul className="value-list">
-                  {bundles.map((b, index) => (
-                    <li key={`bundle-${String(index)}`}>
-                      <FromBundle origin={b} />
-                    </li>
-                  ))}
-                  {origins.map((o, index) => (
-                    <li key={index}>
-                      <ImportedFrom origin={o} />
-                    </li>
-                  ))}
-                </ul>
-              </dd>
-            </>
-          ) : null}
-        </dl>
-      </section>
-    </>
-  );
-}
-
-function Changes({ number, type }: { number: number; type: EntityType | undefined }) {
-  const { entity } = useEntity();
-  // Its own refs and files: a value it removed may not be in the entity's any more.
-  const detail = useQuery(revisionQuery(apiRef(entity), number));
-  return <ChangesTable detail={detail.data} type={type} owner={entity.owner_project} />;
-}
-
-/** A registry entry's revision's changes: a curated fact's before and after, say. */
-function EntryChanges({
-  entry,
-  number,
-  type,
-  owner,
-}: {
-  entry: string;
-  number: number;
-  type: EntityType | undefined;
-  owner: { slug: string } | null | undefined;
-}) {
-  const detail = useQuery(entryRevisionQuery(entry, number));
-  if (detail.error) return <ProblemAlert problem={problemOf(detail.error)} />;
-  return <ChangesTable detail={detail.data} type={type} owner={owner} />;
-}
-
-/** What a revision changed, field by field: before and after. */
-function ChangesTable({
-  detail,
-  type,
-  owner,
-}: {
-  detail: RevisionDetail | undefined;
-  type: EntityType | undefined;
-  /** Whose records references open: the record's project's. */
-  owner: { slug: string } | null | undefined;
-}) {
-  if (!detail) return <Loading label="Loading the changes…" />;
-  const fields = new Map((type?.fields ?? []).map((f) => [f.name, f]));
-  const changes = Object.entries(detail.changes);
-  if (changes.length === 0) return <p className="muted">No values changed.</p>;
-  const shown = { ...detail, owner_project: owner ?? null };
-  return (
-    <div className="table-scroll">
-      <table className="table">
-        <thead>
-          <tr>
-            <th scope="col">Field</th>
-            <th scope="col">Before</th>
-            <th scope="col">After</th>
-          </tr>
-        </thead>
-        <tbody>
-          {changes.map(([name, change]) => {
-            const field = fields.get(name);
-            return (
-              <tr key={name}>
-                <th scope="row">{field?.label ?? name}</th>
-                <td>
-                  {field ? (
-                    <Value field={field} value={change.before} entity={shown} />
-                  ) : (
-                    JSON.stringify(change.before)
-                  )}
-                </td>
-                <td>
-                  {field ? (
-                    <Value field={field} value={change.after} entity={shown} />
-                  ) : (
-                    JSON.stringify(change.after)
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** A value as given, cut short: a genome's bases needn't fill the page. */
-function submittedText(value: unknown): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-}
-
-/** The holds a revision opened (ADR 0127), kept after they're reviewed: an out-of-
- * specification result stays visible, with why it was saved and who reviewed it. */
-function HoldsOpened({ revision }: { revision: Revision }) {
-  const holds = revision.holds ?? [];
-  if (!holds.length) return null;
-  return (
-    <ul className="row-holds" aria-label={`Holds revision ${String(revision.number)} opened`}>
-      {holds.map((h) => (
-        <li key={h.id}>
-          Held for review: {h.label}. {h.message}{" "}
-          {h.held_by ? "Saved anyway" : "Held by Iki’s check of its plugins’ rules"}
-          {h.agent ? `, through ${h.agent}` : ""}: “{h.reason}”
-          {h.last_revision !== h.revision
-            ? ` Revision ${String(h.last_revision)} broke it again.`
-            : ""}{" "}
-          {h.reviewer && h.reviewed_at ? (
-            <>
-              Reviewed by {personName(h.reviewer)} <RelativeTime value={h.reviewed_at} />: “
-              {h.review_reason}”
-            </>
-          ) : (
-            "Still held, for review."
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function RevisionRow({
-  entity,
-  revision,
-  type,
-}: {
-  entity: Entity;
-  revision: Revision;
-  type: EntityType | undefined;
-}) {
-  const [open, setOpen] = useState(false);
-  const who = personName(revision.user);
-  const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
-  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
-  return (
-    <li className="row row-stacked">
-      <div className="row-main">
-        <span className="row-title">
-          Revision {revision.number}: {revisionWhat(revision)} by {who}
-        </span>
-        <span className="row-meta">
-          {revision.created_at ? <RelativeTime value={revision.created_at} /> : null}{" "}
-          <Via revision={revision} />
-          {changed.length ? ` · ${changed.join(", ")}` : ""}
-        </span>
-        {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
-        {/* Its identity as it was given, spelled other than its registry entry (ADR 0138). */}
-        {revision.submitted ? (
-          <p className="row-submitted">
-            Given as{" "}
-            {Object.entries(revision.submitted).map(([name, value], index) => (
-              <span key={name}>
-                {index ? "; " : ""}
-                {labels.get(name) ?? name}: <code>{submittedText(value)}</code>
-              </span>
-            ))}
-            , which its registry entry spells another way.
-          </p>
-        ) : null}
-        {/* The electronic signatures that set its state (ADR 0126), as people read them. */}
-        {revision.state?.signatures.length ? (
-          <ul
-            className="row-signatures"
-            aria-label={`Signatures of revision ${String(revision.number)}`}
-          >
-            {revision.state.signatures.map((s) => (
-              <li key={s.id}>
-                {s.present
-                  ? s.manifestation
-                  : `Signature ${s.id} is gone from the database: something outside Iki deleted it.`}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <HoldsOpened revision={revision} />
-        {open ? <Changes number={revision.number} type={type} /> : null}
-      </div>
-      <div className="row-actions">
-        {revision.changed_fields.length ? (
-          <Button
-            variant="quiet"
-            label={`${open ? "Hide" : "Show"} changes in revision ${String(revision.number)}`}
-            onClick={() => {
-              setOpen(!open);
-            }}
-          >
-            {open ? "Hide changes" : "Show changes"}
-          </Button>
-        ) : null}
-        {/* The latest is exported from the page's header. */}
-        {revision.number < entity.revision ? (
-          <ExportButton entity={entity} type={type} revision={revision.number} />
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-/**
- * A registry entry's revision (ADR 0115). Who made it, how and when are told for changes
- * made through the reader's projects, and for registrars' changes; of anything else, only
- * what it set.
- */
-export function EntryRevisionRow({
-  entry,
-  revision,
-  type,
-  owner,
-}: {
-  /** The entry's ID. */
-  entry: string;
-  revision: Revision;
-  type: EntityType | undefined;
-  /** On a record's page, its project: references in the changes open its records. */
-  owner?: { slug: string } | null | undefined;
-}) {
-  const [open, setOpen] = useState(false);
-  const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
-  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
-  const what = KIND[revision.kind] ?? revision.kind;
-  const disclosed = revision.created_at !== null;
-  return (
-    <li className="row row-stacked">
-      <div className="row-main">
-        <span className="row-title">
-          Revision {revision.number}:{" "}
-          {disclosed
-            ? `${what} by ${personName(revision.user)}`
-            : changed.length
-              ? `Set ${changed.join(", ")}`
-              : what}
-        </span>
-        {revision.created_at ? (
-          <span className="row-meta">
-            <RelativeTime value={revision.created_at} /> <Via revision={revision} />
-            {changed.length ? ` · ${changed.join(", ")}` : ""}
-          </span>
-        ) : (
-          // Made through a project the reader can't read: what, never who, how or when.
-          <span className="row-meta">Through a project you can’t read</span>
-        )}
-        {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
-        {open ? (
-          <EntryChanges entry={entry} number={revision.number} type={type} owner={owner} />
-        ) : null}
-      </div>
-      {revision.changed_fields.length ? (
-        <div className="row-actions">
-          <Button
-            variant="quiet"
-            label={`${open ? "Hide" : "Show"} changes in entry revision ${String(revision.number)}`}
-            onClick={() => {
-              setOpen(!open);
-            }}
-          >
-            {open ? "Hide changes" : "Show changes"}
-          </Button>
+          {map ? <FeatureTable map={map} entity={entity} /> : null}
+          {collection ? <CollectionMembers entity={entity} types={types} /> : null}
+          {app ? <AppSpec app={entity} /> : null}
         </div>
-      ) : null}
-    </li>
-  );
-}
-
-/** A list of revisions, newest first, a page at a time. */
-function Revisions({
-  query,
-  label,
-  row,
-}: {
-  query: UseInfiniteQueryResult<InfiniteData<{ items: Revision[] }>>;
-
-  label: string;
-  row: (revision: Revision) => React.ReactNode;
-}) {
-  const items = query.data?.pages.flatMap((p) => p.items) ?? [];
-  return (
-    <>
-      {query.isPending ? <Loading label={`Loading ${label}…`} /> : null}
-      {query.error ? <ProblemAlert problem={problemOf(query.error)} /> : null}
-      <ul className="rows">{items.map(row)}</ul>
-      {query.hasNextPage ? (
-        <div className="actions">
-          <Button
-            busy={query.isFetchingNextPage}
-            busyText="Loading…"
-            label={`Show older revisions of ${label}`}
-            onClick={() => void query.fetchNextPage()}
-          >
-            Show older
-          </Button>
-        </div>
-      ) : null}
+        <aside className="record-rail" aria-label="About this record">
+          {map ? <MiniMap map={map} entity={entity} /> : null}
+          <Details entity={entity} type={type} />
+          <LineageCard entity={entity} />
+        </aside>
+      </div>
     </>
-  );
-}
-
-export function EntityHistory() {
-  const { entity, type } = useEntity();
-  usePageTitle(`History of ${entity.title} (${entity.hrid})`);
-  const revisions = useInfiniteQuery(revisionsQuery(apiRef(entity)));
-  const entry = entity.entry;
-  const project = entity.owner_project?.name ?? "This project";
-  return (
-    <>
-      <EntityTabs entity={entity} type={type} />
-      <p className="muted">
-        Every change, newest first. Revisions can’t be changed or removed, by anyone.
-      </p>
-      {entry ? (
-        <h2 className="section-title" id="record-history-title">
-          {project}’s record
-        </h2>
-      ) : null}
-      <Revisions
-        query={revisions}
-        label="the history"
-        row={(r) => <RevisionRow key={r.number} entity={entity} revision={r} type={type} />}
-      />
-      {entry ? <EntryHistory entity={entity} type={type} /> : null}
-    </>
-  );
-}
-
-/** The record's registry entry's revisions: its values are every holding project's. */
-function EntryHistory({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
-  const entry = entity.entry;
-  const revisions = useInfiniteQuery(entryRevisionsQuery(entry?.id ?? ""));
-  if (!entry) return null;
-  return (
-    <section aria-labelledby="entry-history-title">
-      <h2 className="section-title" id="entry-history-title">
-        Registry entry {entry.hrid}
-      </h2>
-      <p className="muted">
-        Its values are every holding project’s: its identity, what’s derived from it, and the facts
-        its registrars curate. Changes made through projects you can’t read say only what they set.
-      </p>
-      <Revisions
-        query={revisions}
-        label={`registry entry ${entry.hrid}`}
-        row={(r) => (
-          <EntryRevisionRow
-            key={r.number}
-            entry={entry.id}
-            revision={r}
-            type={type}
-            owner={entity.owner_project}
-          />
-        )}
-      />
-    </section>
   );
 }

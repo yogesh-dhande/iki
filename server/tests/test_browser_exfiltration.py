@@ -284,7 +284,8 @@ def test_values_written_to_attack_a_page_are_only_ever_text(
         (f"/projects/{world.project.slug}/", False),
         (f"/projects/{world.project.slug}/entities/?type=acme/protein.Protein", True),
         (f"/entities/{entity.hrid}/", True),
-        (f"/entities/{entity.hrid}/history/", True),
+        (f"/entities/{entity.hrid}/audit/", True),
+        (f"/entities/{entity.hrid}/audit/?view=fields", True),
         (f"/projects/{world.project.slug}/entities/?type=acme/protein.Protein&q=img", True),
     ):
         page = open_as("admin", path)

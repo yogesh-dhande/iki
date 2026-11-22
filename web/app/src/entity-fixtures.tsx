@@ -52,6 +52,25 @@ export async function filterFields(user: ReturnType<typeof userEvent.setup>): Pr
   return items;
 }
 
+/** Opens a field's history on a record's page (ADR 0176), and gives its popover. */
+export async function fieldHistory(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+): Promise<HTMLElement> {
+  await user.click(await screen.findByRole("button", { name: `History of ${label}` }));
+  return screen.findByRole("dialog", { name: `History of ${label}` });
+}
+
+/** Chooses one of a record's ⋯ menu's actions. */
+export async function moreAction(
+  user: ReturnType<typeof userEvent.setup>,
+  hrid: string,
+  action: string,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: `More actions for ${hrid}` }));
+  await user.click(await screen.findByRole("menuitem", { name: action }));
+}
+
 export type Field = Schemas["FieldOut"];
 
 export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" | "type">): Field {
