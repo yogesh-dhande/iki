@@ -245,6 +245,35 @@ for call in iki.runs.api_calls(run):  # the model and version that answered, and
 
 ## Files
 
+Upload a path to a project where you can edit. The SDK computes the file's
+SHA-256, sends each part directly to object storage, and waits for Iki to
+verify the stored bytes. It returns a `FileOut` with the file's ID, name,
+size, media type and SHA-256.
+
+```python
+project = "kinase-atlas"
+coordinates = iki.files.upload("abl.pdb", project=project, media_type="chemical/x-pdb")
+
+# An entity's file field takes the ID.
+structure = iki.entities.create(
+    "iki/protein.ProteinStructure", {"structure": coordinates["id"]}, project=project
+)
+
+# An import action takes the ID in its file parameter.
+run = iki.run("iki/protein.import_structure", project=project, params={"file": coordinates["id"]})
+```
+
+You can also pass an open binary file or stream. The SDK reads from its
+current position and leaves it open. It restores the position of a seekable
+stream and uses a temporary file for a stream it can read only once.
+Give an unnamed stream a filename with `name=`. For scientific formats,
+set `media_type=` to a type the field or action accepts.
+
+Uploading requires project Editor access and the `write` scope. A reader
+who tries to upload gets `iki.Forbidden`. If Iki rejects the bytes during
+verification, `iki.IkiError` includes its reason. Pass `timeout=` in
+seconds to raise `iki.TimedOut` if verification takes longer.
+
 ```python
 entity = iki.entities.get("STR-000007")
 for file_id, file in entity["files"].items():
@@ -266,7 +295,7 @@ your administrator. Its subclasses let you catch what you'd handle differently:
 | `iki.RateLimited` | Too many requests, even after waiting as Iki asked            |
 | `iki.NotSignedIn` | No sign-in, or it has expired: run `iki.login()`              |
 | `iki.RunFailed`   | A run you waited for didn't succeed                           |
-| `iki.TimedOut`    | Waiting took longer than you allowed; the run goes on         |
+| `iki.TimedOut`    | The wait expired while the run or file check was in progress  |
 
 Requests that Iki asks you to slow down for are sent again after waiting as
 long as it says.

@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from importlib import metadata
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal, cast
 from urllib.parse import quote
 
 import httpx2
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         EntityOut,
         EntityTypeOut,
         EntryOut,
+        FileOut,
         GraphOut,
         IntakeOut,
         MeOut,
@@ -1533,6 +1534,29 @@ def _ref(ref: str | Mapping[str, Any]) -> str:
 
 class Files(_Part):
     """Files that entities' values refer to."""
+
+    def upload(
+        self,
+        source: str | os.PathLike[str] | BinaryIO,
+        *,
+        project: str | Mapping[str, Any],
+        name: str | None = None,
+        media_type: str | None = None,
+        timeout: float | None = None,
+        poll: float = 2.0,
+    ) -> FileOut:
+        """Upload a path or open binary stream and return the verified file record.
+
+        A stream is read from its current position, which is restored if it can seek.
+        Give an unnamed stream a ``name``.
+        The media type defaults to a guess from the filename, then application/octet-stream.
+        ``timeout`` limits the wait for Iki to check the upload, in seconds.
+        """
+        from iki._uploads import upload
+
+        return upload(
+            self._client, source, self._client._project_id(project), name, media_type, timeout, poll
+        )
 
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:
         """Saves a file's content at `to` and returns where. Its checksum is checked
