@@ -88,7 +88,7 @@ class MovementsOut(Page[MovementOut]):
     )
 
 
-class TakeIn(Schema):
+class AmountTakeIn(Schema):
     amount: QuantityIn = Field(
         description="How much to draw: in its unit, one that converts to it, or (for a type "
         "with a concentration) a mass of a volume or a volume of a mass."
@@ -96,11 +96,11 @@ class TakeIn(Schema):
     reason: str = Field("", max_length=2000, description="What it was used for.")
 
 
-class DrawIn(TakeIn):
+class DrawIn(AmountTakeIn):
     purpose: DrawPurpose = Field(DrawPurpose.ROUTINE, description="Why material is being drawn.")
 
 
-class TransferIn(TakeIn):
+class TransferIn(AmountTakeIn):
     to: str = Field(max_length=64, description="The record it goes to, by ID or HRID.")
 
 
