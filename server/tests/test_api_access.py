@@ -886,6 +886,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         viewer_lab_roles,
         PROJECT_MEMBERS,
     ),
+    # Searching everything (ADR 0176): anyone signed in, finding only what they can read.
+    ("GET", "/search", fixed("/search?q=kin"), row(200)),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
     ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),

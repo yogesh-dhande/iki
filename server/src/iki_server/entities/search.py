@@ -981,6 +981,11 @@ def title_text_fields(type_name: str) -> list[str]:
 _HRID_START = re.compile(r"[A-Za-z][A-Za-z0-9]{1,7}-[0-9]*")
 
 
+def looks_like_hrid(q: str) -> bool:
+    """Whether ``q`` is shaped like an HRID, or the start of one: ``prt-0001``, ``PRT-``."""
+    return _HRID_START.fullmatch(q) is not None
+
+
 def matching(q: str, type_names: set[str]) -> Q:
     """Entities whose HRID contains ``q``, or whose title's text fields do.
 
@@ -989,7 +994,7 @@ def matching(q: str, type_names: set[str]) -> Q:
     with it, by the HRIDs' own index: their digits' trigrams are in nearly every HRID,
     so at 100M entities a trigram search for one took most of a second (ADR 0103).
     """
-    hrid = Q(hrid__startswith=q.upper()) if _HRID_START.fullmatch(q) else Q(hrid__containing=q)
+    hrid = Q(hrid__startswith=q.upper()) if looks_like_hrid(q) else Q(hrid__containing=q)
     parts: list[QuerySet[Any]] = [Entity.objects.filter(hrid).values("pk")]
     for name in sorted(type_names):
         entity_type = registry.types()[name]
@@ -1164,11 +1169,15 @@ _LIMITED = ("statement_timeout", "join_collapse_limit", "from_collapse_limit", "
 
 
 @contextmanager
-def time_limit(ms: int = TIME_LIMIT_MS) -> Iterator[None]:
+def time_limit(ms: int = TIME_LIMIT_MS, *, pages: bool = True) -> Iterator[None]:
     """Runs the block's queries in a transaction that cancels any taking longer than ``ms``.
     Raises :class:`TooSlow` if one does. Inside a transaction already (a trigger's firing,
     say), what it set is put back after the block, so what the transaction does next isn't
-    limited."""
+    limited.
+
+    ``pages`` plans the block's joins for pages deep into large tables, as below. Planning
+    so takes longer: searching everything (ADR 0176) reads only the first few of each kind,
+    and turns it off."""
     try:
         with transaction.atomic():
             with connection.cursor() as cursor:
@@ -1177,18 +1186,20 @@ def time_limit(ms: int = TIME_LIMIT_MS) -> Iterator[None]:
                 )
                 before = cursor.fetchone()
                 cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{ms}ms"])
-                # A page is at most a hundred rows, of a join of a type's tables (its own,
-                # its parents', Entity's), its projects' and its caller's (ADR 0103):
-                # - Postgres reorders at most 8 by default; past that it joins them as
-                #   written, matches last, reading every row before narrowing to a few.
-                # - A merge join reads each table's key from its start: a page deep into
-                #   100M rows would read 100M of each. Looking each row up in the others,
-                #   by key, reads a page's worth wherever the page is.
-                cursor.execute(
-                    "SELECT set_config('join_collapse_limit', '12', true), "
-                    "set_config('from_collapse_limit', '12', true), "
-                    "set_config('enable_mergejoin', 'off', true)"
-                )
+            if pages:
+                with connection.cursor() as cursor:
+                    # A page is at most a hundred rows, of a join of a type's tables (its own,
+                    # its parents', Entity's), its projects' and its caller's (ADR 0103):
+                    # - Postgres reorders at most 8 by default; past that it joins them as
+                    #   written, matches last, reading every row before narrowing to a few.
+                    # - A merge join reads each table's key from its start: a page deep into
+                    #   100M rows would read 100M of each. Looking each row up in the others,
+                    #   by key, reads a page's worth wherever the page is.
+                    cursor.execute(
+                        "SELECT set_config('join_collapse_limit', '12', true), "
+                        "set_config('from_collapse_limit', '12', true), "
+                        "set_config('enable_mergejoin', 'off', true)"
+                    )
             yield
             if before is not None:
                 with connection.cursor() as cursor:
