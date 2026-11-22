@@ -6699,6 +6699,11 @@ input[type="file"]::file-selector-button {
   margin: 0;
 }
 
+/* A filter is never required, so it doesn't say it's optional as a form's field does. */
+.file-filter-sample .optional {
+  display: none;
+}
+
 .file-filter-run {
   flex: 0 1 12rem;
 }
@@ -6811,4 +6816,9 @@ input[type="file"]::file-selector-button {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
+}
+
+/* A run's link to its files, under its inputs. */
+.run-files-link {
+  margin: 0.5rem 0 0;
 }

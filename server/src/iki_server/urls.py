@@ -95,6 +95,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("requests/", web.app, name="requests"),
     path("runs/", web.app, name="runs"),
     path("runs/<str:ref>/", web.app, name="run"),
+    # Files across projects, and one file (ADR 0177); a project's are in org.urls.
+    path("files/", web.app, name="files"),
+    path("files/<uuid:file_id>/", web.app, name="file"),
     path("batches/<str:ref>/", web.app, name="batch"),
     path("workflow-runs/<str:ref>/", web.app, name="workflow_run"),
     path("csp-report/", web.csp_report, name="csp_report"),

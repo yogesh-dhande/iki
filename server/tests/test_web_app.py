@@ -307,6 +307,7 @@ def test_server_pages_have_the_web_apps_sidebar(
         "All entities",
         "Requests",
         "Runs",
+        "Files",
         *(["New project"] if can["create_projects"] else []),
         *projects,
         "All projects",

@@ -171,6 +171,12 @@
       "href": "/runs/",
       "icon": "runs",
       "app": true
+    },
+    {
+      "label": "Files",
+      "href": "/files/",
+      "icon": "files",
+      "app": true
     }
   ],
   "saved": {
@@ -232,6 +238,7 @@
     "entities": ["M12 3 3 7.5v9L12 21l9-4.5v-9z", "M3 7.5 12 12l9-4.5M12 12v9"],
     "requests": ["M21 3 10 14", "m21 3-7 18-4-7-7-4z"],
     "runs": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0", "m10 8.5 5 3.5-5 3.5z"],
+    "files": ["M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M14 3v5h5"],
     "saved": ["M6 3h12v18l-6-4-6 4z"],
     "projects": ["M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"],
     "types": [

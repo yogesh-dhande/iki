@@ -113,7 +113,6 @@ export function FileTable({
   const narrowed = narrowing > 0;
   const [open, setOpen] = useState(narrowed);
   const panelId = useId();
-  const captionId = useId();
   const set = (change: Partial<FileFilter>) => {
     onFilter({ ...filter, ...change });
   };
@@ -283,10 +282,10 @@ export function FileTable({
       ) : null}
       {items.length ? (
         <div className="list-table-box">
-          <table className="list-table file-rows" aria-labelledby={captionId}>
-            <caption id={captionId} className="visually-hidden">
-              {caption}
-            </caption>
+          {/* Named by its caption, not aria-labelledby: Firefox crashes working out names
+              through aria-labelledby after axe has run. */}
+          <table className="list-table file-rows">
+            <caption className="visually-hidden">{caption}</caption>
             <thead>
               <tr>
                 {pick ? (

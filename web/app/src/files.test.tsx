@@ -136,6 +136,154 @@ describe("the file picker", () => {
   });
 });
 
+describe("a project's Files", () => {
+  it("lists its files, keeps its search and filters in the address, and links what uses each", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    const acquired = file("4", "A01_clone-17-F.ab1", {
+      media_type: "application/x-abi",
+      acquired: {
+        on: "2026-03-14",
+        at: "2026-03-14T09:21:07",
+        source: "abif",
+        source_label: "from the ABIF trace’s run start (RUND and RUNT)",
+      },
+    });
+    answerFiles([acquired, A]);
+    const { user, router } = await renderApp("/projects/kinase-atlas/files/");
+    const table = await screen.findByRole("table", { name: "Files in Kinase Atlas" });
+    const rows = within(table).getAllByRole("row");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "NameFormatSizeAcquiredAddedUsed by",
+      expect.stringContaining("A01_clone-17-F.ab1"),
+      expect.stringContaining("1abc.pdb"),
+    ]);
+    expect(within(table).getByText("2026-03-14")).toHaveAttribute(
+      "title",
+      "2026-03-14 09:21:07, from the ABIF trace’s run start (RUND and RUNT)",
+    );
+    // Unknown, never when it was added.
+    const unknown = rows[2];
+    if (!unknown) throw new Error("no third row");
+    expect(within(unknown).getByRole("cell", { name: "Unknown" })).toBeInTheDocument();
+    expect(within(table).getByRole("link", { name: "2 records · 1 run" })).toHaveAttribute(
+      "href",
+      `/files/${A.id}/#used-by`,
+    );
+    expect(within(table).getByRole("link", { name: "1abc.pdb" })).toHaveAttribute(
+      "href",
+      `/files/${A.id}/`,
+    );
+    expect(screen.getByText("2 files")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "clone");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ q: "clone" });
+    });
+    expect(calls("GET", "/api/v1/files").at(-1)?.query.get("q")).toBe("clone");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Sort" }), "Latest acquired");
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const filters = screen.getByRole("group", { name: "Filters" });
+    // fireEvent-free: a date input takes typed text in jsdom.
+    await user.type(within(filters).getByLabelText("Acquired from"), "2026-03-01");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        q: "clone",
+        sort: "acquired",
+        acquired_from: "2026-03-01",
+      });
+    });
+    const asked = calls("GET", "/api/v1/files").at(-1)?.query;
+    expect(asked?.get("sort")).toBe("acquired");
+    expect(asked?.get("acquired_from")).toBe("2026-03-01");
+    // No type here holds samples.
+    expect(
+      within(filters).getByText("No type here holds samples, so there are none to filter by."),
+    ).toBeInTheDocument();
+    await user.type(within(filters).getByRole("textbox", { name: "Run" }), "run-000007{Enter}");
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ run: "RUN-000007" });
+    });
+    expect(screen.getByRole("button", { name: /Filters/ })).toHaveTextContent("Filters2");
+  });
+
+  it("shows a file: what it is, when its data was acquired, and what uses it", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/files/${A.id}`, {
+      ...A,
+      acquired: {
+        on: "2026-03-14",
+        at: "2026-03-14",
+        source: "given",
+        source_label: "as given when it was added",
+      },
+      origin: { kind: "upload", run: null, uri: null, version: null },
+      samples: [],
+    });
+    answer(
+      `GET /api/v1/files/${A.id}/records`,
+      page([
+        {
+          id: "00000000-0000-7000-8000-00000000e009",
+          hrid: "PST-000009",
+          title: "ABL1 structure",
+          type: "iki/protein.ProteinStructure",
+          revision: 6,
+          spans: [
+            { first: 1, last: 2, fields: ["structure"] },
+            { first: 5, last: null, fields: ["structure"] },
+          ],
+        },
+      ]),
+    );
+    answer(
+      `GET /api/v1/files/${A.id}/runs`,
+      page([
+        {
+          id: "00000000-0000-7000-8000-00000000r001",
+          hrid: "RUN-000004",
+          action: "iki/protein.fold",
+          label: "Fold",
+          status: "succeeded",
+          project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+          roles: ["param"],
+          created_at: "2026-11-11T10:00:00Z",
+        },
+      ]),
+    );
+    await renderApp(`/files/${A.id}/`);
+    expect(screen.getByRole("heading", { level: 1, name: "1abc.pdb" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute(
+      "href",
+      `/api/v1/files/${A.id}/content`,
+    );
+    expect(screen.getByText("as given when it was added")).toBeInTheDocument();
+    expect(screen.getByText("Uploaded")).toBeInTheDocument();
+    const records = await screen.findByRole("table", { name: "Records that hold 1abc.pdb" });
+    expect(within(records).getByRole("link", { name: "ABL1 structure" })).toHaveAttribute(
+      "href",
+      "/entities/00000000-0000-7000-8000-00000000e009/",
+    );
+    expect(
+      within(records)
+        .getAllByRole("link", { name: /^PST-000009 revisions/ })
+        .map((l) => [l.textContent, l.getAttribute("href")]),
+    ).toEqual([
+      ["r1–r2", "/entities/00000000-0000-7000-8000-00000000e009/audit/?field=structure"],
+      ["r5 on", "/entities/00000000-0000-7000-8000-00000000e009/audit/?field=structure"],
+    ]);
+    const runs = await screen.findByRole("table", { name: "Runs that read or made 1abc.pdb" });
+    expect(within(runs).getByRole("link", { name: "RUN-000004" })).toHaveAttribute(
+      "href",
+      "/runs/RUN-000004/",
+    );
+    expect(within(runs).getByText("Given as a param")).toBeInTheDocument();
+  });
+});
+
 describe("a list of files says", () => {
   it("when its data was acquired, as precisely as its source gave it", () => {
     expect(acquiredText("2026-03-14")).toBe("2026-03-14");

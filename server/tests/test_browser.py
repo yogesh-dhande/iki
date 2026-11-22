@@ -430,6 +430,8 @@ PAGES = [
     ("admin", "/entities/types/acme/protein.Protein/"),
     ("admin", "/requests/"),
     ("admin", "/runs/"),
+    ("admin", "/files/"),
+    ("admin", "/projects/kinase-atlas/files/"),
 ]
 
 
