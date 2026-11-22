@@ -904,14 +904,16 @@ export function EntityGrid({
           {library && project?.can.edit && !project.archived && !search.collection ? (
             <SaveAsCollection project={project} search={search} />
           ) : null}
-          {making && fixedProject?.can.edit && !fixedProject.archived && (library || makeable) ? (
+          {/* The page's header makes a record of any type, as its one primary action; a type
+              picked here can be made straight away, its form already of that type. */}
+          {making && makeable && fixedProject?.can.edit && !fixedProject.archived ? (
             <Link
               to="/projects/$slug/entities/new/"
               params={{ slug: fixedProject.slug }}
-              search={makeable ? { type: makeable.name } : {}}
-              className={buttonClass("primary")}
+              search={{ type: makeable.name }}
+              className={buttonClass()}
             >
-              New {makeable ? inSentence(makeable.label) : "entity"}
+              New {inSentence(makeable.label)}
             </Link>
           ) : null}
         </div>

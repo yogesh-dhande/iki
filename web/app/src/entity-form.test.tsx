@@ -1003,11 +1003,11 @@ describe("a detached plugin's data", () => {
     await renderApp("/projects/kinase-atlas/entities/new/");
     const options = within(screen.getByRole("combobox", { name: "Type" })).getAllByRole("option");
     expect(options.map((o) => o.textContent)).toEqual(["Protein"]);
+    // Nor does its table offer one: the page's New makes a record of a type that can be.
     await renderApp("/projects/kinase-atlas/entities/?type=lab.Sample");
-    expect(await screen.findByRole("link", { name: "New entity" })).toHaveAttribute(
-      "href",
-      "/projects/kinase-atlas/entities/new/",
-    );
+    await screen.findByRole("link", { name: "Download CSV" });
+    expect(screen.queryByRole("link", { name: "New entity" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "New sample" })).not.toBeInTheDocument();
   });
 
   it("keeps an extension's values, out of the form", async () => {
