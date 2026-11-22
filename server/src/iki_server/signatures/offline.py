@@ -82,6 +82,14 @@ def verify(bundle: reading.Bundle, keys: Mapping[str, str] | None = None) -> lis
         state = review.get("state") or {}
         carried = review.get("signatures") or []
         change = document.get("change") or {}
+        history_field = line["field"]
+        # ADR 0148. The state column in the bundle's history can have a new name.
+        try:
+            for migration in proof.vouched(line.get("since"), line, trusted):
+                if migration.get("kind") == "rename" and migration.get("from") == history_field:
+                    history_field = migration["to"]
+        except (KeyError, proof.Unexplained):
+            continue  # Its record check already refused the unexplained history.
         reference = None
         if (
             review.get("kind") == "state_changed"
@@ -89,7 +97,7 @@ def verify(bundle: reading.Bundle, keys: Mapping[str, str] | None = None) -> lis
             and state.get("to") == change.get("from")
             and review.get("changed_fields") == [line["field"]]
             and all(sid in verified and verified[sid].valid for sid in carried)
-            and _only_state_changed(record, number, line["field"])
+            and _only_state_changed(record, number, history_field, state)
         ):
             reference = proof.review_reference(
                 line["record"],
@@ -103,7 +111,7 @@ def verify(bundle: reading.Bundle, keys: Mapping[str, str] | None = None) -> lis
             if (
                 delivered.get("kind") != "state_changed"
                 or delivered.get("changed_fields") != [line["field"]]
-                or not _only_state_changed(record, number + 1, line["field"])
+                or not _only_state_changed(record, number + 1, history_field, change)
             ):
                 reference = None
         verified[line["id"]].checks.append(proof.review_check(document["reviewed"], reference))
@@ -175,10 +183,13 @@ def _values_at(record: Mapping[str, Any], revision: int) -> dict[str, Any]:
     return own
 
 
-def _only_state_changed(record: Mapping[str, Any], number: int, field: str) -> bool:
+def _only_state_changed(
+    record: Mapping[str, Any], number: int, field: str, change: Mapping[str, Any]
+) -> bool:
     before, after = _values_at(record, number - 1), _values_at(record, number)
-    before.pop(field, None)
-    after.pop(field, None)
+    if before.get(field) != change.get("from"):
+        return False
+    before[field] = change.get("to")
     return proof.canonical(before) == proof.canonical(after)
 
 
