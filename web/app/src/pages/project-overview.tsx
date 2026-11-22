@@ -16,6 +16,7 @@ import {
 import { dashboardQuery } from "../apps";
 import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { TopBar } from "../page-top";
 import { swatchColor } from "../project-color";
 import { countsQuery } from "../lists";
 import { useRequestSides } from "../requests";
@@ -81,24 +82,26 @@ export function ProjectTabs() {
   ].filter(Boolean);
   return (
     <>
-      <div className="project-bar">
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <ol>
-            <li>
-              <Link to="/projects/">Projects</Link>
-            </li>
-            <li>
-              <Link to="/projects/$slug/" params={{ slug: project.slug }} aria-current="page">
-                {project.name}
-              </Link>
-            </li>
-          </ol>
-        </nav>
-        <div className="project-actions">
-          {project.can.read ? <ProjectNotifications project={project} /> : null}
-          <NewMenu project={project} />
-        </div>
-      </div>
+      {/* Where it is, and what can be done from anywhere in it: in the bar across the top of
+          the page (ADR 0176). Its name is the current page on its Overview. */}
+      <TopBar
+        crumbs={[
+          <Link to="/projects/">Projects</Link>,
+          <Link
+            to="/projects/$slug/"
+            params={{ slug: project.slug }}
+            activeOptions={{ exact: true }}
+          >
+            {project.name}
+          </Link>,
+        ]}
+        actions={
+          <>
+            {project.can.read ? <ProjectNotifications project={project} /> : null}
+            <NewMenu project={project} />
+          </>
+        }
+      />
       <div className="project-heading">
         <div className="project-name">
           <span

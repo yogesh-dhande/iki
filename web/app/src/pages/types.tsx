@@ -45,11 +45,10 @@ export function TypeList() {
   const plugins = [...new Set(types.map((t) => t.plugin))].sort();
   return (
     <>
-      <PageHeader title="Entity types" />
-      <p className="muted">
-        What this deployment’s plugins record. Each type’s fields, units and rules come from its
-        plugin.
-      </p>
+      <PageHeader
+        title="Entity types"
+        description="What this deployment’s plugins record. Each type’s fields, units and rules come from its plugin."
+      />
       {types.length === 0 ? (
         <p className="empty">No plugins with entity types are installed.</p>
       ) : null}
@@ -157,7 +156,7 @@ export function TypeDetail() {
   return (
     <>
       <PageHeader
-        eyebrow={<Link to="/types/">Entity types</Link>}
+        crumbs={[<Link to="/types/">Entity types</Link>, type.label]}
         title={type.label}
         badge={
           <>

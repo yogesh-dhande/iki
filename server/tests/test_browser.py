@@ -498,6 +498,62 @@ def test_the_sidebar_by_keyboard_and_as_a_drawer_on_a_phone(
     page.context.close()
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_pages_breadcrumb_and_actions_are_in_a_bar_across_its_top(
+    open_as: Any, color_scheme: str
+) -> None:
+    """The bar across the top of the page (ADR 0176): 46px tall, across the whole column
+    beside the sidebar, with the breadcrumb on its left and the page's actions on its right;
+    then the page's title, with what it is in one line beside it and more in a toggletip.
+    On a phone the page is never wider than the screen."""
+    page = open_as("admin", "/entities/types/acme/protein.Protein/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    bar = page.locator(".page-top")
+    crumbs = bar.get_by_role("navigation", name="Breadcrumb")
+    crumbs.get_by_role("link", name="Entities").wait_for()
+    assert crumbs.get_by_text("Proteins").get_attribute("aria-current") == "page"
+    box = bar.bounding_box()
+    side = page.locator("#sidebar").bounding_box()
+    assert box is not None and side is not None
+    assert box["height"] == pytest.approx(46, abs=1)
+    assert box["y"] == pytest.approx(0, abs=1)
+    assert box["x"] == pytest.approx(side["x"] + side["width"], abs=1)
+    assert box["x"] + box["width"] == pytest.approx(1440, abs=1)
+    new = bar.get_by_role("button", name="New protein")
+    new_box = new.bounding_box()
+    crumbs_box = crumbs.bounding_box()
+    assert new_box is not None and crumbs_box is not None
+    # The breadcrumb on the left and the actions on the right, both in the bar's middle.
+    assert crumbs_box["x"] < box["x"] + 30
+    assert new_box["x"] + new_box["width"] == pytest.approx(box["x"] + box["width"] - 20, abs=2)
+    middle = box["y"] + box["height"] / 2
+    for part in (new_box, crumbs_box):
+        assert part["y"] + part["height"] / 2 == pytest.approx(middle, abs=2)
+
+    # The title below the bar, and the line about it beside it.
+    title = page.get_by_role("heading", level=1, name="Proteins").bounding_box()
+    about = page.get_by_role("button", name="About Proteins")
+    about_box = about.bounding_box()
+    assert title is not None and about_box is not None
+    assert title["y"] > box["y"] + box["height"]
+    assert about_box["x"] > title["x"] + title["width"]
+    assert about_box["y"] + about_box["height"] / 2 == pytest.approx(
+        title["y"] + title["height"] / 2, abs=3
+    )
+    about.click()
+    toggletip = page.get_by_role("dialog", name="About Proteins")
+    toggletip.get_by_role("link", name=re.compile("^About the Protein type")).wait_for()
+    assert_clean(page)
+    page.keyboard.press("Escape")
+    toggletip.wait_for(state="hidden")
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert bar.get_by_role("button", name="New protein").is_visible()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     open_as: Any, world: World
 ) -> None:

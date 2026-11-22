@@ -14,6 +14,7 @@ import { useId, useState } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { usePageTitle } from "../layout";
+import { TopBar } from "../page-top";
 import {
   gridSearch,
   SAVED_SEARCHES,
@@ -23,7 +24,7 @@ import {
   type SavedSearch,
 } from "../entities";
 import { sameJson, searchWords, wordsOf, type Filter } from "../filters";
-import { Button, ConfirmDialog, TextField, useMessages } from "../ui";
+import { Button, ConfirmDialog, PageTitle, TextField, useMessages } from "../ui";
 
 interface Query {
   type?: string | null;
@@ -222,7 +223,8 @@ export function SavedSearchPage() {
   usePageTitle(saved.name);
   return (
     <section className="card">
-      <h1>{saved.name}</h1>
+      <TopBar crumbs={[<Link to="/entities/">Entities</Link>, saved.name]} />
+      <PageTitle>{saved.name}</PageTitle>
       <p>
         This search was saved through Iki’s API, with conditions the grid can’t show, so it can’t
         open there.{" "}

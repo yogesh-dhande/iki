@@ -31,6 +31,7 @@ import {
 } from "../entities";
 import { entityAppsQuery } from "../apps";
 import { lineageGraphQuery } from "../lineage";
+import { TopBar } from "../page-top";
 import { ExportDialog, exportFormats } from "./entity-export";
 import { signaturesQuery } from "./entity-signatures";
 import { StateBadges } from "./entity-state";
@@ -84,25 +85,18 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
   const trail = trailCount(entity);
   return (
     <>
-      <div className="record-top">
-        <nav aria-label="Breadcrumb" className="crumbs">
-          <ol>
-            {/* The lists of everything the reader can read, across projects (ADR 0176). */}
-            <li>
-              <Link to="/entities/">Entities</Link>
-            </li>
-            <li>
-              <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
-                {type?.label_plural ?? type?.label ?? entity.type}
-              </Link>
-            </li>
-            <li>
-              <span aria-current="page">{entity.hrid}</span>
-            </li>
-          </ol>
-        </nav>
-        <RecordActions entity={entity} type={type} />
-      </div>
+      {/* Where it is, in the lists of everything the reader can read, across projects, and
+          what can be done with it: in the bar across the top of the page (ADR 0176). */}
+      <TopBar
+        crumbs={[
+          <Link to="/entities/">Entities</Link>,
+          <Link to="/entities/types/$/" params={{ _splat: entity.type }} search={{}}>
+            {type?.label_plural ?? type?.label ?? entity.type}
+          </Link>,
+          entity.hrid,
+        ]}
+        actions={<RecordActions entity={entity} type={type} />}
+      />
       <div className="record-heading">
         <div className="record-title">
           <PageTitle>{entity.title}</PageTitle>

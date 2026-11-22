@@ -309,6 +309,215 @@ main:focus {
   font-size: var(--text-sm);
 }
 
+/* The web app's main column: the bar across its top (page-top.tsx), with the page's
+   breadcrumb on the left and its actions on the right, then the page, which keeps the
+   width it asks for. */
+main.app-main {
+  max-width: none;
+  padding: 0;
+}
+
+.page-body {
+  width: 100%;
+  margin: 0 auto;
+  padding: calc(18rem / 13) calc(20rem / 13) calc(32rem / 13);
+}
+
+:is(body, #root):has(> .sidebar) > main .page-body {
+  margin: 0;
+}
+
+.page-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13) calc(12rem / 13);
+  min-height: calc(46rem / 13);
+  padding: calc(8rem / 13) calc(20rem / 13);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.page-top[hidden] {
+  display: none;
+}
+
+/* Outside a frame (a page drawn on its own, as in a test): above the page's title. */
+.page-top-inline {
+  min-height: 0;
+  margin-bottom: calc(12rem / 13);
+  padding: 0;
+  border: 0;
+}
+
+.page-top-crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-top-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+.page-top-actions:empty {
+  display: none;
+}
+
+.page-top .crumbs {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6rem / 13);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-top .crumbs li + li::before {
+  content: "/" / "";
+  margin-right: calc(6rem / 13);
+}
+
+.page-top .crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.page-top .crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.page-top .crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.page-actions,
+.page-actions > .actions.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin: 0;
+}
+
+/* The bar's buttons are its controls' height, an icon's (⋯) square: 28px, clear of the 24
+   WCAG 2.5.8 asks. */
+.page-top .button {
+  min-height: var(--control-height);
+}
+
+.page-top .button-icon {
+  min-width: var(--control-height);
+  width: var(--control-height);
+  padding: 0;
+}
+
+.page-top .button-icon svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+}
+
+/* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
+.page-heading {
+  margin-bottom: calc(14rem / 13);
+}
+
+.page-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4rem / 13) calc(10rem / 13);
+  min-width: 0;
+}
+
+.page-title-row h1 {
+  margin: 0;
+}
+
+.page-description {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: calc(2rem / 13);
+  min-width: min(calc(160rem / 13), 100%);
+}
+
+.page-description-text {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A 24-pixel target, as WCAG 2.5.8 asks. */
+.page-about {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: calc(24rem / 13);
+  height: calc(24rem / 13);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.page-about:hover,
+.page-about[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.page-about svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.page-about-popover {
+  max-width: min(calc(384rem / 13), calc(100vw - calc(32rem / 13)));
+  padding: calc(12rem / 13) calc(14rem / 13);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+.page-about-dialog {
+  outline: none;
+}
+
+.page-about-dialog p {
+  margin: 0 0 calc(8rem / 13);
+}
+
+.page-about-dialog > :last-child {
+  margin-bottom: 0;
+}
+
 /* Signed in: the sidebar (ADR 0176) beside the page, which is left-aligned beside it. On
    the server's pages they're the body's; the web app draws them in its root. */
 :is(body, #root):has(> .sidebar) {
@@ -1112,7 +1321,7 @@ input:focus-visible {
 
 /* A page of the app's: as wide as a table there needs, up to a line that still reads. */
 .page-wide {
-  max-width: calc(1180rem / 13);
+  max-width: calc(1440rem / 13);
 }
 
 /* The sequence viewer: residues in rows of 60, groups of 10, features as a track. */

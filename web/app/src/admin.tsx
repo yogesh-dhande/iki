@@ -10,13 +10,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState, type ReactNode } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { meQuery, type Me } from "./api";
 import { useLiveUpdates } from "./events";
 import { Layout, organizationName, SignedOut } from "./layout";
+import { ActionsSlot, TopBar } from "./page-top";
 import { markNavigated, MessagesProvider } from "./ui";
 
 /** An item of the admin area's sidebar. */
@@ -71,12 +71,10 @@ export function Frame() {
   return <Layout />;
 }
 
-const ActionsSlot = createContext<HTMLElement | null>(null);
-
-/** The page's own actions, on the right of the admin area's top bar. */
+/** The page's own actions, on the right of the admin area's top bar, as `PageHeader`'s
+ * are: the area's crumbs are its own. */
 export function AdminActions({ children }: { children: ReactNode }) {
-  const slot = useContext(ActionsSlot);
-  return slot ? createPortal(children, slot) : null;
+  return <TopBar actions={children} />;
 }
 
 function Icon({ paths }: { paths: string[] }) {
@@ -233,11 +231,11 @@ export function AdminLayout({ me }: { me: Me }) {
           </header>
           <main id="main" className="admin-main" tabIndex={-1}>
             <SignedOut />
-            <ActionsSlot.Provider value={slot}>
+            <ActionsSlot slot={slot}>
               <MessagesProvider>
                 <Outlet />
               </MessagesProvider>
-            </ActionsSlot.Provider>
+            </ActionsSlot>
           </main>
         </div>
       </div>

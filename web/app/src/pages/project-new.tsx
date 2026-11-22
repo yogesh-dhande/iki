@@ -6,6 +6,7 @@ import { useState, type SubmitEvent } from "react";
 import { creatableTeamsQuery, iki, meQuery, useApiMutation } from "../api";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
+import { TopBar } from "../page-top";
 import { registriesQuery, type Registry } from "../registries";
 import { Button, buttonClass, PageTitle, SelectField, TextField, useMessages } from "../ui";
 
@@ -62,6 +63,7 @@ export function ProjectNew() {
 
   return (
     <section className="card">
+      <TopBar crumbs={[<Link to="/projects/">Projects</Link>, "New project"]} />
       <PageTitle>New project</PageTitle>
       {teams.length > 0 ? (
         <>

@@ -15,39 +15,9 @@ import { askedByField, sameJson } from "../filters";
 import { usePageTitle } from "../layout";
 import { everySavedSearchQuery, useReadableProjects, type ListSearch } from "../lists";
 import { requestTypes } from "../requests";
-import { buttonClass, PageTitle } from "../ui";
+import { buttonClass, PageHeader } from "../ui";
 import { EntityGrid } from "./entity-grid";
 import { RemoveSearchDialog, SaveSearchDialog, toAddress } from "./saved-searches";
-
-/** A list page's heading: where it is, what it lists, and what can be made there. */
-function ListHeader({
-  title,
-  note,
-  crumbs,
-  actions,
-}: {
-  title: string;
-  note: string;
-  crumbs?: React.ReactNode;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div className="list-header">
-      <div className="list-heading">
-        {crumbs ? (
-          <nav className="crumbs" aria-label="Breadcrumb">
-            {crumbs}
-          </nav>
-        ) : null}
-        <div className="list-title">
-          <PageTitle>{title}</PageTitle>
-          {note ? <p className="muted">{note}</p> : null}
-        </div>
-      </div>
-      {actions ? <div className="list-actions">{actions}</div> : null}
-    </div>
-  );
-}
 
 /** "New": a record is made in a project, so it asks which, of those its maker edits. */
 function NewIn({ type, label }: { type?: EntityType | undefined; label: string }) {
@@ -99,9 +69,10 @@ export function AllEntities() {
   const { projects } = useReadableProjects();
   return (
     <>
-      <ListHeader
+      <PageHeader
         title="All entities"
-        note={projectsNote(projects)}
+        crumbs={["Entities"]}
+        description={projectsNote(projects)}
         actions={<NewIn type={types.find((t) => t.name === search.type)} label="New" />}
       />
       <EntityGrid
@@ -128,7 +99,10 @@ export function TypeTable() {
   if (!type) {
     return (
       <>
-        <ListHeader title="No such type" note="" crumbs={<Link to="/entities/">Entities</Link>} />
+        <PageHeader
+          title="No such type"
+          crumbs={[<Link to="/entities/">Entities</Link>, "No such type"]}
+        />
         <p className="empty">
           There’s no entity type {name}. <Link to="/types/">See the installed types</Link>.
         </p>
@@ -139,24 +113,16 @@ export function TypeTable() {
   const held = { ...search, type: undefined };
   return (
     <>
-      <ListHeader
+      <PageHeader
         title={type.label_plural}
-        note={type.description ?? ""}
-        crumbs={
-          <>
-            <Link to="/entities/">Entities</Link>
-            <span aria-hidden="true"> / </span>
-            <span aria-current="page">{type.label_plural}</span>
-          </>
+        crumbs={[<Link to="/entities/">Entities</Link>, type.label_plural]}
+        description={type.description}
+        about={
+          <Link to="/types/$/" params={{ _splat: type.name }}>
+            About the {type.label} type: its fields and where it comes from
+          </Link>
         }
-        actions={
-          <>
-            <Link className={buttonClass("quiet")} to="/types/$/" params={{ _splat: type.name }}>
-              About {inSentence(type.label_plural)}
-            </Link>
-            <NewIn type={type} label={`New ${inSentence(type.label)}`} />
-          </>
-        }
+        actions={<NewIn type={type} label={`New ${inSentence(type.label)}`} />}
       />
       <ViewTabs type={type} search={held} />
       <EntityGrid
@@ -289,9 +255,9 @@ export function AllRequests() {
   const chosen = kinds.find((t) => t.name === search.type);
   return (
     <>
-      <ListHeader
+      <PageHeader
         title="Requests"
-        note="Every request you can read: those your projects sent to services, and those sent to your projects as a service."
+        description="Every request you can read: those your projects sent to services, and those sent to your projects as a service."
       />
       {kinds.length === 0 ? (
         <p className="empty">

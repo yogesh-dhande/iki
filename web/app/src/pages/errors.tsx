@@ -72,7 +72,10 @@ function Gone({ error }: { error: ApiError }) {
   ).entity;
   return (
     <>
-      <PageHeader eyebrow={entity?.type} title={entity ? `${entity.hrid} was purged` : "Purged"} />
+      <PageHeader
+        title={entity ? `${entity.hrid} was purged` : "Purged"}
+        description={entity?.type}
+      />
       <section className="card">
         <p>{error.problem.detail}</p>
         {entity?.content_sha256 ? (
@@ -113,7 +116,7 @@ export function ChooseProject({ records }: { records: Choice[] }) {
   const sorted = [...records].sort((a, b) => a.project.name.localeCompare(b.project.name));
   return (
     <>
-      <PageHeader title={hrid} />
+      <PageHeader title={hrid} crumbs={[<Link to="/entities/">Entities</Link>, hrid]} />
       <section className="card" aria-labelledby="choose-project-title">
         <h2 className="section-title" id="choose-project-title">
           Which project’s record?
