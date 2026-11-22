@@ -643,7 +643,7 @@ function ShortValue({
     }
   }
   // A list of JSON, such as a sequence's features, by how many: its revisions have it whole.
-  if (Array.isArray(value) && field.items === "json") {
+  if (Array.isArray(value) && (field.type === "json" || field.items === "json")) {
     return (
       <span className="muted">
         {value.length.toLocaleString()} {value.length === 1 ? "item" : "items"}

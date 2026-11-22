@@ -357,6 +357,8 @@ describe("a record's audit trail", () => {
       .map((r) => r.textContent);
     expect(rows[0]).toBe("FieldCurrent valueLast set byHowWhen (UTC)Revision");
     expect(rows).toContain("ResistanceAmpicillinAda Lovelacein the web app19 Nov 2026, 16:40 UTC3");
+    // A list of JSON, by how many.
+    expect(rows.find((r) => r.startsWith("Features"))).toMatch(/^Features2 items/);
     // A long value is cut short, with its length.
     expect(rows.find((r) => r.startsWith("Bases"))).toMatch(/\(400 bases\)/);
     expect(screen.getByRole("button", { name: "By field" })).toHaveAttribute(
