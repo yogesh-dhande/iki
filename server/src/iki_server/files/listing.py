@@ -14,6 +14,12 @@ neither set's size slows the other down, and no `OR` hides an index from Postgre
 **Pages** are keyset pages: a cursor holds the last row's sort values and ID, so a page
 starts where the one before ended, however many files there are.
 
+**Searching by name** first asks the trigram index which files' names hold the text, up
+to :data:`NAMED_MAX`. A rare name, as most searched for are, is then a page of those few;
+a common one is found by reading the page's order until a page matches, which is quick
+because so many do. Postgres can't tell which it is from the text: it would read a
+million files in order for a name that only one has.
+
 **Samples.** A file belongs to a sample when a record of a sample type (one whose type
 says ``sample: true``, or extends one) holds it in a file field, or a run that read the
 sample read or made it. Plugins say which of their types are samples, so this holds for
@@ -32,6 +38,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from django.core import signing
+from django.db import connection, transaction
 from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Collate, Lower
 
@@ -46,6 +53,11 @@ Sort = Literal["newest", "oldest", "name", "name_desc", "acquired", "acquired_ol
 SORTS: tuple[Sort, ...] = ("newest", "oldest", "name", "name_desc", "acquired", "acquired_oldest")
 #: Counts stop here, as search everything's do (ADR 0176): past it, "1,000+".
 COUNT_CAP = 1000
+#: A name search that the trigram index finds no more than this many files for lists them
+#: from those; one that finds more reads the list's order.
+NAMED_MAX = 5000
+#: The shortest text the trigram index finds: shorter is read in the list's order.
+TRIGRAM = 3
 _SALT = "iki.files.cursor"
 
 
@@ -67,6 +79,35 @@ class Filters:
     #: Only files of these media types or families a field or param takes, and this small.
     accepts: tuple[str, ...] = ()
     max_size: int | None = None
+    #: The files whose names hold ``q``, where the trigram index found few enough
+    #: (:func:`named`); None to read the list's order instead.
+    named: tuple[uuid.UUID, ...] | None = None
+
+
+_PLANNED = ("enable_seqscan", "enable_indexscan", "enable_indexonlyscan")
+
+
+def named(filters: Filters) -> Filters:
+    """``filters``, with the files whose names hold its text if the trigram index finds no
+    more than :data:`NAMED_MAX` of them in all. The index is read on its own (a bitmap),
+    never in another index's order, so a rare name costs what its few files do."""
+    q = filters.q.strip()
+    if len(q) < TRIGRAM or filters.named is not None:
+        return filters
+    statement, params = (
+        File.objects.filter(name__icontains=q).values_list("pk", flat=True)[: NAMED_MAX + 1]
+    ).query.sql_with_params()
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("SELECT " + ", ".join(f"current_setting('{n}')" for n in _PLANNED))
+        before = cursor.fetchone()
+        cursor.execute("SELECT " + ", ".join(f"set_config('{n}', 'off', true)" for n in _PLANNED))
+        cursor.execute(statement, params)
+        found = tuple(row[0] for row in cursor.fetchall())
+        # Inside a transaction already, what follows is planned as it would have been.
+        cursor.execute(
+            "SELECT " + ", ".join(f"set_config('{n}', %s, true)" for n in _PLANNED), list(before)
+        )
+    return replace(filters, named=found if len(found) <= NAMED_MAX else None)
 
 
 # --- Which files -------------------------------------------------------------------------------
@@ -80,16 +121,18 @@ def branches(user: Any, project: Project | None) -> tuple[QuerySet[File], QueryS
         held_here = access.visible(user).filter(
             Exists(ProjectLink.objects.filter(entity=OuterRef("pk"), project=project))
         )
-        uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=held_here.values("pk"))
+        # Found from the records' uses, by the files' keys: never by reading every file
+        # in order to ask each whether a record holds it.
+        uses = FileUse.objects.filter(entity__in=held_here.values("pk")).values("file_id")
         return (
             File.objects.filter(project=project),
-            File.objects.filter(Exists(uses)).exclude(project=project),
+            File.objects.filter(pk__in=uses).exclude(project=project),
         )
     projects = access.readable_projects(user).values("pk")
-    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=access.visible(user).values("pk"))
+    uses = FileUse.objects.filter(entity__in=access.visible(user).values("pk")).values("file_id")
     return (
         File.objects.filter(project__in=projects),
-        File.objects.filter(Exists(uses)).exclude(project__in=projects),
+        File.objects.filter(pk__in=uses).exclude(project__in=projects),
     )
 
 
@@ -98,6 +141,8 @@ def filtered(files: QuerySet[File], filters: Filters) -> QuerySet[File]:
 
     if filters.q.strip():
         files = files.filter(name__icontains=filters.q.strip())
+        if filters.named is not None:
+            files = files.filter(pk__in=filters.named)
     if filters.formats:
         files = files.filter(_formats(filters.formats))
     if filters.accepts:
@@ -231,6 +276,7 @@ def page(
 ) -> tuple[list[File], str | None]:
     """A page of files, in `sort`'s order, and the cursor for the next one, if any."""
     after = decode(sort, cursor) if cursor else None
+    filters = named(filters)
     found: list[File] = []
     for files in branches(user, project):
         files = filtered(files, filters).annotate(lname=_NAME)
@@ -247,6 +293,7 @@ def page(
 
 def count(user: Any, project: Project | None, filters: Filters) -> tuple[int, bool]:  # noqa: ANN401 - User
     """How many files match, up to :data:`COUNT_CAP`, and whether there are more."""
+    filters = named(filters)
     total = 0
     for files in branches(user, project):
         total += filtered(files, filters).values("pk")[: COUNT_CAP + 1 - total].count()
@@ -259,7 +306,7 @@ def formats(user: Any, project: Project | None, filters: Filters) -> list[tuple[
     """The media types of the files that match (other than by format), with how many of
     each, the most common first."""
     counts: dict[str, int] = {}
-    unformatted = replace(filters, formats=())
+    unformatted = named(replace(filters, formats=()))
     for files in branches(user, project):
         rows = filtered(files, unformatted).values("media_type").annotate(n=Count("pk"))
         for row in rows:

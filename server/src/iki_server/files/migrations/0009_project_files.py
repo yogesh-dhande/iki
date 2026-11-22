@@ -63,7 +63,10 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="file",
             index=django.contrib.postgres.indexes.GinIndex(
-                fields=["name"], name="iki_file_name_trgm", opclasses=["gin_trgm_ops"]
+                django.contrib.postgres.indexes.OpClass(
+                    django.db.models.functions.text.Upper("name"), name="gin_trgm_ops"
+                ),
+                name="iki_file_name_trgm",
             ),
         ),
         migrations.AddIndex(

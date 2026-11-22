@@ -22,10 +22,10 @@ Blobs, files and uses never change: the app may only add and read them.
 from typing import ClassVar
 
 from django.conf import settings
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
 from django.db.models import F, Q
-from django.db.models.functions import Collate, Lower, Now
+from django.db.models.functions import Collate, Lower, Now, Upper
 
 from iki_server.core.ids import uuid7
 from iki_server.org.models import Project
@@ -124,7 +124,8 @@ class File(models.Model):
             models.Index(fields=["project", "id"], name="iki_file_by_project"),
             # A project's Files (ADR 0177): found by any part of their names, of a format,
             # by when acquired, and sorted by name.
-            GinIndex(fields=["name"], opclasses=["gin_trgm_ops"], name="iki_file_name_trgm"),
+            # On the names in upper case: a case-insensitive match compares them so.
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="iki_file_name_trgm"),
             models.Index(fields=["project", "media_type", "id"], name="iki_file_by_format"),
             models.Index(fields=["project", "acquired_on", "id"], name="iki_file_by_acquired"),
             # The latest acquired first, those not known last.

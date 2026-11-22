@@ -33,8 +33,9 @@ records hold in a file field at any revision (`access.project_files`). Across
 projects, they're every file the reader can read (`access.readable_files`).
 Nothing from a project the reader can't read appears, nor is counted.
 
-- **Search** finds part of a file's name, in any case (`ILIKE`, by a trigram
-  index on names). `%` and `_` are text.
+- **Search** finds part of a file's name, in any case (by a trigram index on
+  the names in upper case, as a case-insensitive match compares them). `%` and
+  `_` are text.
 - **Filters:** format (media types, each exact or a family such as `image/*`,
   with the formats present and their counts), when its data was acquired (a
   range of days), sample, and run. A file field or a file param also narrows
@@ -57,8 +58,17 @@ the last row's sort values and ID, signed. Names sort by their lowercase bytes
 (collation `C`), as Python compares them, so the merge agrees with Postgres's
 order and no row is skipped or repeated. Indexes: names' trigrams; `(project,
 media_type, id)`; `(project, acquired_on, id)`, and descending with unknown last;
-`(project, lower(name) COLLATE "C", id)`. `make check-scale-files` checks the
-plans and times at a million files.
+`(project, lower(name) COLLATE "C", id)`. Files held from elsewhere are found
+from the records' uses, by the files' keys.
+
+**A name search asks the trigram index first** which files' names hold the
+text, on its own, up to 5,000 of them. Postgres can't tell from the text how
+many files have it: it would read a million files in the page's order for a
+name only one has. A rare name, as most searched for are, is then a page of
+those few; a common one reads the page's order, which finds a page quickly
+because so many match. Text under three characters, which trigrams can't find,
+reads the page's order too. `make check-scale-files` checks the plans and times
+at a million files.
 
 **When a file's data was acquired** is read from the file, where its format
 records it; otherwise it's what whoever added it said; otherwise it's unknown.

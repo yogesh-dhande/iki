@@ -11,7 +11,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, import, grid, queue]
+        options: [all, import, grid, queue, files]
 
 permissions: {}
 
@@ -99,3 +99,24 @@ jobs:
         run: uv sync --locked
       - name: Lease and complete 5,000 jobs from 100k queued behind 1M finished
         run: make check-scale-queue
+
+  files:
+    name: A project's Files at 1M files
+    if: ${{ !inputs.only || inputs.only == 'all' || inputs.only == 'files' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.14"
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --locked
+      - name: Open a project's Files at 1M files
+        run: make check-scale-files
