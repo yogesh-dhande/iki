@@ -229,6 +229,32 @@ def test_the_organization_is_for_tokens_given_every_project(
     assert "all your projects" in found["detail"]
 
 
+def test_it_neither_sees_nor_saves_a_search_of_every_project() -> None:
+    """A search of no project is of every project its person reads (ADR 0176): beyond a
+    token given some of them. Its searches in its projects it still sees."""
+    from iki_server.searches import services as searches
+
+    world = build_world()
+    person = world.users["editor"]
+    everywhere = searches.create(person, None, name="Every kinase", query={"q": "kinase"})
+    mine = searches.create(person, world.project, name="Atlas kinases", query={"q": "kinase"})
+    token = token_for(person, projects=[world.project])
+
+    listed = bearer(token, "GET", "/saved-searches", None).json()
+    assert [s["id"] for s in listed] == [str(mine.pk)]
+    response = bearer(token, "GET", f"/saved-searches/{everywhere.pk}", None)
+    assert response.status_code == 404
+    found = problem(
+        bearer(token, "POST", "/saved-searches", {"name": "All", "query": {}}),
+        403,
+        "token_limited_to_projects",
+    )
+    assert "every project" in found["detail"]
+    # Given every project, it does both.
+    whole = token_for(person, projects=None)
+    assert len(bearer(whole, "GET", "/saved-searches", None).json()) == 2
+
+
 def test_its_person_is_told_only_what_their_roles_allow() -> None:
     """Someone who isn't an Org Admin is refused as without a token: the project choice
     isn't why."""
@@ -269,8 +295,11 @@ def test_every_operation_beyond_its_projects_is_refused(
         assert len(response.getvalue().decode().splitlines()) == 1, response.getvalue()
         return
     if response.status_code == 200:
-        # A list or a search, of nothing it may reach.
+        # A list or a search, of nothing it may reach; or counts (ADR 0176), of nothing.
         found = response.json()
+        if isinstance(found, dict) and "types" in found:
+            assert found == {"types": [], "total": 0}, found
+            return
         assert (found.get("items") if isinstance(found, dict) else found) == [], found
         return
     assert response.status_code in (403, 404), (response.status_code, response.content[:300])

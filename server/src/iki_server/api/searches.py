@@ -157,6 +157,14 @@ def create_saved_search(request: HttpRequest, payload: SavedSearchIn) -> Any:  #
     found = (
         project(me, payload.project, Action.PROJECT_READ) if payload.project is not None else None
     )
+    if found is None and not services.reaches_every_project(me):
+        raise Problem(
+            403,
+            "This token was given only some of your projects, so it can’t save a search of "
+            "every project. Save it in one of its projects, or sign in to the app again and "
+            "allow it all your projects.",
+            code="token_limited_to_projects",
+        )
     try:
         saved = services.create(
             me, found, name=payload.name, query=_query(payload.query), shared=payload.shared

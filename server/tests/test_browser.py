@@ -1354,7 +1354,8 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert_clean(page)
 
     page.get_by_role("link", name="Kinase Atlas").click()
-    row = page.get_by_role("listitem").filter(has_text=run.hrid)
+    # The project's runs, one row each (ADR 0176's table, as every run's list).
+    row = page.get_by_role("row").filter(has_text=run.hrid)
     row.get_by_text("Failed", exact=True).wait_for()
     assert_clean(page)
 

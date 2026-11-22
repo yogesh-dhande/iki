@@ -3,6 +3,8 @@
 - **Anyone who can read a project** can save searches of it, for themselves.
 - **Anyone** can save a search of every project they can read, for themselves (ADR
   0176): it has no project, and finds what its owner reads wherever they run it.
+- **A token given only some projects** (ADR 0152, or an agent's, ADR 0073) neither
+  sees nor saves a search of every project: it acts in its projects and nowhere else.
 - **Sharing** one with everyone who can read the project takes Editor there,
   so viewers can't fill a project's list. A search of every project isn't shared.
 - **Changing** a search is its owner's. A project's Admins can remove a shared
@@ -48,10 +50,19 @@ class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
         self.errors = errors or []
 
 
+def reaches_every_project(user: User) -> bool:
+    """Whether the user, as their token allows, acts in every project they're in: a
+    search of every project is theirs to see and save only then."""
+    limits = permissions.token_limits(user)
+    return limits is None or (limits.projects is None and not limits.only_projects)
+
+
 def visible(user: User, project: Project | None) -> QuerySet[SavedSearch]:
     """The project's searches the user sees: their own, and shared ones. Without a project,
     their own searches of every project."""
     if project is None:
+        if not reaches_every_project(user):
+            return SavedSearch.objects.none()
         return SavedSearch.objects.filter(project__isnull=True, created_by=user)
     return SavedSearch.objects.filter(project=project).filter(Q(created_by=user) | Q(shared=True))
 
@@ -60,10 +71,10 @@ def everywhere(user: User) -> QuerySet[SavedSearch]:
     """Every search the user sees: their own, of a project they can still read or of every
     project, and those shared with a project they can read."""
     readable = access.readable_projects(user).values("pk")
-    return SavedSearch.objects.filter(
-        Q(project__isnull=True, created_by=user)
-        | Q(project__in=readable) & (Q(created_by=user) | Q(shared=True))
-    )
+    in_projects = Q(project__in=readable) & (Q(created_by=user) | Q(shared=True))
+    if not reaches_every_project(user):
+        return SavedSearch.objects.filter(in_projects)
+    return SavedSearch.objects.filter(Q(project__isnull=True, created_by=user) | in_projects)
 
 
 def can_change(user: User, saved: SavedSearch) -> bool:
