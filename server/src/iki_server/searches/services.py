@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import search
+from iki_server.entities import access, search
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -49,6 +49,14 @@ class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
 def visible(user: User, project: Project) -> QuerySet[SavedSearch]:
     """The project's searches the user sees: their own, and shared ones."""
     return SavedSearch.objects.filter(project=project).filter(Q(created_by=user) | Q(shared=True))
+
+
+def mine(user: User) -> QuerySet[SavedSearch]:
+    """The user's own searches, in every project they can still read (ADR 0176): the
+    sidebar's saved views. One of a project they've left isn't theirs to open."""
+    return SavedSearch.objects.filter(
+        created_by=user, project__in=access.readable_projects(user).values("pk")
+    )
 
 
 def can_change(user: User, saved: SavedSearch) -> bool:

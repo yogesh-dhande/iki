@@ -3360,8 +3360,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A project's saved searches
-         * @description Yours, and those shared with the project, by name.
+         * Saved searches
+         * @description A project's: yours, and those shared with it. Without a project, yours in every
+         *     project you can read (the sidebar's saved views, ADR 0176). By name.
          */
         get: operations["iki_server_api_searches_list_saved_searches"];
         put?: never;
@@ -12042,10 +12043,15 @@ export interface components {
         /** SavedSearchFilters */
         SavedSearchFilters: {
             /**
-             * Project
-             * Format: uuid
+             * Limit
+             * @description At most this many.
              */
-            project: string;
+            limit?: number | null;
+            /**
+             * Project
+             * @description Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.
+             */
+            project?: string | null;
         };
         /** SavedSearchIn */
         SavedSearchIn: {
@@ -19686,8 +19692,11 @@ export interface operations {
     };
     iki_server_api_searches_list_saved_searches: {
         parameters: {
-            query: {
-                project: string;
+            query?: {
+                /** @description Its searches you see: yours, and those shared with it. Without one, yours in every project you can read. */
+                project?: string | null;
+                /** @description At most this many. */
+                limit?: number | null;
             };
             header?: never;
             path?: never;

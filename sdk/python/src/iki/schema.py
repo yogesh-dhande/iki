@@ -3744,7 +3744,10 @@ class SavedSearchCan(TypedDict):
 
 
 class SavedSearchFilters(TypedDict):
-    project: str
+    #: At most this many.
+    limit: NotRequired[int | None]
+    #: Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.
+    project: NotRequired[str | None]
 
 
 class SavedSearchIn(TypedDict):

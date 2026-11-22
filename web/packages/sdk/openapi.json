@@ -16596,15 +16596,34 @@
       },
       "SavedSearchFilters": {
         "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At most this many.",
+            "title": "Limit"
+          },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
+            "title": "Project"
           }
         },
-        "required": [
-          "project"
-        ],
         "title": "SavedSearchFilters",
         "type": "object"
       },
@@ -33896,17 +33915,46 @@
     },
     "/api/v1/saved-searches": {
       "get": {
-        "description": "Yours, and those shared with the project, by name.",
+        "description": "A project's: yours, and those shared with it. Without a project, yours in every\nproject you can read (the sidebar's saved views, ADR 0176). By name.",
         "operationId": "iki_server_api_searches_list_saved_searches",
         "parameters": [
           {
+            "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
             "in": "query",
             "name": "project",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "uuid",
-              "title": "Project",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "At most this many.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "At most this many.",
+              "title": "Limit"
             }
           }
         ],
@@ -33934,7 +33982,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "A project's saved searches",
+        "summary": "Saved searches",
         "tags": [
           "saved searches"
         ]

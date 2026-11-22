@@ -151,3 +151,31 @@ def test_only_people_who_can_read_the_project(world: World) -> None:
     problem(outsider.get("/saved-searches", project=str(world.project.pk)), 404, "not_found")
     problem(outsider.get(f"/saved-searches/{mine['id']}"), 404, "not_found")
     problem(outsider.delete(f"/saved-searches/{mine['id']}"), 404, "not_found")
+
+
+def test_without_a_project_yours_in_every_project_you_can_read(world: World) -> None:
+    """The sidebar's saved views (ADR 0176): your own, not those others shared, and none in a
+    project you can no longer read, not even one you saved there."""
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+    from iki_server.searches.models import SavedSearch
+
+    viewer = api_as(world, "viewer")
+    save(viewer, world, "Human")
+    save(api_as(world, "editor"), world, "Shared", shared=True)
+    other = Project.objects.create(team=world.team, name="Variant Calls")
+    membership = ProjectMembership.objects.create(
+        project=other, user=world.users["viewer"], role=ProjectRole.VIEWER
+    )
+    SavedSearch.objects.create(
+        project=other, name="Another", query={}, created_by=world.users["viewer"]
+    )
+    mine = viewer.get("/saved-searches")
+    assert mine.status_code == 200, mine.content
+    assert [(s["name"], s["project"]) for s in mine.json()] == [
+        ("Another", str(other.pk)),
+        ("Human", str(world.project.pk)),
+    ]
+    assert [s["name"] for s in viewer.get("/saved-searches", limit=1).json()] == ["Another"]
+    membership.delete()
+    assert [s["name"] for s in viewer.get("/saved-searches").json()] == ["Human"]
+    assert api_as(world, "outsider").get("/saved-searches").json() == []
