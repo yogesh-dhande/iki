@@ -264,6 +264,40 @@ def test_the_header_marks_the_section_a_page_is_in(world: World, path: str, sect
     assert [label for label, current in header_links(page.content.decode()) if current] == [section]
 
 
+def test_server_pages_load_the_search_palette_for_those_signed_in(
+    world: World, settings: Any
+) -> None:
+    """⌘K opens search everything (ADR 0176) on the server's own pages too: they load the
+    palette's entry, with the chunks it shares with the app, and React Aria's stylesheet,
+    which the CSP would refuse inline."""
+    html = world.browser("viewer").get("/teams/").content.decode()
+    scripts = re.findall(r'<script type="module" src="([^"]+)"', html)
+    assert scripts == ["/static/app/assets/search-entry-test.js"]
+    assert '<link rel="modulepreload" href="/static/app/assets/vendor-test.js">' in html
+    assert 'id="react-aria-pressable-style"' in html
+    # Not before signing in: there's nothing to search.
+    signed_out = Browser().get("/login/").content.decode()
+    assert "search-entry" not in signed_out
+    # Through the dev server, from its modules.
+    settings.IKI_WEB_DEV_SERVER = True
+    html = world.browser("viewer").get("/teams/", headers={frontend.DEV_HEADER: "1"})
+    assert re.findall(r'<script type="module" src="([^"]+)"', html.content.decode()) == [
+        "/static/app/@vite/client",
+        "/static/app/dev-preamble.js",
+        "/static/app/src/search-entry.tsx",
+    ]
+
+
+def test_a_server_page_works_without_the_palette_when_it_isnt_built(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    without = {k: v for k, v in FAKE_WEB_APP_MANIFEST.items() if k != frontend.SEARCH_ENTRY}
+    monkeypatch.setattr(frontend, "manifest", lambda: without)
+    page = world.browser("viewer").get("/teams/")
+    assert page.status_code == 200
+    assert "search-entry" not in page.content.decode()
+
+
 def test_the_headers_items_are_pages_and_the_app_routes_those_it_says() -> None:
     from django.urls import resolve
 
