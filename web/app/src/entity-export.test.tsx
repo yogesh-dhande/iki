@@ -1,9 +1,18 @@
-/** Exporting a record as a file (ADR 0171): from its page, or a revision from its history. */
+/** Exporting a record as a file (ADR 0171): from its page's ⋯ menu, or a revision from its
+ * audit trail. */
 
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entity, field, PROTEIN, renderApp, revision, withTypes } from "./entity-fixtures";
+import {
+  entity,
+  field,
+  moreAction,
+  PROTEIN,
+  renderApp,
+  revision,
+  withTypes,
+} from "./entity-fixtures";
 import { answer, calls, page, problem } from "./test-server";
 
 const ID = "00000000-0000-7000-8000-00000000d001";
@@ -88,8 +97,14 @@ describe("exporting a record", () => {
     onSequence();
     answer(`GET /api/v1/entities/${ID}/export`, file("pTest.fasta"));
     const { user } = await renderApp("/entities/DNA-000001/");
-    const button = await screen.findByRole("button", { name: "Export" });
+    // From its ⋯ menu (ADR 0176), by keyboard.
+    const button = await screen.findByRole("button", { name: "More actions for DNA-000001" });
     button.focus();
+    await user.keyboard("{Enter}");
+    const item = await screen.findByRole("menuitem", { name: "Export…" });
+    await waitFor(() => {
+      expect(item).toHaveFocus();
+    });
     await user.keyboard("{Enter}");
     const dialog = await screen.findByRole("dialog", { name: "Export pTest" });
     const genbank = within(dialog).getByRole("radio", { name: /^GenBank/ });
@@ -117,8 +132,8 @@ describe("exporting a record", () => {
     onSequence();
     answer(`GET /api/v1/entities/${ID}/export`, file("pTest.gb", 2));
     const { user } = await renderApp("/entities/DNA-000001/");
-    await user.click(await screen.findByRole("button", { name: "Export" }));
-    await user.click(screen.getByRole("button", { name: "Download" }));
+    await moreAction(user, "DNA-000001", "Export…");
+    await user.click(await screen.findByRole("button", { name: "Download" }));
     expect(
       await screen.findByText(
         "Downloaded pTest.gb. It couldn’t hold 2 things of the record: the file’s COMMENT says which.",
@@ -133,8 +148,8 @@ describe("exporting a record", () => {
       problem(404, "sequence_unreadable", "Its sequence isn't a record you can read."),
     );
     const { user } = await renderApp("/entities/DNA-000001/");
-    await user.click(await screen.findByRole("button", { name: "Export" }));
-    await user.click(screen.getByRole("button", { name: "Download" }));
+    await moreAction(user, "DNA-000001", "Export…");
+    await user.click(await screen.findByRole("button", { name: "Download" }));
     const dialog = await screen.findByRole("dialog", { name: "Export pTest" });
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Its sequence isn't a record you can read.",
@@ -144,12 +159,14 @@ describe("exporting a record", () => {
 
   it("isn't offered for a type that exports nothing", async () => {
     onSequence([PROTEIN, { ...SEQUENCE_TYPE, exports: [] }]);
-    await renderApp("/entities/DNA-000001/");
-    expect(await screen.findByRole("heading", { name: "pTest DNA-000001" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
+    const { user } = await renderApp("/entities/DNA-000001/");
+    expect(await screen.findByRole("heading", { name: "pTest" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More actions for DNA-000001" }));
+    expect(await screen.findByRole("menuitem", { name: /audit trail/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Export…" })).not.toBeInTheDocument();
   });
 
-  it("downloads a revision as it was, from the history", async () => {
+  it("downloads a revision as it was, from the audit trail", async () => {
     onSequence();
     answer(
       "GET /api/v1/entities/DNA-000001/revisions",
@@ -159,7 +176,7 @@ describe("exporting a record", () => {
       ]),
     );
     answer(`GET /api/v1/entities/${ID}/export`, file("pOld (revision 1).gb"));
-    const { user } = await renderApp("/entities/DNA-000001/history/");
+    const { user } = await renderApp("/entities/DNA-000001/audit/");
     await user.click(await screen.findByRole("button", { name: "Export revision 1" }));
     const dialog = await screen.findByRole("dialog", { name: "Export pTest, revision 1" });
     await user.click(within(dialog).getByRole("button", { name: "Download" }));

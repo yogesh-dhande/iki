@@ -241,7 +241,7 @@ describe("an app about an entity", () => {
     answer("POST /api/v1/entities/search", { items: [POTHER], next_cursor: null });
     const { user } = await renderApp("/entities/DNA-000001/");
 
-    const tabs = screen.getByRole("navigation", { name: "Entity" });
+    const tabs = screen.getByRole("navigation", { name: "Record" });
     await user.click(await within(tabs).findByRole("link", { name: "Plasmid QC" }));
     expect(await screen.findByText("pTest is 160 bp.")).toBeInTheDocument();
     const others = await screen.findByRole("region", { name: "Others" });
@@ -249,7 +249,7 @@ describe("an app about an entity", () => {
     const search = calls("POST", "/api/v1/entities/search")[0]?.body as Record<string, unknown>;
     expect(search["where"]).toEqual({ all: [{ field: "name", op: "ne", value: "pTest" }] });
     // The page's tabs are drawn again on the app's tab, with it the current one.
-    const shown = screen.getByRole("navigation", { name: "Entity" });
+    const shown = screen.getByRole("navigation", { name: "Record" });
     expect(within(shown).getByRole("link", { name: "Plasmid QC" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -465,7 +465,7 @@ describe("an entity's apps", () => {
       { id: "c", hrid: "APP-000003", name: "Maps" },
     ]);
     await renderApp("/entities/DNA-000001/");
-    const tabs = screen.getByRole("navigation", { name: "Entity" });
+    const tabs = screen.getByRole("navigation", { name: "Record" });
     expect(await within(tabs).findByRole("link", { name: "QC (APP-000001)" })).toBeInTheDocument();
     expect(within(tabs).getByRole("link", { name: "QC (APP-000002)" })).toBeInTheDocument();
     expect(within(tabs).getByRole("link", { name: "Maps" })).toBeInTheDocument();

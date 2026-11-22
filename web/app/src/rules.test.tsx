@@ -10,7 +10,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ALICE, entity, field, KINASE, nth, PROTEIN, renderApp } from "./entity-fixtures";
+import {
+  addFilter,
+  ALICE,
+  entity,
+  field,
+  KINASE,
+  nth,
+  PROTEIN,
+  renderApp,
+} from "./entity-fixtures";
 import { filterable, searchWords } from "./filters";
 import { answer, calls, page, problem, respond, signedIn } from "./test-server";
 
@@ -498,14 +507,8 @@ describe("finding what rules caught", () => {
     const { user } = await renderApp("/projects/kinase-atlas/entities/?type=acme/lab.Lot");
     const grid = await screen.findByRole("table", { name: "1 lot" });
     expect(within(grid).queryByRole("columnheader", { name: "Rules" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(
-      within(panel).getByRole("combobox", { name: "Filter 1: field" }),
-      "Held for review",
-    );
-    const condition = within(panel).getByRole("combobox", { name: "Filter 1: condition" });
+    const editor = await addFilter(user, "Held for review");
+    const condition = within(editor).getByRole("combobox", { name: "Filter 1: condition" });
     expect(
       within(condition)
         .getAllByRole("option")
@@ -513,7 +516,7 @@ describe("finding what rules caught", () => {
     ).toEqual(["by any rule", "by the rule", "by no rule"]);
     await user.selectOptions(condition, "by the rule");
     await user.selectOptions(
-      within(panel).getByRole("combobox", { name: "Filter 1: value" }),
+      within(editor).getByRole("combobox", { name: "Filter 1: value" }),
       "Purity in specification",
     );
     await waitFor(() => {
@@ -521,6 +524,7 @@ describe("finding what rules caught", () => {
         where: { all: [{ field: "held", op: "eq", value: "purity_in_specification" }] },
       });
     });
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
     expect(
       await screen.findByRole("columnheader", { name: "Rules" }, { timeout: 3000 }),
     ).toBeInTheDocument();

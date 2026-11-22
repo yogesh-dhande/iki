@@ -30,13 +30,13 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError
 
 from iki_server.accounts.models import User
-from iki_server.api import csvs
+from iki_server.api import common, csvs
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
@@ -54,6 +54,7 @@ from iki_server.entities import (
     access,
     assignments,
     checking,
+    counts,
     exports,
     holds,
     people,
@@ -795,6 +796,12 @@ class EntityOut(Schema):
     owner_project: ProjectRef | None = Field(
         description="The project that owns it, and decides its changes. Null if you can't see it."
     )
+    projects: list[ProjectRef] = Field(
+        default_factory=list,
+        description="The projects it belongs to that you can read (ADR 0176): its owner "
+        "project first, then those it's linked into, by name. Projects you can't read aren't "
+        "named.",
+    )
     created_by: UserOut | None
     created_at: datetime
     updated_at: datetime
@@ -1504,6 +1511,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
     held, breaches = _holds_of(user, entities)
+    belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
 
     amounts_held = amounts.amounts_of(entities)
@@ -1522,6 +1530,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "owner_project": projects.get(entity.owner_project_id)
                 if entity.owner_project_id is not None
                 else None,
+                "projects": belongs.get(entity.pk, []),
                 "created_by": entity.created_by,
                 "created_at": entity.created_at,
                 "updated_at": entity.updated_at,
@@ -1558,6 +1567,27 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 },
             }
         )
+    return out
+
+
+def _projects_of(user: User, entities: list[Entity]) -> dict[Any, list[Any]]:
+    """The projects each record belongs to that the user can read, as ``ProjectRef``: its
+    owner first, then by name. Two queries, however many records."""
+    ids = [e.pk for e in entities if e.registry_id is None]
+    if not ids:
+        return {}
+    links = ProjectLink.objects.filter(entity_id__in=ids)
+    readable = {
+        p.pk: p for p in access.readable_projects(user).filter(pk__in=links.values("project_id"))
+    }
+    owners = {e.pk: e.owner_project_id for e in entities}
+    out: dict[Any, list[Any]] = defaultdict(list)
+    for entity_id, project_id in links.filter(project_id__in=list(readable)).values_list(
+        "entity_id", "project_id"
+    ):
+        out[entity_id].append(readable[project_id])
+    for entity_id, found in out.items():
+        found.sort(key=lambda p: (p.pk != owners.get(entity_id), p.name.lower(), str(p.pk)))
     return out
 
 
@@ -2199,11 +2229,7 @@ def _table_rows(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     refs, files = _referenced(user, entities, values)
     named = _named(user, entities, values)
     asked = requests.summaries(user, entities)
-    names = dict(
-        permissions.visible_projects(user)
-        .filter(pk__in={e.owner_project_id for e in entities})
-        .values_list("pk", "name")
-    )
+    belongs = _projects_of(user, entities)
     types = registry.types()
     out = []
     for entity in entities:
@@ -2217,9 +2243,8 @@ def _table_rows(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "hrid": entity.hrid,
                 "type_label": (kind.label or kind.name) if kind is not None else entity.type,
                 "title": _title(entity, shown),
-                "project": names.get(entity.owner_project_id)
-                if entity.owner_project_id is not None
-                else None,
+                # Each project it's in that the reader can read, as the grid's column (ADR 0176).
+                "project": "; ".join(p.name for p in belongs.get(entity.pk, [])),
                 "updated_at": entity.updated_at,
                 "revision": entity.revision,
                 "values": shown,
@@ -2300,6 +2325,60 @@ def lookup_entities(request: HttpRequest, params: Query[LookupParams]) -> list[d
         entities = entities.filter(links__project_id=project_id)
     picked = list(entities.select_related("created_by").order_by("created_at", "pk")[:LOOKUP_LIMIT])
     return _out(me, picked)
+
+
+class TypeCountOut(Schema):
+    type: str = Field(description="The type, qualified, such as `iki/dna.Plasmid`.")
+    label: str = Field(description="What the type calls one of its records, such as Plasmid.")
+    count: int | None = Field(
+        description="How many current records of it you can read. Null when counting would "
+        "be slow: then every type that can have records is listed, uncounted."
+    )
+
+
+class CountsOut(Schema):
+    types: list[TypeCountOut] = Field(
+        description="Each type you can read current records of, by label: the type itself, "
+        "not its parents, which count nothing of their own."
+    )
+    total: int | None = Field(description="Every current record you can read. Null as `count`.")
+
+
+@router.get("/entities/counts", response=CountsOut, summary="How many records you can read")
+def count_entities(request: HttpRequest, project: UUID | None = None) -> dict[str, Any]:
+    """How many current records of each type you can read, by the rules that read one: a
+    record in a project you aren't in counts for nothing (ADR 0176). With ``project``, only
+    those in it, its own and those linked into it.
+
+    It's one grouped query. When Postgres expects it to read more than a million records,
+    nothing is counted, and every type that can have records is listed with a null count:
+    a count is left out rather than made slow, or estimated."""
+    me = caller(request)
+    if project is not None:
+        common.project(me, project)
+    found = counts.by_type(me, project)
+    types = _types()
+    if found is None:
+        listed = sorted(
+            ((n, t) for n, t in types.items() if not t.abstract),
+            key=lambda pair: ((pair[1].label or pair[1].name).lower(), pair[0]),
+        )
+        return {
+            "types": [{"type": n, "label": t.label or t.name, "count": None} for n, t in listed],
+            "total": None,
+        }
+    rows = [
+        {
+            "type": name,
+            "label": (types[name].label or types[name].name) if name in types else name,
+            "count": n,
+        }
+        for name, n in found.items()
+    ]
+    return {
+        "types": sorted(rows, key=lambda r: (r["label"].lower(), r["type"])),
+        "total": sum(found.values()),
+    }
 
 
 @router.get(
@@ -2589,6 +2668,29 @@ def review_hold(
 # --- History -------------------------------------------------------------------------------------
 
 
+class TrailFilter(Schema):
+    """What a record's audit trail is narrowed to (ADR 0176): the revisions a person made,
+    or that set a field. Both together find those that did both."""
+
+    person: UUID | None = Field(None, description="Only the revisions this person made.")
+    field: str | None = Field(
+        None, max_length=63, description="Only the revisions that set this field, by its name."
+    )
+
+    def applied(
+        self, revisions: QuerySet[Revision], *, disclosed: Q | None = None
+    ) -> QuerySet[Revision]:
+        """``revisions``, narrowed. A person is matched only among those ``disclosed``
+        says who made, so narrowing by them tells no more than reading each would."""
+        if self.field:
+            revisions = revisions.filter(changed_fields__contains=[self.field])
+        if self.person:
+            revisions = revisions.filter(user_id=self.person)
+            if disclosed is not None:
+                revisions = revisions.filter(disclosed)
+        return revisions
+
+
 @router.get(
     "/entities/{ref}/revisions",
     response=Page[RevisionOut],
@@ -2596,13 +2698,20 @@ def review_hold(
     by_alias=True,
 )
 def list_revisions(
-    request: HttpRequest, ref: str, params: Query[PageParams], project: UUID | None = None
+    request: HttpRequest,
+    ref: str,
+    params: Query[PageParams],
+    trail: Query[TrailFilter],
+    project: UUID | None = None,
 ) -> dict[str, Any]:
     """Newest first: who changed what, how, when and why. ``project`` says whose record of a
-    registry entry, as for reading it."""
+    registry entry, as for reading it. ``person`` and ``field`` narrow it to the revisions
+    a person made, or that set a field, as its audit trail's filters do (ADR 0176)."""
     me = caller(request)
     entity = _find(me, ref, project)
-    revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
+    revisions = trail.applied(Revision.objects.filter(entity=entity)).select_related(
+        "user", "agent"
+    )
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
     states = revision_states(result["items"])

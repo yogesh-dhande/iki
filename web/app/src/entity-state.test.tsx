@@ -8,6 +8,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  addFilter,
   entity,
   field,
   KINASE,
@@ -254,7 +255,7 @@ describe("a record's state fields", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows state changes in its history", async () => {
+  it("shows state changes in its audit trail", async () => {
     onSample();
     answer(
       "GET /api/v1/entities/SMP-000001/revisions",
@@ -274,7 +275,7 @@ describe("a record's state fields", () => {
         revision({ number: 1, changed_fields: ["name"] }),
       ]),
     );
-    await renderApp("/entities/SMP-000001/history/");
+    await renderApp("/entities/SMP-000001/audit/");
     expect(
       await screen.findByText(
         "Revision 2: Status set to In testing, from Received by Rosalind Franklin",
@@ -329,14 +330,8 @@ describe("a project's grid of a type with state fields", () => {
     expect(within(nth(rows, 2)).getAllByRole("cell")[2]).toHaveTextContent("ReviewedLocked");
     expect(within(nth(rows, 2)).getAllByRole("cell")[3]).toHaveTextContent("In the lab");
 
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(
-      within(panel).getByRole("combobox", { name: "Filter 1: field" }),
-      "Custody",
-    );
-    const value = within(panel).getByRole("combobox", { name: "Filter 1: value" });
+    const editor = await addFilter(user, "Custody");
+    const value = within(editor).getByRole("combobox", { name: "Filter 1: value" });
     expect(within(value).getByRole("option", { name: "In the lab" })).toBeInTheDocument();
     await user.selectOptions(value, "Quarantined");
     const want = [{ field: "custody", op: "eq", value: "quarantined" }];

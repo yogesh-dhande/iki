@@ -176,17 +176,39 @@ export function actionLabel(actions: Action[] | undefined, name: string): string
   return actions?.find((a) => a.name === name)?.label ?? name;
 }
 
-/** A project's runs, newest first, a page at a time ("Show older"). */
-export function projectRunsQuery(projectId: string, status: RunStatus | undefined) {
+/** A list of runs' address (ADR 0176): `?status=`, and across projects, `?project=`, a
+ * project's slug. */
+export interface RunsSearch {
+  status?: RunStatus | undefined;
+  project?: string | undefined;
+}
+
+export function validateRunsSearch(search: Record<string, unknown>): RunsSearch {
+  const out: RunsSearch = {};
+  if (typeof search["status"] === "string" && search["status"] in STATUS) {
+    out.status = search["status"] as RunStatus;
+  }
+  if (
+    typeof search["project"] === "string" &&
+    /^[a-z0-9_][a-z0-9_-]{0,99}$/.test(search["project"])
+  ) {
+    out.project = search["project"];
+  }
+  return out;
+}
+
+/** A project's runs, or without one every run its reader can read, newest first, a page at
+ * a time ("Show older"). */
+export function projectRunsQuery(projectId: string | undefined, status: RunStatus | undefined) {
   return infiniteQueryOptions({
-    queryKey: [...RUNS, "list", projectId, status ?? "all"],
+    queryKey: [...RUNS, "list", projectId ?? "all", status ?? "all"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
         await iki.GET("/api/v1/runs", {
           params: {
             query: {
-              project: projectId,
+              ...(projectId ? { project: projectId } : {}),
               limit: 25,
               ...(status ? { status } : {}),
               ...(pageParam ? { cursor: pageParam } : {}),

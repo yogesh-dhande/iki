@@ -12,6 +12,7 @@ import {
   ALICE,
   entity,
   field,
+  fieldHistory,
   KINASE,
   PROTEIN,
   PROTEIN_ID,
@@ -114,7 +115,7 @@ function onRecord(current = record()): void {
 describe("a project's record of a registry entry", () => {
   it("shows its registry ID, and which values are the entry's and which the project's", async () => {
     onRecord();
-    await renderApp("/entities/PRT-000001/?project=kinase-atlas");
+    const { user } = await renderApp("/entities/PRT-000001/?project=kinase-atlas");
     expect(calls("GET", "/api/v1/entities/PRT-000001")[0]?.query.get("project")).toBe(KINASE.id);
     // Everything else it reads, it reads by the record's ID: other projects have its HRID.
     expect(calls("GET", `/api/v1/entities/${PROTEIN_ID}/provenance`)).toHaveLength(1);
@@ -133,15 +134,25 @@ describe("a project's record of a registry entry", () => {
       "UniProt IDRegistry fact",
     ]);
     // Set through a project the reader can't read: what, never who or when.
-    expect(
-      await within(entry).findByText("Set in the registry entry (entry revision 2)"),
-    ).toBeVisible();
+    answer(`GET /api/v1/entries/${ENTRY_ID}/revisions/2`, {
+      ...revision({ number: 2, entry: true, user: null, created_at: null, via: "" }),
+      values: VALUES,
+      changes: { uniprot: { before: null, after: "P00519" } },
+      refs: {},
+      files: {},
+    });
+    const fact = await fieldHistory(user, "UniProt ID");
+    expect(fact).toHaveTextContent(/BeforeNot setAfterP00519/);
+    expect(fact).toHaveTextContent("Revision2 of its registry entry");
+    expect(fact).toHaveTextContent("through a project you can’t read");
+    expect(fact).not.toHaveTextContent(/Who|When|Rosalind/);
+    await user.keyboard("{Escape}");
     expect(within(entry).getByRole("link", { name: "Open the entry" })).toHaveAttribute(
       "href",
       "/entries/PRT-000001/",
     );
 
-    const own = screen.getByRole("region", { name: "Kinase Atlas’s values" });
+    const own = screen.getByRole("region", { name: "Project values" });
     expect(own).toHaveTextContent(
       "Kinase Atlas’s own record of PRT-000001. Other projects with it keep their own.",
     );
@@ -159,10 +170,10 @@ describe("a project's record of a registry entry", () => {
   it("keeps its project on every tab", async () => {
     onRecord();
     await renderApp("/entities/PRT-000001/?project=kinase-atlas");
-    const tabs = screen.getByRole("navigation", { name: "Entity" });
-    expect(within(tabs).getByRole("link", { name: "History" })).toHaveAttribute(
+    const tabs = screen.getByRole("navigation", { name: "Record" });
+    expect(within(tabs).getByRole("link", { name: /^Audit trail/ })).toHaveAttribute(
       "href",
-      "/entities/PRT-000001/history/?project=kinase-atlas",
+      "/entities/PRT-000001/audit/?project=kinase-atlas",
     );
     expect(within(tabs).getByRole("link", { name: "Overview" })).toHaveAttribute(
       "aria-current",
@@ -172,6 +183,42 @@ describe("a project's record of a registry entry", () => {
       "href",
       "/entities/PRT-000001/edit/?project=kinase-atlas",
     );
+  });
+
+  it("switches to another of the reader's projects' records of it", async () => {
+    onRecord();
+    answer(`GET /api/v1/entries/${ENTRY_ID}`, {
+      id: ENTRY_ID,
+      hrid: "PRT-000001",
+      type: "iki/protein.Protein",
+      registry: MAIN_REGISTRY,
+      revision: 3,
+      created_at: "2026-03-14T09:00:00Z",
+      values: {},
+      refs: {},
+      files: {},
+      superseded: null,
+      records: [
+        { id: PROTEIN_ID, project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug } },
+        { id: "r2", project: { id: OTHER.id, name: OTHER.name, slug: OTHER.slug } },
+      ],
+      holders: null,
+      add_to: [],
+      can: { curate: false },
+    });
+    const { router, user } = await renderApp("/entities/PRT-000001/?project=kinase-atlas");
+    const own = screen.getByRole("region", { name: "Project values" });
+    const picker = await within(own).findByRole("combobox", { name: "Project" });
+    expect(picker).toHaveValue("kinase-atlas");
+    expect(
+      within(picker)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Antibody Lab", "Kinase Atlas"]);
+    await user.selectOptions(picker, "antibody-lab");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ project: "antibody-lab" });
+    });
   });
 
   it("links a reference to an entry to its project's record of it", async () => {
@@ -233,7 +280,7 @@ describe("a project's record of a registry entry", () => {
             },
           ),
     );
-    const { router, user } = await renderApp("/entities/PRT-000001/history/");
+    const { router, user } = await renderApp("/entities/PRT-000001/audit/");
     expect(screen.getByRole("heading", { level: 1, name: "PRT-000001" })).toBeVisible();
     expect(
       screen.getByText(
@@ -244,17 +291,14 @@ describe("a project's record of a registry entry", () => {
       screen.getByRole("region", { name: "Which project’s record?" }),
     ).getAllByRole("link");
     expect(choices.map((c) => c.textContent)).toEqual(["Antibody Lab", "Kinase Atlas"]);
-    expect(choices[1]).toHaveAttribute(
-      "href",
-      "/entities/PRT-000001/history/?project=kinase-atlas",
-    );
+    expect(choices[1]).toHaveAttribute("href", "/entities/PRT-000001/audit/?project=kinase-atlas");
     answer(`GET /api/v1/entities/${PROTEIN_ID}/revisions`, page([revision()]));
     answer(`GET /api/v1/entries/${ENTRY_ID}/revisions`, page([]));
     await user.click(screen.getByRole("link", { name: "Kinase Atlas" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: /^ABL1 kinase/ }),
     ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/entities/PRT-000001/history/");
+    expect(router.state.location.pathname).toBe("/entities/PRT-000001/audit/");
     expect(router.state.location.search).toEqual({ project: "kinase-atlas" });
   });
 });
@@ -351,7 +395,7 @@ describe("a superseded entry", () => {
   });
 });
 
-describe("a record's history", () => {
+describe("a record's audit trail", () => {
   it("shows its entry's revisions, and of those it can't see the source of, only what they set", async () => {
     onRecord();
     answer(`GET /api/v1/entities/${PROTEIN_ID}/revisions`, page([revision()]));
@@ -378,7 +422,7 @@ describe("a record's history", () => {
         }),
       ]),
     );
-    await renderApp("/entities/PRT-000001/history/?project=kinase-atlas");
+    await renderApp("/entities/PRT-000001/audit/?project=kinase-atlas");
     expect(screen.getByRole("heading", { level: 2, name: "Kinase Atlas’s record" })).toBeVisible();
     const section = screen.getByRole("region", { name: "Registry entry PRT-000001" });
     expect(section).toHaveTextContent("Its values are every holding project’s");
@@ -420,7 +464,7 @@ describe("a record's history", () => {
       refs: {},
       files: {},
     });
-    const { user } = await renderApp("/entities/PRT-000001/history/?project=kinase-atlas");
+    const { user } = await renderApp("/entities/PRT-000001/audit/?project=kinase-atlas");
     const section = screen.getByRole("region", { name: "Registry entry PRT-000001" });
     await user.click(
       await within(section).findByRole("button", { name: "Show changes in entry revision 3" }),

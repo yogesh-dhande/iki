@@ -8,9 +8,11 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  addFilter,
   ALICE,
   entity,
   field,
+  fieldHistory,
   FILE_ID,
   KINASE,
   nth,
@@ -193,6 +195,11 @@ describe("a project's entities", () => {
     expect(link).toHaveAttribute("download");
     const address = new URL(link.getAttribute("href") ?? "", "https://iki.example.org");
     expect(address.pathname).toBe("/api/v1/entities/search.csv");
+    // The columns the grid shows, in its order, then what a re-upload needs (ADR 0175).
+    const columns = address.searchParams.getAll("columns");
+    expect(columns.slice(0, 3)).toEqual(["hrid", "name", "sequence"]);
+    expect(columns.slice(-3)).toEqual(["updated_at", "revision", "id"]);
+    address.searchParams.delete("columns");
     expect(Object.fromEntries(address.searchParams)).toEqual({
       type: "iki/protein.Protein",
       project: KINASE.id,
@@ -201,8 +208,8 @@ describe("a project's entities", () => {
       sort: "name",
       descending: "true",
     });
-    // Tab reaches it from the grid's filters, before the grid's own rows.
-    screen.getByRole("button", { name: /^Filters/ }).focus();
+    // Tab reaches it from the search box, before the grid's own rows.
+    screen.getByRole("searchbox", { name: "Search" }).focus();
     for (let presses = 0; presses < 10 && document.activeElement !== link; presses += 1) {
       await user.tab();
     }
@@ -313,29 +320,29 @@ describe("a project's entities", () => {
       "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     await screen.findByRole("table", { name: "1 protein" });
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "Molecular weight");
-    await user.selectOptions(within(panel).getByLabelText("Filter 1: condition"), "is at least");
-    await user.type(within(panel).getByLabelText("Filter 1: value"), "50");
+    const editor = await addFilter(user, "Molecular weight");
+    await user.selectOptions(within(editor).getByLabelText("Filter 1: condition"), "is at least");
+    await user.type(within(editor).getByLabelText("Filter 1: value"), "50");
     const want = [{ field: "molecular_weight", op: "gte", value: 50 }];
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.Protein", filters: want });
     });
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({ where: { all: want } });
-    expect(screen.getByRole("button", { name: "Filters (1)" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
+    const chips = screen.getByRole("group", { name: "Filters" });
+    expect(
+      within(chips).getByRole("button", {
+        name: /^Filter 1: Molecular weight is at least 50/,
+      }),
+    ).toBeVisible();
 
-    // What can't be searched for says why, and isn't sent.
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(within(panel).getByLabelText("Filter 2: field"), "Last changed");
-    await user.selectOptions(within(panel).getByLabelText("Filter 2: condition"), "is after");
-    expect(within(panel).getByLabelText("Filter 2: value")).toBeInTheDocument();
-    await user.click(within(panel).getByRole("button", { name: "Remove filter 1" }));
+    // What can't be searched for yet isn't sent.
+    const second = await addFilter(user, "Last changed");
+    await user.selectOptions(within(second).getByLabelText("Filter 2: condition"), "is after");
+    expect(within(second).getByLabelText("Filter 2: value")).toBeInTheDocument();
+    await user.click(within(second).getByRole("button", { name: "Done" }));
+    await user.click(within(chips).getByRole("button", { name: /^Remove filter 1:/ }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.Protein" });
     });
@@ -350,9 +357,12 @@ describe("a project's entities", () => {
     const { router, user } = await renderApp(
       `/projects/kinase-atlas/entities/?type=iki/protein.Protein&filters=${filters}`,
     );
-    const panel = await screen.findByRole("region", { name: "Filters" });
-    expect(within(panel).getByLabelText("Filter 1: value")).toHaveValue("abl");
-    expect(within(panel).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
+    const chip = await screen.findByRole("button", { name: "Filter 1: Name contains abl" });
+    await user.click(chip);
+    const editor = await screen.findByRole("dialog");
+    expect(within(editor).getByLabelText("Filter 1: value")).toHaveValue("abl");
+    expect(within(editor).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
     await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.ProteinStructure" });
@@ -673,9 +683,9 @@ describe("an entity's page", () => {
     ]);
   }
 
-  it("shows each value with who set it, how and when", async () => {
+  it("shows each value, and who set it, how and when on asking", async () => {
     onStructure();
-    await renderApp("/entities/PST-000001/");
+    const { user } = await renderApp("/entities/PST-000001/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PST-000001");
     const values = screen.getByRole("region", { name: "Values" });
     const file = within(values).getByRole("link", { name: "1abc.pdb" });
@@ -688,13 +698,25 @@ describe("an entity's page", () => {
       "/entities/PRT-000001/?project=kinase-atlas",
     );
     expect(within(values).getByText("An entity you can’t read")).toBeInTheDocument();
+    // No value says who set it (ADR 0176): its history does, on asking.
+    expect(values).not.toHaveTextContent(/Rosalind Franklin/);
     // An agent's change names the person it acted for and the app it came through.
-    expect(await within(values).findByText(/Claude Code/)).toHaveTextContent(
-      /^Set by Rosalind Franklin .+ by an AI assistant \(MCP\), through Claude Code \(revision 1\)$/,
+    const structure = await fieldHistory(user, "Structure");
+    expect(structure).toHaveTextContent(
+      /^Last change to StructureWhoRosalind FranklinHowby an AI assistant \(MCP\), through Claude CodeWhen\d+ \w+ \d{4}, \d\d:\d\d UTCRevision1/,
     );
-    expect(within(values).getByText(/Refined/)).toHaveTextContent(
-      /^Changed by Rosalind Franklin .+ in the web app: “Refined” \(revision 2\)$/,
-    );
+    expect(
+      within(structure).getByRole("link", { name: "Structure in the audit trail" }),
+    ).toHaveAttribute("href", "/entities/PST-000001/audit/?field=structure");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "History of Structure" })).toHaveFocus();
+    });
+    const resolution = await fieldHistory(user, "Resolution");
+    expect(resolution).toHaveTextContent("Howin the web app");
+    expect(resolution).toHaveTextContent("“Refined”");
+    await user.keyboard("{Escape}");
     const details = screen.getByRole("region", { name: "Details" });
     expect(await within(details).findByRole("link", { name: "Imatinib" })).toHaveAttribute(
       "href",
@@ -709,8 +731,17 @@ describe("an entity's page", () => {
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
     answer("GET /api/v1/entities/PRT-000001/projects", []);
     await renderApp("/entities/PRT-000001/");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      /^ABL1 kinase\s*PRT-000001$/,
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^ABL1 kinase$/);
+    // Its ID, beside its title and in its breadcrumb.
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByText("PRT-000001")).toHaveAttribute("aria-current", "page");
+    expect(within(crumbs).getByRole("link", { name: "Entities" })).toHaveAttribute(
+      "href",
+      "/entities/",
+    );
+    expect(within(crumbs).getByRole("link", { name: "Proteins" })).toHaveAttribute(
+      "href",
+      "/entities/types/iki/protein.Protein/",
     );
     expect(screen.getByText("52.3415 ku")).toBeInTheDocument();
     expect(screen.getByText("(52,341.5 u)")).toBeInTheDocument();
@@ -927,7 +958,7 @@ describe("an entity's page", () => {
     );
   });
 
-  it("shows its history, and what each revision changed", async () => {
+  it("shows its audit trail, and what each revision changed", async () => {
     onStructure();
     answer(
       "GET /api/v1/entities/PST-000001/revisions",
@@ -941,10 +972,17 @@ describe("an entity's page", () => {
       values: {},
       changes: { resolution: { before: 2.4, after: 2.1 } },
     });
-    const { user } = await renderApp("/entities/PST-000001/history/");
+    const { user } = await renderApp("/entities/PST-000001/audit/");
     expect(await screen.findByText("Revision 2: Edited by Rosalind Franklin")).toBeInTheDocument();
     expect(screen.getByText("Revision 1: Created by Rosalind Franklin")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "History" })).toHaveAttribute("aria-current", "page");
+    // Its tab counts the revisions, in words to screen readers.
+    const tab = screen.getByRole("link", { name: /^Audit trail,\s*2\s*revisions$/ });
+    expect(tab).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("“Refined”")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Export for inspection/ })).toHaveAttribute(
+      "href",
+      "/api/v1/entities/00000000-0000-7000-8000-00000000e002/revisions.csv",
+    );
     await user.click(screen.getByRole("button", { name: "Show changes in revision 2" }));
     const table = await screen.findByRole("table");
     expect(
@@ -1072,7 +1110,7 @@ describe("an entity's page", () => {
         }),
       ]),
     );
-    await renderApp("/entities/PST-000001/history/");
+    await renderApp("/entities/PST-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
     expect(within(first).getByRole("listitem")).toHaveTextContent(
@@ -1130,7 +1168,7 @@ describe("an entity's page", () => {
       "GET /api/v1/entities/PRT-000001/revisions",
       page([revision({ number: 1, submitted: { sequence: "mkwv*" } })]),
     );
-    await renderApp("/entities/PRT-000001/history/");
+    await renderApp("/entities/PRT-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const given = document.querySelector(".row-submitted");
     expect(given).toHaveTextContent(

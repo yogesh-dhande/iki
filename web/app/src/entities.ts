@@ -93,10 +93,12 @@ export function gridSearch(filter: EntityFilter) {
 }
 
 /** The address of everything the grid's search finds, as CSV (ADR 0175): the same search,
- * as the download's parameters. */
-export function searchCsvUrl(filter: EntityFilter): string {
+ * as the download's parameters, with the columns the grid shows if it's given them. */
+export function searchCsvUrl(filter: EntityFilter, columns: readonly string[] = []): string {
   const search = gridSearch(filter);
   const query = new URLSearchParams();
+  // The grid's columns, as it shows them; without them, the type's.
+  for (const column of columns) query.append("columns", column);
   if (search.type) query.set("type", search.type);
   if ("project" in search) query.set("project", search.project);
   if ("collection" in search) query.set("collection", search.collection);

@@ -3308,6 +3308,36 @@
         "title": "CostTotalOut",
         "type": "object"
       },
+      "CountsOut": {
+        "properties": {
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every current record you can read. Null as `count`.",
+            "title": "Total"
+          },
+          "types": {
+            "description": "Each type you can read current records of, by label: the type itself, not its parents, which count nothing of their own.",
+            "items": {
+              "$ref": "#/components/schemas/TypeCountOut"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "types",
+          "total"
+        ],
+        "title": "CountsOut",
+        "type": "object"
+      },
       "CreatedOut": {
         "properties": {
           "amount": {
@@ -3438,6 +3468,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -4505,6 +4543,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -9313,6 +9359,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -16597,14 +16651,19 @@
       "SavedSearchFilters": {
         "properties": {
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
+            "title": "Project"
           }
         },
-        "required": [
-          "project"
-        ],
         "title": "SavedSearchFilters",
         "type": "object"
       },
@@ -16616,9 +16675,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it searches. Without one, it searches every project you can read, and is yours alone: it can't be shared.",
+            "title": "Project"
           },
           "query": {
             "$ref": "#/components/schemas/QueryIn"
@@ -16631,7 +16698,6 @@
           }
         },
         "required": [
-          "project",
           "name",
           "query"
         ],
@@ -16661,9 +16727,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it searches; null for every project you can read.",
+            "title": "Project"
           },
           "query": {
             "additionalProperties": true,
@@ -20124,6 +20198,39 @@
         "title": "TrackOut",
         "type": "object"
       },
+      "TrailFilter": {
+        "description": "What a record's audit trail is narrowed to (ADR 0176): the revisions a person made,\nor that set a field. Both together find those that did both.",
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the revisions that set this field, by its name.",
+            "title": "Field"
+          },
+          "person": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the revisions this person made.",
+            "title": "Person"
+          }
+        },
+        "title": "TrailFilter",
+        "type": "object"
+      },
       "TransferIn": {
         "properties": {
           "amount": {
@@ -20498,6 +20605,39 @@
           "material"
         ],
         "title": "TypeAmountOut",
+        "type": "object"
+      },
+      "TypeCountOut": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many current records of it you can read. Null when counting would be slow: then every type that can have records is listed, uncounted.",
+            "title": "Count"
+          },
+          "label": {
+            "description": "What the type calls one of its records, such as Plasmid.",
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type, qualified, such as `iki/dna.Plasmid`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "count"
+        ],
+        "title": "TypeCountOut",
         "type": "object"
       },
       "TypeNotificationOut": {
@@ -25967,6 +26107,55 @@
         ]
       }
     },
+    "/api/v1/entities/counts": {
+      "get": {
+        "description": "How many current records of each type you can read, by the rules that read one: a\nrecord in a project you aren't in counts for nothing (ADR 0176). With ``project``, only\nthose in it, its own and those linked into it.\n\nIt's one grouped query. When Postgres expects it to read more than a million records,\nnothing is counted, and every type that can have records is listed with a null count:\na count is left out rather than made slow, or estimated.",
+        "operationId": "iki_server_api_entities_count_entities",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How many records you can read",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entities/lookup": {
       "get": {
         "description": "The entities you can read of ``type`` (or a subtype) whose unique ``field`` is\n``value``, such as the record's ID in a LIMS (ADR 0082). Each project has at most one of\nits own, so with ``project`` you get its own and any linked into it. Oldest first.",
@@ -26835,6 +27024,68 @@
           }
         ],
         "summary": "Which bundles it was imported from",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/contributors": {
+      "get": {
+        "description": "Everyone who made one of its revisions, by name: whom its audit trail can be\nnarrowed to (``person``). For a record of a registry entry, also who made the entry's\nrevisions, of those you're told who made. ``project`` says whose record, as for\nreading it.",
+        "operationId": "iki_server_api_trails_list_contributors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Who changed it",
         "tags": [
           "entities"
         ]
@@ -27796,7 +28047,7 @@
     },
     "/api/v1/entities/{ref}/revisions": {
       "get": {
-        "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it.",
+        "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it. ``person`` and ``field`` narrow it to the revisions\na person made, or that set a field, as its audit trail's filters do (ADR 0176).",
         "operationId": "iki_server_api_entities_list_revisions",
         "parameters": [
           {
@@ -27841,6 +28092,44 @@
             }
           },
           {
+            "description": "Only the revisions this person made.",
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions this person made.",
+              "title": "Person"
+            }
+          },
+          {
+            "description": "Only the revisions that set this field, by its name.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 63,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions that set this field, by its name.",
+              "title": "Field"
+            }
+          },
+          {
             "in": "query",
             "name": "project",
             "required": false,
@@ -27879,6 +28168,60 @@
           }
         ],
         "summary": "An entity's revisions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/revisions.csv": {
+      "get": {
+        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
+        "operationId": "iki_server_api_trails_trail_csv",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download its audit trail, for inspection",
         "tags": [
           "entities"
         ]
@@ -28998,7 +29341,7 @@
     },
     "/api/v1/entries/{ref}/revisions": {
       "get": {
-        "description": "Newest first. Its registrars see each in full, without the project it came through.\nA holder sees who and when for its own projects' and registrars' changes; for others,\nonly what was set.",
+        "description": "Newest first. Its registrars see each in full, without the project it came through.\nA holder sees who and when for its own projects' and registrars' changes; for others,\nonly what was set. ``person`` finds only those you're told they made.",
         "operationId": "iki_server_api_registries_list_entry_revisions",
         "parameters": [
           {
@@ -29040,6 +29383,44 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only the revisions this person made.",
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions this person made.",
+              "title": "Person"
+            }
+          },
+          {
+            "description": "Only the revisions that set this field, by its name.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 63,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the revisions that set this field, by its name.",
+              "title": "Field"
             }
           }
         ],
@@ -34145,17 +34526,26 @@
     },
     "/api/v1/saved-searches": {
       "get": {
-        "description": "Yours, and those shared with the project, by name.",
+        "description": "Yours, and those shared with the project, by name. Without a project: every one you\nsee, your searches of every project among them.",
         "operationId": "iki_server_api_searches_list_saved_searches",
         "parameters": [
           {
+            "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
             "in": "query",
             "name": "project",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "uuid",
-              "title": "Project",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
+              "title": "Project"
             }
           }
         ],
@@ -34183,7 +34573,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "A project's saved searches",
+        "summary": "Saved searches",
         "tags": [
           "saved searches"
         ]

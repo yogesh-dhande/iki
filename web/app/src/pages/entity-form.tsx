@@ -692,7 +692,7 @@ function EditEntityForm({
                   You both changed {conflict.both.join(", ")}: yours{" "}
                   {conflict.both.length === 1 ? "is" : "are"} kept. Check{" "}
                   <Link
-                    to="/entities/$ref/history/"
+                    to="/entities/$ref/audit/"
                     params={{ ref: base.entity.hrid }}
                     search={recordSearch(base.entity)}
                     target="_blank"

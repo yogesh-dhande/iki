@@ -894,6 +894,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
     ("GET", "/entities/search.csv", fixed("/entities/search.csv?q=kin"), row(200)),
+    # Over what each caller reads: anyone signed in, and in a project, those who can see it.
+    ("GET", "/entities/counts", fixed("/entities/counts"), row(200)),
+    (
+        "GET",
+        "/entities/counts",
+        lambda w: (f"/entities/counts?project={w.project.pk}", None),
+        visible(200),
+    ),
     (
         "GET",
         "/entities/lookup",
@@ -916,6 +924,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
             {"project": str(w.project.pk), "name": "Mine", "query": {"q": "kin"}},
         ),
         readers(201, org_admin=403),
+    ),
+    # Searches of every project you can read (ADR 0176): anyone's own.
+    ("GET", "/saved-searches", fixed("/saved-searches"), row(200)),
+    (
+        "POST",
+        "/saved-searches",
+        fixed("/saved-searches", {"name": "Everywhere", "query": {"q": "kin"}}),
+        row(201),
     ),
     ("GET", "/saved-searches/{saved_id}", saved(), readers(200)),
     (
@@ -1025,6 +1041,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
+    # Its audit trail (ADR 0176): who it can be narrowed to, and all of it as CSV.
+    ("GET", "/entities/{ref}/contributors", entity("/contributors"), readers(200)),
+    ("GET", "/entities/{ref}/revisions.csv", entity("/revisions.csv"), readers(200)),
     ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),

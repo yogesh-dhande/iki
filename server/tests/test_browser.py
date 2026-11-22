@@ -28,6 +28,7 @@ from playwright.sync_api import (
     Browser,
     BrowserContext,
     Frame,
+    Locator,
     Page,
     Playwright,
     sync_playwright,
@@ -365,6 +366,17 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     assert violations == [], (page.url, violations)
 
 
+def add_filter(page: Page, field: str) -> Locator:
+    """Adds a grid filter by a field, from its "+ Filter" menu, and returns the filter's
+    editor, which opens. Found by role: Firefox crashes on labels after axe."""
+    page.get_by_role("button", name="Filter", exact=True).click()
+    menu = page.get_by_role("menu", name="Filter")
+    menu.get_by_role("menuitem", name=re.compile(f"^{re.escape(field)}")).click()
+    editor = page.get_by_role("dialog", name=re.compile(r"^Filter \d+: " + re.escape(field)))
+    editor.wait_for()
+    return editor
+
+
 #: (who, page): the web app's pages, and server-rendered pages that share its design.
 PAGES = [
     ("admin", "/"),
@@ -391,6 +403,10 @@ PAGES = [
     ("org_admin", "/admin/signatures/"),
     ("org_admin", "/admin/people/"),
     ("auditor", "/admin/audit/"),
+    ("admin", "/entities/"),
+    ("admin", "/entities/types/acme/protein.Protein/"),
+    ("admin", "/requests/"),
+    ("admin", "/runs/"),
 ]
 
 
@@ -662,7 +678,7 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
     assert_clean(page)
 
 
-def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> None:
+def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
 
@@ -682,10 +698,18 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
     grid.get_by_role("cell", name="ABL1 kinase").wait_for()
     assert_clean(page)
     grid.get_by_role("link", name=entity.hrid).click()
-    page.get_by_role("heading", level=1, name=f"ABL1 kinase {entity.hrid}").wait_for()
-    page.get_by_text("Changed by").first.wait_for()
+    page.get_by_role("heading", level=1, name="ABL1 kinase").wait_for()
+    # Who changed a value is in its history, on asking (ADR 0176), not under every value.
+    assert page.get_by_text("Changed by").count() == 0
+    page.get_by_role("button", name="History of Name").click()
+    history = page.get_by_role("dialog", name="History of Name")
+    history.get_by_text("Last change to Name").wait_for()
+    history.get_by_text("“Full name”").wait_for()
     assert_clean(page)
-    page.get_by_role("link", name="History").click()
+    history.get_by_role("link", name="Name in the audit trail").click()
+    page.wait_for_url(
+        re.compile(rf"/entities/{entity.hrid}/audit/\?project=kinase-atlas&field=name$")
+    )
     page.get_by_role("button", name="Show changes in revision 2").click()
     page.get_by_role("cell", name="ABL1", exact=True).wait_for()
     assert_clean(page)
@@ -759,8 +783,13 @@ def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> No
     page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/dna.DNASequence")
     search = page.get_by_role("searchbox", name="Search")
     search.wait_for()
+    # As high as the toolbar's other controls (ADR 0176's 28 pixels), whatever a browser
+    # draws a search box as by itself, and no smaller than WCAG's target size (2.5.8).
     box = search.bounding_box()
-    assert box is not None and box["height"] >= 44, box
+    beside = page.get_by_role("combobox", name="Show").bounding_box()
+    assert box is not None and beside is not None, (box, beside)
+    assert abs(box["height"] - beside["height"]) <= 1, (box, beside)
+    assert box["height"] >= 24, box
     assert_clean(page)
 
 
@@ -792,26 +821,30 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     page.get_by_role("searchbox", name="Search").fill("")
     page.get_by_role("table", name="3 proteins").wait_for()
 
-    page.get_by_role("button", name="Filters").click()
-    panel = page.get_by_role("region", name="Filters")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_label("Filter 1: field").select_option(label="Host")
-    panel.get_by_label("Filter 1: condition").select_option(label="is")
-    panel.get_by_label("Filter 1: value").fill("Homo sapiens")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_label("Filter 2: field").select_option(label="Temperature optimum")
-    panel.get_by_label("Filter 2: condition").select_option(label="is more than")
-    panel.get_by_role("textbox", name="Filter 2: value").fill("90")
-    panel.get_by_label("Unit for Filter 2: value").select_option("[degF]")
+    editor = add_filter(page, "Host")
+    editor.get_by_role("combobox", name="Filter 1: condition").select_option(label="is")
+    editor.get_by_role("textbox", name="Filter 1: value").fill("Homo sapiens")
+    editor.get_by_role("button", name="Done").click()
+    editor = add_filter(page, "Temperature optimum")
+    editor.get_by_role("combobox", name="Filter 2: condition").select_option(label="is more than")
+    editor.get_by_role("textbox", name="Filter 2: value").fill("90")
+    editor.get_by_role("combobox", name="Unit for Filter 2: value").select_option("[degF]")
+    editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 protein match")
     grid.get_by_role("cell", name="ABL1", exact=True).wait_for()
+    filters = page.get_by_role("group", name="Filters")
+    filters.get_by_role("button", name="Filter 1: Host is Homo sapiens", exact=True).wait_for()
     assert_clean(page)
 
     # The address keeps it: a reload, or a shared link, shows the same.
     page.reload()
     page.get_by_role("table", name="1 protein match").wait_for()
-    assert page.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
-    page.get_by_role("button", name="Remove filter 2").click()
+    chip = filters.get_by_role("button", name=re.compile(r"^Filter 2: Temperature optimum"))
+    chip.click()
+    editor = page.get_by_role("dialog", name="Filter 2: Temperature optimum")
+    assert editor.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
+    page.keyboard.press("Escape")
+    filters.get_by_role("button", name=re.compile(r"^Remove filter 2:")).click()
     grid = page.get_by_role("table", name="2 proteins match")
     grid.wait_for()
 
@@ -823,6 +856,101 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     first.get_by_role("cell", name="SRC", exact=True).wait_for()
     assert grid.get_by_role("columnheader", name="Name").get_attribute("aria-sort") == "descending"
     assert_clean(page)
+
+
+#: The M13 forward (-20) and reverse sequencing primers, and the T7 promoter.
+M13_FORWARD = "GTAAAACGACGGCCAGT"
+M13_REVERSE = "CAGGAAACAGCTATGAC"
+T7_PROMOTER = "TAATACGACTCACTATAGGG"
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_the_lists_across_projects_hold_only_what_you_can_read(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """All entities, a type's table, Requests and Runs (ADR 0176): every project the
+    reader is in, and nothing of one they aren't, in a row or a count."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import ProjectLink
+
+    editor = world.users["editor"]
+    elsewhere = Project.objects.create(team=world.other_team, name="Vector Reference QC")
+    ProjectMembership.objects.create(
+        project=elsewhere, user=world.users["mixed"], role=ProjectRole.EDITOR
+    )
+    dna = "acme/dna.DNASequence"
+    forward = cast(
+        "Entity",
+        entities.create(
+            editor, dna, world.project, {"bases": M13_FORWARD, "name": "M13 fwd"}
+        ).entity,
+    )
+    entities.create(editor, dna, world.project, {"bases": M13_REVERSE, "name": "M13 rev"})
+    hidden = entities.create(
+        world.users["mixed"], dna, elsewhere, {"bases": T7_PROMOTER, "name": "T7 promoter"}
+    )
+    ProjectLink.objects.create(entity=forward, project=elsewhere)
+    hidden_hrid = cast("Entity", hidden.entity).hrid
+
+    page: Page = open_as("viewer", "/entities/", color_scheme)
+    page.get_by_role("heading", level=1, name="All entities").wait_for()
+    grid = page.get_by_role("table", name="2 entities")
+    grid.wait_for()
+    pills = page.get_by_role("group", name="Type")
+    pills.get_by_role("button", name="DNA sequence 2 records").wait_for()
+    pills.get_by_role("button", name="All types 2 records").wait_for()
+    assert grid.get_by_role("link", name=hidden_hrid).count() == 0
+    # The forward primer is in Vector Reference QC too, which the viewer isn't in.
+    assert page.get_by_text("Vector Reference QC").count() == 0
+    assert_clean(page)
+    # Nor does a search for it by its ID find it.
+    page.get_by_role("searchbox", name="Search").fill(hidden_hrid)
+    page.get_by_text("No entities you can read match.").wait_for()
+    page.get_by_role("searchbox", name="Search").fill("")
+    grid.wait_for()
+
+    # At a phone's width it scrolls down, never across.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    # A type's table: its fields as columns, a sequence found by a motif (IUPAC: N is any).
+    pills.get_by_role("button", name="DNA sequence 2 records").click()
+    page.wait_for_url(re.compile(r"type=acme"))
+    page.goto(f"/entities/types/{dna}/")
+    page.get_by_role("heading", level=1, name="DNA sequences").wait_for()
+    table = page.get_by_role("table", name="2 DNA sequences")
+    table.wait_for()
+    editor_box = add_filter(page, "Bases")
+    editor_box.get_by_role("textbox", name="Filter 1: value").fill("CAGNAAAC")
+    editor_box.get_by_role("button", name="Done").click()
+    table = page.get_by_role("table", name="1 DNA sequence match")
+    table.get_by_role("cell", name="M13 rev", exact=True).wait_for()
+    views = page.get_by_role("navigation", name="Views")
+    assert views.get_by_role("link", name="All DNA sequences").get_attribute("aria-current") is None
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    for path, heading in (("/requests/", "Requests"), ("/runs/", "Runs")):
+        page.goto(path)
+        page.get_by_role("heading", level=1, name=heading).wait_for()
+        page.get_by_role("combobox", name="Project").wait_for()
+        assert_clean(page)
+    page.context.close()
+
+    # Someone in both projects sees both, and the linked primer once, in each.
+    page = open_as("mixed", "/entities/", color_scheme)
+    page.get_by_role("group", name="Type").get_by_role(
+        "button", name="DNA sequence 3 records"
+    ).wait_for()
+    grid = page.get_by_role("table", name="3 entities")
+    row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=forward.hrid))
+    row.get_by_role(
+        "cell", name=re.compile(r"^Kinase Atlas.*also in Vector Reference QC")
+    ).wait_for()
+    page.context.close()
 
 
 def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
@@ -1002,7 +1130,8 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     page.get_by_role("button", name="Save changes").click()
     page.get_by_text(f"Saved revision 2 of {made.hrid}.").wait_for()
 
-    page.get_by_role("button", name="Archive").click()
+    page.get_by_role("button", name=f"More actions for {made.hrid}").click()
+    page.get_by_role("menuitem", name="Archive…").click()
     dialog = page.get_by_role("alertdialog", name=f"Archive {made.hrid}?")
     dialog.get_by_role("textbox", name="Reason (optional)").fill("Duplicate of another")
     assert_clean(page)
@@ -1316,7 +1445,8 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert_clean(page)
 
     page.get_by_role("link", name="Kinase Atlas").click()
-    row = page.get_by_role("listitem").filter(has_text=run.hrid)
+    # The project's runs, one row each (ADR 0176's table, as every run's list).
+    row = page.get_by_role("row").filter(has_text=run.hrid)
     row.get_by_text("Failed", exact=True).wait_for()
     assert_clean(page)
 
@@ -1701,6 +1831,100 @@ def test_a_plasmids_coding_sequences_read_as_genbank_translates_them(
     assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_records_page_and_its_audit_trail(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """A record's page as ADR 0176 lays it out: its values without who set each, a history
+    button beside each with its last change, a rail with its map, and an Audit trail tab
+    that narrows by field, shows each field's last change, and downloads whole as CSV for
+    an inspector. At a phone's width nothing scrolls across. axe checks it in Chromium and
+    WebKit: Firefox's content process crashes running it here (see assert_clean)."""
+    import csv
+
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    hrid, _ = _record(
+        world, tmp_path, "J01749.1", Path(__file__).parent / "data" / "plasmids" / "J01749.1.gb"
+    )
+    # A plasmid is a registry type (ADR 0115): Kinase Atlas's record of its entry.
+    record = Entity.objects.get(hrid=hrid, owner_project=world.project)
+    entities.update(
+        world.users["admin"],
+        record,
+        {"name": "pBR322"},
+        expected_revision=1,
+        reason="Its common name",
+    )
+    page = open_as("admin", f"/entities/{hrid}/?project=kinase-atlas", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", level=1, name="pBR322").wait_for()
+    rail = page.get_by_role("complementary", name="About this record")
+    rail.get_by_role("img", name=re.compile(r"^Circular map of pBR322, 4,361 bp: ")).wait_for()
+    rail.get_by_role("region", name="Details").get_by_text("Last changed").wait_for()
+    tabs = page.get_by_role("navigation", name="Record")
+    # Its record's revisions, and its entry's.
+    record.refresh_from_db()
+    assert record.entry is not None
+    count = record.revision + record.entry.revision
+    tabs.get_by_role(
+        "link", name=re.compile(rf"^Audit trail\s*,\s*{count}\s*revisions$")
+    ).wait_for()
+    assert page.get_by_text("Changed by").count() == 0
+    assert_clean(page, axe_in_firefox=False)
+
+    page.get_by_role("button", name="History of Name").click()
+    history = page.get_by_role("dialog", name="History of Name")
+    history.get_by_text("“Its common name”").wait_for()
+    history.get_by_text(re.compile(r"\d\d:\d\d UTC$")).wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.keyboard.press("Escape")
+    history.wait_for(state="hidden")
+
+    # The ⋯ menu has the rest of its actions, the audit trail's CSV among them.
+    page.get_by_role("button", name=f"More actions for {hrid}").click()
+    page.get_by_role("menuitem", name="Download audit trail (CSV)").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.keyboard.press("Escape")
+
+    tabs.get_by_role("link", name=re.compile("^Audit trail")).click()
+    page.get_by_text("Revision 2: Edited by Admin").wait_for()
+    page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
+    assert_clean(page, axe_in_firefox=False)
+    page.get_by_role("combobox", name="Field").select_option("name")
+    page.wait_for_url(re.compile(r"[?&]field=name"))
+    page.get_by_role("button", name="By field").click()
+    table = page.get_by_role("table", name="Each field’s last change")
+    table.get_by_role("row", name=re.compile(r"^Name pBR322 Admin")).wait_for()
+    assert table.get_by_role("row").count() == 2
+    assert_clean(page, axe_in_firefox=False)
+
+    with page.expect_download() as downloading:
+        page.get_by_role("link", name="Export for inspection").click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    # WebKit on Linux suggests it with underscores for its spaces.
+    assert saved.name.replace("_", " ") == f"{hrid} Kinase Atlas audit trail.csv"
+    rows = list(csv.DictReader(saved.read_text(encoding="utf-8-sig").splitlines()))
+    # The whole trail, whatever the page was narrowed to.
+    assert {r["Revision"] for r in rows} == {"1", "2"}
+    renamed = next(r for r in rows if r["Revision"] == "2")
+    assert (renamed["Field"], renamed["Before"], renamed["After"]) == ("Name", "J01749.1", "pBR322")
+    assert renamed["Reason"] == "Its common name" and renamed["Who"] == "Admin"
+
+    # On a phone, its rail goes under its values, and nothing scrolls across.
+    wide = "() => document.documentElement.scrollWidth - innerWidth <= 1"
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(wide)
+    assert_clean(page, axe_in_firefox=False)
+    page.goto(f"/entities/{hrid}/?project=kinase-atlas")
+    page.get_by_role("heading", level=1, name="pBR322").wait_for()
+    rail.get_by_role("img", name=re.compile("^Circular map")).wait_for()
+    assert page.evaluate(wide)
+    assert_clean(page, axe_in_firefox=False)
+
+
 def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
     """A file in the project, its bytes put straight into the store the server reads."""
     import hashlib
@@ -2028,7 +2252,7 @@ def test_an_alignment_in_its_viewer(
     )
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
-    page.get_by_role("navigation", name="Entity").get_by_role("link", name="Alignment").click()
+    page.get_by_role("navigation", name="Record").get_by_role("link", name="Alignment").click()
     grid = page.get_by_role("application", name="Alignment of abl.afa")
     grid.wait_for()
     page.get_by_text("3 rows, 311 columns").wait_for()
@@ -2455,7 +2679,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
     page.get_by_role("link", name="Antigens", exact=True).click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/\?project=antigens$"))
     page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
-    page.get_by_role("heading", name="Antigens’s values").wait_for()
+    page.get_by_role("heading", name="Project values").wait_for()
     page.get_by_text("ABL1 antigen").first.wait_for()
     assert_clean(page)
 
@@ -2468,7 +2692,7 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
 
     # Someone in only one of them reads its record, and nothing of the other's.
     viewer = open_as("viewer", f"/entities/{hrid}/")
-    viewer.get_by_role("heading", name="Kinase Atlas’s values").wait_for()
+    viewer.get_by_role("heading", name="Project values").wait_for()
     assert viewer.get_by_text("ABL1 antigen").count() == 0
     assert_clean(viewer)
 
@@ -2637,7 +2861,7 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     assert page.get_by_role("link", name="Edit", exact=True).count() == 0
     assert card.get_by_role("button", name="Set Status").get_attribute("aria-disabled") is None
     assert_clean(page)
-    page.get_by_role("link", name="History").click()
+    page.get_by_role("link", name=re.compile("^Audit trail")).click()
     page.get_by_text("Status set to Reviewed, from In testing by Editor").wait_for()
     page.get_by_text("“Bench 4”").wait_for()
     assert_clean(page)
@@ -2729,11 +2953,9 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     grid.get_by_role("link", name=hrid).wait_for()
     assert_clean(page)
     # By the project that asked: the core can't open it, but it's named.
-    page.get_by_role("button", name=re.compile("^Filters")).click()
-    filters = page.get_by_role("region", name="Filters")
-    filters.get_by_role("button", name="Add a filter").click()
-    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Asked by")
-    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Kinase Atlas")
+    chip_editor = add_filter(page, "Asked by")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(label="Kinase Atlas")
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=hrid).wait_for()
     assert_clean(page)
@@ -2800,11 +3022,9 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     page.get_by_text(f"The requests {world.project.name} sent to services.").wait_for()
     assert_clean(page)
 
-    page.get_by_role("button", name=re.compile("^Filters")).click()
-    filters = page.get_by_role("region", name="Filters")
-    filters.get_by_role("button", name="Add a filter").click()
-    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Sent to")
-    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Protein Core")
+    chip_editor = add_filter(page, "Sent to")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(label="Protein Core")
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=request.hrid).wait_for()
     assert_clean(page)
@@ -2926,20 +3146,19 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
 
     page.get_by_role("searchbox", name="Search").fill("")
     page.get_by_role("table", name="3 batches").wait_for()
-    page.get_by_role("button", name="Filters").click()
-    panel = page.get_by_role("region", name="Filters")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_role("combobox", name="Filter 1: field").select_option(label="Breaks")
-    panel.get_by_role("combobox", name="Filter 1: condition").select_option(label="the rule")
-    panel.get_by_role("combobox", name="Filter 1: value").select_option(
+    chip_editor = add_filter(page, "Breaks")
+    chip_editor.get_by_role("combobox", name="Filter 1: condition").select_option(label="the rule")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(
         label="Expires after it's made"
     )
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 batch match")
     grid.get_by_role("cell", name=re.compile("^Breaks: Expires after it's made")).wait_for()
     assert_clean(page)
     # The address keeps it, and the condition reads back.
     page.reload()
     page.get_by_role("table", name="1 batch match").wait_for()
+    page.get_by_role("button", name=re.compile(r"^Filter 1: Breaks")).click()
     condition = page.get_by_role("combobox", name="Filter 1: condition")
     assert condition.locator("option:checked").inner_text() == "the rule"
     page.context.close()
@@ -3121,8 +3340,8 @@ def test_signing_a_record_signs_in_again_and_shows_the_signature(
     section.get_by_role("button", name="Dismiss").click()
     page.wait_for_url(re.compile(rf"/entities/{hrid}/$"))
     assert fake_idp.authorizations[-1]["prompt"] == "login"
-    # Its history shows the revision it set the state in, with the signature.
-    page.get_by_role("link", name="History").click()
+    # Its audit trail shows the revision it set the state in, with the signature.
+    page.get_by_role("link", name=re.compile("^Audit trail")).click()
     signed = page.get_by_role("list", name="Signatures of revision 2")
     signed.get_by_text(re.compile(r"^Authored by Editor on ")).wait_for()
     assert_clean(page)

@@ -12,6 +12,7 @@ import {
   entity,
   field,
   KINASE,
+  moreAction,
   PROTEIN,
   PROTEIN_ID,
   renderApp,
@@ -652,7 +653,8 @@ describe("archiving and restoring", () => {
       sample({ revision: 3, archived: true, archived_at: "2026-03-16T09:00:00Z" }),
     );
     const { user } = await renderApp("/entities/SMP-000001/");
-    await user.click(screen.getByRole("button", { name: "Archive" }));
+    // Archiving is in its ⋯ menu (ADR 0176).
+    await moreAction(user, "SMP-000001", "Archive…");
     const dialog = await screen.findByRole("alertdialog", { name: "Archive SMP-000001?" });
     await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Used up");
     await user.click(within(dialog).getByRole("button", { name: "Archive" }));
@@ -660,8 +662,9 @@ describe("archiving and restoring", () => {
     const sent = calls("PATCH")[0];
     expect(sent?.body).toEqual({ archived: true, reason: "Used up" });
     expect(sent?.headers.get("If-Match")).toBe('"2"');
-    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More actions for SMP-000001" }));
+    expect(await screen.findByRole("menuitem", { name: "Restore…" })).toBeInTheDocument();
   });
 });
 
