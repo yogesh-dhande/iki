@@ -832,6 +832,55 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
     shown(page)
 
 
+def test_a_projects_automation_and_tabs_fit_any_screen(
+    open_as: Any, world: World, browser_name: str
+) -> None:
+    """Automation's toolbar is one row: the status filter as wide as its choices, and Run a
+    workflow beside it, not under it. On a phone, the tab you're on is in view, as a
+    record's is, though the tabs before it fill the width. By role (Firefox; see above)."""
+    path = f"/projects/{world.project.slug}/automation/workflows/"
+    for width in (1440, 390):
+        page: Page = open_as("admin", path)
+        page.set_viewport_size({"width": width, "height": 844})
+        page.reload()  # Loaded at this width, as on a phone.
+        status = page.get_by_role("combobox", name="Status")
+        run = page.get_by_role("link", name="Run a workflow")
+        run.wait_for()
+        page.get_by_text("No workflow runs yet.").wait_for()
+        select, button = status.bounding_box(), run.bounding_box()
+        assert select and button
+        assert select["width"] < 200, select
+        assert abs(select["y"] + select["height"] / 2 - button["y"] - button["height"] / 2) < 2
+        # WebKit draws a native select at its own height, whatever its min-height.
+        if browser_name != "webkit":
+            assert select["height"] == button["height"], (select, button)
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert_clean(page)
+        page.context.close()
+
+    # The last tab, on a phone: the ones before it are wider than the screen.
+    page = open_as("admin", f"/projects/{world.project.slug}/members/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"/projects/{world.project.slug}/settings/")
+    tabs = page.get_by_role("navigation", name="Project")
+    settings = tabs.get_by_role("link", name="Settings")
+    page.wait_for_function(
+        "() => document.querySelector('nav[aria-label=Project] [aria-current=page]')"
+        "?.textContent === 'Settings'"
+    )
+    page.wait_for_function(
+        "() => { const n = document.querySelector('nav[aria-label=Project]');"
+        " return n.scrollWidth > n.clientWidth && n.scrollLeft > 0; }"
+    )
+    box, current = tabs.bounding_box(), settings.bounding_box()
+    assert box and current
+    assert (
+        box["x"] <= current["x"] and current["x"] + current["width"] <= box["x"] + box["width"] + 1
+    )
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    page.context.close()
+
+
 def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity

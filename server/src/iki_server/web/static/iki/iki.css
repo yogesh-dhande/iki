@@ -2974,6 +2974,26 @@ main.admin-main {
   margin-bottom: 1.25rem;
 }
 
+/* A compact filter (its label for screen readers only) is as wide as its choices, so the
+   actions beside it stay on its row. */
+.toolbar > select {
+  width: auto;
+  max-width: 100%;
+  margin-bottom: 1.25rem;
+}
+
+/* Compact controls alone, with no labelled field above any: one row, centred, close to what
+   they filter. */
+.toolbar:not(:has(> .field)) {
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin-bottom: calc(12rem / 13);
+}
+
+.toolbar:not(:has(> .field)) > * {
+  margin-bottom: 0;
+}
+
 /* The grid's filters: one row each, field, condition and value side by side where they fit. */
 .filters {
   margin: 0 0 1rem;
