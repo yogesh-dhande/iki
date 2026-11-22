@@ -514,7 +514,10 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             amount={{"value": 500, "unit": "nmol"}},
         ).entity
         # 50 uL of a 100 uM solution is 5 nmol.
-        amounts.draw(alice, made, amounts.Given(Decimal("50"), "uL"), reason="Dosed")
+        amounts.draw(
+            alice, made, amounts.Given(Decimal("50"), "uL"),
+            purpose="qa_sampling", reason="Sampled for testing",
+        )
         left = str(amounts.amounts_of([made])[made.pk].value)
 
         # A run finds its mass 0.88 Da light of inotersen's average: within 2 Da.
@@ -591,7 +594,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             amount={{"value": 840, "unit": "ug"}},
         ).entity
         # 2 ug at 420 ng/uL: 4.76 uL, drawn by mass.
-        amounts.draw(alice, prep, amounts.Given(Decimal("2"), "ug"))
+        amounts.draw(alice, prep, amounts.Given(Decimal("2"), "ug"), purpose="qa_sampling")
         of_a_sequence = errors(lambda: services.create(
             alice, "iki/lots.PlasmidPrep", project, {{"plasmid": str(sequence.pk)}},
         ))
@@ -860,6 +863,89 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
                 )
             }},
         }}
+
+        # A released lot's dates govern the next withdrawal even if QA hasn't changed
+        # its disposition. These are inclusive calendar dates in UTC.
+        from datetime import UTC, datetime, timedelta
+        today = datetime.now(UTC).date()
+        yesterday = today - timedelta(days=1)
+        tomorrow = today + timedelta(days=1)
+        expired = oligo_lot(eve, source="bought", expires_on=today.isoformat(),
+                            retest_on=yesterday.isoformat())
+        retest = oligo_lot(eve, source="bought", retest_on=today.isoformat(),
+                           expires_on=tomorrow.isoformat())
+        available = oligo_lot(eve, source="bought", retest_on=tomorrow.isoformat())
+        for dated in (expired, retest, available):
+            release(dated)
+        one = amounts.Given(Decimal("1"), "nmol")
+        def refusal(call, why):
+            failed = errors(call)
+            assert failed and why in failed["amount"][0].lower(), failed
+        refusal(lambda: amounts.draw(eve, expired, one), "expir")
+        refusal(lambda: amounts.draw(quinn, expired, one, purpose="qa_sampling"), "expir")
+        refusal(lambda: amounts.draw(eve, retest, one), "retest")
+        refusal(lambda: amounts.transfer(eve, retest, available, one), "retest")
+        refusal(lambda: amounts.split(eve, expired, 1, one), "expir")
+        from api_client import Api
+        from iki_server.amounts.models import Movement
+
+        # QA is a grant in the owning project. Even an editor with QA elsewhere or
+        # the owner project's admin cannot withdraw a sample by changing its purpose.
+        other_project = Project.objects.create(team=team, name="Other")
+        remote = ProjectMembership.objects.create(project=other_project, user=eve,
+                                                  role=ProjectRole.EDITOR)
+        LabRoleGrant.objects.create(membership=remote, role="iki/lots.qa")
+        admin = User.objects.create_user("project-admin@example.com")
+        ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+        sample_body = {{"amount": {{"value": 1, "unit": "nmol"}}, "purpose": "qa_sampling"}}
+        qa_lots = (quarantined, retest, available)
+        balances = amounts.amounts_of(qa_lots)
+        before = {{e.pk: (balances[e.pk].value, Movement.objects.filter(entity=e).count())
+                  for e in qa_lots}}
+        api = Api()
+        for user in (eve, admin):
+            api.browser.force_login(user)
+            for source in qa_lots:
+                denied = api.post(f"/entities/{{source.hrid}}/amount/draw", sample_body)
+                assert denied.status_code == 403, denied.content
+                assert "QA" in denied.json()["detail"], denied.content
+        for source in qa_lots:
+            assert amounts.amounts_of([source])[source.pk].value == before[source.pk][0]
+            assert Movement.objects.filter(entity=source).count() == before[source.pk][1]
+
+        api.browser.force_login(quinn)
+        for source in (quarantined, retest):
+            page = api.get(f"/entities/{{source.hrid}}").json()
+            assert page["can"]["draw_purposes"] == ["routine", "qa_sampling"]
+            sampled = api.post(f"/entities/{{source.hrid}}/amount/draw", sample_body)
+            assert sampled.status_code == 200, sampled.content
+            entry = Movement.objects.get(pk=sampled.json()["movement"]["id"])
+            assert (entry.user_id, entry.purpose, entry.change) == (quinn.pk, "qa_sampling", -1)
+        amounts.draw(eve, available, one)
+        for dated, purposes in ((expired, []), (retest, ["qa_sampling"]), (available, ["routine"])):
+            assert list(Movement.objects.filter(entity=dated, kind="drawn")
+                        .values_list("purpose", flat=True)) == purposes
+            assert amounts.amounts_of([dated])[dated.pk].value == 50 - len(purposes)
+
+        api.browser.force_login(eve)
+        detail_response = api.get(f"/entities/{{retest.hrid}}")
+        assert detail_response.status_code == 200, detail_response.content
+        detail = detail_response.json()
+        assert detail["locked"] and not detail["can"]["edit"] and detail["can"]["edit_amount"]
+        assert detail["can"]["draw_purposes"] == ["routine"]
+        assert list(detail["draw_refusals"]) == ["routine"]
+        assert "retest" in detail["draw_refusals"]["routine"].lower()
+        clock_dependent = api.call("GET", f"/entities/{{retest.hrid}}",
+                                   headers={{"If-None-Match": detail_response["ETag"]}})
+        assert clock_dependent.status_code == 200
+        blank = services.create(
+            eve, "iki/lots.GenericLot", project,
+            {{"of": str(inotersen.pk), "expires_on": yesterday.isoformat()}},
+        ).entity
+        page = api.get(f"/entities/{{blank.hrid}}").json()
+        assert page["amount"] is None
+        assert set(page["draw_refusals"]) == {{"routine", "qa_sampling"}}
+        assert "expir" in page["draw_refusals"]["routine"].lower()
 
         # A plasmid is a duplex, which its preps' A260 assumes.
         ss = services.create(

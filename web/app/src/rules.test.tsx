@@ -362,6 +362,7 @@ describe("guards", () => {
         values: { name: "Lot 7", purity: 97.5, status: "in_review" },
         can: {
           edit: true,
+          edit_amount: false,
           sign: [],
           states: {
             status: [

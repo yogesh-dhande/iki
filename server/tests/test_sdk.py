@@ -147,6 +147,21 @@ def test_a_notebook_signs_in_and_works_with_entities(
         iki.entities.get("PRT-999999")
 
 
+def test_a_notebook_editor_needs_the_sampling_role_to_draw_a_qa_sample(
+    world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = signed_in(world, server, sdk, monkeypatch)
+    sample = client.entities.create(
+        "acme/protein.Sample", {"label": "S-1"}, project=world.project.slug, amount=(10, "uL")
+    )
+    ref = sample["hrid"]
+    with pytest.raises(iki.Forbidden) as refused:
+        client.entities.draw(ref, (1, "uL"), purpose="qa_sampling")
+    assert "qa" in str(refused.value).lower()
+    assert client.entities.amount(ref)["value"] == "10"
+    assert client.entities.draw(ref, (1, "uL"))["movement"]["purpose"] == "routine"
+
+
 def test_a_notebook_runs_an_action_and_waits_for_it(
     world: World, server: Any, sdk: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

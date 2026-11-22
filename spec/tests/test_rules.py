@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from iki_spec import wasm
+from iki_spec.model import plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
 pytestmark = pytest.mark.skipif(not wasm.WASM.exists(), reason="needs iki-wasm built")
@@ -168,6 +169,38 @@ def test_a_rule_that_could_never_work_is_refused(tmp_path: Path, check: str, wor
 def test_a_guard_that_names_a_state_its_field_hasnt_is_refused(tmp_path: Path) -> None:
     body = (FIELDS).replace('state.from == "in_review"', 'state.from == "in_reveiw"')
     assert "in_reveiw" in only(make(tmp_path, TYPE + body, ROLES), "invalid-expression")
+
+
+def test_draw_guards_are_typed_and_survive_the_plugin_build(tmp_path: Path) -> None:
+    body = (
+        TYPE
+        + """\
+amount: { unit: mg }
+fields:
+  plate: { type: string, max_length: 20 }
+  result: { type: enum, values: [pass, fail] }
+  source: { type: ref, to: Assay }
+draw_guards:
+  needs_a_result:
+    when: operation == "draw" && purpose == "routine"
+    check: record.result == "pass"
+    message: "Plate {{ record.plate }} hasn't passed."
+"""
+    )
+    result = make(tmp_path, body, ROLES)
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    built = plugin_from_dict(plugin_to_dict(result.plugin))
+    guard = built.types["acme/lab.Assay"].draw_guards["needs_a_result"]
+    assert guard.reads == ("plate", "result")
+    bad = make(tmp_path, body.replace("record.result", "record.reslt"), ROLES)
+    assert "reslt" in only(bad, "invalid-expression")
+    without = make(tmp_path, body.replace("amount: { unit: mg }\n", ""), ROLES)
+    assert "has no amount" in only(without, "draw-guards-without-amount")
+    # A refusal is shown to everyone who can see this record. It can use the source
+    # reference itself, but its message cannot disclose values from the other record.
+    foreign = make(tmp_path, body.replace("{{ record.plate }}", "{{ record.source.plate }}"), ROLES)
+    assert only(foreign, "invalid-expression")
 
 
 @pytest.mark.parametrize(

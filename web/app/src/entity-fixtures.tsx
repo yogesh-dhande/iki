@@ -234,7 +234,7 @@ export function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["
     values,
     refs: {},
     files: {},
-    can: { edit: true, states: {}, sign: [] },
+    can: { edit: true, edit_amount: false, states: {}, sign: [] },
     ...overrides,
   };
 }

@@ -451,11 +451,10 @@ class Signature:
 
 @dataclass(frozen=True)
 class Guard:
-    """A condition on setting a state field to one of its states (ADR 0128): CEL over
-    who's acting, the record, and its states' history, which must be true."""
+    """A CEL condition on setting a state (ADR 0128) or taking an amount (ADR 0139)."""
 
     name: str
-    #: CEL that must be true for the state to be set.
+    #: CEL that must be true for the operation to proceed.
     check: str
     #: What whoever tries is told when it isn't: text, with CEL between ``{{`` and ``}}``.
     message: str
@@ -784,6 +783,10 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
+    draw_guards: dict[str, Guard] = field(default_factory=dict)
+    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
+    draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: What each list of rows it inherits takes, by the list's name (ADR 0164): every role
     #: its rows may have, each with how many and what its references may refer to, within
     #: what its ancestor's say. Its subtypes have these unless they name their own.
@@ -1567,6 +1570,10 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "result": _result(v.get("result")),
                         # ...or amounts (ADR 0139).
                         "amount": Amount(**v["amount"]) if v.get("amount") else None,
+                        "draw_guards": _guards(v.get("draw_guards") or {}),
+                        "draw_purposes": {
+                            n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
+                        },
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}
@@ -1792,10 +1799,7 @@ def _field(data: dict[str, Any]) -> Field:
                         # Plugins built before signatures have none.
                         "signatures": tuple(Signature(**x) for x in st.get("signatures") or ()),
                         # ...or guards.
-                        "guards": {
-                            g: Guard(**{**guard, "reads": tuple(guard.get("reads") or ())})
-                            for g, guard in (st.get("guards") or {}).items()
-                        },
+                        "guards": _guards(st.get("guards") or {}),
                     }
                 )
                 for n, st in (data.get("states") or {}).items()
@@ -1812,6 +1816,10 @@ def _field(data: dict[str, Any]) -> Field:
             "roles": {n: _row_role(r) for n, r in (data.get("roles") or {}).items()},
         }
     )
+
+
+def _guards(data: dict[str, Any]) -> dict[str, Guard]:
+    return {n: Guard(**{**g, "reads": tuple(g.get("reads") or ())}) for n, g in data.items()}
 
 
 def _row_role(data: dict[str, Any]) -> RowRole:

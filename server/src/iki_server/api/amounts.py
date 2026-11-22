@@ -17,12 +17,13 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.amounts import services
-from iki_server.amounts.models import Amount, Movement, MovementKind
+from iki_server.amounts.models import Amount, DrawPurpose, Movement, MovementKind
 from iki_server.api.common import caller
 from iki_server.api.entities import (
     AmountIn,
@@ -54,6 +55,7 @@ class GivenOut(Schema):
 
 class MovementOut(Schema):
     id: UUID
+    purpose: DrawPurpose | None = Field(description="The purpose recorded for a draw.")
     kind: Literal[
         "recorded", "drawn", "transferred_out", "transferred_in", "aliquoted", "aliquot", "adjusted"
     ] = Field(
@@ -87,7 +89,7 @@ class MovementsOut(Page[MovementOut]):
     )
 
 
-class DrawIn(Schema):
+class AmountTakeIn(Schema):
     amount: QuantityIn = Field(
         description="How much to draw: in its unit, one that converts to it, or (for a type "
         "with a concentration) a mass of a volume or a volume of a mass."
@@ -95,7 +97,11 @@ class DrawIn(Schema):
     reason: str = Field("", max_length=2000, description="What it was used for.")
 
 
-class TransferIn(DrawIn):
+class DrawIn(AmountTakeIn):
+    purpose: DrawPurpose = Field(DrawPurpose.ROUTINE, description="Why material is being drawn.")
+
+
+class TransferIn(AmountTakeIn):
     to: str = Field(max_length=64, description="The record it goes to, by ID or HRID.")
 
 
@@ -143,6 +149,7 @@ def movement_out(m: Movement) -> dict[str, Any]:
     return {
         "id": m.id,
         "kind": m.kind,
+        "purpose": m.purpose,
         "change": _plain(m.change),
         "balance": _plain(m.balance),
         "unit": m.unit,
@@ -218,12 +225,17 @@ def list_movements(request: HttpRequest, ref: str, params: Query[PageParams]) ->
 
 @router.post("/entities/{ref}/amount/draw", response=AmountMovedOut, summary="Draw from its amount")
 def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
-    """Takes some of it: used up, in an assay or a reaction. Refused (422) if it hasn't that
-    much, or a state holds it. Two people drawing at once take turns."""
+    """Takes some of it for the given purpose. A purpose you cannot use answers 403.
+    An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
+    Two people drawing at once take turns."""
     me = caller(request)
     entity = _record(me, ref)
     try:
-        movement = services.draw(me, entity, _given(payload.amount), reason=payload.reason)
+        movement = services.draw(
+            me, entity, _given(payload.amount), purpose=payload.purpose, reason=payload.reason
+        )
+    except PermissionDenied as denied:
+        raise Problem(403, str(denied)) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _moved(entity, movement)

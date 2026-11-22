@@ -3551,7 +3551,7 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
         has_text="to set Status to Open or Released on lots; to sign “QA approval” to set Status "
         "to Approved on lots; to sign “Responsibility” to set Status to Released on lots; to set "
         "Status to In testing or Released on samples; to set Custody to In the lab, Quarantined "
-        "or Disposed on samples."
+        "or Disposed on samples; to record draws from samples as “QA sampling”."
     ).wait_for()
     assert_clean(page)
     qa.check()

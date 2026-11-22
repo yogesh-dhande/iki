@@ -6,6 +6,7 @@ schema_version: 1
 hrid: { prefix: SMP }
 # How much of it there is (ADR 0139): drawn by volume, or by mass at its concentration.
 amount: { unit: uL, label: Volume, concentration: concentration }
+draw_purposes: { qa_sampling: { by: [qa] } }
 fields:
   label: { type: string, required: true, unique: true, indexed: true, max_length: 200 }
   protein: { type: ref, to: Protein }

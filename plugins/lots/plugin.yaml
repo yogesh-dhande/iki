@@ -28,6 +28,6 @@ roles:
   qa:
     label: Lot QA
     description: >-
-      Releases lots for use once their records and certificates of analysis meet their
-      specification, puts them on hold or rejects them, says when they've expired, and
-      returns released ones to quarantine when they need correcting.
+      Draws samples for quality testing and releases lots for use once their records and
+      certificates of analysis meet their specification. Puts lots on hold or rejects
+      them, says when they've expired, and returns released ones to quarantine for correction.
