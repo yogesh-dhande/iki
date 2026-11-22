@@ -1811,6 +1811,73 @@ def test_a_type_has_state_fields_each_with_its_states(tmp_path: Path) -> None:
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
+def test_a_state_returns_to_another_on_edit(tmp_path: Path) -> None:
+    body = STATUS.replace("reason: required }", "reason: required, on_edit: testing }")
+    result = make(tmp_path, states(body), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    status = result.plugin.types["acme/lab.Assay"].fields["status"]
+    assert status.states["received"].on_edit is None
+    assert status.states["released"].on_edit == "testing"
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code", "message"),
+    [
+        (STATUS.replace("reason: required", "on_edit: gone"), "unknown-state", "`gone`"),
+        (
+            STATUS.replace("reason: optional", "on_edit: received"),
+            "state-on-edit",
+            "must lock",
+        ),
+        (
+            STATUS.replace("reason: required", "on_edit: released"),
+            "state-on-edit",
+            "different state",
+        ),
+        (
+            STATUS.replace("reason: optional", "locks: true, on_edit: released"),
+            "state-on-edit",
+            "locks the record",
+        ),
+        (
+            STATUS.replace("reason: required", "on_edit: received").replace(
+                "Received, set_by: [analyst]", "Received"
+            ),
+            "state-on-edit",
+            "no lab role",
+        ),
+        (
+            STATUS.replace("reason: required", "on_edit: testing").replace(
+                "reason: optional", "signatures: [{ meaning: review }]"
+            ),
+            "state-on-edit",
+            "requires a signature",
+        ),
+        (
+            STATUS.replace(
+                RELEASED, RELEASED + "      old: { removed: true, moved_to: testing }\n"
+            ).replace("reason: required", "on_edit: old"),
+            "unknown-state",
+            "`old`",
+        ),
+        (
+            STATUS.replace(
+                RELEASED,
+                RELEASED + "      old: { removed: true, moved_to: testing, on_edit: testing }\n",
+            ),
+            "state-on-edit",
+            "removed",
+        ),
+    ],
+)
+def test_on_edit_names_a_state_the_editor_can_set(
+    tmp_path: Path, body: str, code: str, message: str
+) -> None:
+    assert message in only(make(tmp_path, states(body), ROLES), code)
+
+
 @pytest.mark.parametrize(
     ("body", "code", "message"),
     [
@@ -1929,6 +1996,11 @@ def test_state_fields_are_checked(tmp_path: Path, body: str, code: str, message:
     ],
 )
 def test_state_fields_must_be_well_formed(tmp_path: Path, body: str) -> None:
+    assert "schema" in codes(make(tmp_path, states(body), ROLES))
+
+
+def test_on_edit_requires_a_state_name(tmp_path: Path) -> None:
+    body = STATUS.replace("reason: optional", "on_edit: [received]")
     assert "schema" in codes(make(tmp_path, states(body), ROLES))
 
 
@@ -2338,6 +2410,40 @@ def requests(request: str = REQUEST, result: str = RESULT) -> dict[str, str]:
         "types/result.yaml": result,
         "types/sample.yaml": SAMPLE_TYPE,
     }
+
+
+def test_signed_release_after_review_requires_a_lock(tmp_path: Path) -> None:
+    body = RESULT.replace(
+        "      released: { label: Released, set_by: [qa], locks: true }",
+        "      reviewed: { set_by: [analyst], signatures: [{ meaning: review }] }\n"
+        "      released: { set_by: [qa], signatures: [{ meaning: approval }], locks: true }",
+    )
+    result = make(tmp_path, requests(result=body), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.AssayResult"]
+    assert assay.result is not None
+    assert assay.result.requires_review(assay.fields["review"], "released")
+    assert not assay.result.requires_review(assay.fields["review"], "reviewed")
+    assert not assay.result.requires_review(assay.fields["value"], "released")
+    unlocked = body.replace(", locks: true", "")
+    assert "must lock" in only(
+        make(tmp_path, requests(result=unlocked), ROLES), "result-release-lock"
+    )
+
+
+def test_on_edit_cannot_change_or_release_a_result(tmp_path: Path) -> None:
+    released = RESULT.replace("locks: true", "locks: true, on_edit: draft")
+    assert "already released" in only(
+        make(tmp_path, requests(result=released), ROLES), "result-release-on-edit"
+    )
+    into_release = RESULT.replace("locks: true", "locks: false").replace(
+        "      draft:",
+        "      reviewed: { set_by: [qa], locks: true, on_edit: released }\n      draft:",
+    )
+    assert "release it" in only(
+        make(tmp_path, requests(result=into_release), ROLES), "result-release-on-edit"
+    )
 
 
 def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Path) -> None:

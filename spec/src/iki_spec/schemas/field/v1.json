@@ -1017,6 +1017,10 @@
           "description": "A record with the field in this state is locked: its other fields can't change, nor can it be archived or restored, until someone sets a state field to a state that doesn't lock.",
           "type": "boolean"
         },
+        "on_edit": {
+          "description": "For a locking state, the state to return to when a person corrects a record value. The editor must be able to set the destination and give a reason (ADR 0179).",
+          "$ref": "#/$defs/fieldName"
+        },
         "reason": {
           "description": "Whether whoever sets this state says why: `required`, or `optional`. Without it, no reason is asked for.",
           "enum": ["required", "optional"]
