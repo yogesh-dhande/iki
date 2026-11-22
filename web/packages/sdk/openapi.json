@@ -229,8 +229,7 @@
               "self_hosted",
               "backend",
               "container",
-              "vm",
-              "server"
+              "vm"
             ],
             "title": "Tier",
             "type": "string"
@@ -24451,8 +24450,7 @@
                 "self_hosted",
                 "backend",
                 "container",
-                "vm",
-                "server"
+                "vm"
               ],
               "type": "string"
             },

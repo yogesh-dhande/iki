@@ -182,6 +182,7 @@ const TOOL_ICONS = {
     "M9 4v16M15 4v16",
   ],
   download: ["M12 4v11M7 10l5 5 5-5M5 20h14"],
+  upload: ["M12 15V4M7 9l5-5 5 5M5 20h14"],
 } as const;
 
 /** A toolbar button's icon, in its text's color. */

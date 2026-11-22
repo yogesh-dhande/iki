@@ -74,7 +74,7 @@ class ActionOut(TypedDict):
     plugin: str
     #: The secrets its runs get, by name.
     secrets: list[ActionSecretOut]
-    tier: Literal['self_hosted', 'backend', 'container', 'vm', 'server']
+    tier: Literal['self_hosted', 'backend', 'container', 'vm']
     #: Seconds each attempt may run.
     timeout: int
     unavailable_reason: str | None
@@ -5439,7 +5439,7 @@ class WorkflowOut(TypedDict):
     #: In the order they start.
     steps: list[WorkflowStepOut]
     #: The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
-    tiers: list[Literal['self_hosted', 'backend', 'container', 'vm', 'server']]
+    tiers: list[Literal['self_hosted', 'backend', 'container', 'vm']]
     unavailable_reason: str | None
 
 

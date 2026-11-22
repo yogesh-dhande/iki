@@ -62,6 +62,8 @@ export interface EntityFilter {
   descending?: boolean | undefined;
   /** Only a collection's members (its HRID), from every project the reader can read. */
   collection?: string | undefined;
+  /** Only the records a run wrote, by its HRID: an import's, say (ADR 0178). */
+  run?: string | undefined;
 }
 
 /** The search the grid runs, without its paging: a component that shows the grid's
@@ -84,6 +86,7 @@ export function gridSearch(filter: EntityFilter) {
         ? { project: filter.project }
         : {}),
     ...(filter.type ? { type: filter.type } : {}),
+    ...(filter.run ? { run: filter.run } : {}),
     ...(filter.archived === undefined ? {} : { archived: filter.archived }),
     ...(words.text.trim() ? { q: words.text.trim() } : {}),
     ...(conditions.length ? { where: { all: conditions as Schemas["Condition"][] } } : {}),
@@ -103,6 +106,7 @@ export function searchCsvUrl(filter: EntityFilter, columns: readonly string[] = 
   if (search.type) query.set("type", search.type);
   if ("project" in search) query.set("project", search.project);
   if ("collection" in search) query.set("collection", search.collection);
+  if (search.run) query.set("run", search.run);
   if (search.archived !== undefined) query.set("archived", String(search.archived));
   if (search.q) query.set("q", search.q);
   if (search.where) query.set("where", JSON.stringify(search.where));
@@ -360,6 +364,8 @@ export interface EntitySearch {
   desc?: boolean | undefined;
   /** A collection's members, by its HRID. */
   collection?: string | undefined;
+  /** The records a run wrote, by its HRID. */
+  run?: string | undefined;
   /** A plugin's component to show them in, by its name, in place of the grid. */
   view?: string | undefined;
 }
@@ -379,6 +385,7 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   if (typeof search["collection"] === "string" && search["collection"]) {
     out.collection = search["collection"].slice(0, 100);
   }
+  if (typeof search["run"] === "string" && search["run"]) out.run = search["run"].slice(0, 100);
   const view = search["view"];
   if (typeof view === "string" && view.length <= 200 && COMPONENT_NAME.test(view)) out.view = view;
   return out;

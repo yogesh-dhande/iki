@@ -4642,7 +4642,7 @@ export interface components {
              * Tier
              * @enum {string}
              */
-            tier: "self_hosted" | "backend" | "container" | "vm" | "server";
+            tier: "self_hosted" | "backend" | "container" | "vm";
             /**
              * Timeout
              * @description Seconds each attempt may run.
@@ -15988,7 +15988,7 @@ export interface components {
              * Tiers
              * @description The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
              */
-            tiers: ("self_hosted" | "backend" | "container" | "vm" | "server")[];
+            tiers: ("self_hosted" | "backend" | "container" | "vm")[];
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };
