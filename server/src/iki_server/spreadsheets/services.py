@@ -411,8 +411,10 @@ def readings(imported: SpreadsheetImport) -> list[dict[str, Any]]:
             (stored if entry["stored"] else shown).append(entry)
             if len(shown) >= READINGS:
                 break
-        picked = sorted(shown + stored[: max(0, min(STORED_READINGS, READINGS - len(shown)))],
-                        key=lambda e: int(e["row"]))
+        picked = sorted(
+            shown + stored[: max(0, min(STORED_READINGS, READINGS - len(shown)))],
+            key=lambda e: int(e["row"]),
+        )
         if picked:
             out.append({"column": column.index, "field": f.name, "kind": kind, "cells": picked})
     return out
