@@ -61,7 +61,7 @@ describe("a type's color", () => {
   });
 
   it("keeps its own color in a neighbour's place", () => {
-    const { container } = render(<TypeDot type="iki/dna.Primer" className="search-dot" large />);
-    expect(container.firstChild).toHaveClass("type-dot", "type-dot-large", "search-dot");
+    const { container } = render(<TypeDot type="iki/dna.Primer" className="palette-dot" large />);
+    expect(container.firstChild).toHaveClass("type-dot", "type-dot-large", "palette-dot");
   });
 });

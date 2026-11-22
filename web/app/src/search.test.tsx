@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { queryClient } from "./api";
+import { swatchOf } from "./project-color";
 import {
   bindSearchShortcut,
   isSearchShortcut,
@@ -208,6 +209,19 @@ describe("search everything", () => {
         .map((b) => b.textContent),
     ).toEqual(["All25", "Entities23", "Requests1", "Saved views1"]);
     expect(screen.getByText("In all 2 projects you can read")).toBeInTheDocument();
+  });
+
+  it("marks each result's project with that project's own swatch", async () => {
+    answerSearch();
+    const { user } = renderPalette();
+    act(openSearch);
+    await user.type(await opened(), "lys");
+    const entities = await screen.findByRole("group", { name: "Entities" });
+    const marks = within(entities)
+      .getAllByRole("option")
+      .map((o) => o.querySelector(".palette-project-mark")?.getAttribute("data-swatch"));
+    // The first project shown is the owner's: Enzymes, then Kinase Atlas.
+    expect(marks.slice(0, 2)).toEqual([String(swatchOf(ENZYMES.id)), String(swatchOf(KINASE.id))]);
   });
 
   it("moves with ↑ and ↓ as a combobox, and opens with ↵", async () => {

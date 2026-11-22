@@ -81,7 +81,7 @@ def _page(label: str, element: str, module: str, integrity: str) -> str:
     config = json.dumps({"element": element}).replace("<", "\\u003c")
     return (
         "<!doctype html>\n"
-        '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        '<html lang="en">\n<head>\n<meta charset="utf-8">\n<link rel="icon" href="data:,">\n'
         '<meta name="color-scheme" content="light dark">\n'
         f"<title>{escape(label)}</title>\n"
         f"{frames.HARDEN_TAG}"
