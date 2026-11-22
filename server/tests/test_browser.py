@@ -560,7 +560,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     open_as: Any, world: World, color_scheme: str, browser_name: str
 ) -> None:
     """Its sidebar leads to its pages, the app's and the server's alike, and back to Iki;
-    a keyboard reaches it all; and on a phone its pages fold under a menu (ADR 0176)."""
+    a keyboard reaches it all; and on a phone it's a drawer, as the main sidebar is, over
+    the page and holding the focus until it closes (ADR 0176)."""
     from iki_server.org.models import OrgRole, OrgRoleAssignment
     from iki_server.web import admin_area
 
@@ -606,23 +607,47 @@ def test_the_admin_area_has_a_frame_of_its_own(
         == "page"
     )
 
-    # On a phone: no sideways scrolling, and the pages under a menu, on either kind of page.
+    # On a phone, on either kind of page: no sideways scrolling, and the sidebar a drawer,
+    # opened from the bar above the page. Its close button has the focus; Escape, the
+    # backdrop and going somewhere close it.
     page.set_viewport_size({"width": 390, "height": 844})
     for path, heading in (("/admin/compute/workers/", "Compute"), ("/admin/sign-in/", None)):
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
         admin = page.get_by_role("navigation", name="Admin")
-        menu = admin.get_by_role("button", name="Menu")
-        menu.wait_for()
+        admin.wait_for(state="hidden")
+        menu = page.get_by_role("button", name="Menu", exact=True)
         assert menu.get_attribute("aria-expanded") == "false"
-        assert not admin.get_by_role("link", name="People").is_visible()
+        bar = menu.bounding_box()
+        assert bar and bar["y"] < 10, path
+        main = page.get_by_role("main").bounding_box()
+        assert main and main["y"] < 120, (path, main)
         assert page.evaluate(NO_SIDEWAYS_SCROLL), path
         menu.click()
+        drawer = page.get_by_role("dialog", name="Menu")
+        close = drawer.get_by_role("button", name="Close menu")
+        page.wait_for_function("() => document.activeElement?.closest('[role=dialog]') !== null")
+        assert _focused(close), path
         assert menu.get_attribute("aria-expanded") == "true"
-        admin.get_by_role("link", name="People").wait_for()
+        drawer.get_by_role("link", name="People").wait_for()
+        # The page under it doesn't move, and is out of reach.
+        assert page.get_by_role("main").bounding_box() == main, path
+        assert page.evaluate("document.getElementById('main').closest('[inert]') !== null")
         assert page.evaluate(NO_SIDEWAYS_SCROLL), path
         assert_clean(page)
+        page.keyboard.press("Escape")
+        drawer.wait_for(state="hidden")
+        assert _focused(menu), path
+        menu.click()
+        page.mouse.click(380, 400)  # The backdrop, beside the drawer.
+        drawer.wait_for(state="hidden")
+        assert _focused(menu), path
+    menu.click()
+    page.get_by_role("dialog", name="Menu").get_by_role("link", name="Compute").click()
+    page.get_by_role("heading", name="Compute", level=1).wait_for()
+    page.get_by_role("dialog", name="Menu").wait_for(state="hidden")
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
 
     # And back to Iki, in its own frame.
     page.set_viewport_size({"width": 1440, "height": 900})
@@ -630,6 +655,62 @@ def test_the_admin_area_has_a_frame_of_its_own(
     page.get_by_role("navigation", name="Main").wait_for()
     assert page.get_by_role("navigation", name="Admin").count() == 0
     page.context.close()
+
+
+def test_the_admin_areas_pages_fit_a_phone_and_say_what_isnt_yours(
+    open_as: Any, world: World
+) -> None:
+    """Compute's workers by tier fit a phone whole: what each tier is goes under its name,
+    so Idle, Offline and Manage are in view without scrolling the table. Sign-in's token
+    actions look like the buttons they are. And /admin/, for someone none of it is for,
+    says so without an error."""
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+    from iki_server.scim import tokens
+
+    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    page = open_as("org_admin", "/admin/compute/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    table = page.get_by_role("table").first
+    backend = table.get_by_role("row", name=re.compile("^Backend"))
+    manage = backend.get_by_role("link", name="Manage Backend workers")
+    manage.wait_for()
+    assert table.evaluate("t => t.parentElement.scrollWidth <= t.parentElement.clientWidth")
+    edge = table.bounding_box()
+    shown_at = manage.bounding_box()
+    assert edge and shown_at
+    assert shown_at["x"] + shown_at["width"] <= edge["x"] + edge["width"], (edge, shown_at)
+    assert (
+        backend.get_by_role("rowheader")
+        .get_by_text("Workers you run and register with a token")
+        .is_visible()
+    )
+    assert page.get_by_role("columnheader", name="What it is").is_hidden()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("columnheader", name="What it is").wait_for()
+    assert table.get_by_role("cell", name="Workers you run and register with a token").is_visible()
+    page.context.close()
+
+    tokens.create(by=world.users["org_admin"])
+    page = open_as("org_admin", "/admin/sign-in/")
+    look = "b => ((s) => [s.borderTopWidth, s.borderTopColor, s.color])(getComputedStyle(b))"
+    replace = page.get_by_role("button", name="Replace token").evaluate(look)
+    turn_off = page.get_by_role("button", name="Turn off provisioning").evaluate(look)
+    for border in (replace, turn_off):
+        assert border[0] != "0px" and border[1] != "rgba(0, 0, 0, 0)", border
+    assert turn_off[2] != replace[2]  # In the error's color: it stops sign-ins it provisions.
+    assert_clean(page)
+    page.context.close()
+
+    for width in (1440, 390):
+        page = open_as("viewer", "/admin/")
+        page.set_viewport_size({"width": width, "height": 844})
+        page.get_by_role("heading", name="The admin area isn’t open to you", level=1).wait_for()
+        assert page.get_by_role("navigation", name="Admin").count() == 0
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert_clean(page)
+        page.context.close()
 
 
 def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
@@ -830,6 +911,55 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
     page.goto(f"/projects/{world.project.slug}/automation/")
     page.wait_for_url(re.compile(r"/automation/workflows/$"))
     shown(page)
+
+
+def test_a_projects_automation_and_tabs_fit_any_screen(
+    open_as: Any, world: World, browser_name: str
+) -> None:
+    """Automation's toolbar is one row: the status filter as wide as its choices, and Run a
+    workflow beside it, not under it. On a phone, the tab you're on is in view, as a
+    record's is, though the tabs before it fill the width. By role (Firefox; see above)."""
+    path = f"/projects/{world.project.slug}/automation/workflows/"
+    for width in (1440, 390):
+        page: Page = open_as("admin", path)
+        page.set_viewport_size({"width": width, "height": 844})
+        page.reload()  # Loaded at this width, as on a phone.
+        status = page.get_by_role("combobox", name="Status")
+        run = page.get_by_role("link", name="Run a workflow")
+        run.wait_for()
+        page.get_by_text("No workflow runs yet.").wait_for()
+        select, button = status.bounding_box(), run.bounding_box()
+        assert select and button
+        assert select["width"] < 200, select
+        assert abs(select["y"] + select["height"] / 2 - button["y"] - button["height"] / 2) < 2
+        # WebKit draws a native select at its own height, whatever its min-height.
+        if browser_name != "webkit":
+            assert select["height"] == button["height"], (select, button)
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert_clean(page)
+        page.context.close()
+
+    # The last tab, on a phone: the ones before it are wider than the screen.
+    page = open_as("admin", f"/projects/{world.project.slug}/members/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"/projects/{world.project.slug}/settings/")
+    tabs = page.get_by_role("navigation", name="Project")
+    settings = tabs.get_by_role("link", name="Settings")
+    page.wait_for_function(
+        "() => document.querySelector('nav[aria-label=Project] [aria-current=page]')"
+        "?.textContent === 'Settings'"
+    )
+    page.wait_for_function(
+        "() => { const n = document.querySelector('nav[aria-label=Project]');"
+        " return n.scrollWidth > n.clientWidth && n.scrollLeft > 0; }"
+    )
+    box, current = tabs.bounding_box(), settings.bounding_box()
+    assert box and current
+    assert (
+        box["x"] <= current["x"] and current["x"] + current["width"] <= box["x"] + box["width"] + 1
+    )
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    page.context.close()
 
 
 def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:

@@ -118,15 +118,35 @@ describe("the admin area", () => {
     expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
   });
 
-  it("folds its pages under a menu button, for narrow screens", async () => {
+  it("is a drawer on a narrow screen, as the main sidebar is", async () => {
     signedIn({ can: EVERYTHING });
     onCompute();
     const { user } = await renderApp("/admin/compute/");
     const menu = screen.getByRole("button", { name: "Menu" });
     expect(menu).toHaveAttribute("aria-expanded", "false");
-    expect(menu).toHaveAttribute("aria-controls", "admin-menu");
+    expect(menu).toHaveAttribute("aria-controls", "admin-sidebar");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await user.click(menu);
     expect(menu).toHaveAttribute("aria-expanded", "true");
+    // Open, it's a modal dialog over the page, whose close button has the focus.
+    const drawer = screen.getByRole("dialog", { name: "Menu" });
+    expect(drawer).toHaveAttribute("id", "admin-sidebar");
+    expect(drawer).toHaveAttribute("aria-modal", "true");
+    expect(within(drawer).getByRole("button", { name: "Close menu" })).toHaveFocus();
+    expect(within(drawer).getByRole("navigation", { name: "Admin" })).toBeInTheDocument();
+    const page = document.getElementById("main")?.parentElement;
+    expect(page).toHaveProperty("inert", true);
+    // Escape closes it, and the menu button has the focus again.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+    expect(page).toHaveProperty("inert", false);
+    // So does the close button.
+    await user.click(menu);
+    await user.click(screen.getByRole("button", { name: "Close menu" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(menu).toHaveFocus();
   });
 
   it("lists, for every item, what it needs, an icon and an address", () => {

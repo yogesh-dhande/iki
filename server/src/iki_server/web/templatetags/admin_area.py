@@ -6,6 +6,7 @@ from typing import Any
 from django import template
 
 from iki_server.web import admin_area as area
+from iki_server.web.navigation import icon
 
 register = template.Library()
 
@@ -15,6 +16,8 @@ class AdminArea:
     sections: list[area.Section]
     current: area.Link | None
     """The item the page is in: the breadcrumb's last part."""
+    icons: dict[str, tuple[str, ...]]
+    """The drawer's menu and close buttons' (``navigation.json``'s ``icons``)."""
 
 
 @register.simple_tag(takes_context=True)
@@ -22,7 +25,7 @@ def admin_area(context: dict[str, Any]) -> AdminArea:
     request = context["request"]
     sections = area.navigation(request.user, request.path)
     current = next((link for s in sections for link in s.links if link.current), None)
-    return AdminArea(sections, current)
+    return AdminArea(sections, current, {name: icon(name) for name in ("menu", "close")})
 
 
 @register.filter
