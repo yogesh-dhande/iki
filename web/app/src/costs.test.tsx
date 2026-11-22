@@ -109,7 +109,9 @@ describe("the organization's costs", () => {
     expect(calls("GET", "/api/v1/compute/costs").at(-1)?.query.toString()).toBe(
       `by=project&since=${since}&until=${until}`,
     );
-    expect(screen.getByRole("link", { name: "Download records (CSV)" })).toHaveAttribute(
+    // The page's own action, in the admin area's top bar.
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("link", { name: "Download records (CSV)" })).toHaveAttribute(
       "href",
       `/api/v1/compute/costs/records.csv?since=${since}&until=${until}`,
     );

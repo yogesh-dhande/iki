@@ -2228,6 +2228,11 @@ main.admin-main {
   font-weight: 500;
 }
 
+/* Prose in a cell keeps room to read: on a phone the table scrolls within its box instead. */
+.table-compact .cell-wide {
+  min-width: 14rem;
+}
+
 .table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;

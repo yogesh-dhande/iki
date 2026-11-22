@@ -158,7 +158,7 @@ function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
               return (
                 <tr key={w.tier}>
                   <th scope="row">{name}</th>
-                  <td className="muted">{TIER_WORKERS[w.tier]}</td>
+                  <td className="muted cell-wide">{TIER_WORKERS[w.tier]}</td>
                   <td className="num">{w.busy}</td>
                   <td className="num">{w.idle}</td>
                   <td className="num">{w.offline}</td>
