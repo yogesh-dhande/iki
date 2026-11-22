@@ -70,7 +70,7 @@ from django.db.models.functions import Concat, Left, Length, Lower, Right
 from django.db.models.lookups import GreaterThanOrEqual, IRegex
 
 from iki_server.entities import access, registry
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import FOREIGN_KEYS, Shape, is_list_table, shape, subtypes
 from iki_spec import conditions, identity, motifs, naming, titles, units
 from iki_spec.model import Field
@@ -933,6 +933,8 @@ def queryset(
 
     if search.project is not None:
         found = found.filter(links__project_id=search.project)
+    else:
+        found = found.filter(_in_projects_named(user))
     if search.archived is not None:
         found = found.filter(archived_at__isnull=not search.archived)
     if search.collection is not None:
@@ -964,6 +966,28 @@ def queryset(
     if errors:
         raise SearchError(errors)
     return found.select_related("created_by")
+
+
+#: The most projects a search across them names one by one, for Postgres to plan by.
+PROJECTS_NAMED_MAX = 500
+
+
+def _in_projects_named(user: Any) -> Q:  # noqa: ANN401 - User
+    """Linked into one of the projects the user can read, named by ID.
+
+    It adds nothing to what :func:`access.visible_of` finds, but it lets Postgres plan by
+    how many records those projects hold, which its statistics know by project and can't
+    see through a subquery of memberships. Without it, someone whose one project holds a
+    handful of records among millions had their page found by reading everyone's records
+    newest first until theirs turned up: twelve seconds at two million (ADR 0176). With
+    it, Postgres reads their projects' links and sorts the few it finds."""
+    named = list(
+        access.readable_projects(user).values_list("pk", flat=True)[: PROJECTS_NAMED_MAX + 1]
+    )
+    if len(named) > PROJECTS_NAMED_MAX:
+        # So many projects hold most records anyway: reading newest first finds them soon.
+        return Q()
+    return Q(Exists(ProjectLink.objects.filter(entity=OuterRef("pk"), project_id__in=named)))
 
 
 def title_text_fields(type_name: str) -> list[str]:

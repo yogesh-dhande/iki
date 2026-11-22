@@ -222,7 +222,10 @@ No page loads fonts or scripts from outside the deployment.
   project's tabs list what changed most recently first, unless a heading or
   the Sort menu picks another order. An index on when records changed, of
   every type, lets Postgres read a page of them backwards and stop, without
-  sorting, at millions of rows. The default isn't written into the address;
+  sorting, at millions of rows. A search across projects also names the
+  reader's projects by ID, up to 500, so Postgres can tell from its statistics
+  when they hold only a few records and read those instead of everyone's
+  newest first. The default isn't written into the address;
   a saved search made before it, with no order of its own, opens oldest
   first, as it was saved.
 - **One row of controls, one row of types.** Search, Project, Filter and
