@@ -1,4 +1,4 @@
-"""Settings → Plugins: what's installed, and purging a detached plugin (ADR 0092)."""
+"""Admin → Plugins: what's installed, and purging a detached plugin (ADR 0092)."""
 
 from typing import Any
 

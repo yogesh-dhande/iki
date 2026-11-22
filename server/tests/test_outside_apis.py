@@ -191,7 +191,7 @@ def test_a_launch_waits_for_an_org_admin_to_approve_the_api(world: World) -> Non
     refused = problem(hosted(world, consent=[API]), 409, "outside_api_not_approved")
     assert refused["detail"].startswith(
         f"FoldCloud ({HOST}) isn't approved for {world.project.name}. An Org Admin approves "
-        "outside APIs in Settings → Outside APIs: "
+        "outside APIs in Admin → Outside APIs: "
     )
     assert refused["apis"] == [API]
     assert world.users["org_admin"].name in refused["approvers"]

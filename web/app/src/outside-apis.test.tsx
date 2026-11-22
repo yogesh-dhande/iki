@@ -1,7 +1,7 @@
 /**
  * Outside APIs in the web app (ADR 0130), against a fake API: agreeing to what a launch
  * sends, refusing to start one an Org Admin hasn't approved, a parked run and its calls on
- * its page, and approving an API for a project in Settings.
+ * its page, and approving an API for a project in Admin → Outside APIs.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -117,7 +117,7 @@ describe("launching a run that sends data outside Iki", () => {
     await renderApp(LAUNCH);
     const sends = await screen.findByRole("group", { name: "It sends data outside Iki" });
     expect(await within(sends).findByRole("alert")).toHaveTextContent(
-      "FoldCloud (api.foldcloud.example) isn’t approved for Kinase Atlas, so this can’t start. An Org Admin approves outside APIs for each project, in Settings → Outside APIs.",
+      "FoldCloud (api.foldcloud.example) isn’t approved for Kinase Atlas, so this can’t start. An Org Admin approves outside APIs for each project, in Admin → Outside APIs.",
     );
     expect(within(sends).queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start run" })).toHaveAttribute(
@@ -237,7 +237,7 @@ describe("a run that calls an outside API", () => {
   });
 });
 
-describe("Settings → Outside APIs", () => {
+describe("Admin → Outside APIs", () => {
   it("lists each API with its key, price and approvals, and approves one for a project", async () => {
     const other = project({
       id: "00000000-0000-7000-8000-0000000000p2",
