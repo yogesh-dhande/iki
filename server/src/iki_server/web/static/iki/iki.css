@@ -3029,12 +3029,14 @@ a.lineage-node:focus-visible {
 }
 
 /* What a field is, as its type describes it: a toggletip by its label. */
+/* 28 pixels, as the history button beside a value is: clear of WCAG 2.5.8's 24 at any
+   fractional position. */
 .about-field {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.75rem;
+  height: 1.75rem;
   margin-left: 0.25rem;
   padding: 0;
   vertical-align: middle;
@@ -3108,6 +3110,728 @@ a.lineage-node:focus-visible {
 .row-submitted {
   margin: 0.25rem 0 0;
   overflow-wrap: anywhere;
+}
+
+/* --- A record's page (ADR 0176) ------------------------------------------------------------
+   A compact header (where it is, its title and state, its actions), its tabs, its values with
+   a history button each, and a rail of details. Who changed what is on demand: in each
+   field's history, and on the Audit trail tab. */
+
+.record-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.crumbs li + li::before {
+  content: "/" / "";
+  margin-right: 0.35rem;
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.record-actions {
+  margin: 0;
+  gap: 0.5rem;
+}
+
+.button-icon {
+  min-width: 2.75rem;
+  padding: 0.55rem;
+}
+
+.button-icon svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: currentColor;
+}
+
+.menu-popover {
+  min-width: 14rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.menu {
+  outline: none;
+}
+
+.menu-item {
+  display: block;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-item[data-focused] {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.menu-item-danger {
+  color: var(--error);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--border);
+}
+
+.record-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+
+.record-title h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+.id-chip {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.record-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.record-meta {
+  margin: 0.2rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.record-tabs {
+  margin-bottom: 1rem;
+}
+
+/* On a phone its tabs scroll across, each on one line. */
+.record-tabs a {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* It holds its visually hidden words, so they scroll with the tabs rather than widening
+   the page. */
+.tab-count {
+  position: relative;
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+/* A record's every tab is wide enough for its values beside its rail, and stays one width
+   from tab to tab. */
+.page-wide:has(.record-tabs) {
+  max-width: 90rem;
+}
+
+/* Its values beside its rail; the rail goes under them on a narrow screen. */
+.record-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.record-main {
+  flex: 999 1 32rem;
+  min-width: 0;
+}
+
+.record-rail {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+@media (min-width: 64rem) {
+  .record-rail {
+    max-width: 22rem;
+  }
+}
+
+.record-main > .card + .card,
+.record-rail > .card + .card {
+  margin-top: 0;
+}
+
+.record-main > * + * {
+  margin-top: 1rem;
+}
+
+.record-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-head .section-title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.section-head p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.section-picker,
+.inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.section-picker {
+  margin-left: auto;
+}
+
+.section-picker select,
+.inline-field select {
+  min-height: 2rem;
+  padding: 0 0.5rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.field-rows {
+  margin: 0;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.field-row:last-child {
+  border-bottom: 0;
+}
+
+.field-row dt {
+  color: var(--muted);
+}
+
+.field-row dd {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.field-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.field-rows-empty,
+.field-rows-unset {
+  margin: 0;
+  padding: 0.5rem 1rem;
+}
+
+.field-rows + .field-rows-unset {
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 36rem) {
+  .field-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+  }
+}
+
+/* A field's history: a clock beside its value, opening its last change. */
+.history-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.history-button:hover,
+.history-button[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.history-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.history-popover {
+  max-width: min(24rem, calc(100vw - 2rem));
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.history-dialog p {
+  margin: 0;
+}
+
+.history-title {
+  font-weight: 600;
+}
+
+.history-facts,
+.history-change,
+.rail-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+}
+
+.history-facts dt,
+.history-change dt,
+.rail-facts dt {
+  color: var(--muted);
+}
+
+.history-facts dd,
+.history-change dd,
+.rail-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rail-card {
+  padding: 0.85rem 1rem;
+}
+
+.rail-card .section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.rail-facts {
+  font-size: 0.9rem;
+}
+
+.rail-list {
+  padding: 0;
+  list-style: none;
+}
+
+.rail-group-title {
+  margin: 0.25rem 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.rail-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  font-size: 0.9rem;
+  list-style: none;
+}
+
+.rail-links a {
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* A sequence's features, small: a ring for a circular one, a line for the rest. */
+.record-map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.record-map svg {
+  width: 100%;
+  max-width: 180px;
+}
+
+.map-backbone {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 6;
+}
+
+line.map-backbone {
+  stroke-width: 3;
+}
+
+.map-feature {
+  fill: none;
+  stroke-width: 8;
+}
+
+.map-name {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.map-length {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+.feature-stroke-coding {
+  stroke: var(--feature-coding);
+}
+
+.feature-stroke-regulatory {
+  stroke: var(--feature-regulatory);
+}
+
+.feature-stroke-terminator {
+  stroke: var(--feature-terminator);
+}
+
+.feature-stroke-origin {
+  stroke: var(--feature-origin);
+}
+
+.feature-stroke-binding {
+  stroke: var(--feature-binding);
+}
+
+.feature-stroke-other {
+  stroke: var(--feature-other);
+}
+
+.feature-fill-coding {
+  fill: var(--feature-coding);
+}
+
+.feature-fill-regulatory {
+  fill: var(--feature-regulatory);
+}
+
+.feature-fill-terminator {
+  fill: var(--feature-terminator);
+}
+
+.feature-fill-origin {
+  fill: var(--feature-origin);
+}
+
+.feature-fill-binding {
+  fill: var(--feature-binding);
+}
+
+.feature-fill-other {
+  fill: var(--feature-other);
+}
+
+.section-link {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+/* Its features' table sits flush in its card, scrolling across within it on a phone. */
+.feature-table {
+  overflow-x: auto;
+}
+
+.feature-table .table {
+  min-width: 30rem;
+  margin: 0;
+}
+
+.feature-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.feature-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+}
+
+.feature-more {
+  margin: 0;
+  padding: 0.4rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* The Audit trail tab: Timeline or By field, narrowed by person and field. */
+.trail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.segmented button {
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed="true"] {
+  color: var(--surface);
+  background: var(--text);
+}
+
+.trail-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.trail-export .button svg,
+.trail-signatures svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trail {
+  margin: 0 0 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.trail-rev {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0 0.75rem;
+  padding-bottom: 1rem;
+}
+
+/* The line from one revision to the next. */
+.trail-rev::before {
+  content: "";
+  position: absolute;
+  top: 1.75rem;
+  bottom: 0;
+  left: 0.875rem;
+  width: 1px;
+  background: var(--border);
+}
+
+.trail-rev:last-child::before {
+  display: none;
+}
+
+.trail-node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.trail-body {
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+
+.trail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.trail-title .button {
+  min-height: 0;
+  margin-left: auto;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.trail-meta {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.trail-signatures {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trail-signatures li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.88rem;
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.trail-diff {
+  margin-top: 0.5rem;
+}
+
+.diff-before {
+  color: var(--error);
+}
+
+.diff-after {
+  color: var(--success);
+}
+
+/* Wide enough to read; on a phone it scrolls across within its box. */
+.trail-fields .table {
+  min-width: 44rem;
+}
+
+.trail-fields .trail-value {
+  max-width: 24rem;
+  overflow-wrap: anywhere;
+}
+
+.trail-fields .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.trail-fields .nowrap {
+  white-space: nowrap;
 }
 
 .toolbar-end {

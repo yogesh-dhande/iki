@@ -29,6 +29,7 @@ import {
   validateEntitySearch,
   validateNewEntitySearch,
 } from "./entities";
+import { validateAuditSearch } from "./audit-trail";
 import { validateLineageSearch } from "./lineage";
 import { validateListSearch } from "./lists";
 import { validateRequestsSearch } from "./requests";
@@ -111,7 +112,7 @@ const ProjectTriggers = lazyRouteComponent(() => import("./pages/triggers"), "Pr
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
-const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
+const EntityAudit = lazyRouteComponent(() => import("./pages/entity-audit"), "EntityAudit");
 const EntityLineage = lazyRouteComponent(() => import("./pages/lineage"), "EntityLineage");
 const EntityViewer = lazyRouteComponent(() => import("./pages/entity-viewer"), "EntityViewer");
 const EntityComponent = lazyRouteComponent(
@@ -514,10 +515,12 @@ const entityEditRoute = createRoute({
   component: EditEntity,
 });
 
-const entityHistoryRoute = createRoute({
+// Its audit trail (ADR 0176): ?view=fields, and narrowed by ?person= and ?field=.
+const entityAuditRoute = createRoute({
   getParentRoute: () => entityRoute,
-  path: "history",
-  component: EntityHistory,
+  path: "audit",
+  validateSearch: validateAuditSearch,
+  component: EntityAudit,
 });
 
 const entityLineageRoute = createRoute({
@@ -667,7 +670,7 @@ const routeTree = rootRoute.addChildren([
     entityRoute.addChildren([
       entityOverviewRoute,
       entityEditRoute,
-      entityHistoryRoute,
+      entityAuditRoute,
       entityLineageRoute,
       entityViewerRoute,
       entityComponentRoute,
