@@ -97,42 +97,8 @@ export function SavedSearches({ project, search }: { project: Project; search: E
   const saved = useQuery(savedSearchesQuery(project.id));
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<SavedSearch | null>(null);
-  const [name, setName] = useState("");
-  const [share, setShare] = useState(false);
-  const shareId = useId();
-  const { say } = useMessages();
   const narrowed = Boolean(search.q) || Boolean(search.filters?.length) || Boolean(search.sort);
-  const create = useApiMutation(
-    async () =>
-      unwrap(
-        await iki.POST("/api/v1/saved-searches", {
-          body: {
-            project: project.id,
-            name: name.trim(),
-            query: fromAddress(search),
-            shared: share,
-          },
-        }),
-      ),
-    [SAVED_SEARCHES],
-  );
-  const remove = useApiMutation(
-    async (id: string) => {
-      unwrap(
-        await iki.DELETE("/api/v1/saved-searches/{saved_id}", {
-          params: { path: { saved_id: id } },
-        }),
-      );
-    },
-    [SAVED_SEARCHES],
-  );
   const searches = saved.data ?? [];
-  const closeSave = () => {
-    setSaving(false);
-    setName("");
-    setShare(false);
-    create.reset();
-  };
 
   if (!searches.length && !narrowed) return null;
   return (
@@ -190,67 +156,21 @@ export function SavedSearches({ project, search }: { project: Project; search: E
           Save this search
         </Button>
       ) : null}
-      <ConfirmDialog
+      <SaveSearchDialog
         isOpen={saving}
-        title="Save this search"
-        confirmLabel="Save"
-        confirmVariant="primary"
-        busy={create.isPending}
-        problem={create.error ? problemOf(create.error) : undefined}
-        onCancel={closeSave}
-        onConfirm={() => {
-          create.mutate(undefined, {
-            onSuccess: (made) => {
-              closeSave();
-              say(`Saved “${made.name}”.`);
-            },
-          });
+        project={project}
+        search={search}
+        onClose={() => {
+          setSaving(false);
         }}
-      >
-        <TextField label="Name" value={name} onChange={setName} maxLength={100} />
-        {project.can.edit ? (
-          <label className="choice" htmlFor={shareId}>
-            <input
-              id={shareId}
-              type="checkbox"
-              checked={share}
-              onChange={(event) => {
-                setShare(event.target.checked);
-              }}
-            />
-            <span className="choice-text">
-              Share with everyone in {project.name}
-              <span className="choice-help">Only you can change it.</span>
-            </span>
-          </label>
-        ) : null}
-      </ConfirmDialog>
-      <ConfirmDialog
-        isOpen={removing !== null}
-        title={`Remove “${removing?.name ?? ""}”?`}
-        confirmLabel="Remove"
-        busy={remove.isPending}
-        problem={remove.error ? problemOf(remove.error) : undefined}
-        onCancel={() => {
+      />
+      <RemoveSearchDialog
+        removing={removing}
+        project={project}
+        onClose={() => {
           setRemoving(null);
-          remove.reset();
         }}
-        onConfirm={() => {
-          if (!removing) return;
-          remove.mutate(removing.id, {
-            onSuccess: () => {
-              say(`Removed “${removing.name}”.`);
-              setRemoving(null);
-            },
-          });
-        }}
-      >
-        <p>
-          {removing?.shared
-            ? `It’s shared, so it goes for everyone in ${project.name}.`
-            : "Only the saved search goes: no entities change."}
-        </p>
-      </ConfirmDialog>
+      />
     </div>
   );
 }
@@ -275,39 +195,194 @@ function projectByIdQuery(id: string) {
   });
 }
 
-/** Opening a saved search from its own address (a saved view): its project's grid, with
- * the search in the grid's address. One the grid can't show stays here, to say so. */
+/** Opening a saved search from its own address (a saved view): its project's grid, or,
+ * for a search of every project, All entities, with the search in the address. One the
+ * grid can't show stays here, to say so. */
 export async function openSavedSearch(client: QueryClient, id: string): Promise<void> {
   const saved = await client.query(savedSearchQuery(id));
-  const project = await client.query(projectByIdQuery(saved.project));
   const address = toAddress(saved.query);
-  if (address) {
+  if (!address) return;
+  if (!saved.project) {
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- how TanStack redirects
-    throw redirect({
-      to: "/projects/$slug/entities/",
-      params: { slug: project.slug },
-      search: address,
-      replace: true,
-    });
+    throw redirect({ to: "/entities/", search: address, replace: true });
   }
+  const project = await client.query(projectByIdQuery(saved.project));
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- how TanStack redirects
+  throw redirect({
+    to: "/projects/$slug/entities/",
+    params: { slug: project.slug },
+    search: address,
+    replace: true,
+  });
 }
 
 export function SavedSearchPage() {
   const { savedId } = useParams({ from: "/saved-searches/$savedId" });
   const saved = useSuspenseQuery(savedSearchQuery(savedId)).data;
-  const project = useSuspenseQuery(projectByIdQuery(saved.project)).data;
   usePageTitle(saved.name);
   return (
     <section className="card">
       <h1>{saved.name}</h1>
       <p>
         This search was saved through Iki’s API, with conditions the grid can’t show, so it can’t
-        open there. Its project’s entities are{" "}
-        <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
-          in {project.name}
-        </Link>
-        .
+        open there.{" "}
+        {saved.project ? (
+          <ProjectEntitiesLink id={saved.project} />
+        ) : (
+          <>
+            Everything you can read is in <Link to="/entities/">All entities</Link>.
+          </>
+        )}
       </p>
     </section>
+  );
+}
+
+function ProjectEntitiesLink({ id }: { id: string }) {
+  const project = useSuspenseQuery(projectByIdQuery(id)).data;
+  return (
+    <>
+      Its project’s entities are{" "}
+      <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
+        in {project.name}
+      </Link>
+      .
+    </>
+  );
+}
+
+/** Saving a grid's search under a name: in `project`, which its Editors may share it
+ * with, or without one, a search of every project its saver reads, theirs alone. */
+export function SaveSearchDialog({
+  isOpen,
+  project,
+  search,
+  title = "Save this search",
+  onClose,
+}: {
+  isOpen: boolean;
+  project: Project | undefined;
+  search: EntitySearch;
+  title?: string;
+  onClose: (saved?: SavedSearch) => void;
+}) {
+  const [name, setName] = useState("");
+  const [share, setShare] = useState(false);
+  const shareId = useId();
+  const { say } = useMessages();
+  const create = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/saved-searches", {
+          body: {
+            ...(project ? { project: project.id } : {}),
+            name: name.trim(),
+            query: fromAddress(search),
+            shared: Boolean(project) && share,
+          },
+        }),
+      ),
+    [SAVED_SEARCHES],
+  );
+  const close = (made?: SavedSearch) => {
+    setName("");
+    setShare(false);
+    create.reset();
+    onClose(made);
+  };
+  return (
+    <ConfirmDialog
+      isOpen={isOpen}
+      title={title}
+      confirmLabel="Save"
+      confirmVariant="primary"
+      busy={create.isPending}
+      problem={create.error ? problemOf(create.error) : undefined}
+      onCancel={() => {
+        close();
+      }}
+      onConfirm={() => {
+        create.mutate(undefined, {
+          onSuccess: (made) => {
+            close(made);
+            say(`Saved “${made.name}”.`);
+          },
+        });
+      }}
+    >
+      <TextField label="Name" value={name} onChange={setName} maxLength={100} />
+      {project?.can.edit ? (
+        <label className="choice" htmlFor={shareId}>
+          <input
+            id={shareId}
+            type="checkbox"
+            checked={share}
+            onChange={(event) => {
+              setShare(event.target.checked);
+            }}
+          />
+          <span className="choice-text">
+            Share with everyone in {project.name}
+            <span className="choice-help">Only you can change it.</span>
+          </span>
+        </label>
+      ) : project ? null : (
+        <p className="field-help">
+          It finds what you can read in every project you’re in. Only you see it.
+        </p>
+      )}
+    </ConfirmDialog>
+  );
+}
+
+/** Removing a saved search, saying who else it goes for. */
+export function RemoveSearchDialog({
+  removing,
+  project,
+  onClose,
+}: {
+  removing: SavedSearch | null;
+  /** Its project, by name, when it's shared there. */
+  project: { name: string } | undefined;
+  onClose: (removed: boolean) => void;
+}) {
+  const { say } = useMessages();
+  const remove = useApiMutation(
+    async (id: string) => {
+      unwrap(
+        await iki.DELETE("/api/v1/saved-searches/{saved_id}", {
+          params: { path: { saved_id: id } },
+        }),
+      );
+    },
+    [SAVED_SEARCHES],
+  );
+  return (
+    <ConfirmDialog
+      isOpen={removing !== null}
+      title={`Remove “${removing?.name ?? ""}”?`}
+      confirmLabel="Remove"
+      busy={remove.isPending}
+      problem={remove.error ? problemOf(remove.error) : undefined}
+      onCancel={() => {
+        remove.reset();
+        onClose(false);
+      }}
+      onConfirm={() => {
+        if (!removing) return;
+        remove.mutate(removing.id, {
+          onSuccess: () => {
+            say(`Removed “${removing.name}”.`);
+            onClose(true);
+          },
+        });
+      }}
+    >
+      <p>
+        {removing?.shared
+          ? `It’s shared, so it goes for everyone in ${project?.name ?? "its project"}.`
+          : "Only the saved search goes: no entities change."}
+      </p>
+    </ConfirmDialog>
   );
 }

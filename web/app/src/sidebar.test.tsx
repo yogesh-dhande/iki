@@ -16,7 +16,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { queryClient } from "./api";
 import { createAppRouter } from "./router";
 import { adminLink, currentOf, ENTITIES_COOKIE, initials } from "./sidebar";
-import { answer, calls, ME, page, project, signedIn } from "./test-server";
+import { answer, calls, ME, page, project, respond, signedIn } from "./test-server";
 
 async function renderApp(path: string) {
   const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
@@ -50,20 +50,10 @@ function saved(overrides: Partial<Schemas["SavedSearchOut"]> = {}): Schemas["Sav
 
 afterEach(() => {
   document.cookie = `${ENTITIES_COOKIE}=; path=/; max-age=0`;
-  document.querySelector('meta[name="iki-entity-counts"]')?.remove();
 });
-
-/** The server says the API counts each type's records, and where. */
-function counted(): void {
-  const meta = document.createElement("meta");
-  meta.name = "iki-entity-counts";
-  meta.content = "/api/v1/entities/counts";
-  document.head.append(meta);
-}
 
 describe("what it lists", () => {
   it("lists each type the reader can read, with how many, and links to its table", async () => {
-    counted();
     signedIn();
     answer("GET /api/v1/projects", page([]));
     answer("GET /api/v1/entities/counts", {
@@ -85,10 +75,27 @@ describe("what it lists", () => {
     );
   });
 
-  it("lists All entities alone where the server doesn't count them", async () => {
+  it("lists every type uncounted where counting would be slow", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
+    answer("GET /api/v1/entities/counts", {
+      types: [{ type: "iki/dna.Plasmid", label: "Plasmid", count: null }],
+      total: null,
+    });
     await renderApp("/projects/");
+    const plasmid = await within(nav()).findByRole("link", { name: "Plasmid" });
+    expect(plasmid).toHaveAttribute("href", "/entities/types/iki/dna.Plasmid/");
+    expect(within(nav()).getByRole("link", { name: "All entities" })).toBeVisible();
+  });
+
+  it("lists All entities alone where the counts can't be read", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    answer("GET /api/v1/entities/counts", respond(503));
+    await renderApp("/projects/");
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/entities/counts")).toHaveLength(1);
+    });
     const types = document.getElementById("nav-entities");
     expect(types).not.toBeNull();
     expect(
@@ -96,8 +103,6 @@ describe("what it lists", () => {
         .getAllByRole("link")
         .map((a) => a.textContent),
     ).toEqual(["All entities"]);
-    // Not asked for what isn't there: a request that fails is an error in the console.
-    expect(calls("GET", "/api/v1/entities/counts")).toEqual([]);
   });
 
   it("stays open or closed as the reader left it, on every page", async () => {
@@ -156,7 +161,8 @@ describe("what it lists", () => {
     const view = await within(nav()).findByRole("link", { name: "Ampicillin plasmids" });
     expect(view).toHaveAttribute("href", "/saved-searches/00000000-0000-7000-8000-0000000000s1/");
     const asked = calls("GET", "/api/v1/saved-searches")[0];
-    expect(Object.fromEntries(asked?.query ?? [])).toEqual({ limit: "8" });
+    // Their own only: a search others shared is in its project's list, not here.
+    expect(Object.fromEntries(asked?.query ?? [])).toEqual({ mine: "true", limit: "8" });
     expect(within(nav()).getByRole("group", { name: "Saved views" })).toContainElement(view);
   });
 
@@ -171,6 +177,22 @@ describe("what it lists", () => {
     const { router } = await renderApp("/saved-searches/00000000-0000-7000-8000-0000000000s1/");
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/projects/kinase-atlas/entities/");
+    });
+    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
+  });
+
+  it("opens a search of every project on All entities", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([project()]));
+    answer(
+      "GET /api/v1/saved-searches/00000000-0000-7000-8000-0000000000s1",
+      saved({ project: null }),
+    );
+    answer("GET /api/v1/entity-types", []);
+    answer("POST /api/v1/entities/search", { items: [], next_cursor: null, total: 0 });
+    const { router } = await renderApp("/saved-searches/00000000-0000-7000-8000-0000000000s1/");
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/");
     });
     expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
   });

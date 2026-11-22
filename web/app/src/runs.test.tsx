@@ -95,7 +95,7 @@ describe("a project's runs", () => {
       "/runs/RUN-000001/",
       "/runs/RUN-000000/",
     ]);
-    const row = (index: number) => within(nth(links, index).closest("li") ?? document.body);
+    const row = (index: number) => within(nth(links, index).closest("tr") ?? document.body);
     expect(row(0).getByText("Succeeded")).toHaveClass("badge-good");
     expect(row(1).getByText("Failed")).toHaveClass("badge-bad");
     expect(screen.getByText(/Weekly batch/)).toBeInTheDocument();

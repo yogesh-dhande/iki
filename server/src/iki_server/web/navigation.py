@@ -61,18 +61,6 @@ def _item(raw: dict[str, Any]) -> Item:
     )
 
 
-@cache
-def entity_counts_url() -> str:
-    """Where the API counts the records of each type a reader can read (ADR 0176), or ""
-    while it doesn't: the sidebar then lists the types without counts, rather than asking
-    for what isn't there."""
-    from iki_server.api.v1 import api
-
-    url: str = spec()["entities"]["counts"]
-    routes = {str(p.pattern) for p in api.urls[0]}
-    return url if url.removeprefix("/api/v1/") in routes else ""
-
-
 def icon(name: str) -> tuple[str, ...]:
     return tuple(spec()["icons"][name])
 
@@ -135,8 +123,6 @@ class Sidebar:
     #: Who's signed in, as the account menu shows them.
     name: str = ""
     email: str = ""
-    #: Where the counts of each type of entity come from, if the API has them.
-    counts_url: str = ""
     labels: dict[str, str] = field(default_factory=dict)
     icons: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
@@ -223,7 +209,6 @@ def sidebar(user: Any, path: str, cookies: dict[str, str], unread: int = 0) -> S
         account=_mark(account, current),
         name=user.get_full_name() or user.email,
         email=user.email,
-        counts_url=entity_counts_url(),
         labels={
             "entities": raw["entities"]["label"],
             "saved": raw["saved"]["label"],

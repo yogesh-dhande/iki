@@ -744,6 +744,7 @@ describe("an app can't", () => {
           ) &&
           !/^\/api\/v1\/entities\/[0-9a-f-]+\/watch$/.test(c.path) &&
           c.path !== "/api/v1/saved-searches" &&
+          c.path !== "/api/v1/entities/counts" &&
           !(c.path === "/api/v1/projects" && c.query.get("member") === "true"),
       ),
     ).toEqual([]);

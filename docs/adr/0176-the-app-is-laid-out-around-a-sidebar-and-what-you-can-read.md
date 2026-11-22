@@ -157,15 +157,17 @@ No page loads fonts or scripts from outside the deployment.
   projects. Only that item has `aria-current="page"`.
 - **Projects** shows the first eight active projects you belong to, by team
   and then name, and the one you are on if it is further down.
-- **Saved views** are your own saved searches, in projects you can still
-  read, the first eight by name. Each opens from its own address,
-  `/saved-searches/<id>/`, on its project's table, so a link to one keeps
-  working as the table's address changes.
+- **Saved views** are your own saved searches, of every project or of one
+  you can still read, the first eight by name; those others share stay in
+  their project's list. Each opens from its own address,
+  `/saved-searches/<id>/`, on its project's table, or All entities for a
+  search of every project, so a link to one keeps working as the table's
+  address changes.
 - **Entities stays open or closed** as each person left it. This is kept in
-  a cookie, so the server draws it the same way without a flash. The server
-  says whether its API counts records. Until it does, Entities holds All
-  entities alone, since only a count says which types have records, and the
-  sidebar doesn't ask for counts.
+  a cookie, so the server draws it the same way without a flash. Its types
+  are those the counts list, as All entities counts them; where counting
+  would be slow they're listed without numbers, and if the counts can't be
+  read, Entities holds All entities alone.
 - **Admin** is one link, to `/admin/`, for whoever may open any page of the
   admin area. The area's own sidebar takes them through the rest, and its
   pages don't draw this sidebar.
@@ -192,11 +194,24 @@ No page loads fonts or scripts from outside the deployment.
 - People who used the header's links find them in the sidebar or under
   Admin. Old URLs keep working.
 - **Saved searches across projects are allowed.** A saved search that names
-  no project finds records in every project its reader can read.
+  no project finds records in every project its reader can read. It is its
+  owner's alone: with no project, there is no one to share it with.
 - **Counts are cheap or absent.** The sidebar's type counts come from one
   grouped query over what the reader can read; each search finds its rows
   by its indexes (ADR 0103). A count that would be slow is left out, not
-  estimated.
+  estimated. Before counting, Postgres's plan estimates the rows it would
+  read; past a million, every type is listed without a count. The search
+  time limit backs the estimate up.
+- **A row names the projects you can read.** Each record lists the projects
+  it is in that its reader can read, its owner first, in the lists and in a
+  download's Project column. A project they aren't in is never named.
+- **Some things need a project.** An action runs in one project, so records
+  picked across projects can be run on only in a project they are all in
+  where the reader runs actions. People are picked from a project's members,
+  so across projects a person field filters by "is me", set or empty.
+- **A project's tabs are the same tables.** Its Entities, Requests and Runs
+  tabs are the lists above, held to the project, so there is one table of
+  each, not two.
 - **Audit stays complete.** The audit trail tab reads the same history as
   before; only where it is shown changes. Part 11's requirement that the
   trail be available for review and copying (§11.10(b), (e)) is met by the

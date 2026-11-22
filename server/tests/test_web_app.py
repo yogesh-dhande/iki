@@ -28,6 +28,10 @@ APP_PAGES = [
     "/projects/a-b/entities/new/",
     "/types/",
     "/types/acme/dna.DNASequence/",
+    "/entities/",
+    "/entities/types/acme/dna.DNASequence/",
+    "/requests/",
+    "/runs/",
     "/entities/DNA-000001/",
     "/entities/DNA-000001/edit/",
     "/entities/DNA-000001/history/",
@@ -541,31 +545,3 @@ def test_the_worker_protocol_document_is_current() -> None:
     assert json.loads(committed.read_text()) == json.loads(json.dumps(current)), (
         "The worker API changed. Run `make protocol` and commit worker/."
     )
-
-
-def test_the_sidebar_asks_for_counts_only_where_the_api_has_them(
-    world: World, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A request that fails is an error in the browser's console: until the API counts each
-    type's records, neither sidebar asks it to, and lists the types without counts."""
-    from iki_server.web import navigation
-
-    navigation.entity_counts_url.cache_clear()
-    session = world.browser("viewer")
-    counts = navigation.spec()["entities"]["counts"]
-    has = session.get(counts).status_code != 404
-    shown = counts if has else ""
-    assert navigation.entity_counts_url() == shown
-    assert f'data-counts="{shown}"' in session.get("/teams/").content.decode()
-    assert f'<meta name="iki-entity-counts" content="{shown}">' in (
-        session.get("/projects/").content.decode()
-    )
-    # Where it has them, it says where.
-    real = navigation.spec()
-    entities = {**real["entities"], "counts": "/api/v1/entities/search"}
-    monkeypatch.setattr(navigation, "spec", lambda: {**real, "entities": entities})
-    navigation.entity_counts_url.cache_clear()
-    try:
-        assert navigation.entity_counts_url() == "/api/v1/entities/search"
-    finally:
-        navigation.entity_counts_url.cache_clear()

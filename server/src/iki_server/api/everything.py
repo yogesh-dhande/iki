@@ -48,7 +48,7 @@ from iki_server.org.permissions import Action
 from iki_server.runs import catalog
 from iki_server.runs.models import ActionRun, RunStatus
 from iki_server.runs.services import visible_runs
-from iki_server.searches.models import SavedSearch
+from iki_server.searches import services as saved_searches
 from iki_spec import titles
 
 router = Router(tags=["search"])
@@ -358,11 +358,9 @@ def _projects(me: User, q: str, limit: int) -> _Group:
 
 def _saved_views(me: User, q: str, limit: int) -> _Group:
     group = _Group("saved_views")
-    found = SavedSearch.objects.filter(
-        Q(created_by=me) | Q(shared=True),
-        project__in=access.readable_projects(me).values("pk"),
-        name__icontains=q,
-    )
+    # Every one they see, as the saved searches' list without a project has them: their own,
+    # of a project or of every project, and those shared with a project they can read.
+    found = saved_searches.everywhere(me).filter(name__icontains=q)
     group.total, group.more = _counted(found)
     shown = found.select_related("project").order_by("name", "pk")[:limit]
     group.items = [
@@ -371,9 +369,10 @@ def _saved_views(me: User, q: str, limit: int) -> _Group:
             s.pk,
             s.name,
             detail="Shared with the project" if s.shared else "Yours",
-            projects=[s.project],
-            # The app opens it in the project's grid, as its saved searches do.
-            href=f"/projects/{s.project.slug}/entities/",
+            projects=[s.project] if s.project else [],
+            # The app opens it in the project's grid, as its saved searches do, or All
+            # entities for a search of every project.
+            href=f"/projects/{s.project.slug}/entities/" if s.project else "/entities/",
             query=dict(s.query),
         )
         for s in shown

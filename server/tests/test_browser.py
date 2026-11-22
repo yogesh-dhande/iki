@@ -366,6 +366,17 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     assert violations == [], (page.url, violations)
 
 
+def add_filter(page: Page, field: str) -> Locator:
+    """Adds a grid filter by a field, from its "+ Filter" menu, and returns the filter's
+    editor, which opens. Found by role: Firefox crashes on labels after axe."""
+    page.get_by_role("button", name="Filter", exact=True).click()
+    menu = page.get_by_role("menu", name="Filter")
+    menu.get_by_role("menuitem", name=re.compile(f"^{re.escape(field)}")).click()
+    editor = page.get_by_role("dialog", name=re.compile(r"^Filter \d+: " + re.escape(field)))
+    editor.wait_for()
+    return editor
+
+
 #: (who, page): the web app's pages, and server-rendered pages that share its design.
 PAGES = [
     ("admin", "/"),
@@ -392,6 +403,10 @@ PAGES = [
     ("org_admin", "/settings/signatures/"),
     ("org_admin", "/people/"),
     ("auditor", "/audit/"),
+    ("admin", "/entities/"),
+    ("admin", "/entities/types/acme/protein.Protein/"),
+    ("admin", "/requests/"),
+    ("admin", "/runs/"),
 ]
 
 
@@ -832,9 +847,10 @@ def test_the_grids_search_box_is_a_field_like_its_neighbours(open_as: Any) -> No
     page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/dna.DNASequence")
     search = page.get_by_role("searchbox", name="Search")
     search.wait_for()
+    # As high as the toolbar's other controls (ADR 0176's 28 pixels), whatever a browser
+    # draws a search box as by itself, and no smaller than WCAG's target size (2.5.8).
     box = search.bounding_box()
-    # As tall as the controls beside it (ADR 0176), its text as large as theirs.
-    beside = page.get_by_role("main").get_by_role("button").first.bounding_box()
+    beside = page.get_by_role("combobox", name="Show").bounding_box()
     assert box is not None and beside is not None, (box, beside)
     assert abs(box["height"] - beside["height"]) <= 1, (box, beside)
     assert box["height"] >= 28, box
@@ -869,26 +885,30 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     page.get_by_role("searchbox", name="Search").fill("")
     page.get_by_role("table", name="3 proteins").wait_for()
 
-    page.get_by_role("button", name="Filters").click()
-    panel = page.get_by_role("region", name="Filters")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_label("Filter 1: field").select_option(label="Host")
-    panel.get_by_label("Filter 1: condition").select_option(label="is")
-    panel.get_by_label("Filter 1: value").fill("Homo sapiens")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_label("Filter 2: field").select_option(label="Temperature optimum")
-    panel.get_by_label("Filter 2: condition").select_option(label="is more than")
-    panel.get_by_role("textbox", name="Filter 2: value").fill("90")
-    panel.get_by_label("Unit for Filter 2: value").select_option("[degF]")
+    editor = add_filter(page, "Host")
+    editor.get_by_role("combobox", name="Filter 1: condition").select_option(label="is")
+    editor.get_by_role("textbox", name="Filter 1: value").fill("Homo sapiens")
+    editor.get_by_role("button", name="Done").click()
+    editor = add_filter(page, "Temperature optimum")
+    editor.get_by_role("combobox", name="Filter 2: condition").select_option(label="is more than")
+    editor.get_by_role("textbox", name="Filter 2: value").fill("90")
+    editor.get_by_role("combobox", name="Unit for Filter 2: value").select_option("[degF]")
+    editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 protein match")
     grid.get_by_role("cell", name="ABL1", exact=True).wait_for()
+    filters = page.get_by_role("group", name="Filters")
+    filters.get_by_role("button", name="Filter 1: Host is Homo sapiens", exact=True).wait_for()
     assert_clean(page)
 
     # The address keeps it: a reload, or a shared link, shows the same.
     page.reload()
     page.get_by_role("table", name="1 protein match").wait_for()
-    assert page.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
-    page.get_by_role("button", name="Remove filter 2").click()
+    chip = filters.get_by_role("button", name=re.compile(r"^Filter 2: Temperature optimum"))
+    chip.click()
+    editor = page.get_by_role("dialog", name="Filter 2: Temperature optimum")
+    assert editor.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
+    page.keyboard.press("Escape")
+    filters.get_by_role("button", name=re.compile(r"^Remove filter 2:")).click()
     grid = page.get_by_role("table", name="2 proteins match")
     grid.wait_for()
 
@@ -900,6 +920,101 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     first.get_by_role("cell", name="SRC", exact=True).wait_for()
     assert grid.get_by_role("columnheader", name="Name").get_attribute("aria-sort") == "descending"
     assert_clean(page)
+
+
+#: The M13 forward (-20) and reverse sequencing primers, and the T7 promoter.
+M13_FORWARD = "GTAAAACGACGGCCAGT"
+M13_REVERSE = "CAGGAAACAGCTATGAC"
+T7_PROMOTER = "TAATACGACTCACTATAGGG"
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_the_lists_across_projects_hold_only_what_you_can_read(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """All entities, a type's table, Requests and Runs (ADR 0176): every project the
+    reader is in, and nothing of one they aren't, in a row or a count."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import ProjectLink
+
+    editor = world.users["editor"]
+    elsewhere = Project.objects.create(team=world.other_team, name="Vector Reference QC")
+    ProjectMembership.objects.create(
+        project=elsewhere, user=world.users["mixed"], role=ProjectRole.EDITOR
+    )
+    dna = "acme/dna.DNASequence"
+    forward = cast(
+        "Entity",
+        entities.create(
+            editor, dna, world.project, {"bases": M13_FORWARD, "name": "M13 fwd"}
+        ).entity,
+    )
+    entities.create(editor, dna, world.project, {"bases": M13_REVERSE, "name": "M13 rev"})
+    hidden = entities.create(
+        world.users["mixed"], dna, elsewhere, {"bases": T7_PROMOTER, "name": "T7 promoter"}
+    )
+    ProjectLink.objects.create(entity=forward, project=elsewhere)
+    hidden_hrid = cast("Entity", hidden.entity).hrid
+
+    page: Page = open_as("viewer", "/entities/", color_scheme)
+    page.get_by_role("heading", level=1, name="All entities").wait_for()
+    grid = page.get_by_role("table", name="2 entities")
+    grid.wait_for()
+    pills = page.get_by_role("group", name="Type")
+    pills.get_by_role("button", name="DNA sequence 2 records").wait_for()
+    pills.get_by_role("button", name="All types 2 records").wait_for()
+    assert grid.get_by_role("link", name=hidden_hrid).count() == 0
+    # The forward primer is in Vector Reference QC too, which the viewer isn't in.
+    assert page.get_by_text("Vector Reference QC").count() == 0
+    assert_clean(page)
+    # Nor does a search for it by its ID find it.
+    page.get_by_role("searchbox", name="Search").fill(hidden_hrid)
+    page.get_by_text("No entities you can read match.").wait_for()
+    page.get_by_role("searchbox", name="Search").fill("")
+    grid.wait_for()
+
+    # At a phone's width it scrolls down, never across.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    # A type's table: its fields as columns, a sequence found by a motif (IUPAC: N is any).
+    pills.get_by_role("button", name="DNA sequence 2 records").click()
+    page.wait_for_url(re.compile(r"type=acme"))
+    page.goto(f"/entities/types/{dna}/")
+    page.get_by_role("heading", level=1, name="DNA sequences").wait_for()
+    table = page.get_by_role("table", name="2 DNA sequences")
+    table.wait_for()
+    editor_box = add_filter(page, "Bases")
+    editor_box.get_by_role("textbox", name="Filter 1: value").fill("CAGNAAAC")
+    editor_box.get_by_role("button", name="Done").click()
+    table = page.get_by_role("table", name="1 DNA sequence match")
+    table.get_by_role("cell", name="M13 rev", exact=True).wait_for()
+    views = page.get_by_role("navigation", name="Views")
+    assert views.get_by_role("link", name="All DNA sequences").get_attribute("aria-current") is None
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    for path, heading in (("/requests/", "Requests"), ("/runs/", "Runs")):
+        page.goto(path)
+        page.get_by_role("heading", level=1, name=heading).wait_for()
+        page.get_by_role("combobox", name="Project").wait_for()
+        assert_clean(page)
+    page.context.close()
+
+    # Someone in both projects sees both, and the linked primer once, in each.
+    page = open_as("mixed", "/entities/", color_scheme)
+    page.get_by_role("group", name="Type").get_by_role(
+        "button", name="DNA sequence 3 records"
+    ).wait_for()
+    grid = page.get_by_role("table", name="3 entities")
+    row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=forward.hrid))
+    row.get_by_role(
+        "cell", name=re.compile(r"^Kinase Atlas.*also in Vector Reference QC")
+    ).wait_for()
+    page.context.close()
 
 
 def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
@@ -1393,7 +1508,8 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert_clean(page)
 
     page.get_by_role("main").get_by_role("link", name="Kinase Atlas").click()
-    row = page.get_by_role("listitem").filter(has_text=run.hrid)
+    # The project's runs, one row each (ADR 0176's table, as every run's list).
+    row = page.get_by_role("row").filter(has_text=run.hrid)
     row.get_by_text("Failed", exact=True).wait_for()
     assert_clean(page)
 
@@ -2818,11 +2934,9 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     grid.get_by_role("link", name=hrid).wait_for()
     assert_clean(page)
     # By the project that asked: the core can't open it, but it's named.
-    page.get_by_role("button", name=re.compile("^Filters")).click()
-    filters = page.get_by_role("region", name="Filters")
-    filters.get_by_role("button", name="Add a filter").click()
-    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Asked by")
-    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Kinase Atlas")
+    chip_editor = add_filter(page, "Asked by")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(label="Kinase Atlas")
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=hrid).wait_for()
     assert_clean(page)
@@ -2889,11 +3003,9 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     page.get_by_text(f"The requests {world.project.name} sent to services.").wait_for()
     assert_clean(page)
 
-    page.get_by_role("button", name=re.compile("^Filters")).click()
-    filters = page.get_by_role("region", name="Filters")
-    filters.get_by_role("button", name="Add a filter").click()
-    filters.get_by_role("combobox", name="Filter 1: field").select_option(label="Sent to")
-    filters.get_by_role("combobox", name="Filter 1: value").select_option(label="Protein Core")
+    chip_editor = add_filter(page, "Sent to")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(label="Protein Core")
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=request.hrid).wait_for()
     assert_clean(page)
@@ -3015,20 +3127,19 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
 
     page.get_by_role("searchbox", name="Search").fill("")
     page.get_by_role("table", name="3 batches").wait_for()
-    page.get_by_role("button", name="Filters").click()
-    panel = page.get_by_role("region", name="Filters")
-    panel.get_by_role("button", name="Add a filter").click()
-    panel.get_by_role("combobox", name="Filter 1: field").select_option(label="Breaks")
-    panel.get_by_role("combobox", name="Filter 1: condition").select_option(label="the rule")
-    panel.get_by_role("combobox", name="Filter 1: value").select_option(
+    chip_editor = add_filter(page, "Breaks")
+    chip_editor.get_by_role("combobox", name="Filter 1: condition").select_option(label="the rule")
+    chip_editor.get_by_role("combobox", name="Filter 1: value").select_option(
         label="Expires after it's made"
     )
+    chip_editor.get_by_role("button", name="Done").click()
     grid = page.get_by_role("table", name="1 batch match")
     grid.get_by_role("cell", name=re.compile("^Breaks: Expires after it's made")).wait_for()
     assert_clean(page)
     # The address keeps it, and the condition reads back.
     page.reload()
     page.get_by_role("table", name="1 batch match").wait_for()
+    page.get_by_role("button", name=re.compile(r"^Filter 1: Breaks")).click()
     condition = page.get_by_role("combobox", name="Filter 1: condition")
     assert condition.locator("option:checked").inner_text() == "the rule"
     page.context.close()

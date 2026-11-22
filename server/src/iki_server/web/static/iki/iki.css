@@ -3098,10 +3098,10 @@ main.admin-main {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  width: calc(100% + 1.8rem);
-  height: 44px;
-  margin: 0 -0.9rem;
-  padding: 0 0.9rem;
+  width: calc(100% + calc(20rem / 13));
+  height: 34px;
+  margin: 0 calc(-10rem / 13);
+  padding: 0 calc(10rem / 13);
   border: 0;
   background: none;
   color: inherit;
@@ -3156,7 +3156,7 @@ main.admin-main {
 .data-grid-row {
   display: grid;
   align-items: center;
-  /* The grid's ROW_HEIGHT (project-entities.tsx), which draws rows as they scroll in. */
+  /* The grid's ROW_HEIGHT (entity-grid.tsx), which draws rows as they scroll in. */
   height: 34px;
   border-bottom: 1px solid var(--border);
 }
@@ -3183,8 +3183,8 @@ main.admin-main {
 
 /* Picking rows in a grid: a checkbox to each, big enough to hit. */
 .grid-tick {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: calc(16rem / 13);
+  height: calc(16rem / 13);
   margin: 0;
   vertical-align: middle;
   accent-color: var(--accent);
@@ -4445,4 +4445,502 @@ input[type="file"]::file-selector-button {
   .search-pill[aria-pressed="true"] {
     border: 2px solid Highlight;
   }
+}
+
+/* --- The lists across projects (ADR 0176): All entities, a type's table, requests, runs,
+   and a project's tabs, which are the same lists. --------------------------------------- */
+
+.list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(8rem / 13) calc(16rem / 13);
+  margin: 0 0 calc(12rem / 13);
+}
+
+.list-heading {
+  min-width: 0;
+}
+
+.list-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(4rem / 13) calc(12rem / 13);
+}
+
+.list-title h1 {
+  margin: 0;
+}
+
+.list-title p {
+  margin: 0;
+}
+
+.list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(8rem / 13);
+}
+
+.crumbs {
+  margin: 0 0 calc(4rem / 13);
+  font-size: calc(14rem / 13);
+  color: var(--muted);
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* The search, the filters' menus and the download, in one row where they fit. */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin: 0 0 calc(8rem / 13);
+}
+
+.list-toolbar select,
+.list-toolbar .button,
+.filter-bar .button,
+.list-actions .button {
+  width: auto;
+  min-height: 28px;
+  padding: calc(3.2rem / 13) calc(10.4rem / 13);
+  font-size: calc(14rem / 13);
+  font-weight: 500;
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+.list-toolbar select {
+  height: 28px;
+  max-width: calc(224rem / 13);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-right: calc(28rem / 13);
+}
+
+.list-toolbar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin-left: auto;
+}
+
+.list-toolbar-end[hidden] {
+  display: none;
+}
+
+.list-count {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.search-box {
+  position: relative;
+  flex: 1 1 calc(256rem / 13);
+  max-width: calc(448rem / 13);
+  min-width: min(100%, calc(192rem / 13));
+}
+
+.search-box input[type="search"] {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 calc(10.4rem / 13) 0 calc(32rem / 13);
+  font-size: calc(14rem / 13);
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+/* A magnifier drawn in the text's own color, so it keeps contrast in both themes. */
+.search-box::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: calc(10.4rem / 13);
+  width: calc(14rem / 13);
+  height: calc(14rem / 13);
+  transform: translateY(-50%);
+  background: var(--muted);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='6.5' cy='6.5' r='5' fill='none' stroke='black' stroke-width='2'/%3E%3Cpath d='M10.5 10.5 15 15' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  pointer-events: none;
+}
+
+/* Filters as chips: what each holds back, a button to change it, and one to remove it. */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6rem / 13);
+  margin: 0 0 calc(8rem / 13);
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 28px;
+  max-width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  /* A tint of the accent, from the theme's own tokens, so it holds in both themes. */
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  overflow: hidden;
+  font-size: 1rem;
+}
+
+.filter-chip-invalid {
+  border-color: var(--error);
+}
+
+.filter-chip-words,
+.filter-chip-remove {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.filter-chip-words {
+  padding: 0 calc(8rem / 13);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-chip-remove {
+  min-width: 26px;
+  border-left: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.filter-chip-words:hover,
+.filter-chip-remove:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.filter-chip-words:focus-visible,
+.filter-chip-remove:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+/* A menu or a filter's editor, next to the button that opened it. */
+.menu-popover,
+.filter-popover {
+  min-width: calc(224rem / 13);
+  max-width: min(calc(384rem / 13), calc(100vw - calc(32rem / 13)));
+  max-height: min(calc(448rem / 13), 70vh);
+  overflow: auto;
+  padding: calc(6rem / 13);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+}
+
+.filter-popover {
+  width: calc(352rem / 13);
+  padding: calc(12rem / 13);
+  overflow: visible;
+}
+
+.menu,
+.filter-editor,
+.columns-dialog {
+  outline: none;
+}
+
+.menu-heading {
+  display: block;
+  padding: calc(4rem / 13) calc(8rem / 13) calc(6rem / 13);
+  font-size: calc(12rem / 13);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: calc(12rem / 13);
+  min-height: 30px;
+  padding: calc(4rem / 13) calc(8rem / 13);
+  border-radius: 5px;
+  font-size: calc(14rem / 13);
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-item[data-focused] {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.menu-item[data-selected] {
+  font-weight: 600;
+}
+
+.menu-item[data-selected]::after {
+  content: "✓";
+  margin-left: auto;
+}
+
+.menu-item-hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: calc(12rem / 13);
+  text-align: right;
+}
+
+.filter-editor {
+  display: grid;
+  gap: calc(8rem / 13);
+}
+
+.filter-editor-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.filter-editor .field {
+  margin: 0;
+}
+
+.filter-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(8rem / 13);
+}
+
+.filter-editor-actions .button {
+  min-height: 28px;
+  padding: calc(3.2rem / 13) calc(10.4rem / 13);
+}
+
+.columns-choice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.columns-choice .choice {
+  margin: 0;
+  padding: calc(4rem / 13) calc(8rem / 13);
+}
+
+/* A list's types, each with how many records of it its reader can read. */
+.type-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(4rem / 13);
+  margin: 0 0 calc(12rem / 13);
+}
+
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6rem / 13);
+  min-height: 26px;
+  padding: 0 calc(10.4rem / 13);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.type-pill:hover {
+  background: var(--surface-2);
+}
+
+.type-pill[aria-pressed="true"] {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--surface);
+}
+
+.type-pill-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* A type's table's views: all its records, and its saved searches, as tabs. */
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0 calc(4rem / 13);
+  margin: 0 0 calc(12rem / 13);
+  border-bottom: 1px solid var(--border);
+}
+
+.view-tab-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4rem / 13);
+  min-height: 32px;
+  padding: 0 calc(10.4rem / 13);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(14rem / 13);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.view-tab:hover {
+  color: var(--text);
+}
+
+.view-tab[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.view-tab-meta {
+  font-weight: 400;
+}
+
+.view-tab-remove {
+  min-width: 24px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.view-tab-remove:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* The grid's cells: IDs in monospace, a record's other projects and its state as pills. */
+.grid-id {
+  font-family: var(--mono);
+  font-size: 1rem;
+}
+
+.data-grid .cell-meta,
+.list-table .cell-meta {
+  display: inline;
+  margin-left: calc(6rem / 13);
+  font-size: calc(12rem / 13);
+}
+
+.cell-more,
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: calc(4rem / 13);
+  padding: 0 calc(7.2rem / 13);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: calc(12rem / 13);
+  font-weight: 500;
+}
+
+.state-pill:first-child {
+  margin-left: 0;
+}
+
+.state-pill-muted {
+  color: var(--muted);
+}
+
+.data-grid {
+  border-radius: 8px;
+  font-size: calc(14rem / 13);
+}
+
+.data-grid-head .data-grid-row {
+  height: 32px;
+}
+
+.data-grid-body .data-grid-row:hover {
+  background: var(--surface-2);
+}
+
+.data-grid-row[aria-selected="true"] {
+  background: var(--surface-2);
+}
+
+.list-note {
+  margin: calc(8rem / 13) 0 0;
+  font-size: 1rem;
+}
+
+/* A list that isn't virtual (runs, a page at a time): the same look as the grid's. */
+.list-table-box {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(14rem / 13);
+}
+
+.list-table th {
+  height: 32px;
+  padding: 0 calc(12rem / 13);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.list-table td {
+  height: 34px;
+  padding: calc(3.2rem / 13) calc(12rem / 13);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.list-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.list-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.list-table .list-table-end {
+  text-align: right;
+}
+
+.list-name {
+  font-weight: 500;
 }

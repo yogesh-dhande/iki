@@ -6,7 +6,7 @@
 import type { Schemas } from "@ikisci/sdk";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { queryClient } from "./api";
@@ -29,6 +29,27 @@ export async function renderApp(path: string) {
   );
   await screen.findByRole("heading", { level: 1 });
   return { router, user: userEvent.setup() };
+}
+
+/** Adds a grid filter by a field, from its "+ Filter" menu: the filter's editor opens,
+ * and is returned. The field's menu item starts with its label. */
+export async function addFilter(user: ReturnType<typeof userEvent.setup>, field: string) {
+  await user.click(screen.getByRole("button", { name: "Filter" }));
+  const menu = await screen.findByRole("menu", { name: "Filter" });
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await user.click(within(menu).getByRole("menuitem", { name: new RegExp(`^${escaped}`) }));
+  return screen.findByRole("dialog");
+}
+
+/** The menu of what a grid filters by: its fields' labels. */
+export async function filterFields(user: ReturnType<typeof userEvent.setup>): Promise<string[]> {
+  await user.click(screen.getByRole("button", { name: "Filter" }));
+  const menu = await screen.findByRole("menu", { name: "Filter" });
+  const items = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.querySelector("span")?.textContent ?? "");
+  await user.keyboard("{Escape}");
+  return items;
 }
 
 export type Field = Schemas["FieldOut"];

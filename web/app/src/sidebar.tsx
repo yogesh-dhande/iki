@@ -6,7 +6,7 @@
  * screen it's a drawer, opened from the bar above the page.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { unwrap } from "@ikisci/sdk";
 import { queryOptions, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -14,7 +14,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
 import { adminNavigation } from "./admin";
-import { ENTITIES } from "./entities";
+import { countsQuery } from "./lists";
 import { openSearch } from "./search";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
@@ -134,41 +134,6 @@ function writeCookie(name: string, value: string): void {
   document.cookie = `${name}=${value}; path=/; max-age=31536000; samesite=lax${secure}`;
 }
 
-export interface EntityCounts {
-  types: { type: string; label: string; count: number }[];
-  total: number;
-}
-
-/** Where the API counts each type's records, as the server says: "" while it doesn't. */
-function entityCountsUrl(): string {
-  return document.querySelector<HTMLMetaElement>('meta[name="iki-entity-counts"]')?.content ?? "";
-}
-
-/** How many records of each type the reader can read, across their projects (ADR 0176):
- * null where the server doesn't count them, which it isn't asked. */
-export const entityCountsQuery = queryOptions({
-  queryKey: [...ENTITIES, "counts"],
-  meta: { background: true },
-  queryFn: async (): Promise<EntityCounts | null> => {
-    const url = entityCountsUrl();
-    if (!url) return null;
-    const response = await globalThis.fetch(`${window.location.origin}${url}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new ApiError({
-        type: "about:blank",
-        title: response.statusText,
-        status: response.status,
-        detail: "The counts of entities couldn’t be read.",
-        code: "unavailable",
-      });
-    }
-    return (await response.json()) as EntityCounts;
-  },
-});
-
 /** The reader's own saved searches, in every project they can read: the saved views. */
 export const savedViewsQuery = queryOptions({
   queryKey: ["saved-searches", "mine"],
@@ -176,7 +141,7 @@ export const savedViewsQuery = queryOptions({
   queryFn: async () =>
     unwrap(
       await iki.GET("/api/v1/saved-searches", {
-        params: { query: { limit: SPEC.projects.shown } },
+        params: { query: { mine: true, limit: SPEC.projects.shown } },
       }),
     ),
 });
@@ -364,15 +329,17 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
   const [open, setOpen] = useState(() => readCookie(ENTITIES_COOKIE) !== "closed");
   // As the server's sidebar names it: there's one sidebar on a page.
   const entitiesId = "nav-entities";
-  const counts = useQuery(entityCountsQuery);
+  // How many of each type they can read, across their projects, as All entities counts
+  // them: where counting would be slow, each type that can have records, uncounted.
+  const counts = useQuery({ ...countsQuery(), meta: { background: true } });
   const projects = useInfiniteQuery({ ...myProjects(), meta: { background: true } });
   const saved = useQuery(savedViewsQuery).data ?? [];
 
   const top = SPEC.top.map((item) => ({ ...shown(item), badge: item.badge }));
   const allEntities = shown(SPEC.entities.all);
-  // Each type with records the reader can read, which only its count says: until the
-  // server counts them, All entities alone.
-  const types: (Shown & { count: number })[] =
+  // Each type with records the reader can read, which only the counts say: if they can't
+  // be read, All entities alone.
+  const types: (Shown & { count: number | null })[] =
     counts.data?.types.map((t) => ({
       ...shown({ label: t.label, href: `${SPEC.entities.type}${t.type}/`, app: allEntities.app }),
       count: t.count,
@@ -461,12 +428,12 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       <div className="nav-sub" id={entitiesId} hidden={!open}>
         <NavLink link={allEntities} current={current === allEntities.key}>
           <span className="nav-label">{allEntities.label}</span>
-          {counts.data ? <Count n={counts.data.total} /> : null}
+          {counts.data?.total != null ? <Count n={counts.data.total} /> : null}
         </NavLink>
         {types.map((link) => (
           <NavLink key={link.key} link={link} current={current === link.key}>
             <span className="nav-label">{link.label}</span>
-            <Count n={link.count} />
+            {link.count !== null ? <Count n={link.count} /> : null}
           </NavLink>
         ))}
       </div>

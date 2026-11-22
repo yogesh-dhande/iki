@@ -3308,6 +3308,36 @@
         "title": "CostTotalOut",
         "type": "object"
       },
+      "CountsOut": {
+        "properties": {
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every current record you can read. Null as `count`.",
+            "title": "Total"
+          },
+          "types": {
+            "description": "Each type you can read current records of, by label: the type itself, not its parents, which count nothing of their own.",
+            "items": {
+              "$ref": "#/components/schemas/TypeCountOut"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "types",
+          "total"
+        ],
+        "title": "CountsOut",
+        "type": "object"
+      },
       "CreatedOut": {
         "properties": {
           "amount": {
@@ -3438,6 +3468,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -4505,6 +4543,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -9313,6 +9359,14 @@
             "description": "The people its values name, by ID (ADR 0122).",
             "title": "People",
             "type": "object"
+          },
+          "projects": {
+            "description": "The projects it belongs to that you can read (ADR 0176): its owner project first, then those it's linked into, by name. Projects you can't read aren't named.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Projects",
+            "type": "array"
           },
           "refs": {
             "additionalProperties": {
@@ -16610,6 +16664,12 @@
             "description": "At most this many.",
             "title": "Limit"
           },
+          "mine": {
+            "default": false,
+            "description": "Only your own: the sidebar's saved views.",
+            "title": "Mine",
+            "type": "boolean"
+          },
           "project": {
             "anyOf": [
               {
@@ -16620,7 +16680,7 @@
                 "type": "null"
               }
             ],
-            "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
+            "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
             "title": "Project"
           }
         },
@@ -16635,9 +16695,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it searches. Without one, it searches every project you can read, and is yours alone: it can't be shared.",
+            "title": "Project"
           },
           "query": {
             "$ref": "#/components/schemas/QueryIn"
@@ -16650,7 +16718,6 @@
           }
         },
         "required": [
-          "project",
           "name",
           "query"
         ],
@@ -16680,9 +16747,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project it searches; null for every project you can read.",
+            "title": "Project"
           },
           "query": {
             "additionalProperties": true,
@@ -20517,6 +20592,39 @@
           "material"
         ],
         "title": "TypeAmountOut",
+        "type": "object"
+      },
+      "TypeCountOut": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many current records of it you can read. Null when counting would be slow: then every type that can have records is listed, uncounted.",
+            "title": "Count"
+          },
+          "label": {
+            "description": "What the type calls one of its records, such as Plasmid.",
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type, qualified, such as `iki/dna.Plasmid`.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "count"
+        ],
+        "title": "TypeCountOut",
         "type": "object"
       },
       "TypeNotificationOut": {
@@ -25983,6 +26091,55 @@
         "summary": "Reassign many records",
         "tags": [
           "work"
+        ]
+      }
+    },
+    "/api/v1/entities/counts": {
+      "get": {
+        "description": "How many current records of each type you can read, by the rules that read one: a\nrecord in a project you aren't in counts for nothing (ADR 0176). With ``project``, only\nthose in it, its own and those linked into it.\n\nIt's one grouped query. When Postgres expects it to read more than a million records,\nnothing is counted, and every type that can have records is listed with a null count:\na count is left out rather than made slow, or estimated.",
+        "operationId": "iki_server_api_entities_count_entities",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How many records you can read",
+        "tags": [
+          "entities"
         ]
       }
     },
@@ -34164,11 +34321,11 @@
     },
     "/api/v1/saved-searches": {
       "get": {
-        "description": "A project's: yours, and those shared with it. Without a project, yours in every\nproject you can read (the sidebar's saved views, ADR 0176). By name.",
+        "description": "Yours, and those shared with the project, by name. Without a project: every one you\nsee, your searches of every project among them. Only your own with ``mine`` (the\nsidebar's saved views, ADR 0176).",
         "operationId": "iki_server_api_searches_list_saved_searches",
         "parameters": [
           {
-            "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
+            "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
             "in": "query",
             "name": "project",
             "required": false,
@@ -34182,8 +34339,20 @@
                   "type": "null"
                 }
               ],
-              "description": "Its searches you see: yours, and those shared with it. Without one, yours in every project you can read.",
+              "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
               "title": "Project"
+            }
+          },
+          {
+            "description": "Only your own: the sidebar's saved views.",
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only your own: the sidebar's saved views.",
+              "title": "Mine",
+              "type": "boolean"
             }
           },
           {

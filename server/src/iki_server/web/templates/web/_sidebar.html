@@ -31,7 +31,7 @@ shows, open.
     <button class="nav-item nav-toggle" type="button" aria-expanded="{% if nav.entities_open %}true{% else %}false{% endif %}" aria-controls="nav-entities" data-entities-toggle>
       {% include "web/_icon.html" with paths=nav.icons.entities %}<span class="nav-label">{{ nav.labels.entities }}</span>{% include "web/_icon.html" with paths=nav.icons.chevron %}
     </button>
-    <div class="nav-sub" id="nav-entities"{% if not nav.entities_open %} hidden{% endif %} data-entity-types data-counts="{{ nav.counts_url }}">
+    <div class="nav-sub" id="nav-entities"{% if not nav.entities_open %} hidden{% endif %} data-entity-types>
       <a class="nav-item" href="{{ nav.all_entities.href }}"{% if nav.all_entities.current %} aria-current="page"{% endif %}><span class="nav-label">{{ nav.all_entities.label }}</span></a>
     </div>
     {% for link in nav.work %}<a class="nav-item" href="{{ link.href }}"{% if link.current %} aria-current="page"{% endif %}>{% include "web/_icon.html" with paths=link.icon %}<span class="nav-label">{{ link.label }}</span></a>

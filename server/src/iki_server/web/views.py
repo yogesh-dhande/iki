@@ -39,7 +39,6 @@ def app(request: HttpRequest, **_: str) -> HttpResponse:
         logger_web.exception("web_app_not_built")
         assets = None
     from iki_server.scim.tokens import scim_enabled
-    from iki_server.web.navigation import entity_counts_url
 
     return render(
         request,
@@ -49,8 +48,6 @@ def app(request: HttpRequest, **_: str) -> HttpResponse:
             # Whether accounts come only from the identity provider (ADR 0026), for the
             # forms that add people: the same for everyone.
             "provisioning": "scim" if scim_enabled() else "",
-            # Whether the API counts each type's records, for the sidebar (ADR 0176).
-            "entity_counts": entity_counts_url(),
         },
         status=200 if assets else 503,
     )

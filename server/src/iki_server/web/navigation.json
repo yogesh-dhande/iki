@@ -154,21 +154,23 @@
     "icon": "entities",
     "all": {
       "label": "All entities",
-      "href": "/entities/"
+      "href": "/entities/",
+      "app": true
     },
-    "type": "/entities/types/",
-    "counts": "/api/v1/entities/counts"
+    "type": "/entities/types/"
   },
   "work": [
     {
       "label": "Requests",
       "href": "/requests/",
-      "icon": "requests"
+      "icon": "requests",
+      "app": true
     },
     {
       "label": "Runs",
       "href": "/runs/",
-      "icon": "runs"
+      "icon": "runs",
+      "app": true
     }
   ],
   "saved": {

@@ -8,6 +8,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  addFilter,
   ALICE,
   entity,
   field,
@@ -195,6 +196,11 @@ describe("a project's entities", () => {
     expect(link).toHaveAttribute("download");
     const address = new URL(link.getAttribute("href") ?? "", "https://iki.example.org");
     expect(address.pathname).toBe("/api/v1/entities/search.csv");
+    // The columns the grid shows, in its order, then what a re-upload needs (ADR 0175).
+    const columns = address.searchParams.getAll("columns");
+    expect(columns.slice(0, 3)).toEqual(["hrid", "name", "sequence"]);
+    expect(columns.slice(-3)).toEqual(["updated_at", "revision", "id"]);
+    address.searchParams.delete("columns");
     expect(Object.fromEntries(address.searchParams)).toEqual({
       type: "iki/protein.Protein",
       project: KINASE.id,
@@ -203,8 +209,8 @@ describe("a project's entities", () => {
       sort: "name",
       descending: "true",
     });
-    // Tab reaches it from the grid's filters, before the grid's own rows.
-    screen.getByRole("button", { name: /^Filters/ }).focus();
+    // Tab reaches it from the search box, before the grid's own rows.
+    screen.getByRole("searchbox", { name: "Search" }).focus();
     for (let presses = 0; presses < 10 && document.activeElement !== link; presses += 1) {
       await user.tab();
     }
@@ -315,29 +321,29 @@ describe("a project's entities", () => {
       "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     await screen.findByRole("table", { name: "1 protein" });
-    await user.click(screen.getByRole("button", { name: "Filters" }));
-    const panel = screen.getByRole("region", { name: "Filters" });
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "Molecular weight");
-    await user.selectOptions(within(panel).getByLabelText("Filter 1: condition"), "is at least");
-    await user.type(within(panel).getByLabelText("Filter 1: value"), "50");
+    const editor = await addFilter(user, "Molecular weight");
+    await user.selectOptions(within(editor).getByLabelText("Filter 1: condition"), "is at least");
+    await user.type(within(editor).getByLabelText("Filter 1: value"), "50");
     const want = [{ field: "molecular_weight", op: "gte", value: 50 }];
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.Protein", filters: want });
     });
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({ where: { all: want } });
-    expect(screen.getByRole("button", { name: "Filters (1)" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
+    const chips = screen.getByRole("group", { name: "Filters" });
+    expect(
+      within(chips).getByRole("button", {
+        name: /^Filter 1: Molecular weight is at least 50/,
+      }),
+    ).toBeVisible();
 
-    // What can't be searched for says why, and isn't sent.
-    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
-    await user.selectOptions(within(panel).getByLabelText("Filter 2: field"), "Last changed");
-    await user.selectOptions(within(panel).getByLabelText("Filter 2: condition"), "is after");
-    expect(within(panel).getByLabelText("Filter 2: value")).toBeInTheDocument();
-    await user.click(within(panel).getByRole("button", { name: "Remove filter 1" }));
+    // What can't be searched for yet isn't sent.
+    const second = await addFilter(user, "Last changed");
+    await user.selectOptions(within(second).getByLabelText("Filter 2: condition"), "is after");
+    expect(within(second).getByLabelText("Filter 2: value")).toBeInTheDocument();
+    await user.click(within(second).getByRole("button", { name: "Done" }));
+    await user.click(within(chips).getByRole("button", { name: /^Remove filter 1:/ }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.Protein" });
     });
@@ -352,9 +358,12 @@ describe("a project's entities", () => {
     const { router, user } = await renderApp(
       `/projects/kinase-atlas/entities/?type=iki/protein.Protein&filters=${filters}`,
     );
-    const panel = await screen.findByRole("region", { name: "Filters" });
-    expect(within(panel).getByLabelText("Filter 1: value")).toHaveValue("abl");
-    expect(within(panel).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
+    const chip = await screen.findByRole("button", { name: "Filter 1: Name contains abl" });
+    await user.click(chip);
+    const editor = await screen.findByRole("dialog");
+    expect(within(editor).getByLabelText("Filter 1: value")).toHaveValue("abl");
+    expect(within(editor).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
     await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.ProteinStructure" });

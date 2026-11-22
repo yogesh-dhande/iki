@@ -1,6 +1,7 @@
-"""Saved searches of a project's entities: your own, and those shared with the project.
+"""Saved searches of entities: your own, and those shared with a project.
 
-Run one by sending its ``query`` to ``POST /entities/search`` with its project.
+Run one by sending its ``query`` to ``POST /entities/search`` with its project, or with
+none for a search of every project you can read (ADR 0176).
 """
 
 from datetime import datetime
@@ -34,7 +35,11 @@ class QueryIn(Schema):
 
 
 class SavedSearchIn(Schema):
-    project: UUID
+    project: UUID | None = Field(
+        None,
+        description="The project it searches. Without one, it searches every project you can "
+        "read, and is yours alone: it can't be shared.",
+    )
     name: str = Field(max_length=100)
     query: QueryIn
     shared: bool = Field(False, description="Show it to everyone who can read the project.")
@@ -53,7 +58,9 @@ class SavedSearchCan(Schema):
 
 class SavedSearchOut(Schema):
     id: UUID
-    project: UUID
+    project: UUID | None = Field(
+        description="The project it searches; null for every project you can read."
+    )
     name: str
     query: dict[str, Any] = Field(description="The search, ready for POST /entities/search.")
     shared: bool
@@ -66,9 +73,10 @@ class SavedSearchOut(Schema):
 class SavedSearchFilters(Schema):
     project: UUID | None = Field(
         None,
-        description="Its searches you see: yours, and those shared with it. Without one, "
-        "yours in every project you can read.",
+        description="Only this project's. Without one, every search you see: your own, and "
+        "those shared with projects you can read.",
     )
+    mine: bool = Field(False, description="Only your own: the sidebar's saved views.")
     limit: int | None = Field(None, ge=1, le=100, description="At most this many.")
 
 
@@ -120,7 +128,7 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
         .filter(pk=saved_id)
         .first()
     )
-    if saved is not None:
+    if saved is not None and saved.project_id is not None:
         try:
             project(user, saved.project_id, Action.PROJECT_READ)
         except Problem:
@@ -132,13 +140,16 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
 
 @router.get("/saved-searches", response=list[SavedSearchOut], summary="Saved searches")
 def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]) -> Any:  # noqa: ANN401
-    """A project's: yours, and those shared with it. Without a project, yours in every
-    project you can read (the sidebar's saved views, ADR 0176). By name."""
+    """Yours, and those shared with the project, by name. Without a project: every one you
+    see, your searches of every project among them. Only your own with ``mine`` (the
+    sidebar's saved views, ADR 0176)."""
     me = caller(request)
     if filters.project is None:
-        searches = services.mine(me)
+        searches = services.mine(me) if filters.mine else services.everywhere(me)
     else:
         searches = services.visible(me, project(me, filters.project, Action.PROJECT_READ))
+        if filters.mine:
+            searches = searches.filter(created_by=me)
     searches = searches.select_related("project__team", "created_by").order_by("name", "pk")
     if filters.limit is not None:
         searches = searches[: filters.limit]
@@ -150,7 +161,17 @@ def create_saved_search(request: HttpRequest, payload: SavedSearchIn) -> Any:  #
     """Checked as you, now. Sharing it with the project takes Editor there."""
     me = caller(request)
     require_scope(me, "write")
-    found = project(me, payload.project, Action.PROJECT_READ)
+    found = (
+        project(me, payload.project, Action.PROJECT_READ) if payload.project is not None else None
+    )
+    if found is None and not services.reaches_every_project(me):
+        raise Problem(
+            403,
+            "This token was given only some of your projects, so it can’t save a search of "
+            "every project. Save it in one of its projects, or sign in to the app again and "
+            "allow it all your projects.",
+            code="token_limited_to_projects",
+        )
     try:
         saved = services.create(
             me, found, name=payload.name, query=_query(payload.query), shared=payload.shared

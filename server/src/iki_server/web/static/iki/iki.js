@@ -119,14 +119,14 @@ function setUpSidebar(sidebar) {
   setUpDrawer(sidebar);
 }
 
-// The types of entity with records the reader can read, with how many of each: until the
-// server counts them, which only it can say, All entities alone.
+// The types of entity with records the reader can read, with how many of each (ADR 0176).
+// Where counting would be slow, every type is listed without a count; if the counts can't
+// be read, All entities alone.
 async function showEntityTypes(list) {
-  if (!list.dataset.counts) return;
   let types;
   let total;
   try {
-    const counted = await window.fetch(list.dataset.counts, {
+    const counted = await window.fetch("/api/v1/entities/counts", {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     });
@@ -136,7 +136,7 @@ async function showEntityTypes(list) {
     return;
   }
   const all = list.querySelector("a");
-  all?.append(count(total));
+  if (total !== null) all?.append(count(total));
   for (const t of types) {
     const link = document.createElement("a");
     link.className = "nav-item";
@@ -145,7 +145,7 @@ async function showEntityTypes(list) {
     label.className = "nav-label";
     label.textContent = t.label;
     link.append(label);
-    link.append(count(t.count));
+    if (t.count !== null) link.append(count(t.count));
     if (window.location.pathname.startsWith(link.pathname)) {
       all?.removeAttribute("aria-current");
       link.setAttribute("aria-current", "page");
