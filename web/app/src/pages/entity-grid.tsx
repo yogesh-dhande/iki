@@ -298,7 +298,7 @@ function columnsFor(
 const CAUGHT: Column = {
   key: "caught",
   label: "Rules",
-  width: "minmax(16rem, 2fr)",
+  width: "minmax(calc(256rem / 13), 2fr)",
   cell: (e) => {
     const holds = e.holds ?? [];
     const breaches = e.breaches ?? [];
@@ -505,7 +505,7 @@ export function EntityGrid({
   const select: Column = {
     key: "select",
     label: "Select",
-    width: "2.5rem",
+    width: "calc(40rem / 13)",
     header: (
       <Tick
         label={`Select all ${String(rows.length)} shown`}
@@ -570,8 +570,9 @@ export function EntityGrid({
   }, [last, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const captionId = useId();
-  const template = columns.map((c) => c.width ?? "minmax(8rem, 1fr)").join(" ");
-  const minWidth = `${String(columns.filter((c) => !c.width).length * 8 + (selectable ? 2.5 : 0) + (caught ? 16 : 0))}rem`;
+  // In pixels at the stylesheet's 13px rem (ADR 0176), so they scale with the reader's size.
+  const template = columns.map((c) => c.width ?? "minmax(calc(128rem / 13), 1fr)").join(" ");
+  const minWidth = `calc(${String(columns.filter((c) => !c.width).length * 128 + (selectable ? 40 : 0) + (caught ? 256 : 0))}rem / 13)`;
   // The types it offers and their subtypes, an abstract one as any of its kinds.
   const typeOptions = [
     { value: "", label: `All ${plural.many}` },
