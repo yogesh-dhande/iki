@@ -29,7 +29,7 @@ APP_PAGES = [
     "/types/acme/dna.DNASequence/",
     "/entities/DNA-000001/",
     "/entities/DNA-000001/edit/",
-    "/entities/DNA-000001/history/",
+    "/entities/DNA-000001/audit/",
     "/entities/DNA-000001/lineage/",
     "/entities/PRT-000001/components/acme/protein.residues/",
     "/entities/PRT-000001/viewers/sequence/",

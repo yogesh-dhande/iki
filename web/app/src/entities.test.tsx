@@ -963,10 +963,8 @@ describe("an entity's page", () => {
       values: {},
       changes: { resolution: { before: 2.4, after: 2.1 } },
     });
-    // Its old address is its audit trail's now.
-    const { router, user } = await renderApp("/entities/PST-000001/history/");
+    const { user } = await renderApp("/entities/PST-000001/audit/");
     expect(await screen.findByText("Revision 2: Edited by Rosalind Franklin")).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/entities/PST-000001/audit/");
     expect(screen.getByText("Revision 1: Created by Rosalind Franklin")).toBeInTheDocument();
     // Its tab counts the revisions, in words to screen readers.
     const tab = screen.getByRole("link", { name: /^Audit trail,\s*2\s*revisions$/ });
@@ -1103,7 +1101,7 @@ describe("an entity's page", () => {
         }),
       ]),
     );
-    await renderApp("/entities/PST-000001/history/");
+    await renderApp("/entities/PST-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
     expect(within(first).getByRole("listitem")).toHaveTextContent(
@@ -1161,7 +1159,7 @@ describe("an entity's page", () => {
       "GET /api/v1/entities/PRT-000001/revisions",
       page([revision({ number: 1, submitted: { sequence: "mkwv*" } })]),
     );
-    await renderApp("/entities/PRT-000001/history/");
+    await renderApp("/entities/PRT-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
     const given = document.querySelector(".row-submitted");
     expect(given).toHaveTextContent(

@@ -63,8 +63,6 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/", web.app, name="entity"),
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/audit/", web.app, name="entity_audit"),
-    # The audit trail's address before ADR 0176: the app sends it on to audit/.
-    path("entities/<str:ref>/history/", web.app, name="entity_history"),
     path("entities/<str:ref>/lineage/", web.app, name="entity_lineage"),
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<qualified:name>/", web.app, name="entity_component"),

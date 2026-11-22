@@ -280,7 +280,7 @@ describe("a project's record of a registry entry", () => {
             },
           ),
     );
-    const { router, user } = await renderApp("/entities/PRT-000001/history/");
+    const { router, user } = await renderApp("/entities/PRT-000001/audit/");
     expect(screen.getByRole("heading", { level: 1, name: "PRT-000001" })).toBeVisible();
     expect(
       screen.getByText(
@@ -291,7 +291,6 @@ describe("a project's record of a registry entry", () => {
       screen.getByRole("region", { name: "Which project’s record?" }),
     ).getAllByRole("link");
     expect(choices.map((c) => c.textContent)).toEqual(["Antibody Lab", "Kinase Atlas"]);
-    // Its history's old address asks on its audit trail's.
     expect(choices[1]).toHaveAttribute("href", "/entities/PRT-000001/audit/?project=kinase-atlas");
     answer(`GET /api/v1/entities/${PROTEIN_ID}/revisions`, page([revision()]));
     answer(`GET /api/v1/entries/${ENTRY_ID}/revisions`, page([]));

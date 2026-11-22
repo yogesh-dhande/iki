@@ -10,7 +10,6 @@ import {
   createRouter,
   lazyRouteComponent,
   Outlet,
-  redirect,
   type RouterHistory,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
@@ -449,15 +448,6 @@ const entityAuditRoute = createRoute({
   component: EntityAudit,
 });
 
-// Where its history was before it became the audit trail: links and bookmarks keep working.
-const entityHistoryRoute = createRoute({
-  getParentRoute: () => entityRoute,
-  path: "history",
-  beforeLoad: ({ params, search }) => {
-    redirect({ to: "/entities/$ref/audit/", params, search, replace: true, throw: true });
-  },
-});
-
 const entityLineageRoute = createRoute({
   getParentRoute: () => entityRoute,
   path: "lineage",
@@ -599,7 +589,6 @@ const routeTree = rootRoute.addChildren([
     entityOverviewRoute,
     entityEditRoute,
     entityAuditRoute,
-    entityHistoryRoute,
     entityLineageRoute,
     entityViewerRoute,
     entityComponentRoute,
