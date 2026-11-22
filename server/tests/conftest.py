@@ -45,6 +45,12 @@ FAKE_WEB_APP_MANIFEST = {
         "isEntry": True,
         "imports": ["_vendor-test.js"],
     },
+    "src/search-entry.tsx": {
+        "file": "assets/search-entry-test.js",
+        "src": "src/search-entry.tsx",
+        "isEntry": True,
+        "imports": ["_vendor-test.js"],
+    },
     "_vendor-test.js": {"file": "assets/vendor-test.js"},
 }
 
