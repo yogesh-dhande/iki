@@ -212,3 +212,57 @@ def test_a_sample_manifest_is_imported_from_the_entities_tab(
     # "1,250" µg/mL with a decimal point, in the field's mg/mL; 03/04/2027 day first.
     assert by_label["EGFR-KD-002"]["concentration"] == pytest.approx(1.25)
     assert str(by_label["ABL1-KD-002"]["due_on"]) == "2027-04-03"
+
+
+def test_a_workbook_already_in_the_project_is_picked_from_its_files(
+    open_as: Any, world: World, tasks: Server
+) -> None:
+    from iki_server.files.models import File
+    from iki_server.spreadsheets.models import SpreadsheetImport
+
+    kinases(world)
+    page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}")
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", level=2, name="Import a spreadsheet").wait_for()
+    # Someone uploaded the core's manifest once, and left that import.
+    page.locator("input[type=file]").first.set_input_files(
+        {
+            "name": "kinase-domains-batch-12.xlsx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "buffer": xlsx(("About", ABOUT), ("Samples", SAMPLES)),
+        }
+    )
+    page.get_by_role("heading", level=3, name="Sheet and rows").wait_for(timeout=60_000)
+    page.get_by_role("button", name="Discard", exact=True).click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Discard", exact=True).click()
+    page.wait_for_url(re.compile(r"/projects/kinase-atlas/entities/$"))
+
+    # Importing it again starts from the project's Files: the picker lists workbooks only.
+    page.get_by_role("link", name="Import", exact=True).click()
+    choose = page.get_by_role("button", name="Or choose one already in Kinase Atlas")
+    # What its rows are is asked first, as the import needs it.
+    choose.click()
+    page.get_by_text("Choose what its rows are first.").wait_for()
+    page.get_by_role("combobox", name="Its rows are").select_option(SAMPLE)
+    choose.click()
+    picker = page.get_by_role("dialog", name="Choose a file for the import")
+    picker.get_by_text("It takes Excel (.xlsx) or CSV (.csv) files, up to 100 MiB.").wait_for()
+    workbook = picker.get_by_role("radio", name="kinase-domains-batch-12.xlsx")
+    workbook.wait_for()
+    checked(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL), page.url
+    checked(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    workbook.click()
+    page.wait_for_url(re.compile(r"/entities/import/[0-9a-f-]+/$"), timeout=60_000)
+    page.get_by_role("heading", level=3, name="Sheet and rows").wait_for(timeout=60_000)
+    expect(
+        page.get_by_role("heading", level=2, name=re.compile("^Import kinase-domains"))
+    ).to_be_visible()
+    checked(page)
+
+    # One file, kept as it was: both imports name it, and nothing was uploaded again.
+    (kept,) = File.objects.filter(project=world.project, name="kinase-domains-batch-12.xlsx")
+    imports = SpreadsheetImport.objects.filter(project=world.project).order_by("created_at")
+    assert [i.file_id for i in imports] == [kept.pk, kept.pk]

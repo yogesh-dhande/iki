@@ -280,11 +280,63 @@ describe("where an import starts", () => {
     expect(within(steps).getByText("Workbook").closest("li")?.getAttribute("aria-current")).toBe(
       "step",
     );
-    const input = screen.getByLabelText("Workbook");
+    const input = screen.getByLabelText("Upload a workbook");
     expect(input.getAttribute("accept")).toContain(".xlsx");
     await user.upload(input, new File(["a,b\n1,2\n"], "plates.csv", { type: "text/csv" }));
     expect(await screen.findByText("Choose what its rows are first.")).toBeTruthy();
     expect(calls("POST")).toEqual([]);
+  });
+
+  it("imports a workbook the project has already, picked from its Files", async () => {
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    const workbook = {
+      id: "00000000-0000-7000-8000-0000000051f1",
+      name: "kinases.xlsx",
+      media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      size: 18_432,
+      sha256: "a".repeat(64),
+      project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+      created_by: null,
+      agent: null,
+      created_at: "2026-11-11T09:00:00Z",
+      external: false,
+      acquired: null,
+      used_by: { records: 0, runs: 0 },
+    };
+    answer("GET /api/v1/files", page([workbook]));
+    answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
+    answer("GET /api/v1/files/formats", [{ media_type: workbook.media_type, count: 1 }]);
+    answer(`POST /api/v1/projects/${KINASE.id}/spreadsheet-imports`, respond(201, sheet()));
+    answer(`GET ${BASE}`, sheet());
+    const { router, user } = await renderApp(
+      `/projects/kinase-atlas/entities/import/?type=${PROTEIN.name}`,
+    );
+    await user.click(screen.getByRole("button", { name: "Or choose one already in Kinase Atlas" }));
+    const picker = await screen.findByRole("dialog", { name: "Choose a file for the import" });
+    expect(
+      within(picker).getByText("It takes Excel (.xlsx) or CSV (.csv) files, up to 100 MiB."),
+    ).toBeTruthy();
+    // Only workbooks are listed.
+    await waitFor(() => {
+      const asked = calls("GET", "/api/v1/files").at(-1)?.query;
+      expect(asked?.get("project")).toBe(KINASE.id);
+      expect(asked?.get("max_size")).toBe(String(100 * 1024 * 1024));
+      expect(asked?.getAll("accepts").sort()).toEqual([
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+      ]);
+    });
+    await user.click(await within(picker).findByRole("radio", { name: "kinases.xlsx" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe(`/projects/kinase-atlas/entities/import/${ID}/`);
+    });
+    // Nothing is uploaded: the import reads the project's file as it is.
+    expect(calls("POST", "/api/v1/uploads")).toEqual([]);
+    expect(calls("POST", `/api/v1/projects/${KINASE.id}/spreadsheet-imports`)[0]?.body).toEqual({
+      file: workbook.id,
+      type: PROTEIN.name,
+    });
   });
 
   it("starts with the type it was asked for", async () => {

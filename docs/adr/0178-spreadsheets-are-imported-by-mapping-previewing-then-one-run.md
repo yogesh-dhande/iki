@@ -6,7 +6,8 @@
   [0052](0052-imports-file-params-and-origins.md),
   [0056](0056-bulk-imports.md),
   [0082](0082-unique-fields-link-records-in-other-systems.md),
-  [0115](0115-registries-keep-identities-projects-keep-records.md)
+  [0115](0115-registries-keep-identities-projects-keep-records.md),
+  [0177](0177-a-projects-files-are-found-by-name-and-say-what-uses-them.md)
 
 ## Context
 
@@ -41,7 +42,11 @@ order. Origins (ADR 0052) say where each record came from, and files (ADR 0036) 
 A spreadsheet import (`iki_spreadsheet_import`) takes an XLSX workbook or a
 CSV file added to a project, and the type its rows become. It's the
 requester's until it's committed; it needs them to be able to add records to
-the project, and the workbook to be the project's.
+the project, and the workbook to be one of the project's files that they can
+read, as its Files list them (ADR 0177): added to it, or held by its records.
+The person uploads a workbook, or picks one already there with the file
+picker, held to workbooks and CSV files. A file a record holds stays where it
+is: the import names it, as each record it writes does.
 
 ### 1. Reading the workbook
 

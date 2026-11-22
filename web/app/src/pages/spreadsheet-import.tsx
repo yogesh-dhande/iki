@@ -25,6 +25,7 @@ import { useId, useRef, useState, type ReactNode, type SubmitEvent } from "react
 
 import { fieldErrors, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
+import { FilePicker } from "../file-picker";
 import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
 import {
@@ -141,9 +142,14 @@ function Scroll({
 
 // --- 1. The workbook -----------------------------------------------------------------------
 
+/** The largest workbook Iki reads (ADR 0178). */
+export const WORKBOOK_MAX_SIZE = 100 * 1024 * 1024;
+
 /**
- * Uploads a workbook to the project and starts importing it as `type`'s records. Its
- * `onStarted` gets the import, once Iki has it.
+ * The workbook, uploaded to the project or chosen from its Files (ADR 0177), and the type
+ * its rows become; then starts importing it. Either way the workbook is a file of the
+ * project, which each record it imports names. Its `onStarted` gets the import, once Iki
+ * has it.
  */
 export function ChooseWorkbook({
   project,
@@ -163,27 +169,54 @@ export function ChooseWorkbook({
   const [progress, setProgress] = useState<Progress>();
   const [error, setError] = useState<string>();
   const [typeError, setTypeError] = useState<string>();
+  const [picking, setPicking] = useState(false);
+  const [starting, setStarting] = useState<string>();
   const transfer = useRef<AbortController>(undefined);
   const input = useRef<HTMLInputElement>(null);
 
-  async function send(chosen: File) {
-    if (!type) {
-      setTypeError("Choose what its rows are first.");
-      return;
-    }
+  /** Whether the rows' type is chosen: it's asked first, as the import needs it. */
+  function typed(): boolean {
+    if (type) return true;
+    setTypeError("Choose what its rows are first.");
+    return false;
+  }
+
+  async function send(chosen: File, acquiredAt = "") {
+    if (!typed()) return;
     setFile(chosen);
     setError(undefined);
     const controller = new AbortController();
     transfer.current = controller;
     try {
       const kind = /\.(csv|tsv|txt)$/i.test(chosen.name) ? "text/csv" : WORKBOOK_TYPES[0];
-      const uploaded = await upload(chosen, project.id, setProgress, controller.signal, kind);
+      const uploaded = await upload(
+        chosen,
+        project.id,
+        setProgress,
+        controller.signal,
+        kind,
+        acquiredAt,
+      );
       onStarted(await startImport(project.id, uploaded.id, type));
     } catch (caught) {
       if (!controller.signal.aborted) setError(uploadError(caught));
     } finally {
       setProgress(undefined);
       setFile(undefined);
+    }
+  }
+
+  /** A workbook the project has already: imported as it is, not uploaded again. */
+  async function pick(fileId: string, name: string) {
+    if (!typed()) return;
+    setError(undefined);
+    setStarting(name);
+    try {
+      onStarted(await startImport(project.id, fileId, type));
+    } catch (caught) {
+      setError(problemOf(caught).detail || `Iki couldn’t start importing ${name}.`);
+    } finally {
+      setStarting(undefined);
     }
   }
 
@@ -239,34 +272,63 @@ export function ChooseWorkbook({
           )}
         </div>
       ) : (
-        // 61t: once a project's Files can be picked from, offer them here beside the upload.
-        <div className={error ? "field field-invalid" : "field"}>
-          <label htmlFor={`${id}-file`}>Workbook</label>
-          <input
-            ref={input}
-            id={`${id}-file`}
-            type="file"
-            accept={WORKBOOK_ACCEPT}
-            aria-invalid={error ? "true" : undefined}
-            aria-describedby={error ? `${id}-error` : `${id}-help`}
-            onChange={(event) => {
-              const chosen = event.target.files?.[0];
-              event.target.value = "";
-              if (chosen) void send(chosen);
-            }}
-          />
-          {error ? (
-            <p className="field-error" id={`${id}-error`}>
-              {error}
-            </p>
-          ) : (
-            <p className="field-help" id={`${id}-help`}>
-              Up to 100 MiB, with up to a million rows a sheet. A workbook with a password, or an
-              Excel 97–2003 one (.xls), needs saving as .xlsx first.
-            </p>
-          )}
-        </div>
+        <>
+          <div className={error ? "field field-invalid" : "field"}>
+            <label htmlFor={`${id}-file`}>Upload a workbook</label>
+            <input
+              ref={input}
+              id={`${id}-file`}
+              type="file"
+              accept={WORKBOOK_ACCEPT}
+              disabled={starting !== undefined}
+              aria-invalid={error ? "true" : undefined}
+              aria-describedby={error ? `${id}-error` : `${id}-help`}
+              onChange={(event) => {
+                const chosen = event.target.files?.[0];
+                event.target.value = "";
+                if (chosen) void send(chosen);
+              }}
+            />
+            {error ? (
+              <p className="field-error" id={`${id}-error`}>
+                {error}
+              </p>
+            ) : (
+              <p className="field-help" id={`${id}-help`}>
+                Up to 100 MiB, with up to a million rows a sheet. A workbook with a password, or an
+                Excel 97–2003 one (.xls), needs saving as .xlsx first.
+              </p>
+            )}
+          </div>
+          <div className="field">
+            <Button
+              busy={starting !== undefined}
+              busyText={`Starting ${starting ?? ""}…`}
+              onClick={() => {
+                if (typed()) setPicking(true);
+              }}
+            >
+              Or choose one already in {project.name}
+            </Button>
+          </div>
+        </>
       )}
+      {/* The project's Files, held to workbooks: one already there is imported as it is. */}
+      <FilePicker
+        isOpen={picking}
+        onClose={() => {
+          setPicking(false);
+        }}
+        projectId={project.id}
+        label="the import"
+        takes={{ accepts: WORKBOOK_TYPES, maxSize: WORKBOOK_MAX_SIZE }}
+        onChoose={([chosen]) => {
+          if (chosen) void pick(chosen.id, chosen.name);
+        }}
+        onUpload={([chosen], acquiredAt) => {
+          if (chosen) void send(chosen, acquiredAt);
+        }}
+      />
     </section>
   );
 }

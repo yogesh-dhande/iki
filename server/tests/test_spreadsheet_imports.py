@@ -572,6 +572,44 @@ def test_a_workbook_must_be_one_the_project_has(world: World) -> None:
         assert made.status_code == 422
 
 
+def test_a_workbook_a_record_of_the_project_holds_is_one_it_has(world: World) -> None:
+    # The project's Files are those added to it and those its records hold (ADR 0177): the
+    # importer takes any of them, as its picker lists them.
+    other = Project.objects.create(team=world.team, name="Cloning")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    held = add(
+        api_as(world),
+        world,
+        xlsx(("Samples", MANIFEST)),
+        name="vendor-coa.xlsx",
+        media_type=XLSX_TYPE,
+        project=str(other.pk),
+    )["file"]["id"]
+    abl1 = proteins(world)["ABL1"]
+    services.create(
+        world.users["editor"],
+        SAMPLE,
+        world.project,
+        {"label": "ABL1-KD-000", "additions": [{"material": abl1["id"], "certificate": held}]},
+    )
+    made = api_as(world).post(
+        f"/projects/{world.project.pk}/spreadsheet-imports", {"file": held, "type": SAMPLE}
+    )
+    assert made.status_code == 201, made.content
+    assert made.json()["file"]["id"] == held
+    # Someone who can't read it can't import it, though the project holds it.
+    outsider = Project.objects.create(team=world.team, name="Elsewhere")
+    ProjectMembership.objects.create(
+        project=outsider, user=world.users["outsider"], role=ProjectRole.EDITOR
+    )
+    refused = api_as(world, "outsider").post(
+        f"/projects/{outsider.pk}/spreadsheet-imports", {"file": held, "type": SAMPLE}
+    )
+    assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/file"
+
+
 def test_an_import_is_its_requesters_until_its_committed(world: World) -> None:
     proteins(world)
     imported = started(world, xlsx(("Samples", MANIFEST)))

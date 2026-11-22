@@ -37,7 +37,7 @@ from typing import Any, cast
 import structlog
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -48,8 +48,8 @@ from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import Invalid, referable, shape
+from iki_server.files import listing, storage
 from iki_server.files import services as files
-from iki_server.files import storage
 from iki_server.files.models import File
 from iki_server.org import permissions
 from iki_server.org.models import Project, registry_of
@@ -166,10 +166,19 @@ def start(user: User, project: Project, file_id: uuid.UUID, type_name: str) -> S
     why = entities.frozen(shape(type_name))
     if why:
         raise Refused(why, field="type")
-    file = files.readable(user).filter(pk=file_id, project=project).select_related("blob").first()
+    # One of the project's Files (ADR 0177), as its picker lists them: added to it, or held
+    # by its records. A file it holds stays where it is; the import names it.
+    added, held = listing.branches(user, project)
+    file = (
+        files.readable(user)
+        .filter(pk=file_id)
+        .filter(Q(pk__in=added.values("pk")) | Q(pk__in=held.values("pk")))
+        .select_related("blob")
+        .first()
+    )
     if file is None:
         raise Refused(
-            f"Give a file added to {project.name} that you can read: a workbook, or a CSV file.",
+            f"Give one of {project.name}’s files that you can read: a workbook, or a CSV file.",
             field="file",
         )
     with transaction.atomic():
