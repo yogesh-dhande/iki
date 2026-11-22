@@ -243,6 +243,15 @@ def test_cells_that_read_two_ways_are_flagged_until_the_locale_is_said(world: Wo
         ("1,234", None, True),
         ("2,5", "2.5 mg/mL", False),
     ]
+    # A quantity in another unit than its field's reads in both, as it would be kept.
+    sample = {
+        r["field"]: r["cells"] for r in started(world, xlsx(("Samples", MANIFEST)))["readings"]
+    }
+    assert [c["reads_as"] for c in sample["concentration"]] == [
+        "1\xa0250 ug/mL = 1.25 mg/mL",
+        "980 ug/mL = 0.98 mg/mL",
+        "2.1 mg/mL",
+    ]
     assert readings["due_on"][0]["problem"] == (
         "reads as 3 April 2027 day first, and 4 March 2027 month first: say which the sheet's "
         "dates are."

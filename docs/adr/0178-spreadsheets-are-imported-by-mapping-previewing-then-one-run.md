@@ -103,7 +103,7 @@ columns are Excel serial dates. A column may say otherwise. Until they have,
 nothing is guessed:
 
 - A cell that reads two ways is a problem of its own kind, `ambiguous`,
-  saying both readings: `1,234` "reads as 1,234 with a decimal point, and
+  saying both readings: `1,234` "reads as 1 234 with a decimal point, and
   1.234 with a decimal comma"; `03/04/2026` "reads as 3 April 2026 day first,
   and 4 March 2026 month first".
 - A cell that reads only one way is read so: `1,5`, `1.234,5`, `31/12/2026`.
@@ -113,7 +113,13 @@ nothing is guessed:
   date only when the person says the sheet has serial dates.
 
 Before the preview, and in it, the import shows a few of each mapped number
-and date column's own cells, each as it reads, or both ways it could. The
+and date column's own cells, each as it reads, or both ways it could: those
+written as text, which read by how the sheet writes them, and a couple the
+workbook stored as numbers or dates, which read one way only. It says
+numbers as SI does (ISO 80000-1): a decimal point, and thousands apart by a
+space, never a comma or a point, which would be the very ambiguity it
+shows. Dates are ISO 8601. A quantity in another unit than its field's reads
+in both, as it would be kept: `1 250 ug/mL = 1.25 mg/mL`. The
 locale chosen is kept with the import, in its run's params, and in the audit
 trail, as a saved mapping keeps it.
 

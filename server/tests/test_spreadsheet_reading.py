@@ -282,9 +282,11 @@ def test_numbers_read_as_the_sheet_writes_them() -> None:
 
 
 def test_a_number_that_reads_two_ways_is_flagged_until_the_sheets_locale_is_said() -> None:
+    # Said with thousands apart by a narrow space, as SI writes them: "1,234" or "1.234"
+    # would be the ambiguity itself.
     assert ambiguous(PURITY, "1,234") == (
-        "reads as 1,234 with a decimal point, and 1.234 with a decimal comma: say which the "
-        "sheet's numbers have."
+        "reads as 1\xa0234 with a decimal point, and 1.234 with a decimal comma: say which "
+        "the sheet's numbers have."
     )
     assert "decimal" in ambiguous(PURITY, "1.234")
     assert "decimal" in ambiguous(CONCENTRATION, "2,500 mg/mL")

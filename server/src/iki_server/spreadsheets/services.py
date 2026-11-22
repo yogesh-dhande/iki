@@ -74,6 +74,7 @@ from iki_server.spreadsheets.workbooks import (
     open_workbook,
     text_of,
 )
+from iki_spec import units
 from iki_spec.model import Action as SpecAction
 from iki_spec.model import Creates, Field
 
@@ -360,6 +361,8 @@ def _locale_errors(given: Mapping[str, Any]) -> dict[str, list[str]]:
 
 #: The most cells :func:`readings` shows a column.
 READINGS = 6
+#: Of them, the most the workbook stored as numbers or dates, which read one way only.
+STORED_READINGS = 2
 
 
 def readings(imported: SpreadsheetImport) -> list[dict[str, Any]]:
@@ -382,7 +385,10 @@ def readings(imported: SpreadsheetImport) -> list[dict[str, Any]]:
         if item.type not in ("int", "float", "quantity", "date", "datetime"):
             continue
         under = column.under(locale)
-        shown = []
+        # The cells whose text reads by how the sheet writes it come first: they're what the
+        # person checks. Then a couple the workbook stored, which read one way only.
+        shown: list[dict[str, Any]] = []
+        stored: list[dict[str, Any]] = []
         for number, row in enumerate(typed, start=1):
             if number < imported.first_row or (imported.last_row and number > imported.last_row):
                 continue
@@ -401,27 +407,32 @@ def readings(imported: SpreadsheetImport) -> list[dict[str, Any]]:
             except ValueError as error:
                 entry |= {"reads_as": None, "ambiguous": False, "problem": str(error)}
             else:
-                entry |= {"reads_as": _reading(value), "ambiguous": False, "problem": None}
-            shown.append(entry)
+                entry |= {"reads_as": _reading(value, item), "ambiguous": False, "problem": None}
+            (stored if entry["stored"] else shown).append(entry)
             if len(shown) >= READINGS:
                 break
-        if shown:
-            out.append({"column": column.index, "field": f.name, "kind": kind, "cells": shown})
+        picked = sorted(shown + stored[: max(0, min(STORED_READINGS, READINGS - len(shown)))],
+                        key=lambda e: int(e["row"]))
+        if picked:
+            out.append({"column": column.index, "field": f.name, "kind": kind, "cells": picked})
     return out
 
 
-def _reading(value: Any) -> str:  # noqa: ANN401 - JSON
+def _reading(value: Any, f: Field) -> str:  # noqa: ANN401 - JSON
+    """A cell's value as it reads, for the person to check: a quantity in its own unit,
+    and in the field's when that's another, as it would be kept."""
     if isinstance(value, list):
-        return "; ".join(_reading(v) for v in value)
+        return "; ".join(_reading(v, f) for v in value)
     if isinstance(value, dict) and "value" in value:
-        return f"{_number_text(value['value'])} {value['unit']}"
+        said = f"{cells.shown(value['value'])} {value['unit']}"
+        if f.unit and value["unit"] != f.unit:
+            with contextlib.suppress(units.UnitError):
+                kept = units.convert(float(value["value"]), value["unit"], f.unit)
+                said += f" = {cells.shown(kept)} {f.unit}"
+        return said
     if isinstance(value, int | float) and not isinstance(value, bool):
-        return _number_text(value)
+        return cells.shown(value)
     return str(value)
-
-
-def _number_text(number: float | int) -> str:
-    return f"{number:,}" if isinstance(number, int) else f"{number:,.10g}"
 
 
 def _why_not_changed(imported: SpreadsheetImport) -> str:

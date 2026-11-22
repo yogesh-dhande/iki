@@ -355,7 +355,7 @@ def _parse_number(column: Column, text: str) -> float | int:
         if len(readings) > 1:
             point, comma = _as_point(cleaned), _as_comma(cleaned)
             raise Ambiguous(
-                f"reads as {_shown(point)} with a decimal point, and {_shown(comma)} with a "
+                f"reads as {shown(point)} with a decimal point, and {shown(comma)} with a "
                 "decimal comma: say which the sheet's numbers have."
             )
         if readings:
@@ -366,7 +366,7 @@ def _parse_number(column: Column, text: str) -> float | int:
         other = _as_point(cleaned) if column.decimal == "comma" else _as_comma(cleaned)
         hint = (
             f" With a decimal {'point' if column.decimal == 'comma' else 'comma'} it would be "
-            f"{_shown(other)}: check how the sheet's numbers are written."
+            f"{shown(other)}: check how the sheet's numbers are written."
             if other is not None
             else ""
         )
@@ -396,12 +396,21 @@ def _plain_number(text: str) -> float | int | None:
     return int(text) if re.fullmatch(r"[-+]?\d+", text) else float(text)
 
 
-def _shown(number: float | int | None) -> str:
+#: Between a number's thousands, as SI writes them (ISO 80000-1): a space, no-break, which
+#: reads one way whichever mark a reader's decimals have. A comma or a point there would be
+#: the very ambiguity these readings show.
+THOUSANDS = "\xa0"
+
+
+def shown(number: float | int | None) -> str:
+    """A number as the import says it: a decimal point, thousands apart by a space."""
     if number is None:
         return "nothing"
     if isinstance(number, int) or number.is_integer():
-        return f"{int(number):,}"
-    return f"{number:,.10g}" if abs(number) >= 1000 else f"{number:.10g}"
+        text = f"{int(number):,}"
+    else:
+        text = f"{number:,.10g}" if abs(number) >= 1000 else f"{number:.10g}"
+    return text.replace(",", THOUSANDS)
 
 
 def _quantity(f: Field, column: Column, value: Cell) -> dict[str, Any]:
