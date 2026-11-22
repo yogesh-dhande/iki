@@ -252,7 +252,7 @@ function ViewTabs({ type, search }: { type: EntityType; search: ListSearch }) {
             setSaving(true);
           }}
         >
-          <span aria-hidden="true">+ </span>Save view
+          <span aria-hidden="true">+</span>Save view
         </button>
       ) : null}
       <SaveSearchDialog

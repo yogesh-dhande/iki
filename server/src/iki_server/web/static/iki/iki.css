@@ -3530,6 +3530,7 @@ input[type="file"]::file-selector-button {
 .view-tab {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   min-height: 32px;
   padding: 0 0.65rem;
   border: 0;
