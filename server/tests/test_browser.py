@@ -997,7 +997,8 @@ def test_a_runs_id_is_never_cut_short(open_as: Any, world: World) -> None:
     (run,) = services.launch_each(admin, action, world.project, "protein", [made.entity.pk], {}, {})
     page = open_as("admin", "/runs/")
     table = page.get_by_role("table")
-    table.get_by_role("cell", name=run.hrid, exact=True).wait_for()
+    # The ID, and beneath it the batch it ran in.
+    table.get_by_role("cell", name=re.compile(rf"^{run.hrid}\b.*in BAT-")).wait_for()
     for width in (1440, 390):
         page.set_viewport_size({"width": width, "height": 844})
         cells = page.locator("table td:first-child")
@@ -1050,6 +1051,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     assert_clean(page)
 
     # The address keeps it: a reload, or a shared link, shows the same.
+    page.wait_for_url(re.compile(r"filters=.*temperature_optimum"))
     page.reload()
     page.get_by_role("table", name="1 of 3 proteins").wait_for()
     chip = filters.get_by_role("button", name=re.compile(r"^Filter 2: Temperature optimum"))
