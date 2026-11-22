@@ -109,3 +109,14 @@ No page loads fonts or scripts from outside the deployment.
   before; only where it is shown changes. Part 11's requirement that the
   trail be available for review and copying (§11.10(b), (e)) is met by the
   tab and its export.
+- **The export is the whole trail.** `GET /entities/{ref}/revisions.csv`
+  writes one row per changed field, the record's revisions and then its
+  entry's, with who, how, when (UTC), the reason, the signatures and any
+  holds. It follows ADR 0175's CSV rules, including its guard against
+  formulas, whatever the tab is filtered to, and each download is in the
+  audit log. An entry's revision made through a project the reader can't
+  read says what changed, never who or when, as on the tab.
+- **Filtering by person reveals no one.** `GET /entities/{ref}/contributors`
+  lists only the people whose revisions the reader is told about. On an
+  entry's revisions, a person filter matches only those revisions, except
+  for registrars, who see every revision.
