@@ -26,3 +26,12 @@ createRoot(root).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+// Only the admin plugins pages need the schema preflight form.
+const preflight = document.querySelector<HTMLElement>("[data-plugin-preflight]");
+if (preflight) {
+  const { PluginPreflight } = await import("./plugin-preflight");
+  createRoot(preflight).render(
+    <PluginPreflight plugin={preflight.dataset["pluginPreflight"] ?? ""} />,
+  );
+}

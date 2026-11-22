@@ -10,6 +10,7 @@ import { useState } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "../api";
+import { saveFile } from "../download";
 import type { Entity, EntityType } from "../entities";
 import { Button, ProblemAlert, RadioField, useMessages } from "../ui";
 
@@ -25,20 +26,6 @@ interface Saved {
 function fileName(response: Response, fallback: string): string {
   const header = response.headers.get("Content-Disposition") ?? "";
   return /filename="([^"]+)"/.exec(header)?.[1] ?? fallback;
-}
-
-/** Hands the browser the file to save, under its name. */
-function save(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
 }
 
 function leftOutText(saved: Saved, format: FormatName): string {
@@ -145,7 +132,7 @@ export function ExportDialog({
     const blob = unwrap<Blob>(result);
     const extension = formats.find((f) => f.format === wanted)?.extension ?? "txt";
     const name = fileName(result.response, `${entity.hrid}.${extension}`);
-    save(blob, name);
+    saveFile(blob, name);
     return { name, leftOut: Number(result.response.headers.get("Iki-Left-Out") ?? 0) };
   }, []);
   if (!formats.length || format === undefined) return null;
