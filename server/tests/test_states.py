@@ -81,7 +81,9 @@ def put(
     )
 
 
-def set_(world: World, who: str, ref: str, field: str, state: str, reason: str = "") -> Any:
+def set_(
+    world: World, who: str, ref: str, field: str, state: str, reason: str = ""
+) -> dict[str, Any]:
     answer = put(world, who, ref, field, state, reason)
     assert answer.status_code == 200, answer.content
     body: dict[str, Any] = answer.json()

@@ -317,7 +317,7 @@ def get_request(request: HttpRequest, ref: str, project: UUID | None = None) -> 
     answers 404."""
     me = caller(request)
     entity = _find(me, ref, project)
-    if requests.spec_of(entity.type) is None:
+    if requests.spec_of(entity.type) is None or entity.owner_project_id is None:
         raise Problem(404, f"{entity.hrid} isn’t a request.")
     sent = Request.objects.select_related("service", "submitted_by").filter(entity=entity).first()
     out = _out(me, [entity])[0]
@@ -333,7 +333,7 @@ def get_request(request: HttpRequest, ref: str, project: UUID | None = None) -> 
         else []
     )
     shown = {e.pk: e for e in readable.filter(pk__in=sent_ids).select_related("created_by")}
-    results = list(_results(me, entity))
+    results = _results(me, entity)
     return {
         "request": out,
         "asking_project": out["request"]["asking_project"],
