@@ -182,6 +182,9 @@ class Search:
     descending: bool = False
     #: Only members of this collection: its ID or HRID.
     collection: str | None = None
+    #: Only what this run wrote, or found already written: its ID or HRID. A spreadsheet
+    #: import's records (ADR 0178), say.
+    run: str | None = None
     #: Of any one of these types, or their subtypes: what a reference to several types may
     #: name (ADR 0136). Conditions then name only the columns every entity has.
     types: tuple[str, ...] = ()
@@ -204,6 +207,22 @@ def stored(data: Mapping[str, Any]) -> Search:
         except ValueError:
             raise SearchError([("#/project", "must be a project's ID.")]) from None
     return Search(**values)
+
+
+def _by_run(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
+    """Entities the run wrote, or found written (ADR 0044), as ``user`` may see the run.
+    Raises :class:`SearchError`."""
+    from iki_server.runs.models import RunEffect
+    from iki_server.runs.services import visible_runs
+
+    try:
+        lookup = Q(pk=uuid.UUID(reference))
+    except ValueError:
+        lookup = Q(hrid=reference.upper())
+    run = visible_runs(user).filter(lookup).first()
+    if run is None:
+        raise SearchError([("#/run", "No such run, or you can’t see it.")])
+    return Q(pk__in=RunEffect.objects.filter(run=run).values("entity_id"))
 
 
 def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
@@ -939,6 +958,8 @@ def queryset(
         found = found.filter(archived_at__isnull=not search.archived)
     if search.collection is not None:
         found = found.filter(_in_collection(user, search.collection))
+    if search.run is not None:
+        found = found.filter(_by_run(user, search.run))
     if search.q and search.q.strip():
         names = (
             ({search.type} if search.exact_type else subtypes(search.type))

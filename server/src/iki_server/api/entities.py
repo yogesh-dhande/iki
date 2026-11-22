@@ -1059,6 +1059,12 @@ class EntityFilters(PageParams):
         description="Members of this collection (its ID or HRID): those it lists, or those its "
         "search finds, as you can see them.",
     )
+    run: str | None = Field(
+        None,
+        max_length=100,
+        description="What this run (its ID or HRID) wrote, or found already written: a "
+        "spreadsheet import's records, say.",
+    )
 
 
 OPERATOR = Literal[
@@ -1111,6 +1117,12 @@ class SearchIn(Schema):
         max_length=100,
         description="Members of this collection (its ID or HRID): those it lists, or those its "
         "search finds, as you can see them.",
+    )
+    run: str | None = Field(
+        None,
+        max_length=100,
+        description="What this run (its ID or HRID) wrote, or found already written: a "
+        "spreadsheet import's records, say.",
     )
     where: Condition | None = None
     sort: SortIn | None = None
@@ -2006,6 +2018,7 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
         archived=filters.archived,
         q=filters.q,
         collection=filters.collection,
+        run=filters.run,
     )
     with _searching(parameters=True):
         result = page(search.queryset(me, wanted), filters)
@@ -2065,6 +2078,7 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
         archived=payload.archived,
         q=payload.q,
         collection=payload.collection,
+        run=payload.run,
         where=payload.where.model_dump(by_alias=True, exclude_unset=True)
         if payload.where
         else None,
@@ -2092,6 +2106,9 @@ class SearchCsvParams(Schema):
     )
     collection: str | None = Field(
         None, max_length=100, description="Members of this collection: its ID or HRID."
+    )
+    run: str | None = Field(
+        None, max_length=100, description="What this run wrote: its ID or HRID."
     )
     where: str | None = Field(
         None,
@@ -2137,6 +2154,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
         archived=params.archived,
         q=params.q,
         collection=params.collection,
+        run=params.run,
         where=where,
         sort=params.sort,
         descending=params.descending,

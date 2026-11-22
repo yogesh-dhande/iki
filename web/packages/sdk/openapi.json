@@ -229,7 +229,8 @@
               "self_hosted",
               "backend",
               "container",
-              "vm"
+              "vm",
+              "server"
             ],
             "title": "Tier",
             "type": "string"
@@ -2381,6 +2382,60 @@
         "title": "CarriedSignatureOut",
         "type": "object"
       },
+      "CellReadingOut": {
+        "properties": {
+          "ambiguous": {
+            "title": "Ambiguous",
+            "type": "boolean"
+          },
+          "cell": {
+            "description": "As the sheet shows it.",
+            "title": "Cell",
+            "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "reads_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reads As"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "stored": {
+            "description": "The workbook holds it as a number or a date, so it reads one way only.",
+            "title": "Stored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "row",
+          "cell",
+          "stored",
+          "reads_as",
+          "ambiguous",
+          "problem"
+        ],
+        "title": "CellReadingOut",
+        "type": "object"
+      },
       "CertificationIn": {
         "properties": {
           "reference": {
@@ -2689,6 +2744,41 @@
           }
         },
         "title": "CollectionSearch",
+        "type": "object"
+      },
+      "ColumnReadingOut": {
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/CellReadingOut"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "column": {
+            "title": "Column",
+            "type": "integer"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "numbers",
+              "dates"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "column",
+          "field",
+          "kind",
+          "cells"
+        ],
+        "title": "ColumnReadingOut",
         "type": "object"
       },
       "ComponentEntitiesIn": {
@@ -4373,6 +4463,19 @@
             "description": "Entities whose HRID, or a text field in their title, contains this.",
             "title": "Q"
           },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.",
+            "title": "Run"
+          },
           "type": {
             "anyOf": [
               {
@@ -5932,6 +6035,110 @@
           "states"
         ],
         "title": "FieldOut",
+        "type": "object"
+      },
+      "FieldTargetOut": {
+        "description": "A field of the type a column may set, or why it can't.",
+        "properties": {
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "identity": {
+            "description": "Part of what makes a record the same as another.",
+            "title": "Identity",
+            "type": "boolean"
+          },
+          "item_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list's items' type.",
+            "title": "Item Type"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "to": {
+            "description": "A reference's types: cells name one by HRID or name.",
+            "items": {
+              "type": "string"
+            },
+            "title": "To",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unique": {
+            "title": "Unique",
+            "type": "boolean"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "units": {
+            "description": "Units its quantity's cells may be in, for a form.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Units",
+            "type": "array"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a column can't set it, if it can't.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "type",
+          "item_type",
+          "unit",
+          "units",
+          "choices",
+          "to",
+          "required",
+          "identity",
+          "unique",
+          "why_not"
+        ],
+        "title": "FieldTargetOut",
         "type": "object"
       },
       "FileExportOut": {
@@ -7912,6 +8119,47 @@
           "applicable"
         ],
         "title": "ImportPlan",
+        "type": "object"
+      },
+      "ImportRunRef": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "status",
+          "progress",
+          "message"
+        ],
+        "title": "ImportRunRef",
         "type": "object"
       },
       "ImportSource": {
@@ -10871,6 +11119,35 @@
         "title": "Page[NotificationOut]",
         "type": "object"
       },
+      "Page_PreviewRowOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewRowOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[PreviewRowOut]",
+        "type": "object"
+      },
       "Page_ProjectMemberOut_": {
         "properties": {
           "items": {
@@ -11159,6 +11436,35 @@
           "next_cursor"
         ],
         "title": "Page[SlurmAccountOut]",
+        "type": "object"
+      },
+      "Page_SpreadsheetImportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpreadsheetImportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SpreadsheetImportOut]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -12185,6 +12491,131 @@
           "project_webhooks"
         ],
         "title": "PolicyOut",
+        "type": "object"
+      },
+      "PreviewRowOut": {
+        "properties": {
+          "held": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Held",
+            "type": "array"
+          },
+          "match": {
+            "description": "The HRID it is, or will be a record of.",
+            "title": "Match",
+            "type": "string"
+          },
+          "match_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Id"
+          },
+          "outcome": {
+            "enum": [
+              "create",
+              "register",
+              "add",
+              "reuse",
+              "same",
+              "problem"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SheetProblemOut"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "same_as": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same As"
+          }
+        },
+        "required": [
+          "row",
+          "outcome",
+          "match",
+          "match_id",
+          "same_as",
+          "problems",
+          "held"
+        ],
+        "title": "PreviewRowOut",
+        "type": "object"
+      },
+      "PreviewRowParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "create",
+                    "register",
+                    "add",
+                    "reuse",
+                    "same",
+                    "problem"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only rows with these outcomes.",
+            "title": "Outcome"
+          }
+        },
+        "title": "PreviewRowParams",
         "type": "object"
       },
       "ProjectCan": {
@@ -13218,7 +13649,8 @@
                   "self_hosted",
                   "backend",
                   "container",
-                  "vm"
+                  "vm",
+                  "server"
                 ],
                 "type": "string"
               },
@@ -16683,7 +17115,8 @@
               "self_hosted",
               "backend",
               "container",
-              "vm"
+              "vm",
+              "server"
             ],
             "title": "Tier",
             "type": "string"
@@ -16847,6 +17280,123 @@
           "project"
         ],
         "title": "RunningOut",
+        "type": "object"
+      },
+      "SavedMappingIn": {
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "replace": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved mapping to change, rather than add.",
+            "title": "Replace"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SavedMappingIn",
+        "type": "object"
+      },
+      "SavedMappingMatch": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "match": {
+            "description": "The share of its headers the sheet has.",
+            "title": "Match",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "match"
+        ],
+        "title": "SavedMappingMatch",
+        "type": "object"
+      },
+      "SavedMappingOut": {
+        "properties": {
+          "columns": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "header_row": {
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "headers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/SheetLocaleOut"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "headers",
+          "columns",
+          "header_row",
+          "locale",
+          "created_by",
+          "updated_by",
+          "updated_at"
+        ],
+        "title": "SavedMappingOut",
         "type": "object"
       },
       "SavedSearchCan": {
@@ -17178,6 +17728,19 @@
             "description": "Text in their HRID, or a text field in their title.",
             "title": "Q"
           },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What this run wrote: its ID or HRID.",
+            "title": "Run"
+          },
           "sort": {
             "anyOf": [
               {
@@ -17453,6 +18016,19 @@
             ],
             "description": "Text in their HRID, or a text field in their title.",
             "title": "Q"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.",
+            "title": "Run"
           },
           "sort": {
             "anyOf": [
@@ -18435,6 +19011,418 @@
           "message"
         ],
         "title": "SetupVolumeOut",
+        "type": "object"
+      },
+      "SheetColumnIn": {
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day_first",
+                  "month_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How 03/04/2026 reads, if not as the sheet's locale says.",
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point",
+                  "comma"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A number's decimal mark, if not as the sheet's locale says.",
+            "title": "Decimal"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The field its cells set; null to leave it out.",
+            "title": "Field"
+          },
+          "index": {
+            "description": "The column, from 0 for A.",
+            "minimum": 0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "separator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list's items' separator: `;`.",
+            "title": "Separator"
+          },
+          "serial_dates": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its plain numbers are Excel serial dates, if not as the locale says.",
+            "title": "Serial Dates"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A date and time's, when its cells give none: an IANA name.",
+            "title": "Time Zone"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A quantity's cells' UCUM unit when they don't say one (12.5, not 12.5 ug/mL): the field's, if none. Iki converts them to the field's.",
+            "title": "Unit"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a cell says, for each choice it means: an enumeration's, or for a truth value, true or false.",
+            "title": "Values"
+          }
+        },
+        "required": [
+          "index"
+        ],
+        "title": "SheetColumnIn",
+        "type": "object"
+      },
+      "SheetColumnOut": {
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimal"
+          },
+          "examples": {
+            "description": "Its first few cells under the header.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "header": {
+            "title": "Header",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "letter": {
+            "title": "Letter",
+            "type": "string"
+          },
+          "separator": {
+            "title": "Separator",
+            "type": "string"
+          },
+          "serial_dates": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Dates"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "index",
+          "letter",
+          "header",
+          "field",
+          "unit",
+          "separator",
+          "dates",
+          "time_zone",
+          "decimal",
+          "serial_dates",
+          "values",
+          "examples"
+        ],
+        "title": "SheetColumnOut",
+        "type": "object"
+      },
+      "SheetLocaleIn": {
+        "description": "How the sheet's text writes numbers and dates. Until it's said, a cell that reads\ntwo ways (1,234; 03/04/2026) is a problem, never a guess.",
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day_first",
+                  "month_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.",
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point",
+                  "comma"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "point: 1,234.5; comma: 1.234,5. Null until you know.",
+            "title": "Decimal"
+          },
+          "serial_dates": {
+            "default": false,
+            "description": "Plain numbers in date columns are Excel serial dates (46023).",
+            "title": "Serial Dates",
+            "type": "boolean"
+          }
+        },
+        "title": "SheetLocaleIn",
+        "type": "object"
+      },
+      "SheetLocaleOut": {
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimal"
+          },
+          "serial_dates": {
+            "title": "Serial Dates",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decimal",
+          "dates",
+          "serial_dates"
+        ],
+        "title": "SheetLocaleOut",
+        "type": "object"
+      },
+      "SheetOut": {
+        "properties": {
+          "columns": {
+            "title": "Columns",
+            "type": "integer"
+          },
+          "hidden": {
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "description": "Up to its last row with anything in it.",
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rows",
+          "columns",
+          "hidden"
+        ],
+        "title": "SheetOut",
+        "type": "object"
+      },
+      "SheetProblemOut": {
+        "properties": {
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "ambiguous",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ambiguous: it reads two ways; say how the sheet's text is written.",
+            "title": "Kind"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          }
+        },
+        "required": [
+          "row",
+          "column",
+          "field",
+          "detail"
+        ],
+        "title": "SheetProblemOut",
         "type": "object"
       },
       "SignCan": {
@@ -19663,6 +20651,437 @@
         "title": "SplitIn",
         "type": "object"
       },
+      "SpreadsheetCommitIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why, for its run and the audit trail.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "skip_problems": {
+            "default": false,
+            "description": "Leave out the rows with problems, and import the rest.",
+            "title": "Skip Problems",
+            "type": "boolean"
+          }
+        },
+        "title": "SpreadsheetCommitIn",
+        "type": "object"
+      },
+      "SpreadsheetImportChange": {
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SheetColumnIn"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How each column maps; those not given are left out.",
+            "title": "Columns"
+          },
+          "first_row": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first row imported, from 1.",
+            "title": "First Row"
+          },
+          "header_row": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From 1; 0 when there's none.",
+            "title": "Header Row"
+          },
+          "last_row": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last row imported; 0 for the last.",
+            "title": "Last Row"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A saved mapping to map the columns by.",
+            "title": "Mapping"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "skip": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rows left out besides, as [from, to] ranges.",
+            "title": "Skip"
+          }
+        },
+        "title": "SpreadsheetImportChange",
+        "type": "object"
+      },
+      "SpreadsheetImportIn": {
+        "properties": {
+          "file": {
+            "description": "The workbook: a file added to the project.",
+            "format": "uuid",
+            "title": "File",
+            "type": "string"
+          },
+          "type": {
+            "description": "The entity type its rows become, such as acme/dna.Plasmid.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "type"
+        ],
+        "title": "SpreadsheetImportIn",
+        "type": "object"
+      },
+      "SpreadsheetImportOut": {
+        "properties": {
+          "can": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Can",
+            "type": "object"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/SheetColumnOut"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "encoding": {
+            "description": "A CSV file's, as Iki read it.",
+            "title": "Encoding",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTargetOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "file": {
+            "$ref": "#/components/schemas/WorkbookRef"
+          },
+          "first_row": {
+            "title": "First Row",
+            "type": "integer"
+          },
+          "header_row": {
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "xlsx or csv, once it's read.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Row"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/SheetLocaleOut"
+          },
+          "mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedMappingMatch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The saved mapping it was mapped by."
+          },
+          "mappings": {
+            "description": "The project's saved mappings for the type, best matched first.",
+            "items": {
+              "$ref": "#/components/schemas/SavedMappingMatch"
+            },
+            "title": "Mappings",
+            "type": "array"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpreadsheetPreviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "readings": {
+            "description": "How the mapped columns' numbers and dates read, on the sheet's own cells.",
+            "items": {
+              "$ref": "#/components/schemas/ColumnReadingOut"
+            },
+            "title": "Readings",
+            "type": "array"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportRunRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_problems": {
+            "description": "If its run didn't write it: why, by row and column.",
+            "items": {
+              "$ref": "#/components/schemas/SheetProblemOut"
+            },
+            "title": "Run Problems",
+            "type": "array"
+          },
+          "sample": {
+            "description": "The sheet's first rows, as text.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Sample",
+            "type": "array"
+          },
+          "separator": {
+            "description": "A CSV file's.",
+            "title": "Separator",
+            "type": "string"
+          },
+          "sheet": {
+            "title": "Sheet",
+            "type": "string"
+          },
+          "sheets": {
+            "items": {
+              "$ref": "#/components/schemas/SheetOut"
+            },
+            "title": "Sheets",
+            "type": "array"
+          },
+          "skip": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Skip",
+            "type": "array"
+          },
+          "skip_problems": {
+            "title": "Skip Problems",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "reading",
+              "mapping",
+              "previewing",
+              "previewed",
+              "committing",
+              "importing",
+              "imported",
+              "failed",
+              "cancelled",
+              "discarded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "type",
+          "file",
+          "state",
+          "error",
+          "kind",
+          "encoding",
+          "separator",
+          "requested_by",
+          "created_at",
+          "updated_at",
+          "sheets",
+          "sheet",
+          "header_row",
+          "first_row",
+          "last_row",
+          "skip",
+          "locale",
+          "readings",
+          "sample",
+          "columns",
+          "fields",
+          "mapping",
+          "mappings",
+          "warnings",
+          "preview",
+          "skip_problems",
+          "run",
+          "run_problems",
+          "can"
+        ],
+        "title": "SpreadsheetImportOut",
+        "type": "object"
+      },
+      "SpreadsheetPreviewOut": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Rows by what importing does: create, register (a new registry entry), add (a new record of an entry registered already), reuse (the project's record of it, unchanged), same (as an earlier row), problem; blank and left_out rows; and held (written, then held for review by a plugin's rule).",
+            "title": "Counts",
+            "type": "object"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
+            "type": "number"
+          }
+        },
+        "required": [
+          "phase",
+          "progress",
+          "message",
+          "counts"
+        ],
+        "title": "SpreadsheetPreviewOut",
+        "type": "object"
+      },
       "StartedOut": {
         "properties": {
           "created_at": {
@@ -20685,7 +22104,8 @@
                   "self_hosted",
                   "backend",
                   "container",
-                  "vm"
+                  "vm",
+                  "server"
                 ],
                 "type": "string"
               },
@@ -22250,6 +23670,35 @@
         "title": "WorkItemOut",
         "type": "object"
       },
+      "WorkbookRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "size",
+          "media_type"
+        ],
+        "title": "WorkbookRef",
+        "type": "object"
+      },
       "WorkerFilters": {
         "properties": {
           "cursor": {
@@ -23002,7 +24451,8 @@
                 "self_hosted",
                 "backend",
                 "container",
-                "vm"
+                "vm",
+                "server"
               ],
               "type": "string"
             },
@@ -26228,6 +27678,25 @@
               "description": "Members of this collection (its ID or HRID): those it lists, or those its search finds, as you can see them.",
               "title": "Collection"
             }
+          },
+          {
+            "description": "What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.",
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.",
+              "title": "Run"
+            }
           }
         ],
         "responses": {
@@ -26630,6 +28099,25 @@
               ],
               "description": "Members of this collection: its ID or HRID.",
               "title": "Collection"
+            }
+          },
+          {
+            "description": "What this run wrote: its ID or HRID.",
+            "in": "query",
+            "name": "run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What this run wrote: its ID or HRID.",
+              "title": "Run"
             }
           },
           {
@@ -32930,6 +34418,191 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/spreadsheet-imports": {
+      "get": {
+        "description": "Yours, and those committed, newest first.",
+        "operationId": "iki_server_api_spreadsheets_list_imports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SpreadsheetImportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The project's spreadsheet imports",
+        "tags": [
+          "spreadsheets"
+        ]
+      },
+      "post": {
+        "description": "Starts importing a workbook the project has (an XLSX workbook, or a CSV file) as\nrecords of a type. Iki reads it, then suggests how its columns map. Needs an Editor.",
+        "operationId": "iki_server_api_spreadsheets_start_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpreadsheetImportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadsheetImportOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Import a spreadsheet",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/spreadsheet-mappings": {
+      "get": {
+        "operationId": "iki_server_api_spreadsheets_list_mappings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedMappingOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The project's saved spreadsheet mappings",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/trigger-firings": {
       "get": {
         "description": "Newest first. `trigger` narrows it to one trigger's.",
@@ -35629,6 +37302,413 @@
         "summary": "How a signing went",
         "tags": [
           "signatures"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-imports/{import_id}": {
+      "delete": {
+        "description": "Before it's committed. The workbook stays in the project.",
+        "operationId": "iki_server_api_spreadsheets_discard_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Discard a spreadsheet import",
+        "tags": [
+          "spreadsheets"
+        ]
+      },
+      "get": {
+        "operationId": "iki_server_api_spreadsheets_get_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadsheetImportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A spreadsheet import",
+        "tags": [
+          "spreadsheets"
+        ]
+      },
+      "patch": {
+        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by). Choosing another sheet or header row maps the columns afresh, unless the\ncolumns are given too. A preview starts again.",
+        "operationId": "iki_server_api_spreadsheets_change_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpreadsheetImportChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadsheetImportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose what a spreadsheet import imports",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-imports/{import_id}/commit": {
+      "post": {
+        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with\nproblems stop it, unless ``skip_problems`` leaves them out.",
+        "operationId": "iki_server_api_spreadsheets_commit_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpreadsheetCommitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadsheetImportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Import a previewed spreadsheet",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-imports/{import_id}/mappings": {
+      "post": {
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself.",
+        "operationId": "iki_server_api_spreadsheets_save_mapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedMappingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedMappingOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Save a spreadsheet import's mapping",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-imports/{import_id}/preview": {
+      "post": {
+        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Poll it until it's\n``previewed``.",
+        "operationId": "iki_server_api_spreadsheets_preview_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpreadsheetImportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a spreadsheet import's rows",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-imports/{import_id}/rows": {
+      "get": {
+        "description": "In the sheet's order; ``outcome`` narrows them to those with problems, say.",
+        "operationId": "iki_server_api_spreadsheets_import_rows",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only rows with these outcomes.",
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "create",
+                      "register",
+                      "add",
+                      "reuse",
+                      "same",
+                      "problem"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only rows with these outcomes.",
+              "title": "Outcome"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PreviewRowOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a preview found, row by row",
+        "tags": [
+          "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/spreadsheet-mappings/{mapping_id}": {
+      "delete": {
+        "operationId": "iki_server_api_spreadsheets_delete_mapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mapping_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mapping Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Delete a saved mapping",
+        "tags": [
+          "spreadsheets"
         ]
       }
     },

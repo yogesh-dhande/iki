@@ -200,6 +200,13 @@ def test_a_sample_manifest_is_imported_as_records(world: World) -> None:
     assert AuditEvent.objects.filter(
         action="spreadsheet.imported", actor=world.users["editor"]
     ).exists()
+    # Its records are a search away: what the run wrote.
+    listed = api_as(world, "viewer").get(f"/entities?run={run.hrid}&limit=10").json()
+    assert sorted(e["hrid"] for e in listed["items"]) == hrids
+    searched = api_as(world).post("/entities/search", {"run": str(run.pk), "type": SAMPLE}).json()
+    assert len(searched["items"]) == 3
+    hidden = api_as(world, "outsider").get(f"/entities?run={run.hrid}")
+    assert hidden.status_code == 422
 
 
 def test_a_csv_files_rows_are_named_by_their_row(world: World) -> None:
