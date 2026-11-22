@@ -43,6 +43,7 @@ from iki_server.runs import queue as runs_queue
 from iki_server.runs import setups as runs_setups
 from iki_server.runs import triggers as runs_triggers
 from iki_server.runs import workflows as runs_workflows
+from iki_server.spreadsheets import services as spreadsheets
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
 
@@ -367,6 +368,10 @@ class Runner:
                 moved = runs_imports.recover()
                 if moved:
                     logger.info("imports_recovered", count=moved)
+                # And spreadsheets' previews (ADR 0178).
+                moved = spreadsheets.recover()
+                if moved:
+                    logger.info("spreadsheet_imports_recovered", count=moved)
             except Exception:
                 logger.exception("imports_housekeeping_error")
             finally:

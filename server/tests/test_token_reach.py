@@ -273,9 +273,9 @@ def test_every_operation_beyond_its_projects_is_refused(
 ) -> None:
     if (method, template) in REACHABLE and (method, template) not in LOOKUPS:
         pytest.skip("within the token's projects, or the person's own")
-    if template.startswith(("/uploads", "/files", "/registrations", "/bundles", "/imports")) or (
-        template.endswith(("/bundles", "/imports"))
-    ):
+    if template.startswith(
+        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+    ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]

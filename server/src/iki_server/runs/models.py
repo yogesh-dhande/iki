@@ -32,7 +32,13 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import Upload
 from iki_server.org.models import Project, Team
 
+#: Where workers run actions.
 TIERS = ("self_hosted", "backend", "container", "vm")
+#: Iki's own: a core action whose run Iki's task runner carries out, with no worker, such
+#: as importing a spreadsheet (ADR 0178).
+SERVER_TIER = "server"
+#: Where a run can run: on a worker's tier, or Iki's own.
+RUN_TIERS = (*TIERS, SERVER_TIER)
 
 #: What a self-hosted machine's label may look like: lowercase, as GitHub's runners
 #: compare theirs, such as ``chromeleon``, ``lab-3`` or ``windows``.
@@ -636,7 +642,7 @@ class ActionRun(models.Model):
             models.CheckConstraint(
                 condition=Q(status__in=RunStatus.values), name="iki_action_run_status"
             ),
-            models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_action_run_tier"),
+            models.CheckConstraint(condition=Q(tier__in=RUN_TIERS), name="iki_action_run_tier"),
             models.CheckConstraint(
                 condition=Q(max_attempts__gte=1), name="iki_action_run_attempts"
             ),
@@ -1331,7 +1337,7 @@ class Job(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(fields=["run", "attempt"], name="iki_job_attempt"),
             models.CheckConstraint(condition=Q(state__in=JobState.values), name="iki_job_state"),
-            models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_job_tier"),
+            models.CheckConstraint(condition=Q(tier__in=RUN_TIERS), name="iki_job_tier"),
             models.CheckConstraint(condition=Q(attempt__gte=1), name="iki_job_attempt_min"),
             # Only the job a worker holds has a lease.
             models.CheckConstraint(

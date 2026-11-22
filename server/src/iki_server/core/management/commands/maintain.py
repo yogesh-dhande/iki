@@ -14,6 +14,8 @@
 - Deletes apps' drafts (ADR 0090) once they expire, a day after they're made.
 - Deletes exported bundles' archives (ADR 0096) a week after they're written, except in
   projects under a legal hold.
+- Discards spreadsheet imports (ADR 0178) nobody committed or touched for a fortnight,
+  and the rows their previews kept.
 """
 
 from typing import Any
@@ -29,6 +31,7 @@ from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
 from iki_server.plugins import purge
 from iki_server.runs import approvals, artifacts, checkpoints, queue
+from iki_server.spreadsheets import services as spreadsheets
 from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
 from iki_server.webhooks import maintenance as webhook_maintenance
@@ -58,6 +61,7 @@ class Command(BaseCommand):
         bundles = bundle_exports.expire()
         detached = queue.end_detached()
         tombstoned = purge.tombstone_due()
+        sheets = spreadsheets.expire()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -75,6 +79,7 @@ class Command(BaseCommand):
             expired_bundles=bundles,
             ended_detached_runs=detached,
             tombstoned_entities=tombstoned,
+            abandoned_spreadsheet_imports=sheets,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
@@ -85,7 +90,7 @@ class Command(BaseCommand):
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
-            f"draft(s), deleted {bundles} expired bundle(s), ended {detached} run(s) of "
-            f"detached plugins, and tombstoned "
+            f"draft(s), deleted {bundles} expired bundle(s), discarded {sheets} abandoned "
+            f"spreadsheet import(s), ended {detached} run(s) of detached plugins, and tombstoned "
             f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins."
         )

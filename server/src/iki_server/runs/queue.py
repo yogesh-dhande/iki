@@ -155,6 +155,8 @@ TIER_ACTIONS = {
     "backend": Action.RUN_BACKEND,
     "container": Action.RUN_CONTAINER,
     "vm": Action.RUN_VM,
+    # A core action Iki runs itself (ADR 0178): what it does, as an Editor may.
+    "server": Action.PROJECT_EDIT,
 }
 
 

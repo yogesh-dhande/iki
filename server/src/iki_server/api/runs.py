@@ -75,7 +75,7 @@ from iki_spec.model import Action, action_from_dict
 
 router = Router(tags=["runs"])
 
-Tier = Literal["self_hosted", "backend", "container", "vm"]
+Tier = Literal["self_hosted", "backend", "container", "vm", "server"]
 
 
 # --- Actions -----------------------------------------------------------------------------------
