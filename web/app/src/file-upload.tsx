@@ -42,25 +42,33 @@ export function AcquiredField({
   value,
   onChange,
   several,
+  error,
 }: {
   value: string;
   onChange: (value: string) => void;
   several: boolean;
+  error?: string | undefined;
 }) {
   const id = useId();
   return (
-    <div className="field">
+    <div className={error ? "field field-invalid" : "field"}>
       <label htmlFor={id}>
         {several ? "When their data was acquired" : "When its data was acquired"}
         <span className="optional"> (optional)</span>
       </label>
+      {error ? (
+        <p className="field-error" id={`${id}-error`}>
+          {error}
+        </p>
+      ) : null}
       <input
         id={id}
         type="date"
         className="file-acquired-input"
         value={value}
         max={today()}
-        aria-describedby={`${id}-help`}
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={error ? `${id}-error ${id}-help` : `${id}-help`}
         onChange={(event) => {
           onChange(event.target.value);
         }}
@@ -97,7 +105,12 @@ export function UploadStep({
           </li>
         ))}
       </ul>
-      <AcquiredField value={acquiredAt} onChange={setAcquiredAt} several={files.length > 1} />
+      <AcquiredField
+        value={acquiredAt}
+        onChange={setAcquiredAt}
+        several={files.length > 1}
+        error={late ? "Its data can’t have been acquired after today: check the day." : undefined}
+      />
       <div className="actions">
         <Button
           variant="primary"

@@ -1,7 +1,8 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
 """A project's Files (ADR 0177) in real browsers: found by part of a name, format and when
 their data was acquired; Used by links to the records and revisions that held a file;
-uploading files with when their data was acquired; the file picker in an entity form. Each passes axe in both themes and fits a phone's width."""
+uploading files with when their data was acquired; the file picker in an entity form. Each
+passes axe in both themes and fits a phone's width."""
 
 import re
 from typing import Any

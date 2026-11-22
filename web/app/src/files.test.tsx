@@ -284,7 +284,16 @@ describe("a project's Files", () => {
     expect(
       within(dialog).getByText(/AB1, FCS, mzML, JCAMP-DX, EXIF images, OME-TIFF, SAM and BAM/),
     ).toBeInTheDocument();
-    await user.type(within(dialog).getByLabelText(/When their data was acquired/), "2026-03-14");
+    const day = within(dialog).getByLabelText(/When their data was acquired/);
+    // Not a day to come.
+    await user.type(day, "2999-01-01");
+    expect(within(dialog).getByText(/can’t have been acquired after today/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Upload 2 files" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.clear(day);
+    await user.type(day, "2026-03-14");
     const asked = calls("GET", "/api/v1/files").length;
     await user.click(within(dialog).getByRole("button", { name: "Upload 2 files" }));
     expect(await screen.findByText("Added 2 files.")).toBeInTheDocument();
