@@ -100,7 +100,10 @@ function useWebhookLinks(scope: WebhookScope, project: Project | undefined) {
       ),
     one: (webhookId: string, children: ReactNode) =>
       scope === "project" && project ? (
-        <Link to="/projects/$slug/automation/webhooks/$webhookId/" params={{ slug: project.slug, webhookId }}>
+        <Link
+          to="/projects/$slug/automation/webhooks/$webhookId/"
+          params={{ slug: project.slug, webhookId }}
+        >
           {children}
         </Link>
       ) : (

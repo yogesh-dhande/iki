@@ -189,7 +189,8 @@ No page loads fonts or scripts from outside the deployment.
   so across projects a person field filters by "is me", set or empty.
 - **A project's tabs are the same tables.** Its Entities, Requests and Runs
   tabs are the lists above, held to the project, so there is one table of
-  each, not two.
+  each, not two. Its Entities tab has the same type pills as All entities,
+  each counting the project's records, in place of a Type select.
 - **Audit stays complete.** The audit trail tab reads the same history as
   before; only where it is shown changes. Part 11's requirement that the
   trail be available for review and copying (§11.10(b), (e)) is met by the

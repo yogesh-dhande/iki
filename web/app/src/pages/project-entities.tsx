@@ -1,6 +1,7 @@
 /**
  * A project's Entities tab: the one table of records (ADR 0176), held to the project, with
- * its library besides: its collections, saved searches and new entities.
+ * the same type pills as All entities, counting the project's records, and its library
+ * besides: its collections, saved searches and new entities.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ export function ProjectEntities() {
       }}
       extra={requests ? [sentToField([project, ...sentTo.filter((p) => p.id !== project.id)])] : []}
       library
+      pills
     />
   );
 }

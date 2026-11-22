@@ -18,13 +18,8 @@ import {
 } from "../api";
 import { personName, typesQuery } from "../entities";
 import { initials, swatchColor } from "../project-color";
-import {
-  changeWords,
-  changedBy,
-  entityCountsQuery,
-  projectChangesQuery,
-  type ProjectChange,
-} from "../project-page";
+import { changeWords, changedBy, projectChangesQuery, type ProjectChange } from "../project-page";
+import { countsQuery } from "../lists";
 import { projectTriggersQuery, workflowsQuery } from "../runs";
 import { Loading, ProblemAlert, RelativeTime, Time } from "../ui";
 
@@ -53,15 +48,18 @@ export function Box({
 
 /** How many of each type of record the project has, each opening that type's table. */
 export function EntityCounts({ project }: { project: Project }) {
-  const counts = useQuery(entityCountsQuery(project.id));
-  // Left out where the server doesn't count them, rather than estimated (ADR 0176).
-  if (counts.data === null) return null;
-  const filtered = `?${new URLSearchParams({ project: project.id }).toString()}`;
+  const counts = useQuery(countsQuery(project.id));
+  // The lists across projects name a project by its slug (ADR 0176).
+  const held = { project: project.slug };
   return (
     <Box
       id="project-counts-title"
       title="Entities in this project"
-      aside={<a href={`/entities/${filtered}`}>Open in Entities, filtered to this project</a>}
+      aside={
+        <Link to="/entities/" search={held}>
+          Open in Entities, filtered to this project
+        </Link>
+      }
     >
       {counts.isError ? <ProblemAlert problem={problemOf(counts.error)} /> : null}
       {counts.isPending ? <Loading label="Counting its entities…" /> : null}
@@ -79,7 +77,7 @@ export function EntityCounts({ project }: { project: Project }) {
         <ul className="type-counts" aria-label="Entities by type">
           {counts.data.types.map((t) => (
             <li key={t.type}>
-              <a href={`/entities/types/${t.type}${filtered}`}>
+              <Link to="/entities/types/$/" params={{ _splat: t.type }} search={held}>
                 <span className="type-count-label">
                   <span
                     className="swatch swatch-dot"
@@ -96,7 +94,7 @@ export function EntityCounts({ project }: { project: Project }) {
                 ) : (
                   <span className="type-count-value">{t.count.toLocaleString("en-GB")}</span>
                 )}
-              </a>
+              </Link>
             </li>
           ))}
         </ul>

@@ -1649,7 +1649,9 @@ describe("webhooks", () => {
     answer(`GET ${HOOKS}`, page([]));
     answer("GET /api/v1/webhook-policy", { project_webhooks: true });
     answer(`DELETE /api/v1/webhooks/${HOOK.id}`, respond(204));
-    const { router, user } = await renderApp(`/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`);
+    const { router, user } = await renderApp(
+      `/projects/kinase-atlas/automation/webhooks/${HOOK.id}/`,
+    );
     await user.click(await screen.findByRole("button", { name: "Delete webhook" }));
     const dialog = screen.getByRole("alertdialog", {
       name: "Delete the webhook to eln.example.com?",

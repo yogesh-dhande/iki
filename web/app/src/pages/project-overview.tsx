@@ -17,7 +17,7 @@ import { dashboardQuery } from "../apps";
 import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { swatchColor } from "../project-color";
-import { entityCountsQuery } from "../project-page";
+import { countsQuery } from "../lists";
 import { useRequestSides } from "../requests";
 import { Badge, Button, Loading, PageTitle, ProblemAlert, useMessages } from "../ui";
 import { AppPanel } from "./app";
@@ -61,7 +61,7 @@ export function ProjectTabs() {
   const inAutomation = section === "automation";
   const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
   const members = useQuery(membersQuery(project.id)).data;
-  const counts = useQuery({ ...entityCountsQuery(project.id), enabled: project.can.read }).data;
+  const counts = useQuery({ ...countsQuery(project.id), enabled: project.can.read }).data;
   const types = useQuery(typesQuery).data;
   // Its request types' records: unknown if any of them is uncounted.
   const requestCounts =

@@ -14,7 +14,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { queryClient } from "./api";
 import { initials, SWATCHES, swatchColor, swatchOf } from "./project-color";
 import { createAppRouter } from "./router";
-import { answer, calls, ME, page, project, signedIn, TEAM } from "./test-server";
+import { answer, calls, ME, page, problem, project, signedIn, TEAM } from "./test-server";
 
 const PROJECT = project({ description: "Kinases\nand their inhibitors" });
 const BASE = `/api/v1/projects/${PROJECT.id}`;
@@ -166,11 +166,11 @@ describe("a project's page", () => {
     const counts = await screen.findByRole("list", { name: "Entities by type" });
     expect(within(counts).getByRole("link", { name: "Primer 1,250" })).toHaveAttribute(
       "href",
-      `/entities/types/iki/dna.Primer?project=${PROJECT.id}`,
+      "/entities/types/iki/dna.Primer/?project=kinase-atlas",
     );
     expect(
       screen.getByRole("link", { name: "Open in Entities, filtered to this project" }),
-    ).toHaveAttribute("href", `/entities/?project=${PROJECT.id}`);
+    ).toHaveAttribute("href", "/entities/?project=kinase-atlas");
     const tabs = screen.getByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities 1252" })).toBeVisible();
     expect(calls("GET", "/api/v1/entities/counts")[0]?.query.get("project")).toBe(PROJECT.id);
@@ -190,14 +190,16 @@ describe("a project's page", () => {
     expect(within(tabs).getByRole("link", { name: "Entities" })).toBeVisible();
   });
 
-  it("leaves the counts out where the server doesn't count", async () => {
+  it("says why it couldn't count, and its tab goes without a count", async () => {
     signedIn();
     onProject();
+    answer(
+      "GET /api/v1/entities/counts",
+      problem(404, "not_found", "No such project, or you can’t read it."),
+    );
     await renderApp("/projects/kinase-atlas/");
-    await waitFor(() => {
-      expect(calls("GET", "/api/v1/entities/counts")).toHaveLength(1);
-    });
-    expect(screen.queryByRole("heading", { name: "Entities in this project" })).toBeNull();
+    const card = await screen.findByRole("region", { name: "Entities in this project" });
+    expect(await within(card).findByText("No such project, or you can’t read it.")).toBeVisible();
     const tabs = screen.getByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities" })).toBeVisible();
   });

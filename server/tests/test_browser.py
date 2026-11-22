@@ -719,6 +719,24 @@ def test_a_projects_page_says_what_it_holds_and_what_changed(open_as: Any, world
         assert page.evaluate(width)
         page.context.close()
 
+    # Its counts open All entities held to it, by its slug; its Entities tab has the same pills.
+    page = open_as("admin", f"/projects/{world.project.slug}/")
+    page.get_by_role("link", name="Open in Entities, filtered to this project").click()
+    page.wait_for_url(re.compile(rf"/entities/\?project={world.project.slug}$"))
+    pills = page.get_by_role("group", name="Type")
+    pills.get_by_role("button", name=re.compile(r"^DNA sequence \d+ records?$")).wait_for()
+    assert_clean(page)
+    page.goto(f"/projects/{world.project.slug}/entities/")
+    pills.get_by_role("button", name=re.compile(r"^DNA sequence \d+ records?$")).click()
+    page.wait_for_url(re.compile(r"\?type=acme%2Fdna\.DNASequence$|\?type=acme/dna\.DNASequence$"))
+    assert (
+        pills.get_by_role("button", name=re.compile("^DNA sequence")).get_attribute("aria-pressed")
+        == "true"
+    )
+    assert page.get_by_role("combobox", name="Type").count() == 0
+    assert_clean(page)
+    page.context.close()
+
     page = open_as("admin", f"/projects/{world.project.slug}/")
     tabs = page.get_by_role("navigation", name="Project")
     tabs.get_by_role("link", name="Automation").click()

@@ -1,63 +1,16 @@
 /**
- * What a project's page shows besides its tabs (ADR 0176): how many of each type of record
- * it has, what changed in it lately, its latest requests, and in words, each change.
+ * What a project's page shows besides its tabs and its counts (ADR 0176; lists.ts counts
+ * them): what changed in it lately, its latest requests, and in words, each change.
  */
 
-import { ApiError, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
-import { BACKGROUND_HEADER, isIdle } from "./activity";
 import { iki } from "./api";
 import { ENTITIES, personName, type Entity, type EntityType } from "./entities";
 import { sentBy, sentTo } from "./requests";
 
 export type ProjectChange = Schemas["ProjectChangeOut"];
-
-/** How many current records of each type there are, of those the reader can read: each
- * count null where counting would be slow, and left out rather than estimated. */
-export interface EntityCounts {
-  types: { type: string; label: string; count: number | null }[];
-  total: number | null;
-}
-
-/**
- * The project's records, counted by type (ADR 0176): `GET /entities/counts?project=`, as the
- * sidebar counts every project's. `null` where the server doesn't count them, so the page
- * leaves the counts out rather than guess.
- */
-export function entityCountsQuery(projectId: string) {
-  return queryOptions({
-    queryKey: [...ENTITIES, "counts", projectId],
-    queryFn: async (): Promise<EntityCounts | null> => {
-      // Not in the OpenAPI document yet, so asked for as the client would: with the page's
-      // idleness (ADR 0153).
-      const query = new URLSearchParams({ project: projectId }).toString();
-      const response = await globalThis.fetch(
-        `${window.location.origin}/api/v1/entities/counts?${query}`,
-        {
-          credentials: "same-origin",
-          headers: {
-            Accept: "application/json",
-            ...(isIdle() ? { [BACKGROUND_HEADER]: "1" } : {}),
-          },
-        },
-      );
-      if (response.status === 404) return null;
-      if (!response.ok) {
-        throw new ApiError(
-          ((await response.json().catch(() => null)) as Problem | null) ?? {
-            type: "about:blank",
-            title: response.statusText || "Error",
-            status: response.status,
-            detail: `The server answered HTTP ${String(response.status)}.`,
-            code: "unexpected_response",
-          },
-        );
-      }
-      return (await response.json()) as EntityCounts;
-    },
-  });
-}
 
 /** The latest changes to the project's records, newest first. */
 export function projectChangesQuery(projectId: string, limit = 8) {

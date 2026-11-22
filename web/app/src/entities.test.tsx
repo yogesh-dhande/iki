@@ -127,6 +127,13 @@ describe("a project's entities", () => {
   function onProject(): void {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities/counts", {
+      types: [
+        { type: "iki/protein.Protein", label: "Protein", count: 4 },
+        { type: "iki/protein.ProteinStructure", label: "Protein structure", count: 1 },
+      ],
+      total: 5,
+    });
   }
 
   it("shows one type's fields as columns, in their display units", async () => {
@@ -165,8 +172,18 @@ describe("a project's entities", () => {
     answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp("/projects/kinase-atlas/entities/");
     await screen.findByRole("table", { name: "1 entity" });
-    expect(screen.getByRole("link", { name: "Entities" })).toHaveAttribute("aria-current", "page");
-    await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
+    expect(screen.getByRole("link", { name: /^Entities\b/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // The same pills as All entities (ADR 0176), counting the project's records.
+    const pills = screen.getByRole("group", { name: "Type" });
+    expect(
+      await within(pills).findByRole("button", { name: "All types 5 records" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("combobox", { name: "Type" })).not.toBeInTheDocument();
+    expect(calls("GET", "/api/v1/entities/counts").at(-1)?.query.get("project")).toBe(KINASE.id);
+    await user.click(within(pills).getByRole("button", { name: "Protein structure 1 record" }));
     await user.selectOptions(screen.getByLabelText("Show"), "Current and archived");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
@@ -362,7 +379,11 @@ describe("a project's entities", () => {
     expect(within(editor).getByLabelText("Filter 1: value")).toHaveValue("abl");
     expect(within(editor).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
     await user.click(within(editor).getByRole("button", { name: "Done" }));
-    await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
+    await user.click(
+      within(screen.getByRole("group", { name: "Type" })).getByRole("button", {
+        name: "Protein structure 1 record",
+      }),
+    );
     await waitFor(() => {
       expect(router.state.location.search).toEqual({ type: "iki/protein.ProteinStructure" });
     });
