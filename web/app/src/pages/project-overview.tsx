@@ -158,6 +158,11 @@ export function ProjectTabs() {
             <TabCount count={counts?.total ?? undefined} />
           </Link>
         ) : null}
+        {project.can.read && types?.some((t) => t.name === "iki/reagents.StockItem") ? (
+          <Link to="/projects/$slug/stock/" params={{ slug: project.slug }} activeProps={tab}>
+            Stock
+          </Link>
+        ) : null}
         {/* For a service, or a project that asks one (ADR 0132). */}
         {sides.received || sides.sent ? (
           <Link to="/projects/$slug/requests/" params={{ slug: project.slug }} activeProps={tab}>

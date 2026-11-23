@@ -1,0 +1,361 @@
+"""Receive a supplier's partial deliveries through the installed action into real stock."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Barrier
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from django.db import connection, transaction
+from django.utils import timezone
+from org_world import World, build_world
+from test_api_entities import api_as
+from test_first_party_plugins import FIRST_PARTY, PLUGINS
+from test_plugin_migrations import database, django, iki, migrate, sync
+from test_signatures import ready, signed
+
+from iki_server.amounts import services as amounts
+from iki_server.amounts import stock_alerts
+from iki_server.amounts.models import Amount, Movement
+from iki_server.entities import services
+from iki_server.entities.models import Entity
+from iki_server.files.models import Blob, File
+from iki_server.notifications.models import Notification
+from iki_server.org.models import LabRoleGrant
+from iki_server.runs import catalog, queue, results
+from iki_server.runs import services as runs
+from iki_server.runs.models import ActionRun, Job, RunEffect
+from iki_server.storage.models import Place
+from iki_spec.compute import Binding
+
+__all__ = ["database"]
+
+PLUGIN = PLUGINS / "reagents"
+PREFIX = "iki/reagents."
+Attempt = tuple[ActionRun, dict[str, Any]]
+
+
+def test_supplier_receipts_keep_the_order_inventory_and_storage_consistent(
+    tmp_path: Path, database: str
+) -> None:
+    build = tmp_path / "build"
+    built = iki("plugin", "build", *FIRST_PARTY[PLUGIN], PLUGIN, "--output", build, cwd=PLUGINS)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(build, database)
+    sync(build, database)
+    exercised = django(
+        build,
+        database,
+        "-c",
+        "import django; django.setup(); from test_reagent_stock import exercise; exercise()",
+    )
+    assert exercised.returncode == 0, exercised.stdout + exercised.stderr
+
+
+def prepare(world: World, name: str, inputs: dict[str, Entity], params: dict[str, Any]) -> Attempt:
+    """Run the plugin's actual command on the server's pinned inputs and inspect its output."""
+    action = catalog.action(PREFIX + name)
+    assert action is not None
+    run = runs.launch(
+        world.users["editor"],
+        action,
+        world.project,
+        {key: [entity.pk] for key, entity in inputs.items()},
+        params,
+        reuse_results=False,
+    )
+    job = Job.objects.get(run=run)
+    job.lease_token = uuid4()
+    job.lease_expires_at = timezone.now() + queue.LEASE_TTL
+    payload = queue.payload(job, run)
+    with TemporaryDirectory() as stage:
+        inp, out = Path(stage) / "input.json", Path(stage) / "output.json"
+        inp.write_text(json.dumps(payload))
+        command = subprocess.run(  # noqa: S603 - this installed plugin's command
+            [sys.executable, *action.command[1:]],
+            cwd=PLUGIN,
+            env={**os.environ, "IKI_INPUT": str(inp), "IKI_OUTPUT": str(out)},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if command.returncode:
+            raise ValueError(command.stdout + command.stderr)
+        return run, json.loads(out.read_text())
+
+
+def commit(attempt: Attempt) -> None:
+    run, document = attempt
+    with transaction.atomic():
+        locked = ActionRun.objects.select_for_update().get(pk=run.pk)
+        results.commit(locked, document)
+
+
+def race(first: Attempt, second: Attempt) -> None:
+    """Two independent worker completions compete for the same remaining packs."""
+    barrier = Barrier(2, timeout=20)
+
+    def compete(attempt: Attempt) -> str:
+        try:
+            barrier.wait()
+            commit(attempt)
+        except results.Rejected as error:
+            assert error.code == "conflict", error.message
+            assert not RunEffect.objects.filter(run=attempt[0]).exists()
+            return "stale"
+        finally:
+            connection.close()
+        return "received"
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        assert sorted(workers.map(compete, (first, second))) == ["received", "stale"]
+
+
+def exercise() -> None:
+    world = build_world()
+    ready(world)
+    editor = world.users["editor"]
+    for who, role in (("admin", "iki/lots.qa"), ("runner", PREFIX + "stock_manager")):
+        LabRoleGrant.objects.create(
+            membership=world.project.memberships.get(user=world.users[who]), role=role
+        )
+    env = PREFIX + "reagent-tools"
+    catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
+    # Corning 430790 15 mL tubes come 500 per case. This order, its lots, the threshold,
+    # and all stock movements are synthetic. Source: https://ecatalog.corning.com/life-sciences/b2b/us/en/p/430790
+    product = {
+        "name": "Corning 15 mL centrifuge tubes",
+        "supplier": "Corning",
+        "catalogue_number": "430790",
+        "stock_unit": "1",
+        "pack_size": 500,
+        "low_stock_at": 100,
+    }
+    item = Entity.objects.get(
+        pk=services.create(editor, PREFIX + "StockItem", world.project, product).entity.pk
+    )
+
+    def location(label: str) -> Entity:
+        return Entity.objects.get(
+            pk=services.create(
+                editor,
+                PREFIX + "StockLocation",
+                world.project,
+                {"name": label, "rows": 1, "columns": 2},
+            ).entity.pk
+        )
+
+    east, west = location("East shelf"), location("West shelf")
+    blob = Blob.objects.create(
+        sha256=hashlib.sha256(b"synthetic").hexdigest(),
+        size=9,
+        storage_uri="s3://test/stock-certificate",
+    )
+    coa = File.objects.create(
+        blob=blob,
+        project=world.project,
+        name="synthetic-certificate.pdf",
+        media_type="application/pdf",
+    )
+    api = api_as(world, "viewer")
+    base = f"/projects/{world.project.pk}/stock"
+
+    def summary(physical: int, stored: int, available: int, outstanding: int) -> None:
+        page = api.get(base)
+        assert page.status_code == 200, page.content
+        (row,) = page.json()["items"]
+        assert row["id"] == str(item.pk)
+        assert [Decimal(row[key]) for key in ("physical", "stored", "available")] == [
+            physical,
+            stored,
+            available,
+        ]
+        assert row["outstanding_packs"] == outstanding
+        pending = api.get(base + "/orders")
+        assert pending.status_code == 200, pending.content
+        assert sum(line["outstanding_packs"] for line in pending.json()["items"]) == outstanding
+        assert all(line["item_id"] == str(item.pk) for line in pending.json()["items"])
+        assert row["low"] == (available <= 100)
+        filtered = api.get(base, low_only="true").json()["items"]
+        assert [i["id"] for i in filtered] == ([str(item.pk)] if available <= 100 else [])
+
+    summary(0, 0, 0, 0)
+    assert stock_alerts.send_alerts() == 1
+    assert stock_alerts.send_alerts() == 0
+    assert Notification.objects.filter(
+        recipient=world.users["runner"], entity=item, project=world.project, kind="stock.low"
+    ).exists()
+    assert api_as(world, "outsider").get(base).status_code in (403, 404)
+    commit(
+        prepare(
+            world,
+            "place_order",
+            {"item": item},
+            {"order_reference": "Synthetic 001", "ordered_packs": 3},
+        )
+    )
+    order = Entity.objects.get(type=PREFIX + "ReorderLine")
+    with pytest.raises(services.Invalid):
+        services.create(
+            editor,
+            PREFIX + "CountStockLot",
+            world.project,
+            {"item": str(item.pk), "order_line": str(order.pk), "lot_number": "Missing receipt"},
+            amount={"value": 500, "unit": "1"},
+        )
+    assert not Entity.objects.filter(type=PREFIX + "CountStockLot").exists()
+    summary(0, 0, 0, 3)
+    today = timezone.localdate()
+
+    def receive(
+        line: str,
+        packs: int,
+        shelf: Entity,
+        position: str,
+        *,
+        expiry: str | None = None,
+        received: str | None = None,
+    ) -> Attempt:
+        return prepare(
+            world,
+            "receive_delivery",
+            {"order": order, "storage": shelf},
+            {
+                "delivery_note": "Synthetic DN-001",
+                "delivery_line": line,
+                "packs": packs,
+                "lot_number": f"Synthetic lot {line}",
+                "received_on": received or today.isoformat(),
+                "position": position,
+                "expires_on": expiry or (today + timedelta(days=365)).isoformat(),
+                "certificate": str(coa.pk),
+            },
+        )
+
+    race(receive("1", 1, east, "A1"), receive("1", 1, east, "A1"))
+    stock_lots = Entity.objects.filter(type=PREFIX + "CountStockLot")
+    first = stock_lots.get()
+    place = Place.objects.get(entity=first)
+    assert (place.container_id, place.row, place.column) == (east.pk, 1, 1)
+    recorded = Movement.objects.get(entity=first)
+    assert (recorded.kind, recorded.balance, recorded.unit) == ("recorded", Decimal(500), "1")
+    assert recorded.user_id == editor.pk
+    assert services.current_values_of([first])[first.pk]["order_line"] == order.pk
+    # Quarantine affects availability while the received packs are physically on the shelf.
+    summary(500, 500, 0, 2)
+    with pytest.raises(amounts.Wrong, match="quarantined"):
+        amounts.draw(editor, first, amounts.Given(Decimal(1), "1"))
+
+    def unchanged() -> None:
+        assert stock_lots.count() == 1
+        assert Amount.objects.get(entity=first).value == 500
+        assert Movement.objects.filter(entity__in=stock_lots).count() == 1
+        assert Place.objects.filter(entity__in=stock_lots).count() == 1
+        order.refresh_from_db()
+        assert services.current_values_of([order])[order.pk]["received_packs"] == 1
+
+    # Same delivery after the winner commits, even at a different location.
+    duplicate = receive("1", 1, west, "A1")
+    with pytest.raises(results.InvalidOutput):
+        commit(duplicate)
+    assert not RunEffect.objects.filter(run=duplicate[0]).exists()
+    unchanged()
+    occupied = receive("2", 1, east, "A1")
+    with pytest.raises(results.InvalidOutput) as refused:
+        commit(occupied)
+    assert "A1" in str(refused.value.errors)
+    assert not RunEffect.objects.filter(run=occupied[0]).exists()
+    unchanged()
+    with pytest.raises((ValueError, results.Failed), match="outstanding"):
+        commit(receive("over", 3, west, "A1"))
+    unchanged()
+    signed(world, "admin", str(first.pk), "released", field="disposition")
+    summary(500, 500, 500, 2)
+    assert stock_alerts.send_alerts() == 0  # Clears the initial low-stock episode.
+    fraction = api_as(world).post(
+        f"/entities/{first.pk}/amount/draw", {"amount": {"value": "0.5", "unit": "1"}}
+    )
+    assert fraction.status_code == 422, fraction.content
+    assert "requires whole units" in fraction.json()["errors"][0]["detail"]
+    assert Amount.objects.get(entity=first).value == 500
+    amounts.draw(editor, first, amounts.Given(Decimal(400), "1"))
+    summary(100, 100, 100, 2)
+    assert stock_alerts.send_alerts() == 1  # The threshold itself is low.
+
+    # The final delivery occupies another location and closes the remaining packs exactly.
+    commit(receive("2", 2, west, "A2"))
+    second = stock_lots.exclude(pk=first.pk).get()
+    place = Place.objects.get(entity=second)
+    assert (place.container_id, place.row, place.column) == (west.pk, 1, 2)
+    assert Amount.objects.get(entity=second).value == 1000
+    summary(1100, 1100, 100, 0)
+    signed(world, "admin", str(second.pk), "released", field="disposition")
+    summary(1100, 1100, 1100, 0)
+    assert stock_alerts.send_alerts() == 0
+    detail = api.get(base + f"/{item.pk}/lots")
+    assert detail.status_code == 200, detail.content
+    assert {r["container_id"] for r in detail.json()["items"]} == {str(east.pk), str(west.pk)}
+    assert api_as(world, "outsider").get(base + f"/{item.pk}/lots").status_code in (403, 404)
+
+    # Changing custody affects availability immediately. Checking an item out keeps its slot.
+    checked = api_as(world).post(
+        "/storage/check-out",
+        {"records": [str(second.pk)], "to": str(editor.pk), "reason": "Synthetic use"},
+    )
+    assert checked.status_code == 200, checked.content
+    summary(1100, 100, 100, 0)
+    amounts.draw(editor, first, amounts.Given(Decimal(100), "1"))
+    summary(1000, 0, 0, 0)
+
+    # A delivery note and line cannot be posted against another order either.
+    complete = order
+    commit(
+        prepare(
+            world,
+            "place_order",
+            {"item": item},
+            {
+                "order_reference": "Synthetic 002",
+                "ordered_packs": 1,
+            },
+        )
+    )
+    order = Entity.objects.filter(type=PREFIX + "ReorderLine").exclude(pk=complete.pk).get()
+    duplicate = receive("1", 1, west, "A1")
+    with pytest.raises(results.InvalidOutput):
+        commit(duplicate)
+    assert stock_lots.count() == 2 and not RunEffect.objects.filter(run=duplicate[0]).exists()
+    summary(1000, 0, 0, 1)
+
+    # Post a historical delivery, with stock still on the shelf on its expiry date.
+    commit(
+        receive(
+            "3",
+            1,
+            east,
+            "A2",
+            received=(today - timedelta(days=8)).isoformat(),
+            expiry=today.isoformat(),
+        )
+    )
+    expired = stock_lots.exclude(pk__in=[first.pk, second.pk]).get()
+    signed(world, "admin", str(expired.pk), "released", field="disposition")
+    summary(1500, 500, 0, 0)
+    with pytest.raises(amounts.Wrong, match="expiry"):
+        amounts.draw(editor, expired, amounts.Given(Decimal(1), "1"))
+    assert Amount.objects.get(entity=expired).value == 500
+    by_id = {row["id"]: row for row in api.get(base + f"/{item.pk}/lots").json()["items"]}
+    assert by_id[str(second.pk)]["checked_out"]
+    assert by_id[str(expired.pk)]["expired"] and by_id[str(expired.pk)]["held"]
+    assert by_id[str(expired.pk)]["expires_on"] == today.isoformat()
+    assert by_id[str(first.pk)]["amount"] == "0"

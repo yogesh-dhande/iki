@@ -3115,6 +3115,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current stock and reorder thresholds
+         * @description All active catalogue items owned by the project, including items with no lots.
+         *     Physical is the amount on hand. Stored excludes unplaced and checked-out material.
+         *     Available counts stored material eligible for routine use. Amounts are exact decimal
+         *     strings in the item's unit. A low-only page can be empty and have a next cursor.
+         */
+        get: operations["iki_server_api_stock_project_stock"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/stock/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Outstanding stock reorders */
+        get: operations["iki_server_api_stock_stock_orders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A catalogue item's lots and storage positions */
+        get: operations["iki_server_api_stock_stock_lots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/trigger-firings": {
         parameters: {
             query?: never;
@@ -7213,6 +7270,11 @@ export interface components {
             cardinality: "one" | "many";
             /** Derived From */
             derived_from: string[];
+            /**
+             * Receive Into
+             * @description The required input container for a fresh stock receipt.
+             */
+            receive_into?: string | null;
             /** Type */
             type: string;
         };
@@ -10997,6 +11059,33 @@ export interface components {
             /** Row */
             row: number | null;
         };
+        /** OpenOrder */
+        OpenOrder: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Hrid */
+            item_hrid: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name: string;
+            /** Order Reference */
+            order_reference: string | null;
+            /** Ordered Packs */
+            ordered_packs: number;
+            /** Outstanding Packs */
+            outstanding_packs: number;
+            /** Received Packs */
+            received_packs: number;
+        };
         /** OrgParams */
         OrgParams: {
             /**
@@ -11338,6 +11427,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[OpenOrder] */
+        Page_OpenOrder_: {
+            /** Items */
+            items: components["schemas"]["OpenOrder"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[PreviewRowOut] */
         Page_PreviewRowOut_: {
             /** Items */
@@ -11452,6 +11551,26 @@ export interface components {
         Page_SpreadsheetImportOut_: {
             /** Items */
             items: components["schemas"]["SpreadsheetImportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[StockLot] */
+        Page_StockLot_: {
+            /** Items */
+            items: components["schemas"]["StockLot"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[StockSummary] */
+        Page_StockSummary_: {
+            /** Items */
+            items: components["schemas"]["StockSummary"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -16590,6 +16709,87 @@ export interface components {
              */
             status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
+        /** StockFilters */
+        StockFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Low Only
+             * @default false
+             */
+            low_only: boolean;
+        };
+        /** StockLot */
+        StockLot: {
+            /** Amount */
+            amount: string;
+            /** Available */
+            available: string;
+            /** Checked Out */
+            checked_out: boolean;
+            /** Column */
+            column: number | null;
+            /** Container Hrid */
+            container_hrid: string | null;
+            /** Container Id */
+            container_id: string | null;
+            /** Expired */
+            expired: boolean;
+            /** Expires On */
+            expires_on: string | null;
+            /** Held */
+            held: string | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lot Number */
+            lot_number: string | null;
+            /** Placed */
+            placed: boolean;
+            /** Row */
+            row: number | null;
+            /** Unit */
+            unit: string;
+        };
+        /** StockSummary */
+        StockSummary: {
+            /** Available */
+            available: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Low */
+            low: boolean;
+            /** Name */
+            name: string;
+            /** Outstanding Packs */
+            outstanding_packs: number;
+            /** Physical */
+            physical: string;
+            /** Stored */
+            stored: string;
+            /** Threshold */
+            threshold: string;
+            /** Unit */
+            unit: string;
+        };
         /** StructureViewerOut */
         StructureViewerOut: {
             /**
@@ -16989,6 +17189,12 @@ export interface components {
              * @description The UCUM unit it's kept in, such as uL, mg or {vial}.
              */
             unit: string;
+            /**
+             * Whole Units
+             * @description Whether quantities must be whole numbers in this ledger unit.
+             * @default false
+             */
+            whole_units: boolean;
         };
         /** TypeCountOut */
         TypeCountOut: {
@@ -22601,6 +22807,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedMappingOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_stock_project_stock: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                low_only?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_StockSummary_"];
+                };
+            };
+        };
+    };
+    iki_server_api_stock_stock_orders: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_OpenOrder_"];
+                };
+            };
+        };
+    };
+    iki_server_api_stock_stock_lots: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_StockLot_"];
                 };
             };
         };

@@ -34,6 +34,9 @@ FIRST_PARTY = {
         PLUGINS / "plasmid",
     ),
     PLUGINS / "experiments": (),
+    PLUGINS / "reagents": tuple(
+        PLUGINS / name for name in ("dna", "protein", "oligo", "plasmid", "lots")
+    ),
     PLUGINS / "plate_assays": tuple(
         PLUGINS / name for name in ("dna", "protein", "oligo", "plasmid", "lots", "example_lims")
     ),
