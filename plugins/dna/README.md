@@ -31,8 +31,29 @@ them.
   temperature are computed by `primer_properties`, which a trigger runs
   when it's registered, and are its entry's.
 
-Both extend `iki/core.Sequence`, so a search for sequences finds them alongside
-proteins and other plugins' sequences.
+- **`iki/dna.Mutagenesis`** (`MUT-000001`): changes stated against a sequence
+  and made to it, with the primers that make them
+  ([ADR 0204](../../docs/adr/0204-a-mutagenesis-states-its-changes-in-hgvs-and-registers-the-mutant-and-its-primers.md)).
+  It names the template, the changes as HGVS names them, which published
+  protocol's primers to design, and, where the lab says so, where the coding
+  region is. It has no identity, as an assembly and a PCR have none: one mutant
+  can be made from several templates by several protocols, and how a lab made
+  its own is the lab's record. `apply_mutagenesis` checks every base a change
+  states against the template's own, makes the changes, registers the mutant as
+  a `DNASequence` and each primer as a `Primer`, both derived from the design,
+  and records what each change does to the protein.
+  - Its **Changes** tab places each change along the template -- a strip with a
+    mark where each one lies, as wide as the change is -- then every change as it
+    was stated and as HGVS names it where it lies, what the changes do to the
+    protein, and the oligos to order with their bases, how much of each matches
+    the template, and what the protocol's own acceptance rule measures. Nothing
+    is told by colour alone: the strip is said in words and everything is in the
+    tables. Until the run has been, the tab names the action that makes the
+    changes and offers it where the person viewing it may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
+
+`DNASequence` and `Primer` extend `iki/core.Sequence`, so a search for
+sequences finds them alongside proteins and other plugins' sequences.
 
 ## Settings
 
@@ -61,6 +82,25 @@ and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as mad
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
   many at once.
+- **`apply_mutagenesis`**: makes a `Mutagenesis`'s changes and designs the
+  primers that make them. Each change is HGVS's name for it on a genomic
+  reference -- `g.1234C>T`, `g.1240_1242del`, `g.1250_1251insGGATCC`,
+  `g.1250dup`, `g.3_6inv`, `g.1260_1261delinsTA`, with `o.` for a circular
+  template -- which are the names `align_reads` writes, so a change is asked for
+  the way it will be read back. Every base a change states is checked against
+  the template's own, and a change whose stated base isn't there is refused
+  rather than made; so are two changes that touch the same bases. The mutant is
+  registered as a DNA sequence derived from the design, and each primer as a
+  primer, with the template as its target. Three designs, each a published
+  protocol with its own rules: `overlapping` is the QuikChange design, by the
+  kit manual's numbers and its acceptance formula; `partially_overlapping` is
+  Zheng's and Liu and Naismith's, where the pair share the change at their 5'
+  ends and each keeps bases of its own at its 3' end; `back_to_back` amplifies
+  a circle outwards to be ligated blunt, and is refused on a linear template.
+  `none` applies the changes and designs nothing. Where the design says where
+  the coding region is, the run says what the changes do to the protein --
+  silent, missense, nonsense, a frameshift, an in-frame insertion or deletion --
+  with the HGVS protein name.
 - **`primer_properties`**: a primer's length, GC content and melting
   temperature, for many at once.
 - **`import_sequences`**: registers each record of a FASTA or GenBank file
@@ -316,7 +356,13 @@ Where a primer binds a molecule, and what a pair of primers amplifies, are the
 plasmid plugin's: it holds the annotation and the maps those are read on
 ([ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)).
 A PCR product it works out is registered here, as the linear `DNASequence` it
-is. Reverse complements, restriction digests and primer design come later.
+is. Reverse complements and restriction digests come later.
+
+A primer `apply_mutagenesis` designs is a registered primer like any other, so
+where it binds the template, and whether it binds anywhere else, is read with
+the plasmid plugin's `primer_binding_sites`: the design places each primer by
+the protocol's rules and doesn't search the molecule for second sites, which
+is that action's work.
 
 ## Exports
 
